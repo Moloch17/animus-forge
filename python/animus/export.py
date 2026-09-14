@@ -21,11 +21,15 @@ and bump AMDL_VERSION:
 
 Every layer but the last is followed by tanh (mappo.networks._mlp). The policy is the argmax of the
 final logits over allowed actions.
+
+Training also publishes the model on its own: every time it writes latest.pt it exports the actor to
+<dir>/<scenario>.amdl in each of TrainConfig.model_dirs and $ANIMUS_MODEL_DIRS (see publish_model).
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import struct
 from pathlib import Path
@@ -84,6 +88,39 @@ def write_amdl(
             out.write(struct.pack("<II", weight.shape[1], weight.shape[0]))
             out.write(np.ascontiguousarray(weight, dtype="<f4").tobytes())
             out.write(np.ascontiguousarray(bias, dtype="<f4").tobytes())
+
+
+def publish_model(actor_state: dict[str, torch.Tensor], spec: dict, model_dirs: list[str | Path]) -> list[Path]:
+    """Export the actor as <dir>/<scenario>.amdl into every existing model dir; returns the files written.
+
+    Each file is written beside its target and renamed over it, so a worldserver reloading its config
+    never reads a half-written model. A missing or unwritable dir is reported and skipped: publishing
+    must never stop a training run.
+    """
+    layers = actor_layers(actor_state)
+    written = []
+    for model_dir in model_dirs:
+        model_dir = Path(model_dir)
+        if not model_dir.is_dir():
+            print(f"Model dir {model_dir} does not exist; not publishing the model there", flush=True)
+            continue
+
+        target = model_dir / f"{spec['scenario']}.amdl"
+        partial = model_dir / f".{target.name}.partial"
+        try:
+            write_amdl(partial, spec["scenario"], spec["obs_dim"], spec["agents_per_env"], spec["num_actions"], layers)
+            os.replace(partial, target)
+        except OSError as error:
+            print(f"Could not publish the model to {target}: {error}", flush=True)
+            partial.unlink(missing_ok=True)
+            continue
+        written.append(target)
+    return written
+
+
+def model_dirs_from_env() -> list[str]:
+    """Extra model dirs from $ANIMUS_MODEL_DIRS, separated like PATH."""
+    return [path for path in os.environ.get("ANIMUS_MODEL_DIRS", "").split(os.pathsep) if path]
 
 
 def read_amdl(path: str | Path) -> dict:

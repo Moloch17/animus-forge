@@ -1,8 +1,10 @@
+import os
+
 import numpy as np
 import pytest
 import torch
 
-from animus.export import actor_layers, read_amdl, reference_decide, write_amdl
+from animus.export import actor_layers, model_dirs_from_env, publish_model, read_amdl, reference_decide, write_amdl
 from animus.mappo.networks import Actor
 
 
@@ -53,3 +55,27 @@ def test_write_rejects_mismatched_dims(tmp_path):
     actor = Actor(4, 3, 1, [8])
     with pytest.raises(ValueError):
         write_amdl(tmp_path / "bad.amdl", "s", 5, 1, 3, actor_layers(actor.state_dict()))
+
+
+def test_publish_writes_every_existing_dir_and_skips_missing_ones(tmp_path):
+    actor = Actor(4, 3, 1, [8])
+    spec = {"scenario": "s", "obs_dim": 4, "agents_per_env": 1, "num_actions": 3}
+    first, second = tmp_path / "a", tmp_path / "b"
+    first.mkdir()
+    second.mkdir()
+    (second / "s.amdl").write_bytes(b"stale")
+
+    written = publish_model(actor.state_dict(), spec, [first, tmp_path / "missing", second])
+
+    assert written == [first / "s.amdl", second / "s.amdl"]
+    for path in written:
+        assert read_amdl(path)["obs_dim"] == 4
+    assert not (tmp_path / "missing").exists()
+    assert sorted(p.name for p in second.iterdir()) == ["s.amdl"]
+
+
+def test_model_dirs_from_env(monkeypatch):
+    monkeypatch.setenv("ANIMUS_MODEL_DIRS", f"/x{os.pathsep}{os.pathsep}/y")
+    assert model_dirs_from_env() == ["/x", "/y"]
+    monkeypatch.delenv("ANIMUS_MODEL_DIRS")
+    assert model_dirs_from_env() == []
