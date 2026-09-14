@@ -1,19 +1,16 @@
-# Shared learner config for every class/role gauntlet stage (warrior_dps_gauntlet, ...), used when the
-# scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+# Learner config for class_role_gauntlet, stage 4 of the class/role curriculum: pull after pull (1-4 creatures,
+# sometimes an elite or a higher-level pack) with 8-20 s breaks, until the bot dies or the episode ends. Heals, food
+# and drink are available for recovering between pulls. Each cleared pull pays for speed and health kept.
 #
-# Stage 4 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level
-# pack) with 8-20 s breaks, until the bot dies or the episode ends. Heals, food and drink are available
-# for recovering between pulls. Each cleared pull pays for speed and health kept; death ends it.
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Give
-# the gauntlet long episodes (AnimusForge.EpisodeSeconds of several minutes) so there are many pulls.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Give the gauntlet
+# long episodes (AnimusForge.EpisodeSeconds of several minutes) so there are many pulls.
 
 run_name: class_role_gauntlet
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's pack model: the gauntlet's observations and actions extend it.
+# Seed a fresh run from the pack stage: each layout extends the pack stage's.
 init_from: runs/{base_run}_pack/best.pt
 
 total_env_steps: 300000000
@@ -43,7 +40,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

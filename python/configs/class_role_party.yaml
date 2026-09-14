@@ -1,20 +1,17 @@
-# Shared learner config for every class/role party stage (warrior_tank_party, priest_heal_party, ...), used
-# when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+# Learner config for class_role_party, stage 6 of the class/role curriculum: four learned agents per env -- a tank,
+# a healer and two damage dealers of random classes -- with the scripted owner as the fifth player, against
+# elite-heavy packs. Every agent assists, guards and heals its teammates; tanks hold the pull, healers keep the party
+# up, damage dealers stay off the threat table. Episodes end when the owner dies or every agent has.
 #
-# Stage 6 of the curriculum: a five-player party -- the bot, the companion stage's owner and three scripted
-# members that complete a tank, a healer and three damage dealers -- against elite-heavy packs. The bot assists,
-# guards and heals every member; tanks hold the pull, healers keep the party up, damage dealers stay off the
-# threat table. Episodes end when the bot or the owner dies.
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the
-# gauntlet, give it episodes of several minutes.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the gauntlet,
+# give it episodes of several minutes. env steps count every agent's decisions (4 per env per decision here).
 
 run_name: class_role_party
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's companion model: the party stage's layout extends it.
+# Seed a fresh run from the companion stage: each layout extends the companion stage's.
 init_from: runs/{base_run}_companion/best.pt
 
 total_env_steps: 300000000
@@ -43,7 +40,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

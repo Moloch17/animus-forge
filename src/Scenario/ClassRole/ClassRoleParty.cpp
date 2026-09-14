@@ -17,30 +17,24 @@
  */
 
 /*
- * The party stage of ClassRoleScenario (ArenaMode::Party): three scripted members that complete a five-player
- * party with the bot and the companion's owner, their lifecycle and scripts, per-member observations,
- * assist/guard/heal actions and the party rewards.
+ * The party stage of ClassRoleScenario (ArenaMode::Party): four learned seats -- a tank, a healer and two damage
+ * dealers -- and the scripted owner. Each seat observes its three teammates, can assist, guard and heal them, and is
+ * rewarded for the party: teammates' damage taken and deaths, healing on them, threat kept off them.
  *
  * The party is not a core Group (whose create, join and leave write to the character database and allocate
- * persistent ids every episode): single-target heals, assists, taunts and threat all work, but spells that
- * need a group (party buffs, party-wide heals) do not reach the other members.
+ * persistent ids every episode): single-target heals, assists, taunts and threat all work, but spells that need a
+ * group (party buffs, party-wide heals) do not reach the others.
  */
 
 #include "ClassRoleScenario.h"
 #include "Creature.h"
 #include "Env.h"
-#include "ForgeBotFactory.h"
-#include "Map.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
 #include "Player.h"
-#include "Random.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
-#include "StringFormat.h"
-#include "TrainingDummyArena.h"
-#include "WorldSession.h"
 #include <algorithm>
 #include <cmath>
 
@@ -52,18 +46,16 @@ namespace
         CLASS_MAGE, CLASS_WARLOCK, CLASS_DRUID
     };
 
-    constexpr uint32 MEMBER_ACCOUNT_OFFSET = 200000;    // apart from companion (0) and owner (100000) accounts
-    constexpr int32 MEMBER_LEVEL_SPREAD = 2;
     constexpr uint32 FOLLOW_TANK_MOVE_POINT_ID = 4;
     constexpr float FOLLOW_TANK_DISTANCE = 4.0f;
     constexpr float FOLLOW_TANK_MIN_DISTANCE = 8.0f;
 
     // Reward terms added to the companion stage's.
-    constexpr float MEMBER_DAMAGE_TAKEN_DPS = 0.5f;     // fraction of the member's health; not for a tank member
-    constexpr float MEMBER_DAMAGE_TAKEN_PROTECTOR = 1.0f;
-    constexpr float MEMBER_HEALING = 2.0f;              // healers: effective healing, fraction of the member's health
-    constexpr float TANK_LOSE_MEMBER = 0.02f;           // tanks: per enemy on a member, per decision
-    constexpr float MEMBER_DEATH = 3.0f;
+    constexpr float TEAMMATE_DAMAGE_TAKEN_DPS = 0.5f;       // fraction of the teammate's health; not for a tank
+    constexpr float TEAMMATE_DAMAGE_TAKEN_PROTECTOR = 1.0f;
+    constexpr float TEAMMATE_HEALING = 2.0f;                // healers: effective healing, fraction of its health
+    constexpr float TANK_LOSE_TEAMMATE = 0.02f;             // tanks: per enemy on a non-tank teammate, per decision
+    constexpr float TEAMMATE_DEATH = 3.0f;
 
     constexpr uint32 IMMOBILE_STATES = UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
 
@@ -105,159 +97,20 @@ namespace
     }
 }
 
-Player* AnimusForge::ClassRoleScenario::FindMember(EnvData const& data, uint32 member) const
+Player* AnimusForge::ClassRoleScenario::PartyTank(EnvData const& data) const
 {
-    EnvData::Member const& slot = data.Members[member];
-    WorldSession* session = slot.Sessions[slot.ActiveSession];
-    return session ? session->GetPlayer() : nullptr;
-}
-
-Player* AnimusForge::ClassRoleScenario::PartyTank(Player* bot, EnvData const& data) const
-{
-    if (_profile.PlayRole == Role::Tank)
-        return bot;
-
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
-        if (data.Members[member].PlayRole == Role::Tank)
-            return FindMember(data, member);
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        if (data.Seats[seat].L && data.Seats[seat].L->PlayRole() == Role::Tank)
+            if (Player* tank = SeatBot(data, seat); tank && tank->IsAlive())
+                return tank;
 
     return nullptr;
 }
 
-bool AnimusForge::ClassRoleScenario::RebuildMembers(Env& env, Player* bot, Map* map, EnvData& data) const
-{
-    CompanionOwner::Templates const& templates = CompanionOwner::Templates::Instance();
-
-    // A tank, a healer and three damage dealers, minus the bot's role and the owner (a damage dealer).
-    std::vector<Role> roles = { Role::Tank, Role::Heal, Role::Dps, Role::Dps, Role::Dps };
-    roles.erase(std::find(roles.begin(), roles.end(), _profile.PlayRole));
-    roles.erase(std::find(roles.begin(), roles.end(), Role::Dps));
-
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
-    {
-        EnvData::Member& slot = data.Members[member];
-        Player* old = FindMember(data, member);
-
-        uint8 const level = uint8(std::clamp<int32>(int32(data.Level) + irand(-MEMBER_LEVEL_SPREAD, MEMBER_LEVEL_SPREAD),
-            1, DEFAULT_MAX_LEVEL));
-
-        Role role = roles[member];
-        std::vector<uint8> classes = templates.ClassesForRole(level, role);
-        if (classes.empty())
-        {
-            role = Role::Dps;
-            classes = templates.ClassesForRole(level, role);
-        }
-        if (classes.empty())
-            return false;
-
-        uint8 const playerClass = classes[urand(0, uint32(classes.size()) - 1)];
-        CompanionOwner::Template const* memberTemplate = templates.ForClassRole(playerClass, role);
-
-        // Same session and GUID alternation as the companion (see Rebuild).
-        uint8 const session = old ? uint8(1 - slot.ActiveSession) : slot.ActiveSession;
-
-        BotFactory::BotSpec spec;
-        spec.Name = Acore::StringFormat("Party{}m{}{}", env.Index, member, session ? "b" : "a");
-        spec.Race = memberTemplate->Races[urand(0, uint32(memberTemplate->Races.size()) - 1)];
-        spec.Class = playerClass;
-        spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
-        spec.Level = level;
-        spec.AccountId = TrainingDummyArena::BOT_ACCOUNT_BASE + MEMBER_ACCOUNT_OFFSET + env.Index * 2 * PARTY_MEMBERS
-            + member * 2 + session;
-        spec.GuidLow = slot.Guids[session];
-
-        Player* player = BotFactory::Create(spec, slot.Sessions[session]);
-        if (!player)
-            return false;
-
-        slot.Sessions[session] = player->GetSession();
-        slot.Guids[session] = player->GetGUID().GetCounter();
-
-        Position start = _arenaPosition;
-        start.m_positionX -= 3.0f;
-        start.m_positionY += (float(member) - 1.0f) * 3.0f;
-        if (!BotFactory::PlaceInMap(player, map, start))
-        {
-            slot.Sessions[session] = nullptr;
-            BotFactory::DestroyUnplaced(player);
-            return false;
-        }
-
-        player->InitTalentForLevel();
-        CompanionOwner::Configure(player, *memberTemplate, slot.Script);
-        player->SetFaction(bot->GetFaction());
-
-        if (old)
-            slot.Sessions[slot.ActiveSession] = BotFactory::Destroy(old, true);
-
-        slot.ActiveSession = session;
-        slot.Class = playerClass;
-        slot.PlayRole = role;
-        slot.Died = false;
-        env.Allies.push_back(player->GetGUID());
-    }
-
-    return true;
-}
-
-void AnimusForge::ClassRoleScenario::DestroyMembers(Env& env, EnvData& data) const
-{
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
-    {
-        EnvData::Member& slot = data.Members[member];
-        if (Player* player = FindMember(data, member))
-        {
-            BotFactory::Destroy(player);
-            slot.Sessions[slot.ActiveSession] = nullptr;
-        }
-    }
-
-    if (env.Allies.size() > 1)
-        env.Allies.resize(1);
-}
-
-void AnimusForge::ClassRoleScenario::ScheduleMembers(Env const& env, EnvData& data) const
-{
-    // The tank opens, the healer follows, damage dealers wait for threat. When the bot is the tank, the others
-    // hold back long enough for it to pull.
-    bool const botTanks = _profile.PlayRole == Role::Tank;
-    uint32 const now = env.EpisodeElapsedMs;
-    uint32 const dpsDelay = botTanks ? urand(4000, 7000) : urand(3000, 5500);
-
-    data.Owner.EngageMs = now + dpsDelay;
-    for (EnvData::Member& slot : data.Members)
-    {
-        switch (slot.PlayRole)
-        {
-            case Role::Tank: slot.Script.EngageMs = now + urand(1000, 2500); break;
-            case Role::Heal: slot.Script.EngageMs = now + urand(1500, 3000); break;
-            case Role::Dps: slot.Script.EngageMs = now + dpsDelay + urand(0, 1000); break;
-        }
-    }
-}
-
-void AnimusForge::ClassRoleScenario::UpdateMembers(Env& env, Player* bot, EnvData& data) const
-{
-    std::vector<Unit*> enemies;
-    for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
-        if (Unit* enemy = env.FindTargetUnit(slot); enemy && enemy->IsAlive())
-            enemies.push_back(enemy);
-
-    std::vector<Player*> party = { bot, FindOwner(data) };
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
-        party.push_back(FindMember(data, member));
-
-    Player* tank = PartyTank(bot, data);
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
-        CompanionOwner::UpdateMember(FindMember(data, member), party, tank, enemies, env.EpisodeElapsedMs,
-            _arenaPosition, data.Members[member].Script);
-}
-
-void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, Player* bot, float* obs) const
+void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
 {
     EnvData const& data = _data[env.Index];
-    float* party = obs + _partyObsFirst;
+    float* party = obs + data.Seats[seatIndex].L->PartyObsFirst;
 
     uint32 alive = bot->IsAlive() ? 1 : 0;
     float lowest = 1.0f;
@@ -267,31 +120,32 @@ void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, Player* bot, f
         lowest = std::min(lowest, owner->GetHealthPct() / 100.0f);
     }
 
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
+    for (uint32 slot = 0; slot < PARTY_MEMBERS; ++slot)
     {
-        Player* player = FindMember(data, member);
-        if (!player)
+        uint32 const teammateSeat = TeammateSeat(seatIndex, slot);
+        Player* teammate = teammateSeat < _seatCount ? env.FindBot(teammateSeat) : nullptr;
+        if (!teammate)
             continue;
 
-        EnvData::Member const& slot = data.Members[member];
-        float* features = party + PARTY_OBS_GLOBAL_COUNT + member * MEMBER_FEATURES;
-        float const bearing = bot->GetRelativeAngle(player);
+        Seat const& other = data.Seats[teammateSeat];
+        float* features = party + PARTY_OBS_GLOBAL_COUNT + slot * MEMBER_FEATURES;
+        float const bearing = bot->GetRelativeAngle(teammate);
 
         features[MEMBER_PRESENT] = 1.0f;
-        features[MEMBER_ALIVE] = player->IsAlive() ? 1.0f : 0.0f;
-        features[MEMBER_HEALTH] = player->GetHealthPct() / 100.0f;
-        if (uint32 const maxMana = player->GetMaxPower(POWER_MANA))
-            features[MEMBER_MANA] = float(player->GetPower(POWER_MANA)) / float(maxMana);
-        features[MEMBER_DISTANCE] = std::min(1.0f, bot->GetDistance(player) / 40.0f);
+        features[MEMBER_ALIVE] = teammate->IsAlive() ? 1.0f : 0.0f;
+        features[MEMBER_HEALTH] = teammate->GetHealthPct() / 100.0f;
+        if (uint32 const maxMana = teammate->GetMaxPower(POWER_MANA))
+            features[MEMBER_MANA] = float(teammate->GetPower(POWER_MANA)) / float(maxMana);
+        features[MEMBER_DISTANCE] = std::min(1.0f, bot->GetDistance(teammate) / 40.0f);
         features[MEMBER_BEARING_SIN] = std::sin(bearing);
         features[MEMBER_BEARING_COS] = std::cos(bearing);
-        features[MEMBER_IN_COMBAT] = player->IsInCombat() ? 1.0f : 0.0f;
-        features[MEMBER_ROLE_FIRST + uint32(slot.PlayRole)] = 1.0f;
+        features[MEMBER_IN_COMBAT] = teammate->IsInCombat() ? 1.0f : 0.0f;
+        features[MEMBER_ROLE_FIRST + uint32(other.L->PlayRole())] = 1.0f;
 
         for (uint32 i = 0; i < PARTY_CLASSES.size(); ++i)
-            features[MEMBER_CLASS_FIRST + i] = PARTY_CLASSES[i] == slot.Class ? 1.0f : 0.0f;
+            features[MEMBER_CLASS_FIRST + i] = PARTY_CLASSES[i] == other.L->Profile->Class ? 1.0f : 0.0f;
 
-        int32 const target = SlotOf(env, player->GetVictim());
+        int32 const target = SlotOf(env, teammate->GetVictim());
         if (target >= 0)
             features[MEMBER_TARGET_FIRST + target] = 1.0f;
         else
@@ -301,7 +155,7 @@ void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, Player* bot, f
         for (uint32 enemySlot = 0; enemySlot < env.Targets.size() && enemySlot < PACK_SLOTS; ++enemySlot)
         {
             Unit* enemy = env.FindTargetUnit(enemySlot);
-            if (enemy && enemy->IsAlive() && enemy->GetVictim() == player)
+            if (enemy && enemy->IsAlive() && enemy->GetVictim() == teammate)
             {
                 features[MEMBER_SLOT_ON_FIRST + enemySlot] = 1.0f;
                 ++attackers;
@@ -309,13 +163,14 @@ void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, Player* bot, f
         }
         features[MEMBER_ATTACKERS] = float(attackers) / float(PACK_SLOTS);
 
-        if (player->IsAlive())
+        if (teammate->IsAlive())
         {
             ++alive;
-            lowest = std::min(lowest, player->GetHealthPct() / 100.0f);
-            party[PARTY_OBS_HAS_TANK] = std::max(party[PARTY_OBS_HAS_TANK], slot.PlayRole == Role::Tank ? 1.0f : 0.0f);
-            party[PARTY_OBS_HAS_HEALER] = std::max(party[PARTY_OBS_HAS_HEALER],
-                slot.PlayRole == Role::Heal ? 1.0f : 0.0f);
+            lowest = std::min(lowest, teammate->GetHealthPct() / 100.0f);
+            if (other.L->PlayRole() == Role::Tank)
+                party[PARTY_OBS_HAS_TANK] = 1.0f;
+            if (other.L->PlayRole() == Role::Heal)
+                party[PARTY_OBS_HAS_HEALER] = 1.0f;
         }
     }
 
@@ -323,42 +178,47 @@ void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, Player* bot, f
     party[PARTY_OBS_LOWEST_HEALTH] = lowest;
 }
 
-bool AnimusForge::ClassRoleScenario::IsPartyActionAllowed(Env const& env, Player* bot, uint32 partyAction) const
+bool AnimusForge::ClassRoleScenario::IsPartyActionAllowed(Env const& env, uint32 seatIndex, Player* bot,
+    uint32 partyAction) const
 {
     EnvData const& data = _data[env.Index];
+    Seat const& seat = data.Seats[seatIndex];
     if (!bot->IsAlive())
         return false;
 
     if (partyAction == PARTY_ACTION_FOLLOW_TANK)
     {
-        Player* tank = PartyTank(bot, data);
-        return tank && tank != bot && tank->IsAlive() && !bot->IsNonMeleeSpellCast(false, false, true)
+        Player* tank = PartyTank(data);
+        return tank && tank != bot && !bot->IsNonMeleeSpellCast(false, false, true)
             && !bot->HasUnitState(IMMOBILE_STATES) && bot->GetDistance(tank) > FOLLOW_TANK_MIN_DISTANCE;
     }
 
     if (partyAction < PARTY_ACTION_GUARD_FIRST)
     {
-        Player* member = FindMember(data, partyAction - PARTY_ACTION_ASSIST_FIRST);
-        if (!member || !member->IsAlive())
+        uint32 const teammateSeat = TeammateSeat(seatIndex, partyAction - PARTY_ACTION_ASSIST_FIRST);
+        Player* teammate = teammateSeat < _seatCount ? env.FindBot(teammateSeat) : nullptr;
+        if (!teammate || !teammate->IsAlive())
             return false;
 
-        int32 const slot = SlotOf(env, member->GetVictim());
-        return slot >= 0 && uint32(slot) != data.TargetSlot && member->GetVictim()->IsAlive();
+        int32 const slot = SlotOf(env, teammate->GetVictim());
+        return slot >= 0 && uint32(slot) != seat.TargetSlot && teammate->GetVictim()->IsAlive();
     }
 
     if (partyAction < PARTY_ACTION_HEAL_FIRST)
     {
-        Player* member = FindMember(data, partyAction - PARTY_ACTION_GUARD_FIRST);
-        return member && member->IsAlive() && SlotAttacking(env, member, data.TargetSlot) >= 0;
+        uint32 const teammateSeat = TeammateSeat(seatIndex, partyAction - PARTY_ACTION_GUARD_FIRST);
+        Player* teammate = teammateSeat < _seatCount ? env.FindBot(teammateSeat) : nullptr;
+        return teammate && teammate->IsAlive() && SlotAttacking(env, teammate, seat.TargetSlot) >= 0;
     }
 
-    uint32 const heals = uint32(_ownerHeals.size());
+    uint32 const heals = uint32(seat.L->AllyHeals.size());
     uint32 const index = partyAction - PARTY_ACTION_HEAL_FIRST;
-    Player* member = heals ? FindMember(data, index / heals) : nullptr;
-    if (!member || !member->IsAlive())
+    uint32 const teammateSeat = heals ? TeammateSeat(seatIndex, index / heals) : _seatCount;
+    Player* teammate = teammateSeat < _seatCount ? env.FindBot(teammateSeat) : nullptr;
+    if (!teammate || !teammate->IsAlive())
         return false;
 
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, _ownerHeals[index % heals].FirstRank);
+    SpellInfo const* info = ActionCatalog::KnownRank(bot, seat.L->AllyHeals[index % heals].FirstRank);
     if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id)
         || bot->GetGlobalCooldownMgr().HasGlobalCooldown(info) || bot->IsNonMeleeSpellCast(false, true, true))
         return false;
@@ -366,17 +226,20 @@ bool AnimusForge::ClassRoleScenario::IsPartyActionAllowed(Env const& env, Player
     if (!bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
         return false;
 
-    return CanCastOn(bot, info, member);
+    return CanCastOn(bot, info, teammate);
 }
 
-void AnimusForge::ClassRoleScenario::ApplyPartyAction(Env& env, Player* bot, uint32 partyAction, EnvData& data) const
+void AnimusForge::ClassRoleScenario::ApplyPartyAction(Env& env, uint32 seatIndex, Player* bot, uint32 partyAction)
 {
-    if (!IsPartyActionAllowed(env, bot, partyAction))
+    if (!IsPartyActionAllowed(env, seatIndex, bot, partyAction))
         return;
+
+    EnvData& data = _data[env.Index];
+    Seat& seat = data.Seats[seatIndex];
 
     if (partyAction == PARTY_ACTION_FOLLOW_TANK)
     {
-        Player* tank = PartyTank(bot, data);
+        Player* tank = PartyTank(data);
         float x = 0.0f;
         float y = 0.0f;
         float z = 0.0f;
@@ -390,105 +253,103 @@ void AnimusForge::ClassRoleScenario::ApplyPartyAction(Env& env, Player* bot, uin
     if (partyAction < PARTY_ACTION_HEAL_FIRST)
     {
         bool const assist = partyAction < PARTY_ACTION_GUARD_FIRST;
-        Player* member = FindMember(data, partyAction - (assist ? PARTY_ACTION_ASSIST_FIRST : PARTY_ACTION_GUARD_FIRST));
-        int32 const slot = assist ? SlotOf(env, member->GetVictim()) : SlotAttacking(env, member, data.TargetSlot);
+        uint32 const teammateSeat = TeammateSeat(seatIndex,
+            partyAction - (assist ? PARTY_ACTION_ASSIST_FIRST : PARTY_ACTION_GUARD_FIRST));
+        Player* teammate = env.FindBot(teammateSeat);
+        int32 const slot = assist ? SlotOf(env, teammate->GetVictim()) : SlotAttacking(env, teammate, seat.TargetSlot);
         Unit* enemy = slot >= 0 ? env.FindTargetUnit(uint32(slot)) : nullptr;
         if (!enemy)
             return;
 
-        data.TargetSlot = uint32(slot);
+        seat.TargetSlot = uint32(slot);
         bot->SetSelection(enemy->GetGUID());
         if (bot->GetVictim())
             bot->Attack(enemy, bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
         return;
     }
 
-    uint32 const heals = uint32(_ownerHeals.size());
+    uint32 const heals = uint32(seat.L->AllyHeals.size());
     uint32 const index = partyAction - PARTY_ACTION_HEAL_FIRST;
-    Player* member = FindMember(data, index / heals);
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, _ownerHeals[index % heals].FirstRank);
+    Player* teammate = env.FindBot(TeammateSeat(seatIndex, index / heals));
+    SpellInfo const* info = ActionCatalog::KnownRank(bot, seat.L->AllyHeals[index % heals].FirstRank);
     if (!info)
         return;
 
     SpellCastTargets targets;
-    targets.SetUnitTarget(member);
+    targets.SetUnitTarget(teammate);
     Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
     if (spell->prepare(&targets) == SPELL_CAST_OK)
     {
-        ++data.SpellCasts;
-        ++data.SustainCasts;
+        ++seat.SpellCasts;
+        ++seat.SustainCasts;
     }
 }
 
-float AnimusForge::ClassRoleScenario::PartyReward(Env& env, Player* bot, EnvData& data) const
+float AnimusForge::ClassRoleScenario::PartyReward(Env& env, uint32 seatIndex, Player* bot)
 {
-    float reward = CompanionReward(env, bot, data);
+    float reward = CompanionReward(env, seatIndex, bot);
     if (!bot)
         return reward;
 
-    AgentStats const& step = env.StepStats[0];
-    Role const role = _profile.PlayRole;
+    EnvData& data = _data[env.Index];
+    Seat& seat = data.Seats[seatIndex];
+    AgentStats const& step = env.StepStats[seatIndex];
+    Role const role = seat.L->PlayRole();
 
-    for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
+    for (uint32 slot = 0; slot < PARTY_MEMBERS; ++slot)
     {
-        Player* player = FindMember(data, member);
-        if (!player)
+        uint32 const teammateSeat = TeammateSeat(seatIndex, slot);
+        Player* teammate = teammateSeat < _seatCount ? env.FindBot(teammateSeat) : nullptr;
+        if (!teammate)
             continue;
 
-        EnvData::Member& slot = data.Members[member];
-        float const health = float(std::max<uint32>(1, player->GetMaxHealth()));
-        uint64 const taken = step.AllyDamageTakenBy[member + 1];
-        uint64 const healed = step.AllyHealingBy[member + 1];
+        Role const teammateRole = data.Seats[teammateSeat].L->PlayRole();
+        float const health = float(std::max<uint32>(1, teammate->GetMaxHealth()));
+        uint64 const taken = env.StepStats[teammateSeat].DamageTaken;
+        uint64 const healed = step.AgentHealingBy[teammateSeat];
 
-        data.MemberDamageTaken += taken;
-        data.MemberHealing += healed;
+        seat.TeammateDamageTaken += taken;
+        seat.TeammateHealing += healed;
 
-        // A tank member is there to be hit; everyone else being hit is what the party wants to avoid.
-        if (slot.PlayRole != Role::Tank)
-            reward -= (role == Role::Dps ? MEMBER_DAMAGE_TAKEN_DPS : MEMBER_DAMAGE_TAKEN_PROTECTOR)
+        // A tank is there to be hit; everyone else being hit is what the party wants to avoid.
+        if (teammateRole != Role::Tank)
+            reward -= (role == Role::Dps ? TEAMMATE_DAMAGE_TAKEN_DPS : TEAMMATE_DAMAGE_TAKEN_PROTECTOR)
                 * float(taken) / health;
 
         if (role == Role::Heal)
-            reward += MEMBER_HEALING * float(healed) / health;
+            reward += TEAMMATE_HEALING * float(healed) / health;
 
-        if (slot.PlayRole != Role::Tank && player->IsAlive())
+        if (teammateRole != Role::Tank && teammate->IsAlive())
         {
-            uint32 onMember = 0;
+            uint32 onTeammate = 0;
             for (uint32 enemySlot = 0; enemySlot < env.Targets.size(); ++enemySlot)
                 if (Unit* enemy = env.FindTargetUnit(enemySlot);
-                    enemy && enemy->IsAlive() && enemy->IsInCombat() && enemy->GetVictim() == player)
-                    ++onMember;
+                    enemy && enemy->IsAlive() && enemy->IsInCombat() && enemy->GetVictim() == teammate)
+                    ++onTeammate;
 
-            data.ThreatOnMembers += onMember;
+            seat.ThreatOnTeammates += onTeammate;
             if (role == Role::Tank)
-                reward -= TANK_LOSE_MEMBER * float(onMember);
+                reward -= TANK_LOSE_TEAMMATE * float(onTeammate);
         }
 
-        if (!player->IsAlive() && !slot.Died)
+        if (!teammate->IsAlive() && !seat.TeammateDeathSeen[teammateSeat])
         {
-            slot.Died = true;
-            ++data.MembersDied;
-            reward -= MEMBER_DEATH;
+            seat.TeammateDeathSeen[teammateSeat] = true;
+            ++seat.TeammatesDied;
+            reward -= TEAMMATE_DEATH;
         }
     }
 
     return reward;
 }
 
-void AnimusForge::ClassRoleScenario::PartyEpisodeInfo(Env const& env, float* info) const
+void AnimusForge::ClassRoleScenario::PartyEpisodeInfo(Env const& env, uint32 seatIndex, float* info) const
 {
-    EnvData const& data = _data[env.Index];
+    Seat const& seat = _data[env.Index].Seats[seatIndex];
 
-    info[PARTY_INFO_MEMBERS_DIED] = float(data.MembersDied);
-    info[PARTY_INFO_MEMBER_DAMAGE_TAKEN] = float(data.MemberDamageTaken);
-    info[PARTY_INFO_MEMBER_HEALING] = float(data.MemberHealing);
-    info[PARTY_INFO_THREAT_ON_MEMBERS] = float(data.ThreatOnMembers);
-
-    for (EnvData::Member const& slot : data.Members)
-    {
-        if (slot.PlayRole == Role::Tank)
-            info[PARTY_INFO_TANK_CLASS] = float(slot.Class);
-        if (slot.PlayRole == Role::Heal)
-            info[PARTY_INFO_HEALER_CLASS] = float(slot.Class);
-    }
+    info[PARTY_INFO_TEAMMATES_DIED] = float(seat.TeammatesDied);
+    info[PARTY_INFO_TEAMMATE_DAMAGE_TAKEN] = float(seat.TeammateDamageTaken);
+    info[PARTY_INFO_TEAMMATE_HEALING] = float(seat.TeammateHealing);
+    info[PARTY_INFO_THREAT_ON_TEAMMATES] = float(seat.ThreatOnTeammates);
+    info[PARTY_INFO_SEAT] = float(seatIndex);
 }

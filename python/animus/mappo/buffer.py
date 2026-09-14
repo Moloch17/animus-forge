@@ -55,6 +55,7 @@ class RolloutBuffer:
         self.obs = np.zeros((*shape, obs_dim), dtype=np.float32)
         self.state = np.zeros((steps, envs, state_dim), dtype=np.float32)
         self.mask = np.zeros((*shape, num_actions), dtype=bool)
+        self.layout = np.zeros(shape, dtype=np.int64)
         self.actions = np.zeros(shape, dtype=np.int64)
         self.log_probs = np.zeros(shape, dtype=np.float32)
         self.values = np.zeros(shape, dtype=np.float32)  # denormalised
@@ -66,12 +67,13 @@ class RolloutBuffer:
         self.returns = np.zeros(shape, dtype=np.float32)
         self.cursor = 0
 
-    def add_decision(self, obs, state, mask, actions, log_probs, values) -> None:
+    def add_decision(self, obs, state, mask, layout, actions, log_probs, values) -> None:
         """Record what the policy saw and did at step `cursor`."""
         t = self.cursor
         self.obs[t] = obs
         self.state[t] = state
         self.mask[t] = mask
+        self.layout[t] = layout
         self.actions[t] = actions
         self.log_probs[t] = log_probs
         self.values[t] = values
@@ -110,11 +112,10 @@ class RolloutBuffer:
         n = steps * envs * agents
         # Broadcast views are read-only; materialise them so torch gets writable arrays.
         state = np.broadcast_to(self.state[:, :, None, :], (steps, envs, agents, self.state.shape[-1])).copy()
-        agent_ids = np.broadcast_to(np.arange(agents), (steps, envs, agents)).copy()
         return {
             "obs": self.obs.reshape(n, -1),
             "state": state.reshape(n, -1),
-            "agent_id": agent_ids.reshape(n),
+            "layout": self.layout.reshape(n),
             "mask": self.mask.reshape(n, -1),
             "actions": self.actions.reshape(n),
             "log_probs": self.log_probs.reshape(n),

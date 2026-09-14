@@ -58,18 +58,16 @@ namespace
             using AnimusForge::ArenaMode;
             using AnimusForge::ClassRoleScenario;
 
+            // Every class/role of AnimusForge.ClassRoles plays in each, as layouts of one policy.
             for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet,
                 ArenaMode::Companion, ArenaMode::Party, ArenaMode::Pvp, ArenaMode::Arena })
             {
-                for (AnimusForge::ClassRoleProfile const& profile : AnimusForge::ClassRoleProfiles())
-                {
-                    scenarios.emplace_back(ClassRoleScenario::ScenarioName(profile, mode),
-                        [&profile, mode](AnimusForge::ForgeConfig const& config)
-                        {
-                            return std::unique_ptr<AnimusForge::Scenario>(
-                                std::make_unique<ClassRoleScenario>(profile, config, mode));
-                        });
-                }
+                scenarios.emplace_back(ClassRoleScenario::ScenarioName(mode),
+                    [mode](AnimusForge::ForgeConfig const& config)
+                    {
+                        return std::unique_ptr<AnimusForge::Scenario>(
+                            std::make_unique<ClassRoleScenario>(config, mode));
+                    });
             }
 
             return scenarios;

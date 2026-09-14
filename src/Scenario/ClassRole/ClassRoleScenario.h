@@ -20,10 +20,9 @@
 #define MOD_ANIMUS_FORGE_CLASS_ROLE_SCENARIO_H
 
 #include "ActionCatalog.h"
-#include "ClassKit.h"
+#include "ClassRoleAssets.h"
 #include "ClassRoleProfile.h"
 #include "CompanionOwner.h"
-#include "GearBuilder.h"
 #include "ObjectGuid.h"
 #include "Position.h"
 #include "Scenario.h"
@@ -43,54 +42,48 @@ namespace AnimusForge
 {
     struct AgentStats;
 
-    /// What a class/role scenario fights.
+    /// A curriculum stage. Each stage is its own scenario (`class_role`, `class_role_duel`, ...), so every earlier
+    /// stage stays repeatable, and each stage's observations and actions extend the previous stage's per layout,
+    /// so a stage's model seeds the next.
     enum class ArenaMode : uint8
     {
-        /// Stage 1 (`<class>_<role>`): a training dummy in range that takes no damage; maximise damage.
+        /// Stage 1 (`class_role`): a training dummy in range that takes no damage; maximise damage.
         Dummy,
-        /// Stage 2 (`<class>_<role>_duel`): a same-level hostile creature spawned out of aggro range that
-        /// fights back; move to it and kill it quickly while taking little damage. Observations and
-        /// actions are stage 1's with duel features and actions appended, so a stage 1 model can seed it.
+        /// Stage 2 (`class_role_duel`): a same-level hostile creature spawned out of aggro range that fights back;
+        /// move to it and kill it quickly while taking little damage.
         Duel,
-        /// Stage 3 (`<class>_<role>_pack`): a pack of 2-4 same-level creatures (casters included), often
-        /// linked; pick targets, interrupt, crowd-control and clear it fast with little damage taken.
-        /// Appends enemy slots, target selection and tactical spells to stage 2's layout.
+        /// Stage 3 (`class_role_pack`): a pack of 2-4 same-level creatures (casters included), often linked; pick
+        /// targets, interrupt, crowd-control and clear it fast with little damage taken.
         Pack,
-        /// Stage 4 (`<class>_<role>_gauntlet`): pull after pull (1-4 creatures, sometimes elite or higher
-        /// level) with a short break between, until death or the episode ends; recover between pulls with
-        /// heals, food and drink. Appends sustain spells, consumables and pull state to stage 3's layout.
+        /// Stage 4 (`class_role_gauntlet`): pull after pull (1-4 creatures, sometimes elite or higher level) with a
+        /// short break between, until death or the episode ends; recover with heals, food and drink.
         Gauntlet,
-        /// Stage 5 (`<class>_<role>_companion`): the gauntlet fought beside a scripted owner (a player bot
-        /// of a random class near the bot's level) who wanders, engages each pull and takes real damage.
-        /// Follow, assist and guard the owner; tanks keep enemies off it, healers keep it alive, damage
-        /// dealers avoid pulling threat. Appends owner state, companion actions and owner heals.
+        /// Stage 5 (`class_role_companion`): the gauntlet beside a scripted owner (a player of a random class near
+        /// the bot's level); follow, assist, guard and heal it.
         Companion,
-        /// Stage 6 (`<class>_<role>_party`): a five-player party -- the bot, the companion stage's owner and
-        /// three scripted members that complete a tank, a healer and three damage dealers -- against pulls of
-        /// elite-heavy packs. Assist, guard and heal every member; tanks hold the pull, healers keep the party
-        /// up, damage dealers stay off the threat table. Appends per-member state, actions and member heals.
+        /// Stage 6 (`class_role_party`): four learned agents -- a tank, a healer and two damage dealers of random
+        /// classes -- and the scripted owner as the fifth player, against elite-heavy pulls. Every agent sees and
+        /// can assist, guard and heal the other three.
         Party,
-        /// Stage 7 (`<class>_<role>_pvp`): one-on-one against a scripted enemy player of a random class and role
-        /// at the bot's level, spawned out of range; win fast, lose little health. No pulls, owner or party (their
-        /// observations stay zero and their actions masked). Appends opponent and crowd-control state.
+        /// Stage 7 (`class_role_pvp`): one-on-one against a scripted enemy player of a random class and role.
         Pvp,
-        /// Stage 8 (`<class>_<role>_arena`): self-play one-on-one. Envs pair up (0-1, 2-3, ...) in one instance and
-        /// each env's opponent is its partner's bot -- the same class and role, played by the same policy -- so
-        /// both sides learn from every fight. Same layout as stage 7.
+        /// Stage 8 (`class_role_arena`): self-play one-on-one: two learned agents of random classes and roles, in
+        /// one env, played by the same policy.
         Arena,
     };
 
-    /// One class in one role on a training dummy, maximising damage, for every level, race and spec.
+    /// Every class/role, every level, race, spec and build, at one curriculum stage, as layouts of one policy.
     ///
-    /// Every episode builds a new bot: a race the class allows, a random gender and level (1-80;
-    /// 55-80 for death knights), one of the role's specs with a random talent build that fills the
-    /// spec's tree to its capstone first, the trainer spells of that level, and random level-appropriate
-    /// gear for the spec including trinkets. The dummy is summoned at the bot's level, at melee or
-    /// casting range for the spec, and its health follows a random fight curve (it takes no damage) so
-    /// execute-range abilities come up.
+    /// Each learned agent of an env is a seat: every episode it becomes a new character of a class/role drawn from
+    /// AnimusForge.ClassRoles (all 18 by default) -- a race the class allows, random gender, level (1-80, 55-80 for
+    /// death knights), one of the role's specs with a random talent build that fills the spec's tree to its capstone
+    /// first, the trainer spells of the level, and random level-appropriate gear including trinkets. A seat's
+    /// layout is its class/role's: observation features and actions fixed per class/role (see ActionCatalog and
+    /// ObserveSeat), padded to the largest layout's on the wire (see LayoutSpec). The learner shares one trunk
+    /// between all layouts, with an input adapter and an action head per layout.
     ///
-    /// The action and observation layouts are fixed per class (see ActionCatalog and Observe), so one
-    /// model covers every race, level, spec and build of the class/role.
+    /// The critic state is class-agnostic (BuildState): every seat's and enemy's essentials, the owner and the
+    /// pull timing.
     class ClassRoleScenario final : public Scenario
     {
     public:
@@ -323,7 +316,7 @@ namespace AnimusForge
             COMPANION_INFO_COUNT
         };
 
-        /// The party's members besides the bot and the owner (Env::Allies 1..PARTY_MEMBERS).
+        /// A party seat's teammates: the other three seats (the owner has the companion block).
         static constexpr uint32 PARTY_MEMBERS = 3;
 
         /// Party features per member slot.
@@ -346,34 +339,33 @@ namespace AnimusForge
             MEMBER_FEATURES             = 31
         };
 
-        /// Party observation features, after all of stage 5's: globals, then PARTY_MEMBERS member slots.
+        /// Party observation features, after all of stage 5's: globals, then PARTY_MEMBERS teammate slots.
         enum PartyObs : uint32
         {
-            PARTY_OBS_ALIVE             = 0,    // living party players (bot included) / 5
-            PARTY_OBS_LOWEST_HEALTH     = 1,    // the most hurt living ally's health (owner and members)
+            PARTY_OBS_ALIVE             = 0,    // living party players (bot and owner included) / 5
+            PARTY_OBS_LOWEST_HEALTH     = 1,    // the most hurt living ally's health (owner and teammates)
             PARTY_OBS_HAS_TANK          = 2,    // a living tank other than the bot
             PARTY_OBS_HAS_HEALER        = 3,    // a living healer other than the bot
             PARTY_OBS_GLOBAL_COUNT      = 4
         };
 
-        /// Party actions, after all of stage 5's: follow the tank, then per member assist and guard, then per
-        /// member one "cast on it" action per owner heal.
+        /// Party actions, after all of stage 5's: follow the tank, then per teammate assist and guard, then per
+        /// teammate one "cast on it" action per ally heal.
         enum PartyAction : uint32
         {
             PARTY_ACTION_FOLLOW_TANK    = 0,
             PARTY_ACTION_ASSIST_FIRST   = 1,    // + member
             PARTY_ACTION_GUARD_FIRST    = 1 + PARTY_MEMBERS,
-            PARTY_ACTION_HEAL_FIRST     = 1 + 2 * PARTY_MEMBERS  // + member * owner heals + heal
+            PARTY_ACTION_HEAL_FIRST     = 1 + 2 * PARTY_MEMBERS  // + teammate * ally heals + heal
         };
 
         enum PartyInfoColumn : uint32
         {
-            PARTY_INFO_MEMBERS_DIED     = 0,
-            PARTY_INFO_MEMBER_DAMAGE_TAKEN = 1,
-            PARTY_INFO_MEMBER_HEALING   = 2,    // effective healing the bot did on the members
-            PARTY_INFO_THREAT_ON_MEMBERS = 3,   // enemy-decisions spent attacking members other than a tank
-            PARTY_INFO_TANK_CLASS       = 4,    // the tank member's class; 0 when the bot tanks
-            PARTY_INFO_HEALER_CLASS     = 5,    // the healer member's class; 0 when the bot heals
+            PARTY_INFO_TEAMMATES_DIED   = 0,
+            PARTY_INFO_TEAMMATE_DAMAGE_TAKEN = 1,
+            PARTY_INFO_TEAMMATE_HEALING = 2,    // effective healing the seat did on its teammates
+            PARTY_INFO_THREAT_ON_TEAMMATES = 3, // enemy-decisions spent attacking non-tank teammates
+            PARTY_INFO_SEAT             = 4,
             PARTY_INFO_COUNT
         };
 
@@ -392,7 +384,7 @@ namespace AnimusForge
             PVP_OBS_BOT_STUNNED         = 20,   // stunned, feared or confused: no actions land
             PVP_OBS_BOT_ROOTED          = 21,
             PVP_OBS_BOT_SILENCED        = 22,
-            PVP_OBS_MIRROR              = 23,   // stage 8: the opponent is the policy itself
+            PVP_OBS_MIRROR              = 23,   // stage 8: the opponent is a learned agent too
             PVP_OBS_COUNT               = 24
         };
 
@@ -417,14 +409,71 @@ namespace AnimusForge
             INFO_EQUIPPED_ITEMS         = 8,
             INFO_SPELL_CASTS            = 9,
             INFO_TRINKET_USES           = 10,
+            INFO_CLASS                  = 11,
+            INFO_ROLE                   = 12,   // 0 damage, 1 tank, 2 healer
             INFO_COUNT
         };
 
-        ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config, ArenaMode mode);
+        /// Learned agents per env: 1, an arena's 2 or a party's 4.
+        static constexpr uint32 MAX_SEATS = 4;
+
+        /// Class-agnostic critic state (BuildState), per seat and per enemy slot.
+        enum StateGlobal : uint32
+        {
+            STATE_EPISODE_TIME          = 0,
+            STATE_PULL_ACTIVE           = 1,
+            STATE_PULLS_CLEARED         = 2,    // / 10
+            STATE_NEXT_PULL             = 3,    // time until the next pull / 20 s
+            STATE_ELITE_PULL            = 4,
+            STATE_LINKED_PULL           = 5,
+            STATE_OWNER_PRESENT         = 6,
+            STATE_OWNER_ALIVE           = 7,
+            STATE_OWNER_HEALTH          = 8,
+            STATE_OWNER_MANA            = 9,
+            STATE_OWNER_X               = 10,   // relative to the arena, / 40
+            STATE_OWNER_Y               = 11,
+            STATE_OWNER_IN_COMBAT       = 12,
+            STATE_GLOBAL_COUNT          = 13
+        };
+
+        enum StateSeat : uint32
+        {
+            STATE_SEAT_PRESENT          = 0,
+            STATE_SEAT_ALIVE            = 1,
+            STATE_SEAT_HEALTH           = 2,
+            STATE_SEAT_MANA             = 3,
+            STATE_SEAT_OTHER_POWER      = 4,    // rage, energy or runic power as a fraction
+            STATE_SEAT_LEVEL            = 5,    // / 80
+            STATE_SEAT_ROLE_FIRST       = 6,    // one-hot: damage, tank, healer
+            STATE_SEAT_CLASS_FIRST      = 9,    // one-hot over the 10 classes
+            STATE_SEAT_IN_COMBAT        = 19,
+            STATE_SEAT_CASTING          = 20,
+            STATE_SEAT_X                = 21,   // relative to the arena, / 40
+            STATE_SEAT_Y                = 22,
+            STATE_SEAT_FEATURES         = 23
+        };
+
+        enum StateEnemy : uint32
+        {
+            STATE_ENEMY_PRESENT         = 0,
+            STATE_ENEMY_ALIVE           = 1,
+            STATE_ENEMY_HEALTH          = 2,
+            STATE_ENEMY_X               = 3,
+            STATE_ENEMY_Y               = 4,
+            STATE_ENEMY_CASTING         = 5,
+            STATE_ENEMY_ELITE           = 6,
+            STATE_ENEMY_LEVEL_DIFF      = 7,    // (its level - seat 0's) / 5
+            STATE_ENEMY_IN_COMBAT       = 8,
+            STATE_ENEMY_ON_OWNER        = 9,    // its victim is the owner
+            STATE_ENEMY_ON_SEAT_FIRST   = 10,   // one-hot: its victim is seat s (MAX_SEATS columns)
+            STATE_ENEMY_FEATURES        = 10 + MAX_SEATS
+        };
+
+        ClassRoleScenario(ForgeConfig const& config, ArenaMode mode);
         ~ClassRoleScenario() override;
 
-        /// `<class>_<role>` for the dummy, `<class>_<role>_duel` for the duel.
-        [[nodiscard]] static std::string ScenarioName(ClassRoleProfile const& profile, ArenaMode mode);
+        /// `class_role` for the dummy, `class_role_duel` for the duel, ...
+        [[nodiscard]] static std::string ScenarioName(ArenaMode mode);
 
         [[nodiscard]] char const* Name() const override { return _name.c_str(); }
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
@@ -434,20 +483,55 @@ namespace AnimusForge
         void Reset(Env& env) override;
         void ApplyActions(Env& env, int32 const* actions) override;
         void Observe(Env& env, float* obs, float* state, uint8* mask) override;
+        void AgentLayouts(Env const& env, uint16* layout) const override;
         void Reward(Env& env, float* reward) override;
         void EpisodeInfo(Env const& env, float* info) const override;
         [[nodiscard]] std::vector<std::string> EpisodeInfoNames() const override;
-        bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
+        bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask, uint16 layout,
             int32& action) const override;
         void Teardown(Env& env) override;
 
     private:
-        struct EnvData
+        /// One class/role's observation and action layout at this stage: offsets of each stage's block.
+        struct Layout
         {
+            uint16 Index = 0;
+            ClassRoleProfile const* Profile = nullptr;
+            ClassRoleAssets const* Assets = nullptr;
+            uint32 ObsDim = 0;
+            uint32 NumActions = 0;
+            uint32 ActionObsFirst = OBS_GLOBAL_COUNT;
+            uint32 TalentObsFirst = 0;
+            uint32 TreeObsFirst = 0;
+            uint32 DuelObsFirst = 0;
+            uint32 DuelActionFirst = 0;
+            uint32 DuelActionCount = 0;
+            uint32 PackObsFirst = 0;
+            uint32 PackActionFirst = 0;
+            uint32 PackActionCount = 0;
+            uint32 GauntletObsFirst = 0;
+            uint32 GauntletActionFirst = 0;
+            uint32 GauntletActionCount = 0;
+            uint32 CompanionObsFirst = 0;
+            uint32 CompanionActionFirst = 0;
+            uint32 CompanionActionCount = 0;
+            uint32 PartyObsFirst = 0;
+            uint32 PartyActionFirst = 0;
+            uint32 PartyActionCount = 0;
+            uint32 PvpObsFirst = 0;
+            std::vector<ActionCatalog::Action> AllyHeals;   // single-target heals that can be cast on an ally
+
+            [[nodiscard]] ActionCatalog const& Catalog() const { return *Assets->Catalog; }
+            [[nodiscard]] Role PlayRole() const { return Profile->PlayRole; }
+        };
+
+        /// One learned agent's character and episode totals.
+        struct Seat
+        {
+            Layout const* L = nullptr;
             std::array<WorldSession*, 2> Sessions{};    // alternate so the old bot outlives the new one's placement
             std::array<ObjectGuid::LowType, 2> Guids{}; // one GUID per session slot, reused (see BotSpec::GuidLow)
             uint8 ActiveSession = 0;
-            bool Fresh = false;                         // built by Setup, not yet reset
 
             uint8 Race = 0;
             uint8 Level = 1;
@@ -455,7 +539,6 @@ namespace AnimusForge
             TalentBuilder::Build Build;
             uint32 UnspentTalentPoints = 0;
             uint32 EquippedItems = 0;
-
             float DamageScale = 1.0f;
             float StartHealth = 1.0f;                   // dummy health fraction at episode start
             float EndHealth = 0.0f;                     // ... and at the episode time limit
@@ -466,8 +549,7 @@ namespace AnimusForge
             uint32 SpellCasts = 0;
             uint32 TrinketUses = 0;
 
-            // Duel only.
-            uint32 OpponentEntry = 0;
+            // Duel on.
             std::vector<uint32> Stable;                 // hunters: beasts offered this episode
             float LastDistance = -1.0f;                 // < 0 until the first reward
             uint32 KillTimeMs = 0;
@@ -479,31 +561,59 @@ namespace AnimusForge
             uint32 CastsCompleted = 0;
             uint32 CastsCancelled = 0;
             uint64 CastMsWasted = 0;
-            bool Killed = false;                        // pack: cleared
+            bool Killed = false;                        // its opponent died (pack: the pull was cleared)
             bool Died = false;
 
-            // Pack and gauntlet.
+            // Pack on.
             uint32 TargetSlot = 0;
-            bool PackLinked = false;
-            uint32 PackSize = 0;
-            uint32 PullKills = 0;                       // dead enemies of the current pull
-            uint32 Kills = 0;
             uint32 Interrupts = 0;
             ObjectGuid PendingInterrupt;                // a casting enemy the bot just cast an interrupt at
-            uint32 PullStartMs = 0;
             uint64 PullDamageTaken = 0;
 
-            // Gauntlet.
-            uint32 PullsCleared = 0;
-            uint32 NextPullMs = 0;                      // spawn the next pull at this episode time
-            bool EliteOrHigherPull = false;
+            // Gauntlet on.
             uint32 FoodItem = 0;
             uint32 DrinkItem = 0;
             uint32 FoodUsed = 0;
             uint32 DrinkUsed = 0;
             uint32 SustainCasts = 0;
 
-            // Companion.
+            // Companion on.
+            uint64 OwnerHealing = 0;
+            uint64 ThreatOnBot = 0;
+            bool OwnerDeathSeen = false;
+
+            // Party.
+            uint64 TeammateDamageTaken = 0;
+            uint64 TeammateHealing = 0;
+            uint64 ThreatOnTeammates = 0;
+            uint32 TeammatesDied = 0;
+            std::array<bool, MAX_SEATS> TeammateDeathSeen{};
+
+            /// Clear the episode totals (not the character).
+            void ResetEpisode();
+        };
+
+        struct EnvData
+        {
+            std::array<Seat, MAX_SEATS> Seats;
+            bool Fresh = false;                         // built by Setup, not yet reset
+
+            // Duel and pack on: the current pull.
+            uint32 OpponentEntry = 0;
+            bool PackLinked = false;
+            uint32 PackSize = 0;
+            uint32 PullKills = 0;                       // dead enemies of the current pull
+            uint32 Kills = 0;
+            uint32 PullStartMs = 0;
+            bool PullCleared = false;                   // decided once per decision, before the seats' rewards
+            uint32 NewKills = 0;                        // ... and the kills since the last decision
+
+            // Gauntlet on.
+            uint32 PullsCleared = 0;
+            uint32 NextPullMs = 0;                      // spawn the next pull at this episode time
+            bool EliteOrHigherPull = false;
+
+            // Companion and party: the scripted owner (Env::Allies[0]).
             std::array<WorldSession*, 2> OwnerSessions{};
             std::array<ObjectGuid::LowType, 2> OwnerGuids{};
             uint8 OwnerActiveSession = 0;
@@ -511,55 +621,16 @@ namespace AnimusForge
             CompanionOwner::State Owner;
             bool OwnerDied = false;
             uint64 OwnerDamageTaken = 0;
-            uint64 OwnerHealing = 0;
-            uint64 ThreatOnBot = 0;
             uint64 ThreatOnOwner = 0;
 
-            // Party: members 1..PARTY_MEMBERS of Env::Allies (the owner is ally 0).
-            struct Member
-            {
-                std::array<WorldSession*, 2> Sessions{};
-                std::array<ObjectGuid::LowType, 2> Guids{};
-                uint8 ActiveSession = 0;
-                uint8 Class = 0;
-                Role PlayRole = Role::Dps;
-                CompanionOwner::State Script;
-                bool Died = false;
-            };
-            std::array<Member, PARTY_MEMBERS> Members;
-            uint32 MembersDied = 0;
-            uint64 MemberDamageTaken = 0;
-            uint64 MemberHealing = 0;
-            uint64 ThreatOnMembers = 0;
-
-            // PvP: the scripted opponent (stage 7), or the pairing (stage 8).
+            // PvP: the scripted opponent.
             std::array<WorldSession*, 2> OpponentSessions{};
             std::array<ObjectGuid::LowType, 2> OpponentGuids{};
             uint8 OpponentActiveSession = 0;
             uint8 OpponentClass = 0;
             Role OpponentRole = Role::Dps;
             CompanionOwner::State Opponent;
-            bool PartnerEnded = false;      // stage 8: the partner env already ended this pair's episode this decision
-            bool PartnerDied = false;       // ... and its bot had died
         };
-
-        /// Replace the env's bot and dummy with a newly rolled character.
-        bool Rebuild(Env& env);
-        void Configure(Player* bot, EnvData& data) const;
-        void StartFight(Player* bot, Unit* dummy, EnvData const& data) const;
-
-        [[nodiscard]] SpellInfo const* ResolveSpell(Player const* bot, uint32 action) const;
-        [[nodiscard]] static SpellInfo const* TrinketSpell(Item const* item);
-        [[nodiscard]] bool IsActionAllowed(Player* bot, Unit* dummy, uint32 action) const;
-        [[nodiscard]] bool IsSpellActionAllowed(Player* bot, Unit* target, ActionCatalog::Action const& def) const;
-
-        /// Casts a spell action at `target` (may be null: self-cast spells only). Returns true if it started.
-        bool ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def, EnvData& data) const;
-        void UpdateDummyHealth(Env const& env, Unit* dummy) const;
-
-        /// The creature the bot's actions aim at: the dummy or opponent, or the selected pack enemy
-        /// (the nearest living one when the selection is dead). Null between gauntlet pulls.
-        [[nodiscard]] Unit* CurrentTarget(Env const& env);
 
         [[nodiscard]] bool HasDuel() const { return _mode >= ArenaMode::Duel; }
         [[nodiscard]] bool HasPack() const { return _mode >= ArenaMode::Pack; }
@@ -567,113 +638,116 @@ namespace AnimusForge
         [[nodiscard]] bool HasCompanion() const { return _mode >= ArenaMode::Companion; }
         [[nodiscard]] bool HasParty() const { return _mode >= ArenaMode::Party; }
         [[nodiscard]] bool HasPvp() const { return _mode >= ArenaMode::Pvp; }
-        /// Stages 1-6 fight creatures; 7 and 8 keep their layout but fight a player, without pulls or allies.
+        /// Stages 1-6 fight creatures; 7 and 8 keep their layouts but fight a player, without pulls or allies.
         [[nodiscard]] bool IsPve() const { return _mode < ArenaMode::Pvp; }
         [[nodiscard]] bool IsArena() const { return _mode == ArenaMode::Arena; }
+        [[nodiscard]] bool IsParty() const { return _mode == ArenaMode::Party; }
 
-        // PvP stages (ClassRolePvp.cpp).
-        [[nodiscard]] uint32 PartnerIndex(uint32 envIndex) const { return envIndex ^ 1; }
-        [[nodiscard]] Player* FindOpponent(Env const& env) const;
-        bool StartPvp(Env& env, Player* bot, Map* map, EnvData& data) const;
-        bool RebuildOpponent(Env& env, Player* bot, Map* map, EnvData& data) const;
-        void DestroyOpponent(Env& env, EnvData& data) const;
-        void UpdatePvp(Env& env, Player* bot, EnvData& data) const;
-        void ObservePvp(Env const& env, Player* bot, float* obs) const;
-        [[nodiscard]] float PvpReward(Env& env, Player* bot, EnvData& data) const;
-        void PvpEpisodeInfo(Env const& env, float* info) const;
+        // Core (ClassRoleScenario.cpp).
+        void BuildLayout(Layout& layout) const;
+        [[nodiscard]] Layout const& PickLayout(Role role, uint8 maxMinLevel) const;
+        [[nodiscard]] Player* SeatBot(EnvData const& data, uint32 seat) const;
+        bool Rebuild(Env& env);
+        /// Create, place and dress seat `seat`'s next character on its idle session (`newSession`).
+        bool BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start, uint8& newSession);
+        void Configure(Player* bot, Seat& seat) const;
+        void StartFight(Player* bot, Unit* dummy, Seat const& seat) const;
+        [[nodiscard]] static SpellInfo const* TrinketSpell(Item const* item);
+        [[nodiscard]] bool IsActionAllowed(Seat const& seat, Player* bot, Unit* target, uint32 action) const;
+        [[nodiscard]] bool IsSpellActionAllowed(Player* bot, Unit* target, ActionCatalog::Action const& def) const;
+        /// Casts a spell action at `target` (may be null: self-cast spells only). Returns true if it started.
+        bool ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def, Seat& seat) const;
+        void UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const;
+        /// What the seat's actions aim at: the dummy or opponent, the selected pack enemy (the nearest living one
+        /// when the selection is dead), the enemy player. Null between gauntlet pulls.
+        [[nodiscard]] Unit* CurrentTarget(Env const& env, uint32 seat);
+        void ApplySeatAction(Env& env, uint32 seat, int32 action);
+        void ObserveSeat(Env& env, uint32 seat, float* obs, uint8* mask);
+        [[nodiscard]] float SeatReward(Env& env, uint32 seat);
+        void SeatEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
-        // Party stage (ClassRoleParty.cpp).
-        [[nodiscard]] Player* FindMember(EnvData const& data, uint32 member) const;
-        [[nodiscard]] Player* PartyTank(Player* bot, EnvData const& data) const;     // the bot or a member
-        bool RebuildMembers(Env& env, Player* bot, Map* map, EnvData& data) const;
-        void DestroyMembers(Env& env, EnvData& data) const;
-        void ScheduleMembers(Env const& env, EnvData& data) const;
-        void UpdateMembers(Env& env, Player* bot, EnvData& data) const;
-        void ObserveParty(Env const& env, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsPartyActionAllowed(Env const& env, Player* bot, uint32 partyAction) const;
-        void ApplyPartyAction(Env& env, Player* bot, uint32 partyAction, EnvData& data) const;
-        [[nodiscard]] float PartyReward(Env& env, Player* bot, EnvData& data) const;
-        void PartyEpisodeInfo(Env const& env, float* info) const;
+        // Critic state (ClassRoleState.cpp).
+        void BuildState(Env const& env, float* state) const;
+
+        // Duel stage (ClassRoleDuel.cpp).
+        void StartDuel(Player* bot, Seat& seat) const;
+        [[nodiscard]] bool IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction, Seat const& seat) const;
+        void ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction, Seat& seat) const;
+        void ObserveDuel(Env const& env, Seat const& seat, Player* bot, Unit* opponent, float* obs) const;
+        /// `opponentDead` defaults to whether `opponent` is dead.
+        [[nodiscard]] float DuelReward(Env const& env, uint32 seat, Player* bot, Unit* opponent,
+            int8 opponentDead = -1);
+        [[nodiscard]] static float CastReward(Player* bot, AgentStats const& step, Seat& seat);
+        void DuelEpisodeInfo(Env const& env, uint32 seat, float* info) const;
+        [[nodiscard]] float DesiredRange(Seat const& seat) const;
+
+        // Pack and gauntlet stages (ClassRolePack.cpp).
+        void StartSeatPack(Player* bot, Seat& seat) const;
+        bool SpawnPull(Env& env, Map* map);
+        void UpdatePack(Env& env);
+        /// Once per decision before the seats' rewards: whether the pull was just cleared, and new kills.
+        void AssessPull(Env& env);
+        /// Once per decision after the seats' rewards: clear a finished gauntlet pull and schedule the next.
+        void FinishPull(Env& env);
+        void ObservePack(Env const& env, uint32 seat, Player* bot, float* obs) const;
+        void ObserveGauntlet(Env const& env, uint32 seat, Player* bot, float* obs) const;
+        [[nodiscard]] bool IsPackActionAllowed(Env const& env, uint32 seat, Player* bot, uint32 packAction) const;
+        void ApplyPackAction(Env& env, uint32 seat, Player* bot, Unit* target, uint32 packAction);
+        [[nodiscard]] bool IsGauntletActionAllowed(Player* bot, Unit* target, uint32 gauntletAction,
+            Seat const& seat) const;
+        void ApplyGauntletAction(Player* bot, Unit* target, uint32 gauntletAction, Seat& seat) const;
+        [[nodiscard]] float PackReward(Env& env, uint32 seat, Player* bot);
+        void PackEpisodeInfo(Env const& env, uint32 seat, float* info) const;
+        void GauntletEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
         // Companion stage (ClassRoleCompanion.cpp).
         [[nodiscard]] Player* FindOwner(EnvData const& data) const;
-        bool RebuildOwner(Env& env, Player* bot, Map* map, EnvData& data) const;
-        void DestroyOwner(Env& env, EnvData& data) const;
-        void UpdateOwner(Env& env, EnvData& data) const;
-        void ObserveCompanion(Env const& env, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsCompanionActionAllowed(Env const& env, Player* bot, uint32 companionAction) const;
-        void ApplyCompanionAction(Env& env, Player* bot, uint32 companionAction, EnvData& data) const;
-        [[nodiscard]] float CompanionReward(Env& env, Player* bot, EnvData& data) const;
-        void CompanionEpisodeInfo(Env const& env, float* info) const;
+        bool RebuildOwner(Env& env, Player* anchor, Map* map, uint8 level);
+        void DestroyOwner(Env& env);
+        void UpdateOwner(Env& env);
+        void ObserveCompanion(Env const& env, uint32 seat, Player* bot, float* obs) const;
+        [[nodiscard]] bool IsCompanionActionAllowed(Env const& env, uint32 seat, Player* bot,
+            uint32 companionAction) const;
+        void ApplyCompanionAction(Env& env, uint32 seat, Player* bot, uint32 companionAction);
+        [[nodiscard]] float CompanionReward(Env& env, uint32 seat, Player* bot);
+        void CompanionEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
-        // Pack and gauntlet stages (ClassRolePack.cpp).
-        bool StartPack(Env& env, Player* bot, Map* map, EnvData& data) const;
-        bool SpawnPull(Env& env, Player* bot, Map* map, EnvData& data) const;
-        void UpdatePack(Env& env, Player* bot, EnvData& data) const;
-        void ObservePack(Env const& env, Player* bot, float* obs) const;
-        void ObserveGauntlet(Env const& env, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsPackActionAllowed(Env const& env, Player* bot, uint32 packAction) const;
-        void ApplyPackAction(Env& env, Player* bot, Unit* target, uint32 packAction, EnvData& data) const;
-        [[nodiscard]] bool IsGauntletActionAllowed(Player* bot, Unit* target, uint32 gauntletAction,
-            EnvData const& data) const;
-        void ApplyGauntletAction(Player* bot, Unit* target, uint32 gauntletAction, EnvData& data) const;
-        [[nodiscard]] float PackReward(Env& env, Player* bot, EnvData& data) const;
-        void PackEpisodeInfo(Env const& env, float* info) const;
-        void GauntletEpisodeInfo(Env const& env, float* info) const;
+        // Party stage (ClassRoleParty.cpp).
+        /// The seat index of teammate slot `slot` (0..PARTY_MEMBERS-1) of `seat`: the other seats in order.
+        [[nodiscard]] static uint32 TeammateSeat(uint32 seat, uint32 slot) { return slot < seat ? slot : slot + 1; }
+        /// The party's living tank (a tank seat), or null.
+        [[nodiscard]] Player* PartyTank(EnvData const& data) const;
+        void ObserveParty(Env const& env, uint32 seat, Player* bot, float* obs) const;
+        [[nodiscard]] bool IsPartyActionAllowed(Env const& env, uint32 seat, Player* bot, uint32 partyAction) const;
+        void ApplyPartyAction(Env& env, uint32 seat, Player* bot, uint32 partyAction);
+        [[nodiscard]] float PartyReward(Env& env, uint32 seat, Player* bot);
+        void PartyEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
-        // Duel stage (ClassRoleDuel.cpp).
-        void StartDuel(Player* bot, Unit* opponent, EnvData& data) const;
-        [[nodiscard]] bool IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction,
-            EnvData const& data) const;
-        void ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction, EnvData& data) const;
-        void ObserveDuel(Env const& env, Player* bot, Unit* opponent, float* obs) const;
-        /// `opponentDead` defaults to whether `opponent` is dead (stage 8 passes its partner's snapshot).
-        [[nodiscard]] float DuelReward(Env const& env, Player* bot, Unit* opponent, EnvData& data,
-            int8 opponentDead = -1) const;
-        [[nodiscard]] static float CastReward(Player* bot, AgentStats const& step, EnvData& data);
-        void DuelEpisodeInfo(Env const& env, float* info) const;
-        [[nodiscard]] float DesiredRange(EnvData const& data) const;
+        // PvP stages (ClassRolePvp.cpp).
+        /// The seat's enemy player: the scripted opponent (stage 7) or the other seat's bot (stage 8).
+        [[nodiscard]] Player* FindOpponent(Env const& env, uint32 seat) const;
+        bool StartPvp(Env& env, Map* map);
+        bool RebuildOpponent(Env& env, Player* bot, Map* map);
+        void DestroyOpponent(Env& env);
+        void UpdatePvp(Env& env);
+        void ObservePvp(Env const& env, uint32 seat, Player* bot, float* obs) const;
+        [[nodiscard]] float PvpReward(Env& env, uint32 seat, Player* bot);
+        void PvpEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
         ArenaMode _mode;
         std::string _name;
-        ClassRoleProfile const& _profile;
         uint32 _arenaMapId;
         Position _arenaPosition;
-        std::vector<uint8> _races;
+        uint32 _seatCount = 1;
 
-        std::unique_ptr<ClassKit> _kit;
-        std::unique_ptr<TalentBuilder> _talents;
-        std::unique_ptr<ActionCatalog> _catalog;
-        std::unique_ptr<GearBuilder> _gear;
-
+        std::vector<Layout> _layouts;
         ScenarioSpec _spec;
-        uint32 _actionObsFirst = OBS_GLOBAL_COUNT;
-        uint32 _talentObsFirst = 0;
-        uint32 _treeObsFirst = 0;
-        uint32 _duelObsFirst = 0;           // duel: first duel observation (= stage 1's ObsDim)
-        uint32 _duelActionFirst = 0;        // duel: first duel action (= stage 1's NumActions)
-        uint32 _duelActionCount = 0;
         uint32 _duelInfoFirst = INFO_COUNT;
-        uint32 _packObsFirst = 0;           // pack: first pack observation (= stage 2's ObsDim)
-        uint32 _packActionFirst = 0;
-        uint32 _packActionCount = 0;
         uint32 _packInfoFirst = 0;
-        uint32 _gauntletObsFirst = 0;       // gauntlet: first gauntlet observation (= stage 3's ObsDim)
-        uint32 _gauntletActionFirst = 0;
-        uint32 _gauntletActionCount = 0;
         uint32 _gauntletInfoFirst = 0;
-        uint32 _companionObsFirst = 0;      // companion: first companion observation (= stage 4's ObsDim)
-        uint32 _companionActionFirst = 0;
-        uint32 _companionActionCount = 0;
         uint32 _companionInfoFirst = 0;
-        std::vector<ActionCatalog::Action> _ownerHeals;     // single-target heals, cast on the owner
-        uint32 _partyObsFirst = 0;          // party: first party observation (= stage 5's ObsDim)
-        uint32 _partyActionFirst = 0;
-        uint32 _partyActionCount = 0;
         uint32 _partyInfoFirst = 0;
-        uint32 _pvpObsFirst = 0;            // PvP: first PvP observation (= stage 6's ObsDim)
         uint32 _pvpInfoFirst = 0;
-        std::vector<Env*> _envs;            // every env by index, for stage 8's pairs
         std::vector<EnvData> _data;
     };
 }

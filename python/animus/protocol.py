@@ -11,9 +11,10 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
+LAYOUT_NAME_SIZE = 48
 NO_EPISODE_SEED = 0xFFFFFFFF
 
 
@@ -29,8 +30,22 @@ class MsgType(IntEnum):
 HEADER = struct.Struct("<II")  # type, payload length
 HELLO = struct.Struct("<I")  # version
 SPEC = struct.Struct(f"<10I{SCENARIO_NAME_SIZE}s")
+LAYOUT_COUNT = struct.Struct("<I")
+LAYOUT = struct.Struct(f"<II{LAYOUT_NAME_SIZE}s")  # obs dim, actions, name
 STEP_HEADER = struct.Struct("<Q")  # decision counter
 MODE = struct.Struct(f"<III{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, baseline policy
+
+
+@dataclass(frozen=True)
+class Layout:
+    """One agent layout: the observation features and actions of one kind of agent (e.g. a class/role).
+
+    An agent of this layout fills only obs[:obs_dim] and mask[:num_actions] of the padded arrays.
+    """
+
+    name: str
+    obs_dim: int
+    num_actions: int
 
 
 @dataclass(frozen=True)
@@ -38,14 +53,15 @@ class Spec:
     version: int
     num_envs: int
     agents_per_env: int
-    obs_dim: int
+    obs_dim: int  # the largest layout's; observations are padded to it
     state_dim: int
-    num_actions: int
-    episode_info_dim: int
+    num_actions: int  # the largest layout's; masks are padded to it
+    episode_info_dim: int  # per agent
     tick_ms: int
     decision_ticks: int
     episode_seconds: int
     scenario: str
+    layouts: tuple[Layout, ...] = ()
     episode_info_names: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -55,17 +71,18 @@ class Spec:
     def step_layout(self) -> list[tuple[str, np.dtype, tuple[int, ...]]]:
         """STEP payload arrays after the header, in wire order: (name, dtype, shape)."""
         e, a = self.num_envs, self.agents_per_env
-        f32, u8, u32 = np.dtype("<f4"), np.dtype("u1"), np.dtype("<u4")
+        f32, u8, u16, u32 = np.dtype("<f4"), np.dtype("u1"), np.dtype("<u2"), np.dtype("<u4")
         return [
             ("obs", f32, (e, a, self.obs_dim)),
             ("state", f32, (e, self.state_dim)),
             ("mask", u8, (e, a, self.num_actions)),
+            ("layout", u16, (e, a)),
             ("reward", f32, (e, a)),
             ("done", u8, (e,)),
             ("terminated", u8, (e,)),
             ("final_obs", f32, (e, a, self.obs_dim)),
             ("final_state", f32, (e, self.state_dim)),
-            ("episode_info", f32, (e, self.episode_info_dim)),
+            ("episode_info", f32, (e, a, self.episode_info_dim)),
             ("episode_seed", u32, (e,)),
         ]
 
@@ -82,15 +99,16 @@ class Spec:
 @dataclass
 class Step:
     decision: int
-    obs: np.ndarray  # [E, A, O] float32
+    obs: np.ndarray  # [E, A, O] float32, each agent padded to O
     state: np.ndarray  # [E, S] float32
-    mask: np.ndarray  # [E, A, N] bool
+    mask: np.ndarray  # [E, A, N] bool, each agent padded to N
+    layout: np.ndarray  # [E, A] uint16, index into Spec.layouts
     reward: np.ndarray  # [E, A] float32
     done: np.ndarray  # [E] bool
     terminated: np.ndarray  # [E] bool
     final_obs: np.ndarray  # [E, A, O] float32, valid where done
     final_state: np.ndarray  # [E, S] float32, valid where done
-    episode_info: np.ndarray  # [E, K] float32, valid where done
+    episode_info: np.ndarray  # [E, A, K] float32, valid where done
     episode_seed: np.ndarray  # [E] uint32, evaluation seed index where done; NO_EPISODE_SEED for training
 
 
@@ -108,15 +126,27 @@ def encode_spec(spec: Spec) -> bytes:
         spec.episode_seconds,
         spec.scenario.encode("ascii"),
     )
+    body += LAYOUT_COUNT.pack(len(spec.layouts))
+    for layout in spec.layouts:
+        body += LAYOUT.pack(layout.obs_dim, layout.num_actions, layout.name.encode("ascii"))
     return body + ",".join(spec.episode_info_names).encode("ascii")
 
 
 def decode_spec(payload: bytes) -> Spec:
     fields = SPEC.unpack_from(payload)
-    names = payload[SPEC.size :].decode("ascii")
+    offset = SPEC.size
+    (count,) = LAYOUT_COUNT.unpack_from(payload, offset)
+    offset += LAYOUT_COUNT.size
+    layouts = []
+    for _ in range(count):
+        obs_dim, num_actions, name = LAYOUT.unpack_from(payload, offset)
+        offset += LAYOUT.size
+        layouts.append(Layout(name.split(b"\0", 1)[0].decode("ascii"), obs_dim, num_actions))
+    names = payload[offset:].decode("ascii")
     return Spec(
         *fields[:10],
         scenario=fields[10].split(b"\0", 1)[0].decode("ascii"),
+        layouts=tuple(layouts),
         episode_info_names=tuple(names.split(",")) if names else (),
     )
 

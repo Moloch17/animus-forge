@@ -17,8 +17,8 @@
  */
 
 /*
- * The companion stage of ClassRoleScenario (ArenaMode::Companion): the scripted owner's lifecycle,
- * follow/assist/guard and owner-heal actions, the owner observations and the role rewards.
+ * The companion stage of ClassRoleScenario (ArenaMode::Companion), also the owner of the party stage: the scripted
+ * owner's lifecycle, follow/assist/guard and owner-heal actions, the owner observations and the role rewards.
  */
 
 #include "ClassRoleScenario.h"
@@ -47,7 +47,7 @@ namespace
         CLASS_MAGE, CLASS_WARLOCK, CLASS_DRUID
     };
 
-    constexpr uint32 OWNER_ACCOUNT_OFFSET = 100000;     // owner accounts sit apart from companion accounts
+    constexpr uint32 OWNER_ACCOUNT_OFFSET = 100000;     // owner accounts sit apart from seat accounts
     constexpr int32 OWNER_LEVEL_SPREAD = 2;
     constexpr float OWNER_START_OFFSET = 3.0f;
     constexpr uint32 FOLLOW_MOVE_POINT_ID = 3;
@@ -108,26 +108,26 @@ Player* AnimusForge::ClassRoleScenario::FindOwner(EnvData const& data) const
     return session ? session->GetPlayer() : nullptr;
 }
 
-bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* bot, Map* map, EnvData& data) const
+bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* anchor, Map* map, uint8 botLevel)
 {
-    CompanionOwner::Templates const& templates = CompanionOwner::Templates::Instance();
+    EnvData& data = _data[env.Index];
     Player* oldOwner = FindOwner(data);
 
-    uint8 const level = uint8(std::clamp<int32>(int32(data.Level) + irand(-OWNER_LEVEL_SPREAD, OWNER_LEVEL_SPREAD), 1,
+    uint8 const level = uint8(std::clamp<int32>(int32(botLevel) + irand(-OWNER_LEVEL_SPREAD, OWNER_LEVEL_SPREAD), 1,
         DEFAULT_MAX_LEVEL));
-    std::vector<uint8> const classes = templates.ClassesForLevel(level);
+    std::vector<uint8> const classes = ClassRoleAssets::ClassesForRole(level, Role::Dps);
     if (classes.empty())
         return false;
 
     uint8 const playerClass = classes[urand(0, uint32(classes.size()) - 1)];
-    CompanionOwner::Template const* ownerTemplate = templates.ForClass(playerClass);
+    ClassRoleAssets const& assets = ClassRoleAssets::For(*ClassRoleAssets::FindProfile(playerClass, Role::Dps));
 
-    // Same session and GUID alternation as the companion (see Rebuild).
+    // Same session and GUID alternation as the seats (see Rebuild).
     uint8 const session = oldOwner ? uint8(1 - data.OwnerActiveSession) : data.OwnerActiveSession;
 
     BotFactory::BotSpec spec;
     spec.Name = Acore::StringFormat("Owner{}{}", env.Index, session ? "b" : "a");
-    spec.Race = ownerTemplate->Races[urand(0, uint32(ownerTemplate->Races.size()) - 1)];
+    spec.Race = assets.Races[urand(0, uint32(assets.Races.size()) - 1)];
     spec.Class = playerClass;
     spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
     spec.Level = level;
@@ -151,11 +151,11 @@ bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* bot, Map* ma
     }
 
     owner->InitTalentForLevel();
-    CompanionOwner::Configure(owner, *ownerTemplate, data.Owner);
+    CompanionOwner::Configure(owner, assets, data.Owner);
 
-    // Either faction's races can be paired: give the owner the companion's faction so they are friends
-    // (heals and buffs land, neither can attack the other).
-    owner->SetFaction(bot->GetFaction());
+    // Either faction's races can be paired: give the owner the seats' faction so they are friends (heals and buffs
+    // land, neither can attack the other).
+    owner->SetFaction(anchor->GetFaction());
 
     if (oldOwner)
         data.OwnerSessions[data.OwnerActiveSession] = BotFactory::Destroy(oldOwner, true);
@@ -166,8 +166,9 @@ bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* bot, Map* ma
     return true;
 }
 
-void AnimusForge::ClassRoleScenario::DestroyOwner(Env& env, EnvData& data) const
+void AnimusForge::ClassRoleScenario::DestroyOwner(Env& env)
 {
+    EnvData& data = _data[env.Index];
     if (Player* owner = FindOwner(data))
     {
         BotFactory::Destroy(owner);
@@ -177,8 +178,9 @@ void AnimusForge::ClassRoleScenario::DestroyOwner(Env& env, EnvData& data) const
     env.Allies.clear();
 }
 
-void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env, EnvData& data) const
+void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env)
 {
+    EnvData& data = _data[env.Index];
     Player* owner = FindOwner(data);
     if (!owner)
         return;
@@ -189,18 +191,19 @@ void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env, EnvData& data) const
             enemies.push_back(enemy);
 
     // In a party the owner fights the tank's target once the tank has one.
-    Player* tank = HasParty() ? PartyTank(env.FindBot(0), data) : nullptr;
-    Unit* preferred = tank && tank != owner && tank->IsAlive() ? tank->GetVictim() : nullptr;
+    Player* tank = HasParty() ? PartyTank(data) : nullptr;
+    Unit* preferred = tank && tank->IsAlive() ? tank->GetVictim() : nullptr;
     CompanionOwner::Update(owner, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner, preferred);
 }
 
-void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, Player* bot, float* obs) const
+void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
 {
     EnvData const& data = _data[env.Index];
-    float* companion = obs + _companionObsFirst;
+    Layout const& layout = *data.Seats[seatIndex].L;
+    float* companion = obs + layout.CompanionObsFirst;
 
     Player* owner = FindOwner(data);
-    if (owner)
+    if (owner && owner->IsInMap(bot))
     {
         float const bearing = bot->GetRelativeAngle(owner);
         companion[COMPANION_OBS_OWNER_PRESENT] = 1.0f;
@@ -239,9 +242,9 @@ void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, Player* bo
     }
 
     float* heals = companion + COMPANION_OBS_GLOBAL_COUNT;
-    for (uint32 i = 0; i < _ownerHeals.size(); ++i)
+    for (uint32 i = 0; i < layout.AllyHeals.size(); ++i)
     {
-        if (SpellInfo const* info = ActionCatalog::KnownRank(bot, _ownerHeals[i].FirstRank))
+        if (SpellInfo const* info = ActionCatalog::KnownRank(bot, layout.AllyHeals[i].FirstRank))
         {
             heals[i * 2] = 1.0f;
             heals[i * 2 + 1] = CooldownFraction(bot, info);
@@ -249,11 +252,13 @@ void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, Player* bo
     }
 }
 
-bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, Player* bot, uint32 companionAction) const
+bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, uint32 seatIndex, Player* bot,
+    uint32 companionAction) const
 {
     EnvData const& data = _data[env.Index];
+    Seat const& seat = data.Seats[seatIndex];
     Player* owner = FindOwner(data);
-    if (!owner || !owner->IsAlive() || !bot->IsAlive())
+    if (!owner || !owner->IsAlive() || !bot->IsAlive() || !owner->IsInMap(bot))
         return false;
 
     bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
@@ -265,13 +270,13 @@ bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, Pl
         case COMPANION_ACTION_ASSIST:
         {
             int32 const slot = SlotOf(env, owner->GetVictim());
-            return slot >= 0 && uint32(slot) != data.TargetSlot && owner->GetVictim()->IsAlive();
+            return slot >= 0 && uint32(slot) != seat.TargetSlot && owner->GetVictim()->IsAlive();
         }
         case COMPANION_ACTION_GUARD:
         {
             for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
                 if (Unit* enemy = env.FindTargetUnit(slot);
-                    enemy && enemy->IsAlive() && enemy->GetVictim() == owner && slot != data.TargetSlot)
+                    enemy && enemy->IsAlive() && enemy->GetVictim() == owner && slot != seat.TargetSlot)
                     return true;
             return false;
         }
@@ -279,7 +284,7 @@ bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, Pl
             break;
     }
 
-    ActionCatalog::Action const& heal = _ownerHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
+    ActionCatalog::Action const& heal = seat.L->AllyHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
     SpellInfo const* info = ActionCatalog::KnownRank(bot, heal.FirstRank);
     if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id)
         || bot->GetGlobalCooldownMgr().HasGlobalCooldown(info) || bot->IsNonMeleeSpellCast(false, true, true))
@@ -291,12 +296,14 @@ bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, Pl
     return CanCastOn(bot, info, owner);
 }
 
-void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, Player* bot, uint32 companionAction,
-    EnvData& data) const
+void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, uint32 seatIndex, Player* bot,
+    uint32 companionAction)
 {
-    if (!IsCompanionActionAllowed(env, bot, companionAction))
+    if (!IsCompanionActionAllowed(env, seatIndex, bot, companionAction))
         return;
 
+    EnvData& data = _data[env.Index];
+    Seat& seat = data.Seats[seatIndex];
     Player* owner = FindOwner(data);
 
     switch (companionAction)
@@ -322,14 +329,14 @@ void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, Player* bot,
                 for (uint32 candidate = 0; candidate < env.Targets.size() && candidate < PACK_SLOTS && slot < 0;
                     ++candidate)
                     if (Unit* enemy = env.FindTargetUnit(candidate); enemy && enemy->IsAlive()
-                        && enemy->GetVictim() == owner && candidate != data.TargetSlot)
+                        && enemy->GetVictim() == owner && candidate != seat.TargetSlot)
                         slot = int32(candidate);
 
             Unit* enemy = slot >= 0 ? env.FindTargetUnit(uint32(slot)) : nullptr;
             if (!enemy)
                 return;
 
-            data.TargetSlot = uint32(slot);
+            seat.TargetSlot = uint32(slot);
             bot->SetSelection(enemy->GetGUID());
             if (bot->GetVictim())
                 bot->Attack(enemy, bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
@@ -339,7 +346,7 @@ void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, Player* bot,
             break;
     }
 
-    ActionCatalog::Action const& heal = _ownerHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
+    ActionCatalog::Action const& heal = seat.L->AllyHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
     SpellInfo const* info = ActionCatalog::KnownRank(bot, heal.FirstRank);
     if (!info)
         return;
@@ -349,26 +356,29 @@ void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, Player* bot,
     Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
     if (spell->prepare(&targets) == SPELL_CAST_OK)
     {
-        ++data.SpellCasts;
-        ++data.SustainCasts;
+        ++seat.SpellCasts;
+        ++seat.SustainCasts;
     }
 }
 
-float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, EnvData& data) const
+float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex, Player* bot)
 {
-    float reward = PackReward(env, bot, data);
+    float reward = PackReward(env, seatIndex, bot);
 
+    EnvData& data = _data[env.Index];
+    Seat& seat = data.Seats[seatIndex];
     Player* owner = FindOwner(data);
     if (!bot || !owner)
         return reward;
 
-    AgentStats const& step = env.StepStats[0];
-    Role const role = _profile.PlayRole;
+    AgentStats const& step = env.StepStats[seatIndex];
+    Role const role = seat.L->PlayRole();
     float const ownerHealth = float(std::max<uint32>(1, owner->GetMaxHealth()));
 
-    // The owner is ally 0 (a party's other members follow it).
-    data.OwnerDamageTaken += step.AllyDamageTakenBy[0];
-    data.OwnerHealing += step.AllyHealingBy[0];
+    // The owner is ally 0. Its damage taken is the env's: every seat's step stats carry it; count it once.
+    if (seatIndex == 0)
+        data.OwnerDamageTaken += step.AllyDamageTakenBy[0];
+    seat.OwnerHealing += step.AllyHealingBy[0];
 
     reward -= (role == Role::Dps ? OWNER_DAMAGE_TAKEN_DPS : OWNER_DAMAGE_TAKEN_PROTECTOR)
         * float(step.AllyDamageTakenBy[0]) / ownerHealth;
@@ -377,7 +387,7 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
         reward += HEALING * float(step.AllyHealingBy[0]) / ownerHealth;
 
     if (role == Role::Tank)
-        reward += TANK_DAMAGE_REFUND * data.LastStepDamageTaken;
+        reward += TANK_DAMAGE_REFUND * seat.LastStepDamageTaken;
 
     // Who the enemies are fighting.
     uint32 onBot = 0;
@@ -392,8 +402,9 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
         onOwner += enemy->GetVictim() == owner ? 1 : 0;
     }
 
-    data.ThreatOnBot += onBot;
-    data.ThreatOnOwner += onOwner;
+    seat.ThreatOnBot += onBot;
+    if (seatIndex == 0)
+        data.ThreatOnOwner += onOwner;
 
     if (role == Role::Tank)
         reward += TANK_HOLD * float(onBot) - TANK_LOSE * float(onOwner);
@@ -402,13 +413,13 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
 
     if (owner->IsAlive())
     {
-        // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped.
-        // A party's tank pulls first by design.
-        if (bot->IsInCombat() && !owner->IsInCombat() && !(HasParty() && role == Role::Tank))
+        // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
+        // tank pulls first by design).
+        if (bot->IsInCombat() && !owner->IsInCombat() && !(IsParty() && role == Role::Tank))
             reward -= SOLO_FIGHT;
 
         // Out of combat, stay with the owner.
-        if (!bot->IsInCombat() && !owner->IsInCombat())
+        if (bot->IsAlive() && !bot->IsInCombat() && !owner->IsInCombat() && owner->IsInMap(bot))
         {
             float const distance = bot->GetDistance(owner);
             if (distance > 25.0f)
@@ -417,8 +428,10 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
                 reward += FOLLOW_NEAR;
         }
     }
-    else if (!data.OwnerDied)
+    else if (!seat.OwnerDeathSeen)
     {
+        // Every seat pays for the owner's death, once.
+        seat.OwnerDeathSeen = true;
         data.OwnerDied = true;
         reward -= OWNER_DEATH;
     }
@@ -426,14 +439,15 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
     return reward;
 }
 
-void AnimusForge::ClassRoleScenario::CompanionEpisodeInfo(Env const& env, float* info) const
+void AnimusForge::ClassRoleScenario::CompanionEpisodeInfo(Env const& env, uint32 seatIndex, float* info) const
 {
     EnvData const& data = _data[env.Index];
+    Seat const& seat = data.Seats[seatIndex];
 
     info[COMPANION_INFO_OWNER_CLASS] = float(data.OwnerClass);
     info[COMPANION_INFO_OWNER_DIED] = data.OwnerDied ? 1.0f : 0.0f;
     info[COMPANION_INFO_OWNER_DAMAGE_TAKEN] = float(data.OwnerDamageTaken);
-    info[COMPANION_INFO_OWNER_HEALING] = float(data.OwnerHealing);
-    info[COMPANION_INFO_THREAT_ON_BOT] = float(data.ThreatOnBot);
+    info[COMPANION_INFO_OWNER_HEALING] = float(seat.OwnerHealing);
+    info[COMPANION_INFO_THREAT_ON_BOT] = float(seat.ThreatOnBot);
     info[COMPANION_INFO_THREAT_ON_OWNER] = float(data.ThreatOnOwner);
 }

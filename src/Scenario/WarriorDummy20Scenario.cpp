@@ -679,7 +679,7 @@ std::vector<std::string> AnimusForge::WarriorDummy20Scenario::EpisodeInfoNames()
 }
 
 bool AnimusForge::WarriorDummy20Scenario::ScriptedAction(std::string const& policy, float const* obs,
-    uint8 const* mask, int32& action) const
+    uint8 const* mask, uint16 /*layout*/, int32& action) const
 {
     float const rage = obs[OBS_RAGE] * 100.0f;  // max rage is 100 (stored as 1000 tenths)
 

@@ -69,7 +69,7 @@ bool AnimusForge::Forge::Start()
         std::vector<uint8> mask(spec.NumActions, 0);
         int32 action = 0;
 
-        if (!_scenario->ScriptedAction(_config.Policy, obs.data(), mask.data(), action))
+        if (!_scenario->ScriptedAction(_config.Policy, obs.data(), mask.data(), 0, action))
         {
             LOG_ERROR("module.animus", "Scenario {} has no policy '{}'", _scenario->Name(), _config.Policy);
             Fail("unknown policy");
@@ -288,7 +288,7 @@ bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
         std::vector<uint8> mask(spec.NumActions, 0);
         int32 action = 0;
 
-        if (!_scenario->ScriptedAction(baseline, obs.data(), mask.data(), action))
+        if (!_scenario->ScriptedAction(baseline, obs.data(), mask.data(), 0, action))
         {
             LOG_ERROR("module.animus", "Learner asked for baseline '{}', which scenario {} does not have", baseline,
                 _scenario->Name());
@@ -324,11 +324,21 @@ bool AnimusForge::Forge::SendSpec()
     msg.EpisodeSeconds = _config.EpisodeSeconds;
     std::strncpy(msg.Scenario, _scenario->Name(), SCENARIO_NAME_SIZE - 1);
 
+    uint32 const layoutCount = uint32(spec.Layouts.size());
+    std::vector<LayoutMsg> layouts(layoutCount);
+    for (uint32 i = 0; i < layoutCount; ++i)
+    {
+        layouts[i].ObsDim = spec.Layouts[i].ObsDim;
+        layouts[i].NumActions = spec.Layouts[i].NumActions;
+        std::strncpy(layouts[i].Name, spec.Layouts[i].Name.c_str(), LAYOUT_NAME_SIZE - 1);
+    }
+
     std::string names;
     for (std::string const& name : _scenario->EpisodeInfoNames())
         names += (names.empty() ? "" : ",") + name;
 
-    return _server.Send(MsgType::Spec, { { &msg, sizeof(msg) }, { names.data(), names.size() } });
+    return _server.Send(MsgType::Spec, { { &msg, sizeof(msg) }, { &layoutCount, sizeof(layoutCount) },
+        { layouts.data(), layouts.size() * sizeof(LayoutMsg) }, { names.data(), names.size() } });
 }
 
 bool AnimusForge::Forge::SendStep()
@@ -343,6 +353,7 @@ bool AnimusForge::Forge::SendStep()
         chunk(_pool->Obs),
         chunk(_pool->State),
         chunk(_pool->Mask),
+        chunk(_pool->Layout),
         chunk(_pool->Rewards),
         chunk(_pool->Done),
         chunk(_pool->Terminated),

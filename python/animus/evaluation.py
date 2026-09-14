@@ -1,12 +1,13 @@
 """Seeded evaluation and plateau detection.
 
 An evaluation switches the sim to seeded episodes (protocol MODE): episode seed index i builds the same
-character and opponents every time, so two checkpoints -- or a checkpoint and a scripted baseline -- are
+characters and opponents every time, so two checkpoints -- or a checkpoint and a scripted baseline -- are
 scored on exactly the same situations. Combat rolls (crits, misses, creature choices during the fight) stay
 random, so the scores are averages over the seeds, not replays.
 
-The score is the mean episode return: the scenario's own reward summed over each episode, so it measures
-what training optimises and is comparable between checkpoints of one scenario (not between scenarios).
+The score is the mean episode return over every agent of every seeded episode: the scenario's own reward summed
+over each episode, so it measures what training optimises and is comparable between checkpoints of one scenario
+(not between scenarios). Summaries also break it down by level band and by layout (class/role).
 """
 
 from __future__ import annotations
@@ -24,9 +25,10 @@ LEVEL_BANDS = ((1, 20), (21, 40), (41, 60), (61, 80))
 @dataclass
 class EvalResult:
     policy: str  # "learner" or the baseline's name
-    returns: np.ndarray  # [episodes] episode returns, in seed order
-    infos: np.ndarray  # [episodes, K] episode info, in seed order
+    returns: np.ndarray  # [n] episode returns, one per agent of each seeded episode, in (seed, agent) order
+    infos: np.ndarray  # [n, K] episode info, same order
     info_names: tuple[str, ...]
+    layouts: tuple[str, ...] = ()  # [n] each agent's layout name
     seconds: float = 0.0
     decisions: int = 0
 
@@ -42,7 +44,7 @@ class EvalResult:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
 
     def summary(self, columns: tuple[str, ...]) -> dict:
-        """Score and means of `columns` (those the scenario has), overall and per level band if it has levels."""
+        """Score and means of `columns` (those the scenario has): overall, per level band, per layout."""
         present = [c for c in columns if c in self.info_names]
 
         def means(rows: np.ndarray) -> dict:
@@ -53,13 +55,17 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
                 rows = (levels >= low) & (levels <= high)
                 if rows.any():
                     result["bands"][f"{low}-{high}"] = means(rows)
+        if len(set(self.layouts)) > 1:
+            names = np.array(self.layouts)
+            for layout in sorted(set(self.layouts)):
+                result["layouts"][layout] = means(names == layout)
         return result
 
 
@@ -70,7 +76,8 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
     choose_actions(step) -> [E, A] actions; ignored by the sim when `baseline` names a scripted policy.
     """
     started = time.perf_counter()
-    envs = spec.num_envs
+    envs, agents = spec.num_envs, spec.agents_per_env
+    names = [layout.name for layout in spec.layouts]
 
     if max_decisions is None:
         per_episode = max(1, spec.episode_seconds * 1000 // max(1, spec.decision_ms))
@@ -78,33 +85,37 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         max_decisions = per_episode * (-(-episodes // envs) + 2)
 
     step = env.set_mode(True, seed, episodes, baseline)
-    running = np.zeros(envs, dtype=np.float64)
-    returns: dict[int, float] = {}
-    infos: dict[int, np.ndarray] = {}
+    running = np.zeros((envs, agents), dtype=np.float64)
+    finished: dict[int, list[tuple[float, np.ndarray, str]]] = {}
     decisions = 0
 
-    while len(returns) < episodes and decisions < max_decisions:
-        actions = np.zeros((envs, spec.agents_per_env), dtype=np.int32) if baseline else choose_actions(step)
+    while len(finished) < episodes and decisions < max_decisions:
+        actions = np.zeros((envs, agents), dtype=np.int32) if baseline else choose_actions(step)
+        # The episode's layouts: after a done, the next STEP already carries the new episode's.
+        layout = step.layout
         step = env.step(actions)
         decisions += 1
 
-        running += step.reward.mean(axis=1)
+        running += step.reward
         for e in np.flatnonzero(step.done):
             index = int(step.episode_seed[e])
-            if index != p.NO_EPISODE_SEED and index < episodes and index not in returns:
-                returns[index] = float(running[e])
-                infos[index] = step.episode_info[e].copy()
+            if index != p.NO_EPISODE_SEED and index < episodes and index not in finished:
+                finished[index] = [
+                    (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])])
+                    for a in range(agents)
+                ]
             running[e] = 0.0
 
-    if len(returns) < episodes:
-        print(f"Evaluation stopped after {decisions} decisions with {len(returns)} of {episodes} episodes", flush=True)
+    if len(finished) < episodes:
+        print(f"Evaluation stopped after {decisions} decisions with {len(finished)} of {episodes} episodes", flush=True)
 
-    order = sorted(returns)
+    rows = [row for index in sorted(finished) for row in finished[index]]
     result = EvalResult(
         policy=baseline or "learner",
-        returns=np.array([returns[i] for i in order], dtype=np.float64),
-        infos=np.array([infos[i] for i in order], dtype=np.float32).reshape(len(order), spec.episode_info_dim),
+        returns=np.array([row[0] for row in rows], dtype=np.float64),
+        infos=np.array([row[1] for row in rows], dtype=np.float32).reshape(len(rows), spec.episode_info_dim),
         info_names=tuple(spec.episode_info_names),
+        layouts=tuple(row[2] for row in rows),
         seconds=time.perf_counter() - started,
         decisions=decisions,
     )
@@ -158,18 +169,21 @@ class PlateauTracker:
 
 
 def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...]) -> str:
-    """Multi-line table: overall and per level band, learner next to baseline."""
+    """Multi-line table: overall, per level band and per layout, learner next to baseline."""
 
     def cell(row: dict | None, name: str) -> str:
         value = None if row is None else row.get(name)
         return f"{value:10.2f}" if isinstance(value, (int, float)) else f"{'-':>10}"
 
     names = ["score", *[c for c in columns if c in summary]]
-    lines = [f"  {'band':>7} {'n':>4}  " + "  ".join(f"{n[:21]:>21}" for n in names)]
     rows = [("all", summary, baseline)]
-    for band, row in summary.get("bands", {}).items():
-        rows.append((band, row, (baseline or {}).get("bands", {}).get(band)))
-    for band, row, base in rows:
+    for group in ("bands", "layouts"):
+        for key, row in summary.get(group, {}).items():
+            rows.append((key, row, (baseline or {}).get(group, {}).get(key)))
+
+    width = max(7, *(len(key) for key, _, _ in rows))
+    lines = [f"  {'group':>{width}} {'n':>4}  " + "  ".join(f"{n[:21]:>21}" for n in names)]
+    for key, row, base in rows:
         cells = "  ".join(f"{cell(row, n)}/{cell(base, n).strip():>10}" for n in names)
-        lines.append(f"  {band:>7} {row['episodes']:>4}  {cells}")
+        lines.append(f"  {key:>{width}} {row['episodes']:>4}  {cells}")
     return "\n".join(lines)

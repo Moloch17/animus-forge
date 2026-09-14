@@ -241,7 +241,7 @@ std::vector<std::string> AnimusForge::WarriorDummyScenario::EpisodeInfoNames() c
 }
 
 bool AnimusForge::WarriorDummyScenario::ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
-    int32& action) const
+    uint16 /*layout*/, int32& action) const
 {
     if (policy == "never_hs")
     {

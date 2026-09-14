@@ -36,12 +36,6 @@ namespace
     using AnimusForge::Role;
     using AnimusForge::CompanionOwner::State;
 
-    constexpr std::array<uint8, 10> PLAYABLE_RACES =
-    {
-        RACE_HUMAN, RACE_ORC, RACE_DWARF, RACE_NIGHTELF, RACE_UNDEAD_PLAYER, RACE_TAUREN, RACE_GNOME, RACE_TROLL,
-        RACE_BLOODELF, RACE_DRAENEI
-    };
-
     enum OwnerSpells : uint32
     {
         SPELL_BATTLE_STANCE     = 2457,
@@ -68,7 +62,6 @@ namespace
     constexpr float RANGED_MIN = 20.0f;         // PvP: a ranged spec backs off inside this ...
     constexpr float RANGED_MAX = 30.0f;         // ... and closes in beyond this
     constexpr float SELF_HEAL_BELOW = 0.6f;
-    constexpr uint8 DEATH_KNIGHT_START_LEVEL = 55;
 
     bool IsHeal(SpellInfo const* info)
     {
@@ -201,61 +194,15 @@ namespace
     }
 }
 
-AnimusForge::CompanionOwner::Templates const& AnimusForge::CompanionOwner::Templates::Instance()
-{
-    static Templates const templates;
-    return templates;
-}
-
-AnimusForge::CompanionOwner::Templates::Templates()
-{
-    for (ClassRoleProfile const& profile : ClassRoleProfiles())
-    {
-        std::pair<uint8, Role> const key{ profile.Class, profile.PlayRole };
-        if (_byClassRole.contains(key))
-            continue;
-
-        Template& entry = _byClassRole[key];
-        entry.Profile = &profile;
-        for (uint8 race : PLAYABLE_RACES)
-            if (sObjectMgr->GetPlayerInfo(race, profile.Class))
-                entry.Races.push_back(race);
-
-        entry.Kit = std::make_unique<ClassKit>(profile.Class);
-        entry.Talents = std::make_unique<TalentBuilder>(profile.Class);
-        entry.Gear = std::make_unique<GearBuilder>(profile, *entry.Kit);
-    }
-
-    LOG_INFO("module.animus", "Scripted players: {} class/role templates", _byClassRole.size());
-}
-
-AnimusForge::CompanionOwner::Template const* AnimusForge::CompanionOwner::Templates::ForClassRole(uint8 playerClass,
-    Role role) const
-{
-    auto const itr = _byClassRole.find({ playerClass, role });
-    return itr != _byClassRole.end() ? &itr->second : nullptr;
-}
-
-std::vector<uint8> AnimusForge::CompanionOwner::Templates::ClassesForRole(uint8 level, Role role) const
-{
-    std::vector<uint8> classes;
-    for (auto const& [key, entry] : _byClassRole)
-        if (key.second == role && !entry.Races.empty()
-            && (key.first != CLASS_DEATH_KNIGHT || level >= DEATH_KNIGHT_START_LEVEL))
-            classes.push_back(key.first);
-
-    return classes;
-}
-
-void AnimusForge::CompanionOwner::Configure(Player* player, Template const& player_template, State& state)
+void AnimusForge::CompanionOwner::Configure(Player* player, ClassRoleAssets const& assets, State& state)
 {
     SpecProfile const& spec =
-        player_template.Profile->Specs[urand(0, uint32(player_template.Profile->Specs.size()) - 1)];
+        assets.Profile->Specs[urand(0, uint32(assets.Profile->Specs.size()) - 1)];
 
     GearBuilder::LearnProficiencies(player);
-    player_template.Talents->Apply(player, player_template.Talents->Random(spec.TabPage, player->GetFreeTalentPoints()));
-    player_template.Kit->Learn(player);
-    player_template.Gear->Equip(player, spec);
+    assets.Talents->Apply(player, assets.Talents->Random(spec.TabPage, player->GetFreeTalentPoints()));
+    assets.Kit->Learn(player);
+    assets.Gear->Equip(player, spec);
 
     player->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
     player->UpdateAllStats();
@@ -264,7 +211,7 @@ void AnimusForge::CompanionOwner::Configure(Player* player, Template const& play
     player->SetPower(POWER_ENERGY, player->GetMaxPower(POWER_ENERGY));
 
     state = State();
-    state.PlayRole = player_template.Profile->PlayRole;
+    state.PlayRole = assets.Profile->PlayRole;
     state.Ranged = spec.Range == RangeBand::Ranged;
 
     if (player->getClass() == CLASS_WARRIOR)

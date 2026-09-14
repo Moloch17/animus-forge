@@ -1,13 +1,14 @@
-# Shared learner config for every class/role scenario (warrior_dps, druid_tank, ...), used when the
-# scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>, so each
-# scenario still trains in runs/<scenario>/ and publishes <scenario>.amdl.
+# Learner config for class_role, stage 1 of the class/role curriculum: one policy for every class/role of
+# AnimusForge.ClassRoles (all 18 by default) on a training dummy, maximising damage. Each class/role is a layout:
+# its own input adapter and action head around a shared trunk. The run trains in runs/class_role/ and publishes
+# one model per class/role (warrior_dps.amdl, ...).
 #
-# Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random,
-# and the policy sees them in its observation. Observations are a few hundred features (61 global,
-# 5 per action, one per talent) and a class has roughly 50-120 actions.
+# Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random, and the
+# policy sees them in its observation. Observations are a few hundred features (61 global, 5 per action, one per
+# talent) and a class has roughly 50-120 actions.
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf);
-# everything here is learner-side.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf); everything here is
+# learner-side.
 
 run_name: class_role
 runs_dir: runs

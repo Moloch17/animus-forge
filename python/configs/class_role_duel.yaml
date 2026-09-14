@@ -1,22 +1,18 @@
-# Shared learner config for every class/role duel stage (warrior_dps_duel, druid_tank_duel, ...),
-# used when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name
-# <scenario>, so each trains in runs/<scenario>/ and publishes <scenario>.amdl.
+# Learner config for class_role_duel, stage 2 of the class/role curriculum: the same random characters as stage 1,
+# now against a same-level creature that fights back, spawned out of aggro range. The bot has to move to it, pick
+# its pet, open from stealth where it can, and kill it fast while losing little health. Episodes end on the kill or
+# the bot's death. Publishes warrior_dps_duel.amdl, ...
 #
-# Stage 2 of the curriculum: the same random characters as stage 1 (configs/class_role.yaml), now
-# against a same-level creature that fights back, spawned out of aggro range. The bot has to move to
-# it, pick its pet, open from stealth where it can, and kill it fast while losing little health.
-# Episodes end on the kill or the bot's death.
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf);
-# everything here is learner-side.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf); everything here is
+# learner-side.
 
 run_name: class_role_duel
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's stage 1 model (runs/<class>_<role>/best.pt, else its latest.pt) when it exists:
-# the duel's observations and actions extend stage 1's, so its damage rotation carries over.
+# Seed a fresh run from stage 1 (runs/class_role/best.pt, else its latest.pt): each class/role's duel layout
+# extends its stage 1 layout, and the trunk carries over.
 init_from: runs/{base_run}/best.pt
 
 total_env_steps: 300000000
@@ -46,7 +42,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

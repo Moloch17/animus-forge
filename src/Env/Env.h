@@ -34,6 +34,9 @@ namespace AnimusForge
     /// Most scripted allies an env can have (Env::Allies): a party's other four members.
     constexpr std::size_t MAX_ALLIES = 4;
 
+    /// Most learned agents an env can have.
+    constexpr std::size_t MAX_AGENTS = 8;
+
     /// Combat totals for one agent. Written only by the map thread that updates the agent's
     /// instance (damage hooks), read by the world thread after MapMgr::Update has joined.
     struct AgentStats
@@ -48,6 +51,7 @@ namespace AnimusForge
         uint64 AllyHealing = 0;         // effective healing the agent (or its pets) did on the env's allies
         std::array<uint64, MAX_ALLIES> AllyDamageTakenBy{};    // the same, per Env::Allies index
         std::array<uint64, MAX_ALLIES> AllyHealingBy{};
+        std::array<uint64, MAX_AGENTS> AgentHealingBy{};    // effective healing on the env's other agents, by agent
         uint32 CastsCompleted = 0;      // the agent's own cast-time spells that finished casting
         uint32 CastsCancelled = 0;      // ... that were cut short (moved, stopped, interrupted, died)
         uint64 CastMsCompleted = 0;     // cast time of the completed casts
@@ -68,6 +72,8 @@ namespace AnimusForge
                 AllyDamageTakenBy[ally] += other.AllyDamageTakenBy[ally];
                 AllyHealingBy[ally] += other.AllyHealingBy[ally];
             }
+            for (std::size_t agent = 0; agent < MAX_AGENTS; ++agent)
+                AgentHealingBy[agent] += other.AgentHealingBy[agent];
             CastsCompleted += other.CastsCompleted;
             CastsCancelled += other.CastsCancelled;
             CastMsCompleted += other.CastMsCompleted;

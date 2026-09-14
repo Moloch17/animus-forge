@@ -27,48 +27,28 @@ AnimusForge.Enable = 0
 #                                          full level 20 trainer kit on a training dummy; a new
 #                                          random Arms talent build (one of all valid 11-point
 #                                          builds) every episode
-#                     Class/role models: one class in one role maximising damage on a training
-#                     dummy. Every episode is a new character: a random race the class allows,
-#                     gender, level (1-80; 55-80 for death knights), one of the role's specs with a
-#                     random talent build that fills the spec's tree to its 51-point capstone first
-#                     and spreads the rest over the other trees, the trainer spells of the level,
-#                     and random level-appropriate gear and trinkets for the spec:
-#                       "warrior_dps"      (Arms, Fury)          "warrior_tank"     (Protection)
-#                       "paladin_heal"     (Holy)                "paladin_tank"     (Protection)
-#                       "paladin_dps"      (Retribution)         "hunter_dps"       (all three)
-#                       "rogue_dps"        (all three)           "priest_heal"      (Discipline, Holy)
-#                       "priest_dps"       (Shadow)              "deathknight_tank" (Blood)
-#                       "deathknight_dps"  (Frost, Unholy)       "shaman_dps"       (Elemental, Enh.)
-#                       "shaman_heal"      (Restoration)         "mage_dps"         (all three)
-#                       "warlock_dps"      (all three)           "druid_dps"        (Balance, Feral)
-#                       "druid_tank"       (Feral bear)          "druid_heal"       (Restoration)
-#                     Class/role duel stage, "<class>_<role>_duel" for each of the above (e.g.
-#                     "warrior_dps_duel"): the same random characters against a same-level hostile
-#                     creature spawned out of aggro range, facing a random way. The bot moves to it
-#                     and kills it; pets are summoned by the policy (hunters pick from 4 beasts).
-#                     Rewarded for damage, a fast kill, little damage taken and stealth openers.
-#                     Episodes end on the kill or death. Its observations and actions extend the
-#                     dummy stage's, and configs/class_role_duel.yaml seeds a new run from the
-#                     class/role's dummy model.
-#                     Class/role pack stage, "<class>_<role>_pack": a pack of 2-4 same-level
-#                     creatures (casters included, usually linked); target selection, interrupts
-#                     and crowd control. Seeded from the duel model. Ends when cleared or on death.
-#                     Class/role gauntlet stage, "<class>_<role>_gauntlet": pull after pull (packs,
-#                     elites, higher levels) with short breaks; heals, food and drink to recover.
-#                     Seeded from the pack model. Ends on death or at the episode length.
-#                     Class/role companion stage, "<class>_<role>_companion": the gauntlet beside a
-#                     scripted owner of a random class; follow, assist, guard and heal it. Tanks keep
-#                     enemies off it, healers are rewarded for effective healing on it, damage dealers
-#                     avoid pulling threat. Seeded from the gauntlet model. Ends when either dies.
-#                     Class/role party stage, "<class>_<role>_party": a five-player party (the bot, the
-#                     owner and scripted members completing tank, healer and damage dealers) against
-#                     elite-heavy pulls; assist, guard and heal every member. Seeded from the companion
-#                     model.
-#                     Class/role PvP stage, "<class>_<role>_pvp": one-on-one against a scripted enemy
-#                     player of a random class and role. Seeded from the party model.
-#                     Class/role arena stage, "<class>_<role>_arena": self-play one-on-one; envs pair up
-#                     and fight each other's bots with the same policy (needs an even Envs). Seeded from
-#                     the PvP model.
+#                     Class/role curriculum: one policy for every class/role of AnimusForge.ClassRoles,
+#                     one scenario per stage. Every episode each learned seat is a new character of a
+#                     class/role: a random race the class allows, gender, level (1-80; 55-80 for death
+#                     knights), one of the role's specs with a random talent build that fills the
+#                     spec's tree to its 51-point capstone first and spreads the rest over the other
+#                     trees, the trainer spells of the level, and random level-appropriate gear and
+#                     trinkets for the spec. Each class/role is a layout of the policy (its own
+#                     observations and actions around a shared trunk) and exports as its own model.
+#                     Each stage's layouts extend the previous stage's, which seeds it:
+#                       "class_role"           - a training dummy: maximise damage
+#                       "class_role_duel"      - a same-level creature out of aggro range: move to it
+#                                                and kill it fast, taking little damage; pets are the
+#                                                policy's to summon, stealth openers rewarded
+#                       "class_role_pack"      - a pack of 2-4 (casters, usually linked): targets,
+#                                                interrupts, crowd control
+#                       "class_role_gauntlet"  - pull after pull with short breaks: heals, food, drink
+#                       "class_role_companion" - the gauntlet beside a scripted owner of a random class:
+#                                                follow, assist, guard and heal it
+#                       "class_role_party"     - four learned seats (tank, healer, two damage dealers)
+#                                                and the scripted owner against elite-heavy pulls
+#                       "class_role_pvp"       - one-on-one against a scripted enemy player
+#                       "class_role_arena"     - self-play one-on-one: two learned seats of any classes
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
@@ -83,13 +63,23 @@ AnimusForge.Scenario = "warrior_dummy"
 #                     and AnimusForge.Learner.AutoStart = 1. Each scenario trains in runs/<scenario>/
 #                     and publishes <scenario>.amdl. Can be set from the environment:
 #                     AC_ANIMUS_FORGE_QUEUE.
-#        Example:     "warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
-#                      hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank,
-#                      deathknight_dps, shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps,
-#                      druid_tank, druid_heal"
+#        Example:     "class_role, class_role_duel, class_role_pack, class_role_gauntlet,
+#                      class_role_companion, class_role_party, class_role_pvp, class_role_arena"
 #        Default:     "" - (run AnimusForge.Scenario only)
 
 AnimusForge.Queue = ""
+
+#
+#    AnimusForge.ClassRoles
+#        Description: Comma-separated class/roles the class/role scenarios play (their layouts). A subset
+#                     trains a policy for just those, e.g. "warrior_dps, priest_heal". Changing the list
+#                     changes the layouts: a run cannot resume across the change (use a clean run).
+#                     Available: warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
+#                     hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank, deathknight_dps,
+#                     shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps, druid_tank, druid_heal
+#        Default:     "" - (all of them)
+
+AnimusForge.ClassRoles = ""
 
 #
 #    AnimusForge.Queue.LocalEpisodes

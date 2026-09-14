@@ -24,13 +24,17 @@
  * Every message is a MsgHeader followed by `length` payload bytes. Little-endian, no padding.
  *
  *   client -> server  HELLO  { u32 version }
- *   server -> client  SPEC   SpecMsg, then the episode info column names as comma-separated ASCII
- *                            filling the rest of the payload (no terminator)
+ *   server -> client  SPEC   SpecMsg, then u32 layout count and that many LayoutMsg, then the episode info
+ *                            column names as comma-separated ASCII filling the rest of the payload
+ *                            (no terminator). ObsDim and NumActions are the largest layout's.
  *   server -> client  STEP   { u64 decision } then, in order, with E envs, A agents per env,
  *                            O obs dim, S state dim, N actions, K episode info dim:
  *                              f32 obs[E*A*O]         observation after any auto-reset
  *                              f32 state[E*S]         critic state after any auto-reset
  *                              u8  mask[E*A*N]        1 = action allowed
+ *                              u16 layout[E*A]        each agent's layout (index into the SPEC's layouts):
+ *                                                     it fills only that layout's first obs dim features
+ *                                                     and action count mask entries; constant per episode
  *                              f32 reward[E*A]        reward for the transition that just ended
  *                              u8  done[E]            1 = episode ended on this transition
  *                              u8  terminated[E]      1 = it ended in a terminal state (no
@@ -38,7 +42,7 @@
  *                                                     time-limit truncation
  *                              f32 final_obs[E*A*O]   last obs of the ended episode (valid if done)
  *                              f32 final_state[E*S]   last state of the ended episode (valid if done)
- *                              f32 episode_info[E*K]  totals for the ended episode (valid if done)
+ *                              f32 episode_info[E*A*K] per agent totals for the ended episode (valid if done)
  *                              u32 episode_seed[E]    evaluation seed index of the ended episode (valid if
  *                                                     done); NO_EPISODE_SEED for a training episode
  *   client -> server  ACT    { i32 actions[E*A] }
@@ -66,9 +70,10 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 2;
+    constexpr uint32 PROTOCOL_VERSION = 3;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
+    constexpr uint32 LAYOUT_NAME_SIZE = 48;
     constexpr uint32 NO_EPISODE_SEED = 0xFFFFFFFF;
 
     static_assert(std::endian::native == std::endian::little, "the wire protocol is little-endian");
@@ -108,6 +113,13 @@ namespace AnimusForge
         uint32 DecisionTicks;
         uint32 EpisodeSeconds;
         char Scenario[SCENARIO_NAME_SIZE];
+    };
+
+    struct LayoutMsg
+    {
+        uint32 ObsDim;
+        uint32 NumActions;
+        char Name[LAYOUT_NAME_SIZE];
     };
 
     struct ModeMsg

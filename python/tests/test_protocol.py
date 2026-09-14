@@ -21,6 +21,7 @@ SPEC = p.Spec(
     decision_ticks=1,
     episode_seconds=60,
     scenario="fake",
+    layouts=(p.Layout("warrior_dps", 4, 3), p.Layout("priest_heal", 2, 2)),
     episode_info_names=("damage", "dps"),
 )
 
@@ -33,12 +34,13 @@ def make_step(decision: int, rng: np.random.Generator) -> p.Step:
         obs=rng.random((e, a, SPEC.obs_dim), dtype=np.float32),
         state=rng.random((e, SPEC.state_dim), dtype=np.float32),
         mask=rng.random((e, a, SPEC.num_actions)) < 0.7,
+        layout=rng.integers(0, len(SPEC.layouts), size=(e, a), dtype=np.uint16),
         reward=rng.random((e, a), dtype=np.float32),
         done=done,
         terminated=done & (rng.random(e) < 0.5),
         final_obs=rng.random((e, a, SPEC.obs_dim), dtype=np.float32),
         final_state=rng.random((e, SPEC.state_dim), dtype=np.float32),
-        episode_info=rng.random((e, SPEC.episode_info_dim), dtype=np.float32),
+        episode_info=rng.random((e, a, SPEC.episode_info_dim), dtype=np.float32),
         episode_seed=rng.integers(0, 2**32, size=e, dtype=np.uint32),
     )
 

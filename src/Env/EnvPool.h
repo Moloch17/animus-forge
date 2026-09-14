@@ -94,7 +94,8 @@ namespace AnimusForge
         std::vector<uint8> Terminated;
         std::vector<float> FinalObs;
         std::vector<float> FinalState;
-        std::vector<float> EpisodeInfo;
+        std::vector<uint16> Layout;             // per agent: index into Spec().Layouts
+        std::vector<float> EpisodeInfo;         // per agent
         std::vector<uint32> EpisodeSeed;        // per env: seed index of the episode that just ended
         std::vector<int32> Actions;
 

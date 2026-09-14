@@ -1,8 +1,6 @@
-# Shared learner config for every class/role PvP stage (warrior_dps_pvp, priest_heal_pvp, ...), used when the
-# scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
-#
-# Stage 7 of the curriculum: one-on-one against a scripted enemy player of a random class and role at the bot's
-# level. Episodes end when either dies; the duel's reward (damage, a fast kill, little damage taken, casts).
+# Learner config for class_role_pvp, stage 7 of the class/role curriculum: one-on-one against a scripted enemy
+# player of a random class and role at the bot's level. Episodes end when either dies; the duel's reward (damage, a
+# fast kill, little damage taken, casts).
 #
 # The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
 
@@ -11,7 +9,7 @@ runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's party model: the PvP stage's layout extends it.
+# Seed a fresh run from the party stage: each layout extends the party stage's.
 init_from: runs/{base_run}_party/best.pt
 
 total_env_steps: 300000000
@@ -40,7 +38,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

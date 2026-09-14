@@ -10,7 +10,7 @@ import torch
 from torch import nn
 
 from .buffer import RolloutBuffer
-from .networks import Actor, Critic
+from .networks import LayoutActor, LayoutCritic
 from .valuenorm import ValueNorm
 
 
@@ -37,22 +37,21 @@ class MappoTrainer:
 
     def __init__(
         self,
-        obs_dim: int,
+        layouts: list[tuple[int, int]],
         state_dim: int,
-        num_actions: int,
-        num_agents: int,
         config: MappoConfig,
         train_device: str = "cpu",
         rollout_device: str = "cpu",
     ):
+        """layouts: (obs dim, action count) per agent layout, in the sim's layout order."""
         self.config = config
-        self.num_agents = num_agents
+        self.layouts = list(layouts)
         self.train_device = torch.device(train_device)
         self.rollout_device = torch.device(rollout_device)
 
         hidden = list(config.hidden)
-        self.actor = Actor(obs_dim, num_actions, num_agents, hidden).to(self.train_device)
-        self.critic = Critic(state_dim, num_agents, hidden).to(self.train_device)
+        self.actor = LayoutActor(self.layouts, hidden).to(self.train_device)
+        self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
         self.value_norm = ValueNorm().to(self.train_device) if config.use_value_norm else None
 
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr, eps=1e-5)
@@ -72,25 +71,24 @@ class MappoTrainer:
         if self.value_norm is not None:
             self._rollout_value_norm.load_state_dict(self.value_norm.state_dict())
 
-    def _agent_ids(self, envs: int) -> torch.Tensor:
-        return torch.arange(self.num_agents, device=self.rollout_device).expand(envs, self.num_agents)
+    def _tensor(self, array: np.ndarray, dtype=None) -> torch.Tensor:
+        return torch.as_tensor(array, device=self.rollout_device, dtype=dtype)
 
     @torch.no_grad()
-    def act(self, obs: np.ndarray, mask: np.ndarray, deterministic: bool = False) -> tuple[np.ndarray, np.ndarray]:
-        """obs [E, A, O], mask [E, A, N] -> actions [E, A], log_probs [E, A]."""
-        obs_t = torch.as_tensor(obs, device=self.rollout_device)
-        mask_t = torch.as_tensor(mask, device=self.rollout_device)
-        dist = self._rollout_actor(obs_t, self._agent_ids(obs.shape[0]), mask_t)
+    def act(
+        self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool = False
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """obs [E, A, O], mask [E, A, N], layout [E, A] -> actions [E, A], log_probs [E, A]."""
+        dist = self._rollout_actor(self._tensor(obs), self._tensor(layout, torch.long), self._tensor(mask))
         actions = dist.probs.argmax(dim=-1) if deterministic else dist.sample()
         return actions.cpu().numpy(), dist.log_prob(actions).cpu().numpy()
 
     @torch.no_grad()
-    def value(self, state: np.ndarray) -> np.ndarray:
-        """state [E, S] -> denormalised V per agent [E, A]."""
-        envs = state.shape[0]
-        state_t = torch.as_tensor(state, device=self.rollout_device)
-        state_t = state_t[:, None, :].expand(envs, self.num_agents, state.shape[-1])
-        values = self._rollout_critic(state_t, self._agent_ids(envs))
+    def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:
+        """state [E, S], obs [E, A, O], layout [E, A] -> denormalised V per agent [E, A]."""
+        envs, agents = layout.shape
+        state_t = self._tensor(state)[:, None, :].expand(envs, agents, state.shape[-1])
+        values = self._rollout_critic(state_t, self._tensor(obs), self._tensor(layout, torch.long))
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
         return values.cpu().numpy()
@@ -122,7 +120,7 @@ class MappoTrainer:
             for start in range(0, samples, batch):
                 idx = order[start : start + batch]
 
-                dist = self.actor(data["obs"][idx], data["agent_id"][idx], data["mask"][idx])
+                dist = self.actor(data["obs"][idx], data["layout"][idx], data["mask"][idx])
                 log_probs = dist.log_prob(data["actions"][idx])
                 log_ratio = log_probs - data["log_probs"][idx]
                 ratio = log_ratio.exp()
@@ -136,7 +134,7 @@ class MappoTrainer:
                 nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
-                values = self.critic(data["state"][idx], data["agent_id"][idx])
+                values = self.critic(data["state"][idx], data["obs"][idx], data["layout"][idx])
                 old_values = data["old_values"][idx]
                 target = data["returns_target"][idx]
                 clipped = old_values + (values - old_values).clamp(-cfg.value_clip, cfg.value_clip)

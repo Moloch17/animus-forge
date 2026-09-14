@@ -56,6 +56,18 @@ void AnimusForge::ForgeConfig::Load()
     if (!Queue.empty())
         Scenario = Queue.front();
 
+    ClassRoles.clear();
+    std::string const classRoles = sConfigMgr->GetOption<std::string>("AnimusForge.ClassRoles", "");
+    for (std::string_view name : Acore::Tokenize(classRoles, ',', false))
+    {
+        std::string entry(name);
+        entry.erase(std::remove_if(entry.begin(), entry.end(), [](unsigned char c) { return std::isspace(c); }),
+            entry.end());
+
+        if (!entry.empty())
+            ClassRoles.push_back(entry);
+    }
+
     QueueLocalEpisodes = sConfigMgr->GetOption<uint32>("AnimusForge.Queue.LocalEpisodes", 0);
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));

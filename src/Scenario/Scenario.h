@@ -20,6 +20,7 @@
 #define MOD_ANIMUS_FORGE_SCENARIO_H
 
 #include "Define.h"
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -29,14 +30,24 @@ namespace AnimusForge
     struct Env;
     struct ForgeConfig;
 
+    /// One kind of agent: its observation features and actions (a class/role, say). An agent of a layout fills
+    /// only the first ObsDim features and NumActions mask entries of its padded row.
+    struct LayoutSpec
+    {
+        std::string Name;
+        uint32 ObsDim = 0;
+        uint32 NumActions = 0;
+    };
+
     /// Fixed tensor shapes a scenario exposes to the learner.
     struct ScenarioSpec
     {
         uint32 AgentsPerEnv = 1;
-        uint32 ObsDim = 0;
+        uint32 ObsDim = 0;          // the largest layout's: every agent's observation row is padded to it
         uint32 StateDim = 0;
-        uint32 NumActions = 0;
-        uint32 EpisodeInfoDim = 0;
+        uint32 NumActions = 0;      // the largest layout's: every agent's mask row is padded to it
+        uint32 EpisodeInfoDim = 0;  // per agent
+        std::vector<LayoutSpec> Layouts;    // empty = one layout named after the scenario, ObsDim x NumActions
     };
 
     /// A training scenario: how an env is built, reset, observed, acted on and scored.
@@ -65,6 +76,13 @@ namespace AnimusForge
         /// obs: [AgentsPerEnv * ObsDim], state: [StateDim], mask: [AgentsPerEnv * NumActions].
         virtual void Observe(Env& env, float* obs, float* state, uint8* mask) = 0;
 
+        /// layout: [AgentsPerEnv] index into Spec().Layouts of each agent's current layout. Called after Observe,
+        /// and for an ended episode before its reset. Constant within an episode.
+        virtual void AgentLayouts(Env const& /*env*/, uint16* layout) const
+        {
+            std::fill(layout, layout + Spec().AgentsPerEnv, uint16(0));
+        }
+
         /// reward: [AgentsPerEnv], from env.StepStats (cleared by EnvPool afterwards).
         virtual void Reward(Env& env, float* reward) = 0;
 
@@ -72,15 +90,15 @@ namespace AnimusForge
         /// decision; the episode time limit ends it as a truncation otherwise.
         [[nodiscard]] virtual bool IsTerminal(Env const& /*env*/) const { return false; }
 
-        /// info: [EpisodeInfoDim] totals for the episode that just ended.
+        /// info: [AgentsPerEnv * EpisodeInfoDim] totals per agent for the episode that just ended.
         virtual void EpisodeInfo(Env const& env, float* info) const = 0;
 
         /// One name per EpisodeInfo column; sent to the learner in SPEC and used in local reports.
         [[nodiscard]] virtual std::vector<std::string> EpisodeInfoNames() const = 0;
 
-        /// Scripted baseline for AnimusForge.Policy values other than "remote" and "random".
-        /// Returns false if the scenario does not know the policy.
-        virtual bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
+        /// Scripted baseline for AnimusForge.Policy values other than "remote" and "random", for one agent of
+        /// `layout` (obs and mask are its row). Returns false if the scenario does not know the policy.
+        virtual bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask, uint16 layout,
             int32& action) const = 0;
 
         /// Once at shutdown: remove bots (without saving) and targets.

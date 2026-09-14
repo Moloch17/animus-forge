@@ -67,6 +67,8 @@ namespace
     constexpr float GCD_MS = 1500.0f;
     constexpr float RUNE_COOLDOWN_MS = 10000.0f;
     constexpr float TALENT_POINTS_AT_MAX_LEVEL = 71.0f;
+    constexpr float PARTY_SPACING = 3.0f;
+    constexpr uint32 SEAT_ACCOUNT_SLOTS = AnimusForge::ClassRoleScenario::MAX_SEATS * 2;
 
     /// Per-decision damage scale: roughly how a well-geared character's damage grows with level, so the
     /// reward has a similar size at every level (about 16 at level 1, 230 at 40, 3500 at 80).
@@ -94,16 +96,16 @@ namespace
         return std::clamp(float(aura->GetDuration()) / float(aura->GetMaxDuration()), 0.0f, 1.0f);
     }
 
-    SpellCastTargets TargetsFor(SpellInfo const* info, Player* bot, Unit* dummy)
+    SpellCastTargets TargetsFor(SpellInfo const* info, Player* bot, Unit* target)
     {
         SpellCastTargets targets;
 
         // No target (between gauntlet pulls): only self-cast spells can succeed.
-        if (dummy && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
-            targets.SetDst(*dummy);
+        if (target && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
+            targets.SetDst(*target);
 
-        if (info->NeedsExplicitUnitTarget() && dummy && !info->IsPositive())
-            targets.SetUnitTarget(dummy);
+        if (info->NeedsExplicitUnitTarget() && target && !info->IsPositive())
+            targets.SetUnitTarget(target);
         else
             targets.SetUnitTarget(bot);
 
@@ -120,13 +122,13 @@ namespace
 
     /// The core's own cast validation, without casting: cooldown, GCD, power, stance, range, facing,
     /// reagents, reactive requirements. Same pattern as PetAI.
-    bool CanCast(Player* bot, SpellInfo const* info, Unit* dummy, Item* castItem = nullptr)
+    bool CanCast(Player* bot, SpellInfo const* info, Unit* target, Item* castItem = nullptr)
     {
         Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
         spell->m_CastItem = castItem;
         spell->LoadScripts();
 
-        SpellCastTargets targets = TargetsFor(info, bot, dummy);
+        SpellCastTargets targets = TargetsFor(info, bot, target);
         spell->InitExplicitTargets(targets);
 
         SpellCastResult const result = spell->CheckCast(true);
@@ -136,181 +138,254 @@ namespace
     }
 }
 
-std::string AnimusForge::ClassRoleScenario::ScenarioName(ClassRoleProfile const& profile, ArenaMode mode)
+void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
+{
+    LastStepDamage = 0.0f;
+    LastStepPowerDelta = 0.0f;
+    SpellCasts = 0;
+    TrinketUses = 0;
+
+    LastDistance = -1.0f;
+    KillTimeMs = 0;
+    DamageTaken = 0;
+    LastStepDamageTaken = 0.0f;
+    StealthOpeners = 0;
+    StepStealthOpener = false;
+    PetSummoned = false;
+    CastsCompleted = 0;
+    CastsCancelled = 0;
+    CastMsWasted = 0;
+    Killed = false;
+    Died = false;
+
+    TargetSlot = 0;
+    Interrupts = 0;
+    PendingInterrupt.Clear();
+    PullDamageTaken = 0;
+
+    FoodUsed = 0;
+    DrinkUsed = 0;
+    SustainCasts = 0;
+
+    OwnerHealing = 0;
+    ThreatOnBot = 0;
+    OwnerDeathSeen = false;
+
+    TeammateDamageTaken = 0;
+    TeammateHealing = 0;
+    ThreatOnTeammates = 0;
+    TeammatesDied = 0;
+    TeammateDeathSeen.fill(false);
+}
+
+std::string AnimusForge::ClassRoleScenario::ScenarioName(ArenaMode mode)
 {
     switch (mode)
     {
-        case ArenaMode::Duel:     return profile.ScenarioName + "_duel";
-        case ArenaMode::Pack:     return profile.ScenarioName + "_pack";
-        case ArenaMode::Gauntlet: return profile.ScenarioName + "_gauntlet";
-        case ArenaMode::Companion: return profile.ScenarioName + "_companion";
-        case ArenaMode::Party:    return profile.ScenarioName + "_party";
-        case ArenaMode::Pvp:      return profile.ScenarioName + "_pvp";
-        case ArenaMode::Arena:    return profile.ScenarioName + "_arena";
-        case ArenaMode::Dummy:    break;
+        case ArenaMode::Duel:      return "class_role_duel";
+        case ArenaMode::Pack:      return "class_role_pack";
+        case ArenaMode::Gauntlet:  return "class_role_gauntlet";
+        case ArenaMode::Companion: return "class_role_companion";
+        case ArenaMode::Party:     return "class_role_party";
+        case ArenaMode::Pvp:       return "class_role_pvp";
+        case ArenaMode::Arena:     return "class_role_arena";
+        case ArenaMode::Dummy:     break;
     }
 
-    return profile.ScenarioName;
+    return "class_role";
 }
 
-AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config,
-    ArenaMode mode)
-    : _mode(mode), _name(ScenarioName(profile, mode)), _profile(profile), _arenaMapId(config.ArenaMapId),
-    _arenaPosition(config.ArenaPosition)
+AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, ArenaMode mode)
+    : _mode(mode), _name(ScenarioName(mode)), _arenaMapId(config.ArenaMapId), _arenaPosition(config.ArenaPosition)
 {
-    for (uint8 race : PLAYABLE_RACES)
-        if (sObjectMgr->GetPlayerInfo(race, profile.Class))
-            _races.push_back(race);
+    _seatCount = IsParty() ? MAX_SEATS : IsArena() ? 2 : 1;
 
-    _kit = std::make_unique<ClassKit>(profile.Class);
-    _talents = std::make_unique<TalentBuilder>(profile.Class);
-    _catalog = std::make_unique<ActionCatalog>(profile.Class, *_kit, *_talents);
-    _gear = std::make_unique<GearBuilder>(profile, *_kit);
-
-    uint32 const actions = uint32(_catalog->Actions().size());
-    uint32 const talents = uint32(_talents->Talents().size());
-
-    _actionObsFirst = OBS_GLOBAL_COUNT;
-    _talentObsFirst = _actionObsFirst + actions * ACTION_FEATURES;
-    _treeObsFirst = _talentObsFirst + talents;
-
-    _spec.AgentsPerEnv = 1;
-    _spec.ObsDim = _treeObsFirst + TalentBuilder::TREE_COUNT;
-    _spec.StateDim = _spec.ObsDim;      // one agent: the critic sees exactly what the actor sees
-    _spec.NumActions = actions;
-    _spec.EpisodeInfoDim = INFO_COUNT;
-
-    // Every stage keeps the previous stage's layout unchanged and appends its own (see ArenaMode).
-    if (HasDuel())
+    // The class/roles this run plays: AnimusForge.ClassRoles, or all of them.
+    for (ClassRoleProfile const& profile : ClassRoleProfiles())
     {
-        uint32 const stable = _profile.Class == CLASS_HUNTER ? STABLE_SLOTS : 0;
+        if (!config.ClassRoles.empty()
+            && std::find(config.ClassRoles.begin(), config.ClassRoles.end(), profile.ScenarioName)
+                == config.ClassRoles.end())
+            continue;
 
-        _duelObsFirst = _spec.ObsDim;
-        _spec.ObsDim += DUEL_OBS_COUNT_WITHOUT_STABLE + stable * STABLE_FEATURES;
-        _spec.StateDim = _spec.ObsDim;
+        Layout layout;
+        layout.Index = uint16(_layouts.size());
+        layout.Profile = &profile;
+        layout.Assets = &ClassRoleAssets::For(profile);
+        if (layout.Assets->Races.empty())
+            continue;
 
-        _duelActionFirst = _spec.NumActions;
-        _duelActionCount = DUEL_ACTION_COUNT_WITHOUT_STABLE + stable;
-        _spec.NumActions += _duelActionCount;
-
-        _duelInfoFirst = _spec.EpisodeInfoDim;
-        _spec.EpisodeInfoDim += DUEL_INFO_COUNT;
-
-        DuelArena::OpponentPool::Instance();    // load it at startup rather than on the first episode
+        BuildLayout(layout);
+        _layouts.push_back(std::move(layout));
     }
 
+    _spec.AgentsPerEnv = _seatCount;
+    for (Layout const& layout : _layouts)
+    {
+        _spec.ObsDim = std::max(_spec.ObsDim, layout.ObsDim);
+        _spec.NumActions = std::max(_spec.NumActions, layout.NumActions);
+        _spec.Layouts.push_back(LayoutSpec{ layout.Profile->ScenarioName, layout.ObsDim, layout.NumActions });
+    }
+
+    _spec.StateDim = STATE_GLOBAL_COUNT + MAX_SEATS * STATE_SEAT_FEATURES + PACK_SLOTS * STATE_ENEMY_FEATURES;
+
+    _spec.EpisodeInfoDim = INFO_COUNT;
+    if (HasDuel())
+    {
+        _duelInfoFirst = _spec.EpisodeInfoDim;
+        _spec.EpisodeInfoDim += DUEL_INFO_COUNT;
+        DuelArena::OpponentPool::Instance();    // load it at startup rather than on the first episode
+    }
     if (HasPack())
     {
-        uint32 const tactical = uint32(_catalog->Tactical().size());
-
-        _packObsFirst = _spec.ObsDim;
-        _spec.ObsDim += PACK_OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES + tactical * 2;
-        _spec.StateDim = _spec.ObsDim;
-
-        _packActionFirst = _spec.NumActions;
-        _packActionCount = PACK_SLOTS + tactical;
-        _spec.NumActions += _packActionCount;
-
         _packInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += PACK_INFO_COUNT;
     }
-
     if (HasGauntlet())
     {
-        uint32 const sustain = uint32(_catalog->Sustain().size());
-
-        _gauntletObsFirst = _spec.ObsDim;
-        _spec.ObsDim += GAUNTLET_OBS_GLOBAL_COUNT + sustain * 2;
-        _spec.StateDim = _spec.ObsDim;
-
-        _gauntletActionFirst = _spec.NumActions;
-        _gauntletActionCount = GAUNTLET_ACTION_SUSTAIN_FIRST + sustain;
-        _spec.NumActions += _gauntletActionCount;
-
         _gauntletInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += GAUNTLET_INFO_COUNT;
-
         DuelArena::ConsumablePool::Instance();
     }
-
     if (HasCompanion())
     {
-        // Heals that take a friendly unit target can be cast on the owner.
-        for (ActionCatalog::Action const& heal : _catalog->Sustain())
-            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(heal.FirstRank);
-                info && info->IsPositive() && info->NeedsExplicitUnitTarget())
-                _ownerHeals.push_back(heal);
-
-        std::string names;
-        for (ActionCatalog::Action const& heal : _ownerHeals)
-            names += (names.empty() ? "" : ", ") + heal.Name;
-        LOG_INFO("module.animus", "{}: owner heals: {}", Name(), names.empty() ? "none" : names);
-
-        _companionObsFirst = _spec.ObsDim;
-        _spec.ObsDim += COMPANION_OBS_GLOBAL_COUNT + uint32(_ownerHeals.size()) * 2;
-        _spec.StateDim = _spec.ObsDim;
-
-        _companionActionFirst = _spec.NumActions;
-        _companionActionCount = COMPANION_ACTION_HEAL_FIRST + uint32(_ownerHeals.size());
-        _spec.NumActions += _companionActionCount;
-
         _companionInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += COMPANION_INFO_COUNT;
-
-        CompanionOwner::Templates::Instance();
     }
-
     if (HasParty())
     {
-        uint32 const heals = uint32(_ownerHeals.size());
-
-        _partyObsFirst = _spec.ObsDim;
-        _spec.ObsDim += PARTY_OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES;
-        _spec.StateDim = _spec.ObsDim;
-
-        _partyActionFirst = _spec.NumActions;
-        _partyActionCount = PARTY_ACTION_HEAL_FIRST + PARTY_MEMBERS * heals;
-        _spec.NumActions += _partyActionCount;
-
         _partyInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += PARTY_INFO_COUNT;
     }
-
     if (HasPvp())
     {
-        _pvpObsFirst = _spec.ObsDim;
-        _spec.ObsDim += PVP_OBS_COUNT;
-        _spec.StateDim = _spec.ObsDim;
-
         _pvpInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += PVP_INFO_COUNT;
     }
 
-    _envs.assign(config.Envs, nullptr);
-
     _data.resize(config.Envs);
 
-    LOG_INFO("module.animus", "{}: {} races, {} specs, {} actions, {} talents, obs {}", Name(), _races.size(),
-        profile.Specs.size(), _spec.NumActions, talents, _spec.ObsDim);
+    LOG_INFO("module.animus", "{}: {} seats per env, {} class/role layouts (obs up to {}, actions up to {}), state {}",
+        Name(), _seatCount, _layouts.size(), _spec.ObsDim, _spec.NumActions, _spec.StateDim);
+}
+
+void AnimusForge::ClassRoleScenario::BuildLayout(Layout& layout) const
+{
+    // Every stage keeps the previous stage's layout unchanged and appends its own (see ArenaMode).
+    ActionCatalog const& catalog = layout.Catalog();
+    uint32 const actions = uint32(catalog.Actions().size());
+    uint32 const talents = uint32(layout.Assets->Talents->Talents().size());
+
+    layout.ActionObsFirst = OBS_GLOBAL_COUNT;
+    layout.TalentObsFirst = layout.ActionObsFirst + actions * ACTION_FEATURES;
+    layout.TreeObsFirst = layout.TalentObsFirst + talents;
+    layout.ObsDim = layout.TreeObsFirst + TalentBuilder::TREE_COUNT;
+    layout.NumActions = actions;
+
+    if (HasDuel())
+    {
+        uint32 const stable = layout.Profile->Class == CLASS_HUNTER ? STABLE_SLOTS : 0;
+        layout.DuelObsFirst = layout.ObsDim;
+        layout.ObsDim += DUEL_OBS_COUNT_WITHOUT_STABLE + stable * STABLE_FEATURES;
+        layout.DuelActionFirst = layout.NumActions;
+        layout.DuelActionCount = DUEL_ACTION_COUNT_WITHOUT_STABLE + stable;
+        layout.NumActions += layout.DuelActionCount;
+    }
+
+    if (HasPack())
+    {
+        uint32 const tactical = uint32(catalog.Tactical().size());
+        layout.PackObsFirst = layout.ObsDim;
+        layout.ObsDim += PACK_OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES + tactical * 2;
+        layout.PackActionFirst = layout.NumActions;
+        layout.PackActionCount = PACK_SLOTS + tactical;
+        layout.NumActions += layout.PackActionCount;
+    }
+
+    if (HasGauntlet())
+    {
+        uint32 const sustain = uint32(catalog.Sustain().size());
+        layout.GauntletObsFirst = layout.ObsDim;
+        layout.ObsDim += GAUNTLET_OBS_GLOBAL_COUNT + sustain * 2;
+        layout.GauntletActionFirst = layout.NumActions;
+        layout.GauntletActionCount = GAUNTLET_ACTION_SUSTAIN_FIRST + sustain;
+        layout.NumActions += layout.GauntletActionCount;
+    }
+
+    if (HasCompanion())
+    {
+        // Heals that take a friendly unit target can be cast on an ally.
+        for (ActionCatalog::Action const& heal : catalog.Sustain())
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(heal.FirstRank);
+                info && info->IsPositive() && info->NeedsExplicitUnitTarget())
+                layout.AllyHeals.push_back(heal);
+
+        uint32 const heals = uint32(layout.AllyHeals.size());
+        layout.CompanionObsFirst = layout.ObsDim;
+        layout.ObsDim += COMPANION_OBS_GLOBAL_COUNT + heals * 2;
+        layout.CompanionActionFirst = layout.NumActions;
+        layout.CompanionActionCount = COMPANION_ACTION_HEAL_FIRST + heals;
+        layout.NumActions += layout.CompanionActionCount;
+    }
+
+    if (HasParty())
+    {
+        layout.PartyObsFirst = layout.ObsDim;
+        layout.ObsDim += PARTY_OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES;
+        layout.PartyActionFirst = layout.NumActions;
+        layout.PartyActionCount = PARTY_ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size());
+        layout.NumActions += layout.PartyActionCount;
+    }
+
+    if (HasPvp())
+    {
+        layout.PvpObsFirst = layout.ObsDim;
+        layout.ObsDim += PVP_OBS_COUNT;
+    }
+}
+
+AnimusForge::ClassRoleScenario::Layout const& AnimusForge::ClassRoleScenario::PickLayout(Role role,
+    uint8 maxMinLevel) const
+{
+    // A class/role of the role if the run has one; any otherwise (AnimusForge.ClassRoles may leave roles out).
+    std::vector<Layout const*> candidates;
+    for (Layout const& layout : _layouts)
+        if (layout.PlayRole() == role && layout.Assets->Kit->MinLevel() <= maxMinLevel)
+            candidates.push_back(&layout);
+
+    if (candidates.empty())
+        for (Layout const& layout : _layouts)
+            candidates.push_back(&layout);
+
+    return *candidates[urand(0, uint32(candidates.size()) - 1)];
 }
 
 bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
 {
     EnvData const& data = _data[env.Index];
+    auto const allDied = [&]()
+    {
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+            if (!data.Seats[seat].Died)
+                return false;
+        return true;
+    };
+
     switch (_mode)
     {
         case ArenaMode::Duel:
         case ArenaMode::Pack:
-            return data.Killed || data.Died;    // pack: Killed = cleared
+            return data.Seats[0].Killed || data.Seats[0].Died;     // pack: Killed = cleared
         case ArenaMode::Gauntlet:
-            return data.Died;
+            return data.Seats[0].Died;
         case ArenaMode::Companion:
+            return data.Seats[0].Died || data.OwnerDied;
         case ArenaMode::Party:
-            return data.Died || data.OwnerDied;
+            return data.OwnerDied || allDied();
         case ArenaMode::Pvp:
-            return data.Died || data.Killed;
+            return data.Seats[0].Died || data.Seats[0].Killed;
         case ArenaMode::Arena:
-            return data.Died || data.Killed || data.PartnerEnded;
+            return data.Seats[0].Died || data.Seats[1].Died;
         case ArenaMode::Dummy:
             break;
     }
@@ -320,16 +395,14 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
 
 AnimusForge::ClassRoleScenario::~ClassRoleScenario()
 {
-    // Sessions kept for the next rebuild. Teardown already destroyed the active one with its bot.
+    // Sessions kept for the next rebuild. Teardown already destroyed the active ones with their bots.
     for (EnvData& data : _data)
     {
-        for (WorldSession*& session : data.Sessions)
-            delete session;
+        for (Seat& seat : data.Seats)
+            for (WorldSession*& session : seat.Sessions)
+                delete session;
         for (WorldSession*& session : data.OwnerSessions)
             delete session;
-        for (EnvData::Member& member : data.Members)
-            for (WorldSession*& session : member.Sessions)
-                delete session;
         for (WorldSession*& session : data.OpponentSessions)
             delete session;
     }
@@ -337,19 +410,9 @@ AnimusForge::ClassRoleScenario::~ClassRoleScenario()
 
 bool AnimusForge::ClassRoleScenario::Setup(Env& env)
 {
-    if (_races.empty())
+    if (_layouts.empty())
     {
-        LOG_ERROR("module.animus", "{}: no race can be class {}", Name(), _profile.Class);
-        return false;
-    }
-
-    _envs[env.Index] = &env;
-
-    // Self-play pairs envs 0-1, 2-3, ...: an odd env count leaves the last one without an opponent.
-    if (IsArena() && env.Index % 2 == 0 && env.Index + 1 >= _envs.size())
-    {
-        LOG_ERROR("module.animus", "{}: self-play needs an even AnimusForge.Envs; env {} has no partner", Name(),
-            env.Index);
+        LOG_ERROR("module.animus", "{}: no class/role to play (check AnimusForge.ClassRoles)", Name());
         return false;
     }
 
@@ -363,71 +426,24 @@ bool AnimusForge::ClassRoleScenario::Setup(Env& env)
 void AnimusForge::ClassRoleScenario::Reset(Env& env)
 {
     EnvData& data = _data[env.Index];
+    for (Seat& seat : data.Seats)
+        seat.ResetEpisode();
 
-    // Self-play: the lower env of a pair resets first; leave the higher one how this episode ended (see
-    // ClassRolePvp.cpp). The higher env's own reset clears it.
-    if (IsArena())
-    {
-        if (env.Index % 2 == 0)
-        {
-            EnvData& partner = _data[PartnerIndex(env.Index)];
-            partner.PartnerEnded = true;
-            partner.PartnerDied = data.Died;
-        }
-        else
-        {
-            data.PartnerEnded = false;
-            data.PartnerDied = false;
-        }
-    }
-    data.LastStepDamage = 0.0f;
-    data.LastStepPowerDelta = 0.0f;
-    data.SpellCasts = 0;
-    data.TrinketUses = 0;
-
-    data.LastDistance = -1.0f;
-    data.KillTimeMs = 0;
-    data.DamageTaken = 0;
-    data.LastStepDamageTaken = 0.0f;
-    data.StealthOpeners = 0;
-    data.StepStealthOpener = false;
-    data.PetSummoned = false;
-    data.CastsCompleted = 0;
-    data.CastsCancelled = 0;
-    data.CastMsWasted = 0;
-    data.Killed = false;
-    data.Died = false;
-
-    data.TargetSlot = 0;
     data.PackLinked = false;
     data.PackSize = 0;
     data.PullKills = 0;
     data.Kills = 0;
-    data.Interrupts = 0;
-    data.PendingInterrupt.Clear();
     data.PullStartMs = 0;
-    data.PullDamageTaken = 0;
+    data.PullCleared = false;
+    data.NewKills = 0;
     data.PullsCleared = 0;
     data.NextPullMs = 0;
     data.EliteOrHigherPull = false;
-    data.FoodUsed = 0;
-    data.DrinkUsed = 0;
-    data.SustainCasts = 0;
-
     data.OwnerDied = false;
     data.OwnerDamageTaken = 0;
-    data.OwnerHealing = 0;
-    data.ThreatOnBot = 0;
     data.ThreatOnOwner = 0;
 
-    data.MembersDied = 0;
-    data.MemberDamageTaken = 0;
-    data.MemberHealing = 0;
-    data.ThreatOnMembers = 0;
-    for (EnvData::Member& member : data.Members)
-        member.Died = false;
-
-    // Setup already built the first episode's character.
+    // Setup already built the first episode's characters.
     if (data.Fresh)
     {
         data.Fresh = false;
@@ -435,152 +451,201 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     }
 
     if (!Rebuild(env))
-        LOG_ERROR("module.animus", "{}: env {} could not build a new character; it keeps the old one", Name(),
+        LOG_ERROR("module.animus", "{}: env {} could not build new characters; it keeps the old ones", Name(),
             env.Index);
+}
+
+Player* AnimusForge::ClassRoleScenario::SeatBot(EnvData const& data, uint32 seat) const
+{
+    // Through the session rather than ObjectAccessor::FindPlayer: a bot that is out of the world (a far teleport in
+    // progress) is still the seat's bot and still has to be destroyed.
+    Seat const& slot = data.Seats[seat];
+    WorldSession* session = slot.Sessions[slot.ActiveSession];
+    return session ? session->GetPlayer() : nullptr;
 }
 
 bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 {
     EnvData& data = _data[env.Index];
 
-    // Through the session rather than ObjectAccessor::FindPlayer: a bot that is out of the world (a far
-    // teleport in progress) is still the env's bot and still has to be destroyed.
-    WorldSession* activeSession = data.Sessions[data.ActiveSession];
-    Player* oldBot = activeSession ? activeSession->GetPlayer() : nullptr;
-
     std::vector<Creature*> oldTargets;
     for (uint32 target = 0; target < env.Targets.size(); ++target)
         if (Creature* creature = env.FindTarget(target))
             oldTargets.push_back(creature);
 
-    data.Race = _races[urand(0, uint32(_races.size()) - 1)];
-    data.Level = uint8(urand(_kit->MinLevel(), DEFAULT_MAX_LEVEL));
+    std::array<Player*, MAX_SEATS> oldBots{};
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        oldBots[seat] = SeatBot(data, seat);
 
-    // Self-play pairs fight at the same level: the higher env takes the lower one's (built just before).
-    if (IsArena() && env.Index % 2 == 1)
-        data.Level = _data[PartnerIndex(env.Index)].Level;
-
-    data.Spec = uint8(urand(0, uint32(_profile.Specs.size()) - 1));
-    data.StartHealth = frand(0.2f, 1.0f);
-    data.EndHealth = frand(0.0f, data.StartHealth);
-    data.DamageScale = DamageScaleForLevel(data.Level);
-
-    // The new bot goes on the idle session and into the map before the old one leaves, so the
-    // instance always has a bound player.
-    uint8 const session = oldBot ? uint8(1 - data.ActiveSession) : data.ActiveSession;
-
-    BotFactory::BotSpec spec;
-    spec.Name = Acore::StringFormat("Forge{}{}", env.Index, session ? "b" : "a");
-    spec.Race = data.Race;
-    spec.Class = _profile.Class;
-    spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
-    spec.Level = data.Level;
-    spec.AccountId = TrainingDummyArena::BOT_ACCOUNT_BASE + env.Index * 2 + session;
-    spec.GuidLow = data.Guids[session];
-
-    Player* bot = BotFactory::Create(spec, data.Sessions[session]);
-    if (!bot)
-        return false;
-
-    data.Sessions[session] = bot->GetSession();
-    data.Guids[session] = bot->GetGUID().GetCounter();
-
-    // Self-play: the higher env of a pair joins the lower env's instance, out of range of its bot.
-    Position start = _arenaPosition;
-    Map* map = oldBot ? env.FindMap() : nullptr;
-    if (IsArena() && env.Index % 2 == 1)
+    // The class/roles first (a party: tank, healer, two damage dealers), then one level they can all be.
+    static constexpr std::array<Role, MAX_SEATS> PARTY_ROLES = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
+    uint8 minLevel = 1;
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
     {
-        Env* partner = _envs[PartnerIndex(env.Index)];
-        Player* partnerBot = partner ? partner->FindBot(0) : nullptr;
-        map = partner ? partner->FindMap() : nullptr;
-        if (partnerBot && map)
+        Role const role = IsParty() ? PARTY_ROLES[seat] : _layouts[urand(0, uint32(_layouts.size()) - 1)].PlayRole();
+        data.Seats[seat].L = &PickLayout(role, DEFAULT_MAX_LEVEL);
+        minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
+    }
+
+    uint8 const level = uint8(urand(minLevel, DEFAULT_MAX_LEVEL));
+    Map* map = oldBots[0] ? env.FindMap() : nullptr;
+
+    // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a
+    // bound player.
+    std::array<uint8, MAX_SEATS> newSessions{};
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+    {
+        Position start = _arenaPosition;
+        if (IsParty())
         {
-            start = DuelArena::FindSpawnPoint(partnerBot, map);
+            start.m_positionX += (seat % 2 ? -PARTY_SPACING : PARTY_SPACING) * float(1 + seat / 2);
+            start.m_positionY += (seat % 2 ? PARTY_SPACING : -PARTY_SPACING);
+        }
+        else if (IsArena() && seat == 1)
+        {
+            // Out of range of the first seat's new bot, at a random bearing, facing a random way.
+            WorldSession* firstSession = data.Seats[0].Sessions[newSessions[0]];
+            if (Player* first = firstSession ? firstSession->GetPlayer() : nullptr)
+                start = DuelArena::FindSpawnPoint(first, map);
             start.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
         }
-    }
 
-    if (map ? !BotFactory::PlaceInMap(bot, map, start)
-        : !(map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, start)))
-    {
-        data.Sessions[session] = nullptr;
-        BotFactory::DestroyUnplaced(bot);
-        return false;
+        if (!BuildSeat(env, seat, map, level, start, newSessions[seat]))
+            return false;
     }
-
-    // Talent points depend on the map for death knights (Ebon Hold, where Create put the bot, only
-    // counts quest-rewarded points); recompute them on the arena map.
-    bot->InitTalentForLevel();
-    Configure(bot, data);
 
     for (Creature* creature : oldTargets)
         creature->DespawnOrUnsummon();
 
-    if (oldBot)
-        data.Sessions[data.ActiveSession] = BotFactory::Destroy(oldBot, true);
-    else if (!(IsArena() && env.Index % 2 == 1))    // a pair's higher env shares an arena already cleared
-        TrainingDummyArena::ClearArena(bot);
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+    {
+        Seat& slot = data.Seats[seat];
+        if (oldBots[seat])
+            slot.Sessions[slot.ActiveSession] = BotFactory::Destroy(oldBots[seat], true);
+        slot.ActiveSession = newSessions[seat];
+    }
 
-    data.ActiveSession = session;
+    Player* lead = SeatBot(data, 0);
+    if (!oldBots[0])
+        TrainingDummyArena::ClearArena(lead);
 
     env.MapId = map->GetId();
     env.InstanceId = map->GetInstanceId();
-    env.Bots = { bot->GetGUID() };
+    env.Bots.clear();
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        env.Bots.push_back(SeatBot(data, seat)->GetGUID());
     env.Targets.clear();
 
+    // Teammates are friends whatever their races; arena opponents are made enemies by StartPvp.
+    if (IsParty())
+        for (uint32 seat = 1; seat < _seatCount; ++seat)
+            SeatBot(data, seat)->SetFaction(lead->GetFaction());
+
     if (HasPvp())
-        return StartPvp(env, bot, map, data);
+        return StartPvp(env, map);
 
     // The owner comes before the first pull, which spawns around it.
-    if (HasCompanion() && !RebuildOwner(env, bot, map, data))
-        return false;
-
-    if (HasParty() && !RebuildMembers(env, bot, map, data))
+    if (HasCompanion() && !RebuildOwner(env, lead, map, level))
         return false;
 
     if (HasPack())
-        return StartPack(env, bot, map, data);
+    {
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+            StartSeatPack(SeatBot(data, seat), data.Seats[seat]);
+        return SpawnPull(env, map);
+    }
 
+    Seat& seat = data.Seats[0];
     if (_mode == ArenaMode::Duel)
     {
-        data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(data.Level);
-        Unit* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(bot, map, data.OpponentEntry) : nullptr;
+        data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(seat.Level);
+        Creature* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(lead, map, data.OpponentEntry) : nullptr;
         if (!opponent)
             return false;
 
         env.Targets = { opponent->GetGUID() };
-        StartDuel(bot, opponent, data);
+        StartDuel(lead, seat);
         return true;
     }
 
-    SpecProfile const& specProfile = _profile.Specs[data.Spec];
+    SpecProfile const& specProfile = seat.L->Profile->Specs[seat.Spec];
     float const distance = specProfile.Range == RangeBand::Melee ? MELEE_DISTANCE : RANGED_DISTANCE;
 
-    Unit* dummy = TrainingDummyArena::SpawnDummy(bot, map, distance);
+    Creature* dummy = TrainingDummyArena::SpawnDummy(lead, map, distance);
     if (!dummy)
         return false;
 
     env.Targets = { dummy->GetGUID() };
-    StartFight(bot, dummy, data);
+    StartFight(lead, dummy, seat);
     return true;
 }
 
-void AnimusForge::ClassRoleScenario::Configure(Player* bot, EnvData& data) const
+bool AnimusForge::ClassRoleScenario::BuildSeat(Env& env, uint32 seatIndex, Map*& map, uint8 level,
+    Position const& start, uint8& newSession)
 {
-    SpecProfile const& spec = _profile.Specs[data.Spec];
+    EnvData& data = _data[env.Index];
+    Seat& seat = data.Seats[seatIndex];
+    Layout const& layout = *seat.L;
+    Player* old = SeatBot(data, seatIndex);
+
+    seat.Race = layout.Assets->Races[urand(0, uint32(layout.Assets->Races.size()) - 1)];
+    seat.Level = level;
+    seat.Spec = uint8(urand(0, uint32(layout.Profile->Specs.size()) - 1));
+    seat.StartHealth = frand(0.2f, 1.0f);
+    seat.EndHealth = frand(0.0f, seat.StartHealth);
+    seat.DamageScale = DamageScaleForLevel(level);
+
+    newSession = old ? uint8(1 - seat.ActiveSession) : seat.ActiveSession;
+
+    BotFactory::BotSpec spec;
+    spec.Name = Acore::StringFormat("Forge{}s{}{}", env.Index, seatIndex, newSession ? "b" : "a");
+    spec.Race = seat.Race;
+    spec.Class = layout.Profile->Class;
+    spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
+    spec.Level = level;
+    spec.AccountId = TrainingDummyArena::BOT_ACCOUNT_BASE + env.Index * SEAT_ACCOUNT_SLOTS + seatIndex * 2 + newSession;
+    spec.GuidLow = seat.Guids[newSession];
+
+    Player* bot = BotFactory::Create(spec, seat.Sessions[newSession]);
+    if (!bot)
+        return false;
+
+    seat.Sessions[newSession] = bot->GetSession();
+    seat.Guids[newSession] = bot->GetGUID().GetCounter();
+
+    bool const placed = map ? BotFactory::PlaceInMap(bot, map, start)
+        : (map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, start)) != nullptr;
+    if (!placed)
+    {
+        seat.Sessions[newSession] = nullptr;
+        BotFactory::DestroyUnplaced(bot);
+        return false;
+    }
+
+    // Talent points depend on the map for death knights (Ebon Hold, where Create put the bot, only counts
+    // quest-rewarded points); recompute them on the arena map.
+    bot->InitTalentForLevel();
+    Configure(bot, seat);
+    return true;
+}
+
+void AnimusForge::ClassRoleScenario::Configure(Player* bot, Seat& seat) const
+{
+    ClassRoleAssets const& assets = *seat.L->Assets;
+    SpecProfile const& spec = seat.L->Profile->Specs[seat.Spec];
 
     GearBuilder::LearnProficiencies(bot);
 
-    data.Build = _talents->Random(spec.TabPage, bot->GetFreeTalentPoints());
-    data.UnspentTalentPoints = _talents->Apply(bot, data.Build);
+    seat.Build = assets.Talents->Random(spec.TabPage, bot->GetFreeTalentPoints());
+    seat.UnspentTalentPoints = assets.Talents->Apply(bot, seat.Build);
 
-    _kit->Learn(bot);
-    _gear->Equip(bot, spec);
+    assets.Kit->Learn(bot);
+    assets.Gear->Equip(bot, spec);
 
-    data.EquippedItems = 0;
+    seat.EquippedItems = 0;
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
         if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
-            ++data.EquippedItems;
+            ++seat.EquippedItems;
 
     bot->UpdateAllStats();
     bot->SetFullHealth();
@@ -590,16 +655,16 @@ void AnimusForge::ClassRoleScenario::Configure(Player* bot, EnvData& data) const
     bot->SetPower(POWER_RUNIC_POWER, 0);
 }
 
-void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, EnvData const& data) const
+void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, Seat const& seat) const
 {
-    SpecProfile const& spec = _profile.Specs[data.Spec];
+    SpecProfile const& spec = seat.L->Profile->Specs[seat.Spec];
 
     bot->SetOrientation(bot->GetAngle(dummy));
 
     // A warrior has no stance until one is cast (a first login casts it), and nothing works without one.
-    if (_profile.Class == CLASS_WARRIOR)
+    if (seat.L->Profile->Class == CLASS_WARRIOR)
     {
-        uint32 const stance = _profile.PlayRole == Role::Tank && bot->HasSpell(SPELL_DEFENSIVE_STANCE)
+        uint32 const stance = seat.L->PlayRole() == Role::Tank && bot->HasSpell(SPELL_DEFENSIVE_STANCE)
             ? SPELL_DEFENSIVE_STANCE : SPELL_BATTLE_STANCE;
         bot->CastSpell(bot, stance, true);
     }
@@ -611,12 +676,7 @@ void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, EnvDat
     if (melee)
         bot->setAttackTimer(BASE_ATTACK, int32(urand(0, bot->GetAttackTime(BASE_ATTACK))));
 
-    dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * data.StartHealth)));
-}
-
-SpellInfo const* AnimusForge::ClassRoleScenario::ResolveSpell(Player const* bot, uint32 action) const
-{
-    return ActionCatalog::KnownRank(bot, _catalog->Actions()[action].FirstRank);
+    dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * seat.StartHealth)));
 }
 
 SpellInfo const* AnimusForge::ClassRoleScenario::TrinketSpell(Item const* item)
@@ -631,9 +691,9 @@ SpellInfo const* AnimusForge::ClassRoleScenario::TrinketSpell(Item const* item)
     return nullptr;
 }
 
-bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Unit* dummy, uint32 action) const
+bool AnimusForge::ClassRoleScenario::IsActionAllowed(Seat const& seat, Player* bot, Unit* target, uint32 action) const
 {
-    ActionCatalog::Action const& def = _catalog->Actions()[action];
+    ActionCatalog::Action const& def = seat.L->Catalog().Actions()[action];
 
     switch (def.Type)
     {
@@ -645,13 +705,13 @@ bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Unit* dummy, u
         {
             Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, def.EquipmentSlot);
             SpellInfo const* info = TrinketSpell(item);
-            return info && !CastInProgress(bot) && !bot->HasSpellCooldown(info->Id) && CanCast(bot, info, dummy, item);
+            return info && !CastInProgress(bot) && !bot->HasSpellCooldown(info->Id) && CanCast(bot, info, target, item);
         }
         case ActionCatalog::Kind::Spell:
             break;
     }
 
-    return IsSpellActionAllowed(bot, dummy, def);
+    return IsSpellActionAllowed(bot, target, def);
 }
 
 bool AnimusForge::ClassRoleScenario::IsSpellActionAllowed(Player* bot, Unit* target,
@@ -677,7 +737,7 @@ bool AnimusForge::ClassRoleScenario::IsSpellActionAllowed(Player* bot, Unit* tar
 }
 
 bool AnimusForge::ClassRoleScenario::ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def,
-    EnvData& data) const
+    Seat& seat) const
 {
     if (def.NextSwing && bot->GetCurrentSpell(CURRENT_MELEE_SPELL))
         return false;
@@ -695,102 +755,108 @@ bool AnimusForge::ClassRoleScenario::ApplySpellAction(Player* bot, Unit* target,
     if (spell->prepare(&targets) != SPELL_CAST_OK)
         return false;
 
-    ++data.SpellCasts;
+    ++seat.SpellCasts;
 
     // A stealth opener (Ambush, Garrote, Cheap Shot, Ravage, Pounce, ...) on the opponent.
     if (HasDuel() && stealthed && info->HasAttribute(SPELL_ATTR0_ONLY_STEALTHED)
         && info->NeedsExplicitUnitTarget() && !info->IsPositive())
     {
-        data.StepStealthOpener = true;
-        ++data.StealthOpeners;
+        seat.StepStealthOpener = true;
+        ++seat.StealthOpeners;
     }
 
     // An interrupt attempt on a casting enemy; the reward checks next decision whether the cast stopped.
     if (HasPack() && targetCasting && target != bot && ActionCatalog::IsInterruptingSpell(info))
-        data.PendingInterrupt = target->GetGUID();
+        seat.PendingInterrupt = target->GetGUID();
 
     return true;
 }
 
-void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Unit* dummy) const
+void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const
 {
-    EnvData const& data = _data[env.Index];
     float const progress = env.EpisodeLengthMs
         ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
-    float const fraction = data.StartHealth + (data.EndHealth - data.StartHealth) * progress;
+    float const fraction = seat.StartHealth + (seat.EndHealth - seat.StartHealth) * progress;
 
     dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * fraction)));
 }
 
 void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions)
 {
-    Player* bot = env.FindBot(0);
+    // Env upkeep first (linked pulls, the gauntlet's next pull, the owner, the scripted opponent), so the targets
+    // below are current.
+    if (HasPvp())
+        UpdatePvp(env);
+    else if (HasPack())
+        UpdatePack(env);
+
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        ApplySeatAction(env, seat, actions[seat]);
+}
+
+void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex, int32 action)
+{
+    Player* bot = env.FindBot(seatIndex);
     if (!bot)
         return;
 
-    int32 const action = actions[0];
-    EnvData& data = _data[env.Index];
-
-    // Pack upkeep first (linked pulls, the gauntlet's next pull), so the target below is current.
-    if (HasPvp())
-        UpdatePvp(env, bot, data);
-    else if (HasPack())
-        UpdatePack(env, bot, data);
-
-    Unit* dummy = CurrentTarget(env);
+    Seat& seat = _data[env.Index].Seats[seatIndex];
+    Layout const& layout = *seat.L;
+    Unit* target = CurrentTarget(env, seatIndex);
 
     // Only the gauntlet has moments without a target (between pulls).
-    if (!dummy && !HasGauntlet())
+    if (!target && !HasGauntlet())
         return;
 
     if (_mode == ArenaMode::Dummy)
-        UpdateDummyHealth(env, dummy);
+        UpdateDummyHealth(env, seat, target);
     else
     {
-        // Face the opponent whenever not running somewhere: casts and swings need it, and turning is
-        // not a decision worth learning.
-        if (dummy && bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, dummy))
-            bot->SetFacingToObject(dummy);
+        // Face the target whenever not running somewhere: casts and swings need it, and turning is not a decision
+        // worth learning.
+        if (target && bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, target))
+            bot->SetFacingToObject(target);
 
-        if (HasParty() && action >= int32(_partyActionFirst))
+        if (HasParty() && action >= int32(layout.PartyActionFirst))
         {
-            ApplyPartyAction(env, bot, uint32(action) - _partyActionFirst, data);
+            ApplyPartyAction(env, seatIndex, bot, uint32(action) - layout.PartyActionFirst);
             return;
         }
 
-        if (HasCompanion() && action >= int32(_companionActionFirst)
-            && action < int32(_companionActionFirst + _companionActionCount))
+        if (HasCompanion() && action >= int32(layout.CompanionActionFirst)
+            && action < int32(layout.CompanionActionFirst + layout.CompanionActionCount))
         {
-            ApplyCompanionAction(env, bot, uint32(action) - _companionActionFirst, data);
+            ApplyCompanionAction(env, seatIndex, bot, uint32(action) - layout.CompanionActionFirst);
             return;
         }
 
-        if (HasGauntlet() && action >= int32(_gauntletActionFirst)
-            && action < int32(_gauntletActionFirst + _gauntletActionCount))
+        if (HasGauntlet() && action >= int32(layout.GauntletActionFirst)
+            && action < int32(layout.GauntletActionFirst + layout.GauntletActionCount))
         {
-            ApplyGauntletAction(bot, dummy, uint32(action) - _gauntletActionFirst, data);
+            ApplyGauntletAction(bot, target, uint32(action) - layout.GauntletActionFirst, seat);
             return;
         }
 
-        if (HasPack() && action >= int32(_packActionFirst) && action < int32(_packActionFirst + _packActionCount))
+        if (HasPack() && action >= int32(layout.PackActionFirst)
+            && action < int32(layout.PackActionFirst + layout.PackActionCount))
         {
-            ApplyPackAction(env, bot, dummy, uint32(action) - _packActionFirst, data);
+            ApplyPackAction(env, seatIndex, bot, target, uint32(action) - layout.PackActionFirst);
             return;
         }
 
-        if (action >= int32(_duelActionFirst) && action < int32(_duelActionFirst + _duelActionCount))
+        if (action >= int32(layout.DuelActionFirst) && action < int32(layout.DuelActionFirst + layout.DuelActionCount))
         {
             // Stopping a cast and leaving a form need no target; ApplyDuelAction checks the rest.
-            ApplyDuelAction(bot, dummy, uint32(action) - _duelActionFirst, data);
+            ApplyDuelAction(bot, target, uint32(action) - layout.DuelActionFirst, seat);
             return;
         }
     }
 
-    if (action <= 0 || action >= int32(_catalog->Actions().size()))
+    std::vector<ActionCatalog::Action> const& catalog = layout.Catalog().Actions();
+    if (action <= 0 || action >= int32(catalog.size()))
         return;
 
-    ActionCatalog::Action const& def = _catalog->Actions()[action];
-
+    ActionCatalog::Action const& def = catalog[action];
     switch (def.Type)
     {
         case ActionCatalog::Kind::Noop:
@@ -806,34 +872,53 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
             if (!info || bot->HasSpellCooldown(info->Id))
                 return;
 
-            bot->CastItemUseSpell(item, TargetsFor(info, bot, dummy), 1, 0);
+            bot->CastItemUseSpell(item, TargetsFor(info, bot, target), 1, 0);
             if (bot->HasSpellCooldown(info->Id))
-                ++data.TrinketUses;
+                ++seat.TrinketUses;
             return;
         }
         case ActionCatalog::Kind::Spell:
             break;
     }
 
-    ApplySpellAction(bot, dummy, def, data);
+    ApplySpellAction(bot, target, def, seat);
 }
 
 void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
+{
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        ObserveSeat(env, seat, obs + seat * _spec.ObsDim, mask + seat * _spec.NumActions);
+
+    BuildState(env, state);
+}
+
+void AnimusForge::ClassRoleScenario::AgentLayouts(Env const& env, uint16* layout) const
+{
+    EnvData const& data = _data[env.Index];
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        layout[seat] = data.Seats[seat].L ? data.Seats[seat].L->Index : 0;
+}
+
+void AnimusForge::ClassRoleScenario::ObserveSeat(Env& env, uint32 seatIndex, float* obs, uint8* mask)
 {
     std::fill(obs, obs + _spec.ObsDim, 0.0f);
     std::fill(mask, mask + _spec.NumActions, 0);
     mask[0] = 1;
 
-    Player* bot = env.FindBot(0);
-    Unit* dummy = CurrentTarget(env);      // may be null between gauntlet pulls
-    EnvData const& data = _data[env.Index];
+    Seat const& seat = _data[env.Index].Seats[seatIndex];
+    if (!seat.L)
+        return;
 
-    obs[OBS_LEVEL] = float(data.Level) / float(DEFAULT_MAX_LEVEL);
+    Layout const& layout = *seat.L;
+    Player* bot = env.FindBot(seatIndex);
+    Unit* target = CurrentTarget(env, seatIndex);      // may be null between gauntlet pulls
+
+    obs[OBS_LEVEL] = float(seat.Level) / float(DEFAULT_MAX_LEVEL);
     for (uint32 i = 0; i < PLAYABLE_RACES.size(); ++i)
-        obs[OBS_RACE_FIRST + i] = PLAYABLE_RACES[i] == data.Race ? 1.0f : 0.0f;
-    obs[OBS_SPEC_FIRST + std::min<uint32>(data.Spec, MAX_SPECS - 1)] = 1.0f;
+        obs[OBS_RACE_FIRST + i] = PLAYABLE_RACES[i] == seat.Race ? 1.0f : 0.0f;
+    obs[OBS_SPEC_FIRST + std::min<uint32>(seat.Spec, MAX_SPECS - 1)] = 1.0f;
 
-    if (bot && (dummy || HasGauntlet()))
+    if (bot && bot->IsAlive() && (target || HasGauntlet()))
     {
         ObjectGuid const botGuid = bot->GetGUID();
         uint8 const level = bot->GetLevel();
@@ -851,8 +936,8 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
                 obs[OBS_RUNE_FIRST + rune] = 1.0f
                     - std::min(1.0f, float(bot->GetRuneCooldown(rune)) / RUNE_COOLDOWN_MS);
 
-        if (dummy)
-            obs[OBS_COMBO_POINTS] = float(bot->GetComboPoints(dummy)) / 5.0f;
+        if (target)
+            obs[OBS_COMBO_POINTS] = float(bot->GetComboPoints(target)) / 5.0f;
 
         ShapeshiftForm const form = bot->GetShapeshiftForm();
         for (uint32 i = 0; i < TRACKED_FORMS.size(); ++i)
@@ -869,11 +954,11 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
         }
 
         obs[OBS_MAIN_HAND_SPEED] = float(bot->GetAttackTime(BASE_ATTACK)) / 4000.0f;
-        if (dummy)
+        if (target)
         {
-            obs[OBS_TARGET_HEALTH] = dummy->GetHealthPct() / 100.0f;
-            obs[OBS_TARGET_DISTANCE] = std::min(1.0f, bot->GetDistance(dummy) / 40.0f);
-            obs[OBS_IN_MELEE_FRONT] = bot->IsWithinMeleeRange(dummy) && bot->HasInArc(2 * float(M_PI) / 3, dummy)
+            obs[OBS_TARGET_HEALTH] = target->GetHealthPct() / 100.0f;
+            obs[OBS_TARGET_DISTANCE] = std::min(1.0f, bot->GetDistance(target) / 40.0f);
+            obs[OBS_IN_MELEE_FRONT] = bot->IsWithinMeleeRange(target) && bot->HasInArc(2 * float(M_PI) / 3, target)
                 ? 1.0f : 0.0f;
         }
 
@@ -892,25 +977,25 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
         obs[OBS_SPELL_HIT] = bot->GetRatingBonusValue(CR_HIT_SPELL) / 100.0f;
         obs[OBS_EXPERTISE] = float(bot->GetUInt32Value(PLAYER_EXPERTISE)) / 30.0f;
         obs[OBS_ARMOR_PENETRATION] = bot->GetRatingBonusValue(CR_ARMOR_PENETRATION) / 100.0f;
-        obs[OBS_LAST_STEP_DAMAGE] = data.LastStepDamage;
-        obs[OBS_LAST_STEP_POWER_DELTA] = data.LastStepPowerDelta;
+        obs[OBS_LAST_STEP_DAMAGE] = seat.LastStepDamage;
+        obs[OBS_LAST_STEP_POWER_DELTA] = seat.LastStepPowerDelta;
 
-        std::vector<ActionCatalog::Action> const& actions = _catalog->Actions();
+        std::vector<ActionCatalog::Action> const& actions = layout.Catalog().Actions();
         for (uint32 action = 0; action < actions.size(); ++action)
         {
             SpellInfo const* info = nullptr;
             if (actions[action].Type == ActionCatalog::Kind::Spell)
-                info = ResolveSpell(bot, action);
+                info = ActionCatalog::KnownRank(bot, actions[action].FirstRank);
             else if (actions[action].Type == ActionCatalog::Kind::Trinket)
                 info = TrinketSpell(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, actions[action].EquipmentSlot));
 
             if (info)
             {
-                float* features = obs + _actionObsFirst + action * ACTION_FEATURES;
+                float* features = obs + layout.ActionObsFirst + action * ACTION_FEATURES;
                 float stacks = 0.0f;
                 features[0] = 1.0f;
                 features[1] = CooldownFraction(bot, info);
-                features[2] = dummy ? AuraFraction(dummy, info->Id, botGuid, stacks) : 0.0f;
+                features[2] = target ? AuraFraction(target, info->Id, botGuid, stacks) : 0.0f;
                 features[3] = AuraFraction(bot, info->Id, botGuid, stacks);
                 features[4] = stacks;
 
@@ -919,130 +1004,151 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
             }
 
             if (action > 0)
-                mask[action] = IsActionAllowed(bot, dummy, action) ? 1 : 0;
+                mask[action] = IsActionAllowed(seat, bot, target, action) ? 1 : 0;
         }
 
         if (HasDuel())
         {
-            ObserveDuel(env, bot, dummy, obs);
-            for (uint32 duelAction = 0; duelAction < _duelActionCount; ++duelAction)
-                mask[_duelActionFirst + duelAction] = IsDuelActionAllowed(bot, dummy, duelAction, data) ? 1 : 0;
+            ObserveDuel(env, seat, bot, target, obs);
+            for (uint32 duelAction = 0; duelAction < layout.DuelActionCount; ++duelAction)
+                mask[layout.DuelActionFirst + duelAction] = IsDuelActionAllowed(bot, target, duelAction, seat) ? 1 : 0;
         }
 
         if (HasPack())
         {
-            ObservePack(env, bot, obs);
-            for (uint32 packAction = 0; packAction < _packActionCount; ++packAction)
-            {
-                uint32 const tactical = packAction - PACK_SLOTS;
-                mask[_packActionFirst + packAction] = packAction < PACK_SLOTS
-                    ? IsPackActionAllowed(env, bot, packAction)
-                    : dummy && IsSpellActionAllowed(bot, dummy, _catalog->Tactical()[tactical]);
-            }
+            ObservePack(env, seatIndex, bot, obs);
+            std::vector<ActionCatalog::Action> const& tactical = layout.Catalog().Tactical();
+            for (uint32 packAction = 0; packAction < layout.PackActionCount; ++packAction)
+                mask[layout.PackActionFirst + packAction] = packAction < PACK_SLOTS
+                    ? IsPackActionAllowed(env, seatIndex, bot, packAction)
+                    : target && IsSpellActionAllowed(bot, target, tactical[packAction - PACK_SLOTS]);
         }
 
         if (HasGauntlet())
         {
-            ObserveGauntlet(env, bot, obs);
-            for (uint32 gauntletAction = 0; gauntletAction < _gauntletActionCount; ++gauntletAction)
-                mask[_gauntletActionFirst + gauntletAction] =
-                    IsGauntletActionAllowed(bot, dummy, gauntletAction, data) ? 1 : 0;
+            ObserveGauntlet(env, seatIndex, bot, obs);
+            for (uint32 gauntletAction = 0; gauntletAction < layout.GauntletActionCount; ++gauntletAction)
+                mask[layout.GauntletActionFirst + gauntletAction] =
+                    IsGauntletActionAllowed(bot, target, gauntletAction, seat) ? 1 : 0;
         }
 
         if (HasCompanion())
         {
-            ObserveCompanion(env, bot, obs);
-            for (uint32 companionAction = 0; companionAction < _companionActionCount; ++companionAction)
-                mask[_companionActionFirst + companionAction] =
-                    IsCompanionActionAllowed(env, bot, companionAction) ? 1 : 0;
+            ObserveCompanion(env, seatIndex, bot, obs);
+            for (uint32 companionAction = 0; companionAction < layout.CompanionActionCount; ++companionAction)
+                mask[layout.CompanionActionFirst + companionAction] =
+                    IsCompanionActionAllowed(env, seatIndex, bot, companionAction) ? 1 : 0;
         }
-
-        if (HasPvp())
-            ObservePvp(env, bot, obs);
 
         if (HasParty())
         {
-            ObserveParty(env, bot, obs);
-            for (uint32 partyAction = 0; partyAction < _partyActionCount; ++partyAction)
-                mask[_partyActionFirst + partyAction] = IsPartyActionAllowed(env, bot, partyAction) ? 1 : 0;
+            ObserveParty(env, seatIndex, bot, obs);
+            for (uint32 partyAction = 0; partyAction < layout.PartyActionCount; ++partyAction)
+                mask[layout.PartyActionFirst + partyAction] =
+                    IsPartyActionAllowed(env, seatIndex, bot, partyAction) ? 1 : 0;
         }
+
+        if (HasPvp())
+            ObservePvp(env, seatIndex, bot, obs);
     }
 
-    std::vector<TalentBuilder::Talent> const& talents = _talents->Talents();
-    for (uint32 i = 0; i < talents.size() && i < data.Build.Ranks.size(); ++i)
-        obs[_talentObsFirst + i] = float(data.Build.Ranks[i]) / float(std::max<uint8>(1, talents[i].MaxRank));
+    std::vector<TalentBuilder::Talent> const& talents = layout.Assets->Talents->Talents();
+    for (uint32 i = 0; i < talents.size() && i < seat.Build.Ranks.size(); ++i)
+        obs[layout.TalentObsFirst + i] = float(seat.Build.Ranks[i]) / float(std::max<uint8>(1, talents[i].MaxRank));
 
     for (uint32 tree = 0; tree < TalentBuilder::TREE_COUNT; ++tree)
-        obs[_treeObsFirst + tree] = float(data.Build.TreePoints[tree]) / TALENT_POINTS_AT_MAX_LEVEL;
-
-    std::memcpy(state, obs, _spec.ObsDim * sizeof(float));
+        obs[layout.TreeObsFirst + tree] = float(seat.Build.TreePoints[tree]) / TALENT_POINTS_AT_MAX_LEVEL;
 }
 
 void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
 {
-    EnvData& data = _data[env.Index];
+    // A pull is cleared (or not) for the whole party at once.
+    if (HasPack() && IsPve())
+        AssessPull(env);
 
-    float const scaled = float(env.StepStats[0].Damage) / data.DamageScale;
-    reward[0] = scaled;
-    data.LastStepDamage = scaled;
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        reward[seat] = SeatReward(env, seat);
 
-    if (_mode == ArenaMode::Duel)
-        reward[0] = DuelReward(env, env.FindBot(0), env.FindTargetUnit(0), data);
-    else if (HasPvp())
-        reward[0] = PvpReward(env, env.FindBot(0), data);
-    else if (HasParty())
-        reward[0] = PartyReward(env, env.FindBot(0), data);
-    else if (HasCompanion())
-        reward[0] = CompanionReward(env, env.FindBot(0), data);
-    else if (HasPack())
-        reward[0] = PackReward(env, env.FindBot(0), data);
+    if (HasPack() && IsPve())
+        FinishPull(env);
+}
 
-    if (Player* bot = env.FindBot(0))
+float AnimusForge::ClassRoleScenario::SeatReward(Env& env, uint32 seatIndex)
+{
+    Seat& seat = _data[env.Index].Seats[seatIndex];
+    Player* bot = env.FindBot(seatIndex);
+
+    float reward = float(env.StepStats[seatIndex].Damage) / seat.DamageScale;
+    seat.LastStepDamage = reward;
+
+    switch (_mode)
+    {
+        case ArenaMode::Duel:      reward = DuelReward(env, seatIndex, bot, env.FindTargetUnit(0)); break;
+        case ArenaMode::Pack:
+        case ArenaMode::Gauntlet:  reward = PackReward(env, seatIndex, bot); break;
+        case ArenaMode::Companion: reward = CompanionReward(env, seatIndex, bot); break;
+        case ArenaMode::Party:     reward = PartyReward(env, seatIndex, bot); break;
+        case ArenaMode::Pvp:
+        case ArenaMode::Arena:     reward = PvpReward(env, seatIndex, bot); break;
+        case ArenaMode::Dummy:     break;
+    }
+
+    if (bot)
     {
         Powers const power = bot->getPowerType();
         uint32 const current = bot->GetPower(power);
         float const maxPower = float(std::max<uint32>(1, bot->GetMaxPower(power)));
-        data.LastStepPowerDelta = (float(current) - float(data.LastPower)) / maxPower;
-        data.LastPower = current;
+        seat.LastStepPowerDelta = (float(current) - float(seat.LastPower)) / maxPower;
+        seat.LastPower = current;
     }
+
+    return reward;
 }
 
 void AnimusForge::ClassRoleScenario::EpisodeInfo(Env const& env, float* info) const
 {
-    AgentStats const& stats = env.EpisodeStats[0];
-    EnvData const& data = _data[env.Index];
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        SeatEpisodeInfo(env, seat, info + seat * _spec.EpisodeInfoDim);
+}
+
+void AnimusForge::ClassRoleScenario::SeatEpisodeInfo(Env const& env, uint32 seatIndex, float* info) const
+{
+    AgentStats const& stats = env.EpisodeStats[seatIndex];
+    Seat const& seat = _data[env.Index].Seats[seatIndex];
     float const seconds = std::max(0.001f, float(env.EpisodeElapsedMs) / 1000.0f);
 
     info[INFO_DAMAGE] = float(stats.Damage);
     info[INFO_DPS] = float(stats.Damage) / seconds;
     info[INFO_WHITE_DAMAGE] = float(stats.WhiteDamage);
     info[INFO_SPECIAL_DAMAGE] = float(stats.SpecialDamage);
-    info[INFO_LEVEL] = float(data.Level);
-    info[INFO_RACE] = float(data.Race);
-    info[INFO_SPEC] = float(data.Spec);
-    info[INFO_UNSPENT_TALENT_POINTS] = float(data.UnspentTalentPoints);
-    info[INFO_EQUIPPED_ITEMS] = float(data.EquippedItems);
-    info[INFO_SPELL_CASTS] = float(data.SpellCasts);
-    info[INFO_TRINKET_USES] = float(data.TrinketUses);
+    info[INFO_LEVEL] = float(seat.Level);
+    info[INFO_RACE] = float(seat.Race);
+    info[INFO_SPEC] = float(seat.Spec);
+    info[INFO_UNSPENT_TALENT_POINTS] = float(seat.UnspentTalentPoints);
+    info[INFO_EQUIPPED_ITEMS] = float(seat.EquippedItems);
+    info[INFO_SPELL_CASTS] = float(seat.SpellCasts);
+    info[INFO_TRINKET_USES] = float(seat.TrinketUses);
+    info[INFO_CLASS] = seat.L ? float(seat.L->Profile->Class) : 0.0f;
+    info[INFO_ROLE] = seat.L ? float(uint32(seat.L->PlayRole())) : 0.0f;
 
     if (HasDuel())
-        DuelEpisodeInfo(env, info + _duelInfoFirst);
+        DuelEpisodeInfo(env, seatIndex, info + _duelInfoFirst);
     if (HasPack())
-        PackEpisodeInfo(env, info + _packInfoFirst);
+        PackEpisodeInfo(env, seatIndex, info + _packInfoFirst);
     if (HasGauntlet())
-        GauntletEpisodeInfo(env, info + _gauntletInfoFirst);
+        GauntletEpisodeInfo(env, seatIndex, info + _gauntletInfoFirst);
     if (HasCompanion())
-        CompanionEpisodeInfo(env, info + _companionInfoFirst);
+        CompanionEpisodeInfo(env, seatIndex, info + _companionInfoFirst);
     if (HasParty())
-        PartyEpisodeInfo(env, info + _partyInfoFirst);
+        PartyEpisodeInfo(env, seatIndex, info + _partyInfoFirst);
     if (HasPvp())
-        PvpEpisodeInfo(env, info + _pvpInfoFirst);
+        PvpEpisodeInfo(env, seatIndex, info + _pvpInfoFirst);
 }
 
 std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() const
 {
     std::vector<std::string> names = { "damage", "dps", "white_damage", "special_damage", "level", "race", "spec",
-        "unspent_talent_points", "equipped_items", "spell_casts", "trinket_uses" };
+        "unspent_talent_points", "equipped_items", "spell_casts", "trinket_uses", "class", "role" };
 
     if (HasDuel())
         names.insert(names.end(), { "killed", "died", "time_to_kill", "damage_taken", "health_left",
@@ -1060,8 +1166,8 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
             "threat_on_bot", "threat_on_owner" });
 
     if (HasParty())
-        names.insert(names.end(), { "members_died", "member_damage_taken", "member_healing", "threat_on_members",
-            "tank_class", "healer_class" });
+        names.insert(names.end(), { "teammates_died", "teammate_damage_taken", "teammate_healing",
+            "threat_on_teammates", "seat" });
 
     if (HasPvp())
         names.insert(names.end(), { "won", "opponent_class", "opponent_role" });
@@ -1069,17 +1175,20 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
     return names;
 }
 
-Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env)
+Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env, uint32 seatIndex)
 {
+    if (HasPvp())
+        return FindOpponent(env, seatIndex);
+
     if (!HasPack())
         return env.FindTargetUnit(0);
 
-    EnvData& data = _data[env.Index];
-    if (Unit* selected = env.FindTargetUnit(data.TargetSlot); selected && selected->IsAlive())
+    Seat& seat = _data[env.Index].Seats[seatIndex];
+    if (Unit* selected = env.FindTargetUnit(seat.TargetSlot); selected && selected->IsAlive())
         return selected;
 
     // The selection died or despawned: the nearest living enemy, like a player tabbing to the next one.
-    Player* bot = env.FindBot(0);
+    Player* bot = env.FindBot(seatIndex);
     Unit* nearest = nullptr;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
     {
@@ -1090,7 +1199,7 @@ Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env)
         if (!nearest || (bot && bot->GetDistance(enemy) < bot->GetDistance(nearest)))
         {
             nearest = enemy;
-            data.TargetSlot = slot;
+            seat.TargetSlot = slot;
         }
     }
 
@@ -1098,39 +1207,45 @@ Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env)
 }
 
 bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, float const* obs,
-    uint8 const* mask, int32& action) const
+    uint8 const* mask, uint16 layoutIndex, int32& action) const
 {
-    // Smoke-test baselines. "greedy": the first usable spell or trinket in catalog order. "fight" (duel
-    // stage on): also start attacking, run to the target, and eat or drink between gauntlet pulls.
+    // Smoke-test baselines. "greedy": the first usable spell or trinket in catalog order. "fight" (duel stage on):
+    // also start attacking, run to the target, eat or drink between gauntlet pulls, and heal hurt allies.
     if (policy != "greedy" && !(policy == "fight" && HasDuel()))
         return false;
 
     action = 0;
+    if (layoutIndex >= _layouts.size())
+        return true;
+
+    Layout const& layout = _layouts[layoutIndex];
 
     if (policy == "fight")
     {
-        float const* duel = obs + _duelObsFirst;
+        float const* duel = obs + layout.DuelObsFirst;
         bool const hasTarget = duel[DUEL_OBS_DISTANCE] > 0.0f;
 
-        if (HasGauntlet() && !hasTarget && obs[OBS_HEALTH] < 0.8f && mask[_gauntletActionFirst + GAUNTLET_ACTION_EAT])
+        if (HasGauntlet() && !hasTarget && obs[OBS_HEALTH] < 0.8f
+            && mask[layout.GauntletActionFirst + GAUNTLET_ACTION_EAT])
         {
-            action = int32(_gauntletActionFirst + GAUNTLET_ACTION_EAT);
+            action = int32(layout.GauntletActionFirst + GAUNTLET_ACTION_EAT);
             return true;
         }
 
         if (HasGauntlet() && !hasTarget && obs[OBS_MANA] > 0.0f && obs[OBS_MANA] < 0.8f
-            && mask[_gauntletActionFirst + GAUNTLET_ACTION_DRINK])
+            && mask[layout.GauntletActionFirst + GAUNTLET_ACTION_DRINK])
         {
-            action = int32(_gauntletActionFirst + GAUNTLET_ACTION_DRINK);
+            action = int32(layout.GauntletActionFirst + GAUNTLET_ACTION_DRINK);
             return true;
         }
 
-        if (HasCompanion() && obs[_companionObsFirst + COMPANION_OBS_OWNER_ALIVE] > 0.0f
-            && obs[_companionObsFirst + COMPANION_OBS_OWNER_HEALTH] < 0.7f)
+        uint32 const heals = uint32(layout.AllyHeals.size());
+        if (HasCompanion() && heals && obs[layout.CompanionObsFirst + COMPANION_OBS_OWNER_ALIVE] > 0.0f
+            && obs[layout.CompanionObsFirst + COMPANION_OBS_OWNER_HEALTH] < 0.7f)
         {
-            for (uint32 heal = 0; heal < _ownerHeals.size(); ++heal)
+            for (uint32 heal = 0; heal < heals; ++heal)
             {
-                uint32 const index = _companionActionFirst + COMPANION_ACTION_HEAL_FIRST + heal;
+                uint32 const index = layout.CompanionActionFirst + COMPANION_ACTION_HEAL_FIRST + heal;
                 if (mask[index])
                 {
                     action = int32(index);
@@ -1139,26 +1254,25 @@ bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, f
             }
 
             // Heals cannot be cast in most forms.
-            if (!_ownerHeals.empty() && mask[_duelActionFirst + DUEL_ACTION_CANCEL_FORM])
+            if (mask[layout.DuelActionFirst + DUEL_ACTION_CANCEL_FORM])
             {
-                action = int32(_duelActionFirst + DUEL_ACTION_CANCEL_FORM);
+                action = int32(layout.DuelActionFirst + DUEL_ACTION_CANCEL_FORM);
                 return true;
             }
         }
 
-        // A hurt party member: the first heal that can reach it.
-        if (HasParty() && !_ownerHeals.empty())
+        // A hurt teammate: the first heal that can reach it.
+        if (HasParty() && heals)
         {
             for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
             {
-                float const* features = obs + _partyObsFirst + PARTY_OBS_GLOBAL_COUNT + member * MEMBER_FEATURES;
+                float const* features = obs + layout.PartyObsFirst + PARTY_OBS_GLOBAL_COUNT + member * MEMBER_FEATURES;
                 if (features[MEMBER_ALIVE] == 0.0f || features[MEMBER_HEALTH] >= 0.6f)
                     continue;
 
-                for (uint32 heal = 0; heal < _ownerHeals.size(); ++heal)
+                for (uint32 heal = 0; heal < heals; ++heal)
                 {
-                    uint32 const index = _partyActionFirst + PARTY_ACTION_HEAL_FIRST
-                        + member * uint32(_ownerHeals.size()) + heal;
+                    uint32 const index = layout.PartyActionFirst + PARTY_ACTION_HEAL_FIRST + member * heals + heal;
                     if (mask[index])
                     {
                         action = int32(index);
@@ -1168,21 +1282,21 @@ bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, f
             }
         }
 
-        if (mask[_duelActionFirst + DUEL_ACTION_START_ATTACK])
+        if (mask[layout.DuelActionFirst + DUEL_ACTION_START_ATTACK])
         {
-            action = int32(_duelActionFirst + DUEL_ACTION_START_ATTACK);
+            action = int32(layout.DuelActionFirst + DUEL_ACTION_START_ATTACK);
             return true;
         }
 
         if (hasTarget && duel[DUEL_OBS_DISTANCE] * 60.0f > 4.0f && duel[DUEL_OBS_BOT_MOVING] == 0.0f
-            && mask[_duelActionFirst + DUEL_ACTION_MOVE_TO_TARGET])
+            && mask[layout.DuelActionFirst + DUEL_ACTION_MOVE_TO_TARGET])
         {
-            action = int32(_duelActionFirst + DUEL_ACTION_MOVE_TO_TARGET);
+            action = int32(layout.DuelActionFirst + DUEL_ACTION_MOVE_TO_TARGET);
             return true;
         }
     }
 
-    for (uint32 i = 2; i < _catalog->Actions().size(); ++i)
+    for (uint32 i = 2; i < layout.Catalog().Actions().size(); ++i)
     {
         if (mask[i])
         {
@@ -1203,19 +1317,18 @@ void AnimusForge::ClassRoleScenario::Teardown(Env& env)
             creature->DespawnOrUnsummon();
 
     if (HasPvp())
-        DestroyOpponent(env, data);
-
-    if (HasParty())
-        DestroyMembers(env, data);
+        DestroyOpponent(env);
 
     if (HasCompanion())
-        DestroyOwner(env, data);
+        DestroyOwner(env);
 
-    WorldSession* activeSession = data.Sessions[data.ActiveSession];
-    if (Player* bot = activeSession ? activeSession->GetPlayer() : nullptr)
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
     {
-        BotFactory::Destroy(bot);
-        data.Sessions[data.ActiveSession] = nullptr;
+        if (Player* bot = SeatBot(data, seat))
+        {
+            BotFactory::Destroy(bot);
+            data.Seats[seat].Sessions[data.Seats[seat].ActiveSession] = nullptr;
+        }
     }
 
     env.Bots.clear();

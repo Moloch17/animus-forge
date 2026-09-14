@@ -1,80 +1,67 @@
 from types import SimpleNamespace
 
-import pytest
 import torch
 
-from animus.bootstrap import seed_network, seed_trainer
+from animus.bootstrap import seed_trainer
 from animus.config import TrainConfig
-from animus.mappo.networks import Actor, Critic, one_hot_agents
 from animus.mappo.trainer import MappoConfig, MappoTrainer
+from animus.protocol import Layout
+
+
+def spec(layouts: list[Layout], state_dim: int) -> SimpleNamespace:
+    return SimpleNamespace(layouts=tuple(layouts), state_dim=state_dim)
+
+
+def checkpoint_spec(layouts: list[Layout]) -> dict:
+    return {"layouts": [{"name": l.name, "obs_dim": l.obs_dim, "num_actions": l.num_actions} for l in layouts]}
 
 
 def test_seeded_actor_matches_earlier_stage_on_its_inputs_and_actions():
     torch.manual_seed(0)
-    old_obs, new_obs, old_actions, new_actions, agents = 6, 9, 3, 5, 1
-    old = Actor(old_obs, old_actions, agents, [16, 16])
-    new = Actor(new_obs, new_actions, agents, [16, 16])
-
-    new.load_state_dict(seed_network(new.state_dict(), old.state_dict(), old_obs, new_obs, agents, copy_head=True))
-
-    obs = torch.randn(4, old_obs)
-    agent = torch.zeros(4, dtype=torch.long)
-    extended = torch.cat([obs, torch.randn(4, new_obs - old_obs)], dim=-1)
-
-    old_logits = old.net(torch.cat([obs, one_hot_agents(agent, agents)], dim=-1))
-    new_logits = new.net(torch.cat([extended, one_hot_agents(agent, agents)], dim=-1))
-
-    # New feature columns start at zero, so whatever they hold does not change the old actions' logits.
-    torch.testing.assert_close(new_logits[:, :old_actions], old_logits)
-
-
-def test_critic_head_is_not_copied():
-    torch.manual_seed(0)
-    old = Critic(6, 1, [8])
-    new = Critic(9, 1, [8])
-    fresh_head = new.state_dict()["net.2.weight"].clone()
-
-    seeded = seed_network(new.state_dict(), old.state_dict(), 6, 9, 1, copy_head=False)
-
-    torch.testing.assert_close(seeded["net.2.weight"], fresh_head)
-    torch.testing.assert_close(seeded["net.0.weight"][:, :6], old.state_dict()["net.0.weight"][:, :6])
-
-
-def test_mismatched_hidden_sizes_are_rejected():
-    old = Actor(6, 3, 1, [16])
-    new = Actor(9, 5, 1, [32])
-    with pytest.raises(ValueError):
-        seed_network(new.state_dict(), old.state_dict(), 6, 9, 1, copy_head=True)
-
-
-def test_seed_trainer_from_checkpoint():
     config = MappoConfig(hidden=(16, 16))
-    old = MappoTrainer(6, 6, 3, 1, config)
-    new = MappoTrainer(9, 9, 5, 1, config)
-    checkpoint = {
-        "trainer": old.state_dict(),
-        "spec": {"agents_per_env": 1, "obs_dim": 6, "state_dim": 6, "num_actions": 3},
-    }
+    old_layouts = [Layout("warrior_dps", 6, 3), Layout("mage_dps", 5, 4)]
+    new_layouts = [Layout("mage_dps", 8, 6), Layout("warrior_dps", 9, 5), Layout("priest_heal", 7, 4)]
+    old = MappoTrainer([(l.obs_dim, l.num_actions) for l in old_layouts], 4, config)
+    new = MappoTrainer([(l.obs_dim, l.num_actions) for l in new_layouts], 11, config)
+    checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec(old_layouts)}
 
-    seed_trainer(new, checkpoint, SimpleNamespace(agents_per_env=1, obs_dim=9, state_dim=9, num_actions=5))
+    seeded = seed_trainer(new, checkpoint, spec(new_layouts, 11))
+    assert sorted(seeded) == ["mage_dps", "warrior_dps"]
 
-    torch.testing.assert_close(new.actor.state_dict()["net.2.weight"], old.actor.state_dict()["net.2.weight"])
+    # warrior_dps is layout 0 before and 1 now. New feature columns start at zero, so whatever they hold does
+    # not change the earlier actions' logits (up to the normalising shift of a distribution's logits).
+    obs = torch.randn(4, 6)
+    new_obs = torch.cat([obs, torch.randn(4, 3)], dim=-1)
+    padded_old = torch.cat([obs, torch.zeros(4, 0)], dim=-1)
+
+    old_logits = old.actor(padded_old, torch.zeros(4, dtype=torch.long), torch.ones(4, 4)).logits[:, :3]
+    new_logits = new.actor(new_obs, torch.ones(4, dtype=torch.long), torch.ones(4, 6)).logits[:, :3]
+    torch.testing.assert_close(new_logits - new_logits[:, :1], old_logits - old_logits[:, :1], rtol=1e-4, atol=1e-4)
+
+
+def test_critic_state_encoder_and_head_are_not_copied():
+    torch.manual_seed(0)
+    config = MappoConfig(hidden=(8,))
+    layouts = [Layout("warrior_dps", 6, 3)]
+    old = MappoTrainer([(6, 3)], 4, config)
+    new = MappoTrainer([(6, 3)], 4, config)
+    fresh_head = new.critic.state_dict()["head.weight"].clone()
+    fresh_state = new.critic.state_dict()["state_encoder.weight"].clone()
+
+    seed_trainer(new, {"trainer": old.state_dict(), "spec": checkpoint_spec(layouts)}, spec(layouts, 4))
+
+    critic = new.critic.state_dict()
+    torch.testing.assert_close(critic["head.weight"], fresh_head)
+    torch.testing.assert_close(critic["state_encoder.weight"], fresh_state)
+    torch.testing.assert_close(critic["adapters.0.weight"], old.critic.state_dict()["adapters.0.weight"])
 
 
 def test_init_from_resolves_the_base_run():
-    config = TrainConfig(run_name="warrior_dps_duel", init_from="runs/{base_run}/latest.pt")
-    assert config.resolved_init_from() == "runs/warrior_dps/latest.pt"
-    assert TrainConfig(run_name="warrior_dps").resolved_init_from() == ""
+    config = TrainConfig(run_name="class_role_duel", init_from="runs/{base_run}/best.pt")
+    assert config.resolved_init_from() == "runs/class_role/best.pt"
+    assert TrainConfig(run_name="class_role").resolved_init_from() == ""
 
-    pack = TrainConfig(run_name="mage_dps_pack", init_from="runs/{base_run}_duel/latest.pt")
-    assert pack.resolved_init_from() == "runs/mage_dps_duel/latest.pt"
-    gauntlet = TrainConfig(run_name="druid_tank_gauntlet", init_from="runs/{base_run}_pack/latest.pt")
-    assert gauntlet.resolved_init_from() == "runs/druid_tank_pack/latest.pt"
-    companion = TrainConfig(run_name="priest_heal_companion", init_from="runs/{base_run}_gauntlet/latest.pt")
-    assert companion.resolved_init_from() == "runs/priest_heal_gauntlet/latest.pt"
-    party = TrainConfig(run_name="warrior_tank_party", init_from="runs/{base_run}_companion/best.pt")
-    assert party.resolved_init_from() == "runs/warrior_tank_companion/best.pt"
-    pvp = TrainConfig(run_name="rogue_dps_pvp", init_from="runs/{base_run}_party/best.pt")
-    assert pvp.resolved_init_from() == "runs/rogue_dps_party/best.pt"
-    arena = TrainConfig(run_name="mage_dps_arena", init_from="runs/{base_run}_pvp/best.pt")
-    assert arena.resolved_init_from() == "runs/mage_dps_pvp/best.pt"
+    for stage, previous in (("pack", "_duel"), ("gauntlet", "_pack"), ("companion", "_gauntlet"),
+                            ("party", "_companion"), ("pvp", "_party"), ("arena", "_pvp")):
+        run = TrainConfig(run_name=f"class_role_{stage}", init_from=f"runs/{{base_run}}{previous}/best.pt")
+        assert run.resolved_init_from() == f"runs/class_role{previous}/best.pt"

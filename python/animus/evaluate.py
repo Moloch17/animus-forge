@@ -40,11 +40,15 @@ def main() -> None:
     if spec.scenario != checkpoint["spec"]["scenario"]:
         raise SystemExit(f"checkpoint was trained on {checkpoint['spec']['scenario']}, sim runs {spec.scenario}")
 
-    trainer = MappoTrainer(spec.obs_dim, spec.state_dim, spec.num_actions, spec.agents_per_env, mappo)
+    layouts = [(layout.obs_dim, layout.num_actions) for layout in spec.layouts]
+    if [(l["obs_dim"], l["num_actions"]) for l in checkpoint["spec"]["layouts"]] != layouts:
+        raise SystemExit("the checkpoint's agent layouts do not match the sim's (AnimusForge.ClassRoles?)")
+
+    trainer = MappoTrainer(layouts, spec.state_dim, mappo)
     trainer.load_state_dict(checkpoint["trainer"], load_optimizers=False)
 
     def actions(step):
-        return trainer.act(step.obs, step.mask, deterministic=not args.stochastic)[0]
+        return trainer.act(step.obs, step.mask, step.layout, deterministic=not args.stochastic)[0]
 
     try:
         env.reset()

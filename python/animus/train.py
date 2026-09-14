@@ -93,9 +93,12 @@ def save_checkpoint(
 
 
 def publish(actor_state: dict, spec, label: str) -> None:
-    """Export an actor to every $ANIMUS_MODEL_DIRS dir; mod-animus loads it on its next config reload."""
-    for path in publish_model(actor_state, asdict(spec), model_dirs_from_env()):
-        print(f"Published {label} model to {path}", flush=True)
+    """Export every layout's model to every $ANIMUS_MODEL_DIRS dir; mod-animus loads them on its next config reload."""
+    written = publish_model(actor_state, asdict(spec), model_dirs_from_env())
+    for model_dir in sorted({path.parent for path in written}):
+        names = [path.stem for path in written if path.parent == model_dir]
+        print(f"Published {label}: {len(names)} models to {model_dir} ({', '.join(names[:3])}"
+              f"{', ...' if len(names) > 3 else ''})", flush=True)
 
 
 class EvalLog:
@@ -212,16 +215,15 @@ def main() -> None:
     spec = env.spec
     (run_dir / "spec.json").write_text(json.dumps(asdict(spec), indent=2))
     print(
-        f"Scenario {spec.scenario}: {spec.num_envs} envs x {spec.agents_per_env} agents, obs {spec.obs_dim}, "
-        f"state {spec.state_dim}, actions {spec.num_actions}, decision every {spec.decision_ms} ms",
+        f"Scenario {spec.scenario}: {spec.num_envs} envs x {spec.agents_per_env} agents, {len(spec.layouts)} layouts "
+        f"(obs up to {spec.obs_dim}, actions up to {spec.num_actions}), state {spec.state_dim}, decision every "
+        f"{spec.decision_ms} ms",
         flush=True,
     )
 
     trainer = MappoTrainer(
-        spec.obs_dim,
+        [(layout.obs_dim, layout.num_actions) for layout in spec.layouts],
         spec.state_dim,
-        spec.num_actions,
-        spec.agents_per_env,
         config.mappo,
         train_device=config.train_device,
         rollout_device=config.rollout_device,
@@ -240,6 +242,9 @@ def main() -> None:
         checkpoint = torch.load(resume, map_location="cpu", weights_only=False)
         if checkpoint["spec"]["scenario"] != spec.scenario:
             raise SystemExit(f"{resume} was trained on {checkpoint['spec']['scenario']}, the sim runs {spec.scenario}")
+        if checkpoint["spec"].get("layouts") != asdict(spec)["layouts"]:
+            raise SystemExit(f"{resume} was trained with other agent layouts than the sim now has (AnimusForge."
+                             "ClassRoles or the scenario changed); start a clean run instead")
         trainer.load_state_dict(checkpoint["trainer"])
         update = checkpoint["update"]
         env_steps = checkpoint["env_steps"]
@@ -247,8 +252,9 @@ def main() -> None:
         print(f"Resumed from {resume} at update {update}, {env_steps} env steps", flush=True)
     elif init_from := config.resolved_init_from():
         if seed_path := init_from_checkpoint(init_from):
-            seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
-            print(f"Seeded the networks from {seed_path}", flush=True)
+            seeded = seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
+            print(f"Seeded the networks from {seed_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
+                  flush=True)
         else:
             print(f"No {init_from} to seed from; starting from scratch", flush=True)
 
@@ -256,7 +262,6 @@ def main() -> None:
     buffer = RolloutBuffer(config.rollout_length, envs, agents, spec.obs_dim, spec.state_dim, spec.num_actions)
     columns = [
         "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
-        *(f"action_{a}_rate" for a in range(spec.num_actions)),
         *(f"episode_{name}" for name in spec.episode_info_names),
         "policy_loss", "value_loss", "entropy", "clip_frac", "approx_kl",
     ]
@@ -269,7 +274,7 @@ def main() -> None:
         return {"plateau": tracker.state_dict()}
 
     def learner_actions(step):
-        return trainer.act(step.obs, step.mask, deterministic=config.eval.deterministic)[0]
+        return trainer.act(step.obs, step.mask, step.layout, deterministic=config.eval.deterministic)[0]
 
     def evaluate():
         """Score the networks on the seeds (and the baseline once per run); returns the next training STEP."""
@@ -319,21 +324,23 @@ def main() -> None:
             started = time.perf_counter()
 
             while not buffer.full:
-                values = trainer.value(step.state)
-                actions, log_probs = trainer.act(step.obs, step.mask)
-                buffer.add_decision(step.obs, step.state, step.mask, actions, log_probs, values)
+                values = trainer.value(step.state, step.obs, step.layout)
+                actions, log_probs = trainer.act(step.obs, step.mask, step.layout)
+                buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values)
 
+                # The ended episodes' layouts: the next STEP already carries the new episodes'.
+                layout = step.layout
                 step = env.step(actions)
 
                 final_values = np.zeros((envs, agents), dtype=np.float32)
                 if step.done.any():
-                    final_values[step.done] = trainer.value(step.final_state)[step.done]
-                    finished_episodes.extend(step.episode_info[step.done])
+                    final_values[step.done] = trainer.value(step.final_state, step.final_obs, layout)[step.done]
+                    finished_episodes.extend(step.episode_info[step.done].reshape(-1, spec.episode_info_dim))
 
                 buffer.add_outcome(step.reward, step.done, step.terminated, final_values)
 
             rollout_seconds = time.perf_counter() - started
-            buffer.finish(trainer.value(step.state), config.mappo.gamma, config.mappo.gae_lambda)
+            buffer.finish(trainer.value(step.state, step.obs, step.layout), config.mappo.gamma, config.mappo.gae_lambda)
             stats = trainer.update(buffer)
 
             update += 1
@@ -348,8 +355,6 @@ def main() -> None:
                     "reward_per_decision": float(buffer.rewards.mean()),
                     "episodes": len(finished_episodes),
                 }
-                for action in range(spec.num_actions):
-                    row[f"action_{action}_rate"] = float((buffer.actions == action).mean())
                 if finished_episodes:
                     means = np.mean(finished_episodes, axis=0)
                     for name, value in zip(spec.episode_info_names, means):

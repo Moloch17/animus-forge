@@ -1,9 +1,7 @@
-# Shared learner config for every class/role pack stage (warrior_dps_pack, mage_dps_pack, ...), used
-# when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
-#
-# Stage 3 of the curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
-# casters included, usually linked. The policy picks targets, interrupts, crowd-controls and clears
-# the pack fast while losing little health. Episodes end when the pack is cleared or the bot dies.
+# Learner config for class_role_pack, stage 3 of the class/role curriculum: the duel's random characters against a
+# pack of 2-4 same-level creatures, casters included, usually linked. The policy picks targets, interrupts,
+# crowd-controls and clears the pack fast while losing little health. Episodes end when the pack is cleared or the
+# bot dies.
 #
 # The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
 
@@ -12,7 +10,7 @@ runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's duel model: the pack stage's observations and actions extend it.
+# Seed a fresh run from the duel stage: each layout extends the duel's.
 init_from: runs/{base_run}_duel/best.pt
 
 total_env_steps: 300000000
@@ -41,7 +39,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

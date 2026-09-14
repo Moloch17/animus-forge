@@ -1,20 +1,17 @@
-# Shared learner config for every class/role self-play arena stage (warrior_dps_arena, ...), used when the
-# scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
-#
-# Stage 8 of the curriculum: self-play one-on-one. Envs pair up and each env's opponent is its partner's bot, the
-# same class and role played by this same policy, so both sides of every fight are training data. Needs an even
-# AnimusForge.Envs.
+# Learner config for class_role_arena, stage 8 of the class/role curriculum: self-play one-on-one. Two learned
+# agents of random classes and roles fight in each env, both played by this policy, so both sides of every fight
+# are training data, across class matchups.
 #
 # Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides
 # improve together), so there is no baseline and no plateau stop: the run trains to total_env_steps. Judge it by
-# stage 7's evaluation: run the arena model on a <class>_<role>_pvp sim with animus.evaluate.
+# stage 7's evaluation: run the arena checkpoint on a class_role_pvp sim with animus.evaluate.
 
 run_name: class_role_arena
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's PvP model: the arena stage has the same layout.
+# Seed a fresh run from the PvP stage: the arena has the same layouts.
 init_from: runs/{base_run}_pvp/best.pt
 
 total_env_steps: 300000000

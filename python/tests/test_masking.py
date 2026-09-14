@@ -25,23 +25,27 @@ def test_fully_masked_row_falls_back_to_action_zero():
 
 
 def test_trainer_update_smoke():
-    envs, agents, obs_dim, state_dim, actions = 4, 2, 6, 7, 3
-    trainer = MappoTrainer(obs_dim, state_dim, actions, agents, MappoConfig(hidden=(16,), epochs=2, minibatches=2))
+    envs, agents, state_dim = 4, 3, 7
+    layouts = [(6, 3), (4, 5)]  # two agent layouts, padded to 6 features and 5 actions
+    obs_dim, actions = 6, 5
+    trainer = MappoTrainer(layouts, state_dim, MappoConfig(hidden=(16, 16), epochs=2, minibatches=2))
     buffer = RolloutBuffer(8, envs, agents, obs_dim, state_dim, actions)
     rng = np.random.default_rng(0)
 
     while not buffer.full:
+        layout = rng.integers(0, 2, (envs, agents))
         obs = rng.random((envs, agents, obs_dim), dtype=np.float32)
         state = rng.random((envs, state_dim), dtype=np.float32)
         mask = rng.random((envs, agents, actions)) < 0.6
         mask[..., 0] = True
-        chosen, log_probs = trainer.act(obs, mask)
+        mask[layout == 0, 3:] = False  # layout 0 has 3 actions
+        chosen, log_probs = trainer.act(obs, mask, layout)
         assert mask[np.arange(envs)[:, None], np.arange(agents)[None, :], chosen].all()
-        buffer.add_decision(obs, state, mask, chosen, log_probs, trainer.value(state))
+        buffer.add_decision(obs, state, mask, layout, chosen, log_probs, trainer.value(state, obs, layout))
         done = rng.random(envs) < 0.2
         buffer.add_outcome(rng.random((envs, agents), dtype=np.float32), done, np.zeros(envs, bool),
                            np.zeros((envs, agents), np.float32))
 
-    buffer.finish(trainer.value(rng.random((envs, state_dim), dtype=np.float32)), 0.99, 0.95)
+    buffer.finish(trainer.value(state, obs, layout), 0.99, 0.95)
     stats = trainer.update(buffer)
     assert all(np.isfinite(v) for v in stats.values())

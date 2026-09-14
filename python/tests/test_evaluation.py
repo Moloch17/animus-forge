@@ -15,7 +15,7 @@ from animus.train import init_from_checkpoint, run_finished
 SPEC = p.Spec(
     version=p.PROTOCOL_VERSION,
     num_envs=2,
-    agents_per_env=1,
+    agents_per_env=2,
     obs_dim=3,
     state_dim=3,
     num_actions=2,
@@ -24,6 +24,7 @@ SPEC = p.Spec(
     decision_ticks=1,
     episode_seconds=1,
     scenario="fake",
+    layouts=(p.Layout("warrior_dps", 3, 2), p.Layout("mage_dps", 3, 2)),
     episode_info_names=("level", "dps"),
 )
 
@@ -44,12 +45,13 @@ def blank_step(decision: int) -> p.Step:
         obs=np.zeros((e, a, SPEC.obs_dim), np.float32),
         state=np.zeros((e, SPEC.state_dim), np.float32),
         mask=np.ones((e, a, SPEC.num_actions), bool),
+        layout=np.tile(np.arange(a, dtype=np.uint16), (e, 1)),  # agent 0 warrior, agent 1 mage
         reward=np.zeros((e, a), np.float32),
         done=np.zeros(e, bool),
         terminated=np.zeros(e, bool),
         final_obs=np.zeros((e, a, SPEC.obs_dim), np.float32),
         final_state=np.zeros((e, SPEC.state_dim), np.float32),
-        episode_info=np.zeros((e, SPEC.episode_info_dim), np.float32),
+        episode_info=np.zeros((e, a, SPEC.episode_info_dim), np.float32),
         episode_seed=np.full(e, p.NO_EPISODE_SEED, np.uint32),
     )
 
@@ -101,12 +103,13 @@ def test_run_evaluation_collects_each_seed_once(tmp_path):
                     continue
                 for e in range(SPEC.num_envs):
                     env_time[e] += 1
-                    step.reward[e] = 1.0
+                    step.reward[e] = (1.0, 2.0)  # the warrior earns 1 per decision, the mage 2
                     if env_time[e] == 3:
                         step.done[e] = True
                         step.episode_seed[e] = env_seed[e]
                         seed = env_seed[e]
-                        step.episode_info[e] = (20 + (seed % 2) * 40, 7.0) if seed != p.NO_EPISODE_SEED else (0, 0)
+                        if seed != p.NO_EPISODE_SEED:
+                            step.episode_info[e] = (20 + (seed % 2) * 40, 7.0)
                         reset(e)
 
     server = threading.Thread(target=fake_sim)
@@ -115,20 +118,22 @@ def test_run_evaluation_collects_each_seed_once(tmp_path):
     env.reset()
 
     result, training_step = run_evaluation(
-        env, SPEC, lambda step: np.zeros((2, 1), np.int32), episodes=5, seed=77, baseline=""
+        env, SPEC, lambda step: np.zeros((2, 2), np.int32), episodes=5, seed=77, baseline=""
     )
     env.close()
     server.join(timeout=5)
     listener.close()
 
     assert modes == [(True, 77, 5, ""), (False, 0, 0, "")]
-    assert result.episodes == 5
-    np.testing.assert_allclose(result.returns, 3.0)
-    assert result.score == pytest.approx(3.0)
+    assert result.episodes == 10  # 5 seeded episodes x 2 agents
+    np.testing.assert_allclose(result.returns, [3.0, 6.0] * 5)
+    assert result.score == pytest.approx(4.5)
+    assert result.layouts == ("warrior_dps", "mage_dps") * 5
     summary = result.summary(("dps", "missing"))
     assert summary["dps"] == pytest.approx(7.0)
     assert "missing" not in summary
-    assert summary["bands"]["1-20"]["episodes"] == 3 and summary["bands"]["41-60"]["episodes"] == 2
+    assert summary["bands"]["1-20"]["episodes"] == 6 and summary["bands"]["41-60"]["episodes"] == 4
+    assert summary["layouts"]["mage_dps"]["score"] == pytest.approx(6.0)
     assert not training_step.done.any()
 
 

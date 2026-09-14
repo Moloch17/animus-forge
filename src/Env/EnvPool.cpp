@@ -36,6 +36,9 @@ AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     uint32 const envs = config.Envs;
     uint32 const agents = envs * _spec.AgentsPerEnv;
 
+    if (_spec.Layouts.empty())
+        _spec.Layouts.push_back(LayoutSpec{ scenario.Name(), _spec.ObsDim, _spec.NumActions });
+
     _envs.resize(envs);
     for (uint32 i = 0; i < envs; ++i)
     {
@@ -53,7 +56,8 @@ AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     Terminated.assign(envs, 0);
     FinalObs.assign(agents * _spec.ObsDim, 0.0f);
     FinalState.assign(envs * _spec.StateDim, 0.0f);
-    EpisodeInfo.assign(envs * _spec.EpisodeInfoDim, 0.0f);
+    EpisodeInfo.assign(agents * _spec.EpisodeInfoDim, 0.0f);
+    Layout.assign(agents, 0);
     EpisodeSeed.assign(envs, NO_EPISODE_SEED);
     _envSeed.assign(envs, NO_EPISODE_SEED);
     Actions.assign(agents, 0);
@@ -118,6 +122,7 @@ void AnimusForge::EnvPool::ResetAll()
         uint32 const e = env.Index;
         _scenario.Observe(env, &Obs[e * _spec.AgentsPerEnv * _spec.ObsDim], &State[e * _spec.StateDim],
             &Mask[e * _spec.AgentsPerEnv * _spec.NumActions]);
+        _scenario.AgentLayouts(env, &Layout[e * _spec.AgentsPerEnv]);
     }
 
     std::fill(Rewards.begin(), Rewards.end(), 0.0f);
@@ -150,7 +155,7 @@ void AnimusForge::EnvPool::Collect()
         {
             _scenario.Observe(env, &FinalObs[e * agentsPerEnv * _spec.ObsDim], &FinalState[e * _spec.StateDim],
                 _scratchMask.data());
-            _scenario.EpisodeInfo(env, &EpisodeInfo[e * _spec.EpisodeInfoDim]);
+            _scenario.EpisodeInfo(env, &EpisodeInfo[e * agentsPerEnv * _spec.EpisodeInfoDim]);
             EpisodeSeed[e] = _envSeed[e];
 
             ++env.EpisodesCompleted;
@@ -160,6 +165,7 @@ void AnimusForge::EnvPool::Collect()
 
         _scenario.Observe(env, &Obs[e * agentsPerEnv * _spec.ObsDim], &State[e * _spec.StateDim],
             &Mask[e * agentsPerEnv * _spec.NumActions]);
+        _scenario.AgentLayouts(env, &Layout[e * agentsPerEnv]);
     }
 }
 
@@ -199,7 +205,7 @@ bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
 
             Actions[i] = chosen;
         }
-        else if (!_scenario.ScriptedAction(policy, obs, mask, Actions[i]))
+        else if (!_scenario.ScriptedAction(policy, obs, mask, Layout[i], Actions[i]))
             return false;
     }
 
@@ -245,8 +251,12 @@ void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim
     if (itr == _agents.end())
         return;
 
+    // Damage counts on the env's targets, and on its other agents (self-play).
     Env& env = _envs[itr->second.Env];
-    if (std::find(env.Targets.begin(), env.Targets.end(), victim->GetGUID()) == env.Targets.end())
+    auto const victimAgent = _agents.find(victim->GetGUID());
+    bool const onOtherAgent = victimAgent != _agents.end() && victimAgent->second.Env == itr->second.Env
+        && victimAgent->second.Agent != itr->second.Agent;
+    if (!onOtherAgent && std::find(env.Targets.begin(), env.Targets.end(), victim->GetGUID()) == env.Targets.end())
         return;
 
     AgentStats& stats = env.StepStats[itr->second.Agent];
@@ -322,6 +332,16 @@ void AnimusForge::EnvPool::RecordHeal(Unit const* healer, Unit const* receiver, 
     if (!healer || !receiver || !gain)
         return;
 
+    // Healing on another agent of the same env (a teammate).
+    if (auto const patient = _agents.find(receiver->GetGUID()); patient != _agents.end())
+    {
+        auto const agent = _agents.find(healer->GetCharmerOrOwnerOrOwnGUID());
+        if (agent != _agents.end() && agent->second.Env == patient->second.Env
+            && agent->second.Agent != patient->second.Agent && patient->second.Agent < MAX_AGENTS)
+            _envs[agent->second.Env].StepStats[agent->second.Agent].AgentHealingBy[patient->second.Agent] += gain;
+        return;
+    }
+
     auto const ally = _allies.find(receiver->GetGUID());
     if (ally == _allies.end())
         return;
@@ -371,11 +391,16 @@ void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell)
 
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)
 {
-    float const* info = &EpisodeInfo[envIndex * _spec.EpisodeInfoDim];
-    for (uint32 i = 0; i < _spec.EpisodeInfoDim; ++i)
-        _reportInfoSum[i] += info[i];
+    // Every agent's episode counts as one.
+    for (uint32 agent = 0; agent < _spec.AgentsPerEnv; ++agent)
+    {
+        float const* info = &EpisodeInfo[(envIndex * _spec.AgentsPerEnv + agent) * _spec.EpisodeInfoDim];
+        for (uint32 i = 0; i < _spec.EpisodeInfoDim; ++i)
+            _reportInfoSum[i] += info[i];
+    }
 
-    if (++_reportedEpisodes < _reportEpisodes)
+    _reportedEpisodes += _spec.AgentsPerEnv;
+    if (_reportedEpisodes < _reportEpisodes)
         return;
 
     std::vector<std::string> const names = _scenario.EpisodeInfoNames();

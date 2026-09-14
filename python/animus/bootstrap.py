@@ -1,95 +1,83 @@
 """Seed a curriculum stage's networks from the previous stage's checkpoint.
 
-A later stage (e.g. `warrior_dps_duel`) keeps the earlier stage's (`warrior_dps`) observation and
-action layouts as a prefix and appends its own features and actions. Its networks therefore contain
-the earlier ones: this copies every weight that has a counterpart and leaves the rest as initialised.
+Networks are layout-aware (animus.mappo.networks): a per-layout input adapter, a shared trunk and (actor) a
+per-layout action head. A later stage keeps each layout's earlier observation and action layout as a prefix and
+appends its own features and actions, and layouts are matched by name (the class/role), so:
 
-- First layers (actor and critic): the earlier stage's input columns keep their positions, the
-  one-hot agent columns move to the end of the wider input, and the new feature columns start at
-  zero so the seeded policy initially ignores them.
-- Hidden layers: copied (the hidden sizes must match).
-- Actor output: the earlier actions' rows are copied; new actions keep their small initial weights.
-- Critic output: kept freshly initialised, and the value normaliser is not copied, because the
-  later stage's reward has a different scale.
+- Input adapters (actor and critic): the earlier layout's feature columns keep their positions; the new feature
+  columns start at zero, so the seeded policy initially ignores them.
+- Trunk: copied (the hidden sizes must match).
+- Actor heads: the earlier actions' rows are copied; new actions keep their small initial weights.
+- A layout the checkpoint does not have keeps its fresh adapter and head, and still gets the copied trunk.
+- Critic state encoder and value head: kept freshly initialised, and the value normaliser is not copied, because
+  the later stage's global state and reward differ.
 """
 
 from __future__ import annotations
 
-import re
-
 import torch
 
-_LINEAR_KEY = re.compile(r"^net\.(\d+)\.(weight|bias)$")
+
+def _seed_adapter(new: dict, old: dict, prefix: str) -> None:
+    new_w, old_w = new[f"{prefix}.weight"], old[f"{prefix}.weight"]
+    if new_w.shape[0] != old_w.shape[0]:
+        raise ValueError(f"{prefix}: width {old_w.shape[0]} in the checkpoint, {new_w.shape[0]} now")
+    if old_w.shape[1] > new_w.shape[1]:
+        raise ValueError(f"{prefix}: {old_w.shape[1]} inputs in the checkpoint do not fit in {new_w.shape[1]}")
+    new_w.zero_()
+    new_w[:, : old_w.shape[1]] = old_w
+    new[f"{prefix}.bias"].copy_(old[f"{prefix}.bias"])
 
 
-def _linear_indices(state: dict[str, torch.Tensor]) -> list[int]:
-    return sorted({int(m.group(1)) for key in state if (m := _LINEAR_KEY.match(key))})
+def _seed_head(new: dict, old: dict, prefix: str) -> None:
+    new_w, old_w = new[f"{prefix}.weight"], old[f"{prefix}.weight"]
+    rows = old_w.shape[0]
+    if new_w.shape[0] < rows or new_w.shape[1] != old_w.shape[1]:
+        raise ValueError(f"{prefix}: {tuple(old_w.shape)} does not fit in {tuple(new_w.shape)}")
+    new_w[:rows] = old_w
+    new[f"{prefix}.bias"][:rows] = old[f"{prefix}.bias"]
 
 
-def seed_network(
-    new_state: dict[str, torch.Tensor],
-    old_state: dict[str, torch.Tensor],
-    old_obs_dim: int,
-    new_obs_dim: int,
-    num_agents: int,
-    copy_head: bool,
-) -> dict[str, torch.Tensor]:
-    """Return new_state with old_state's weights copied in (see the module docstring)."""
-    new_layers = _linear_indices(new_state)
-    old_layers = _linear_indices(old_state)
-    if len(new_layers) != len(old_layers):
-        raise ValueError(f"{len(old_layers)} layers in the checkpoint, {len(new_layers)} in the new network")
-
-    seeded = {key: tensor.clone() for key, tensor in new_state.items()}
-    for position, (new_index, old_index) in enumerate(zip(new_layers, old_layers)):
-        new_w, old_w = seeded[f"net.{new_index}.weight"], old_state[f"net.{old_index}.weight"]
-        new_b, old_b = seeded[f"net.{new_index}.bias"], old_state[f"net.{old_index}.bias"]
-        first, last = position == 0, position == len(new_layers) - 1
-
-        if first:
-            if old_w.shape[1] != old_obs_dim + num_agents or new_w.shape[1] != new_obs_dim + num_agents:
-                raise ValueError("first layer inputs do not match the observation sizes")
-            if new_w.shape[0] != old_w.shape[0]:
-                raise ValueError(f"hidden size {old_w.shape[0]} in the checkpoint, {new_w.shape[0]} now")
-            new_w.zero_()
-            new_w[:, :old_obs_dim] = old_w[:, :old_obs_dim]
-            new_w[:, new_obs_dim:] = old_w[:, old_obs_dim:]
-            new_b.copy_(old_b)
-        elif last:
-            if not copy_head:
-                continue
-            rows = old_w.shape[0]
-            if new_w.shape[0] < rows or new_w.shape[1] != old_w.shape[1]:
-                raise ValueError(f"output layer {tuple(old_w.shape)} does not fit in {tuple(new_w.shape)}")
-            new_w[:rows] = old_w
-            new_b[:rows] = old_b
-        else:
-            if new_w.shape != old_w.shape:
-                raise ValueError(f"hidden layer {tuple(old_w.shape)} in the checkpoint, {tuple(new_w.shape)} now")
-            new_w.copy_(old_w)
-            new_b.copy_(old_b)
-
-    return seeded
+def _seed_trunk(new: dict, old: dict) -> None:
+    for key, tensor in new.items():
+        if key.startswith("trunk."):
+            if key not in old or old[key].shape != tensor.shape:
+                raise ValueError(f"{key}: the trunk in the checkpoint does not match (hidden sizes must be equal)")
+            tensor.copy_(old[key])
 
 
-def seed_trainer(trainer, checkpoint: dict, spec) -> None:
-    """Seed a fresh MappoTrainer for `spec` from an earlier stage's checkpoint."""
-    old_spec = checkpoint["spec"]
-    if old_spec["agents_per_env"] != spec.agents_per_env:
-        raise ValueError("the checkpoint has a different number of agents per env")
-    if old_spec["obs_dim"] > spec.obs_dim or old_spec["num_actions"] > spec.num_actions:
-        raise ValueError(
-            f"checkpoint obs {old_spec['obs_dim']} / actions {old_spec['num_actions']} do not fit in "
-            f"obs {spec.obs_dim} / actions {spec.num_actions}"
-        )
-
+def seed_trainer(trainer, checkpoint: dict, spec) -> list[str]:
+    """Seed a fresh MappoTrainer for `spec` from an earlier stage's checkpoint; returns the layouts seeded."""
+    old_names = [layout["name"] for layout in checkpoint["spec"].get("layouts", ())]
     old = checkpoint["trainer"]
-    actor = seed_network(
-        trainer.actor.state_dict(), old["actor"], old_spec["obs_dim"], spec.obs_dim, spec.agents_per_env, True
-    )
-    critic = seed_network(
-        trainer.critic.state_dict(), old["critic"], old_spec["state_dim"], spec.state_dim, spec.agents_per_env, False
-    )
+
+    actor = {key: tensor.clone() for key, tensor in trainer.actor.state_dict().items()}
+    critic = {key: tensor.clone() for key, tensor in trainer.critic.state_dict().items()}
+
+    _seed_trunk(actor, old["actor"])
+    _seed_trunk(critic, old["critic"])
+
+    seeded = []
+    for index, layout in enumerate(spec.layouts):
+        if layout.name not in old_names:
+            continue
+        old_index = old_names.index(layout.name)
+        seeded.append(layout.name)
+
+        # Checkpoint keys use the checkpoint's own layout order.
+        for network, old_network in ((actor, old["actor"]), (critic, old["critic"])):
+            remapped = {
+                f"adapters.{index}.weight": old_network[f"adapters.{old_index}.weight"],
+                f"adapters.{index}.bias": old_network[f"adapters.{old_index}.bias"],
+            }
+            _seed_adapter(network, remapped, f"adapters.{index}")
+
+        _seed_head(actor, {
+            f"heads.{index}.weight": old["actor"][f"heads.{old_index}.weight"],
+            f"heads.{index}.bias": old["actor"][f"heads.{old_index}.bias"],
+        }, f"heads.{index}")
+
     trainer.actor.load_state_dict(actor)
     trainer.critic.load_state_dict(critic)
     trainer._sync_rollout()
+    return seeded

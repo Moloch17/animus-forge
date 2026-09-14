@@ -1,20 +1,17 @@
-# Shared learner config for every class/role companion stage (warrior_tank_companion, priest_heal_companion,
-# ...), used when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+# Learner config for class_role_companion, stage 5 of the class/role curriculum: the gauntlet fought beside a
+# scripted owner, a player of a random class near the bot's level that wanders, engages each pull and takes real
+# damage. The bot follows, assists and guards it; tanks keep enemies on themselves, healers keep the owner alive
+# with effective healing, damage dealers avoid pulling threat. Episodes end when the bot or the owner dies.
 #
-# Stage 5 of the curriculum: the gauntlet fought beside a scripted owner, a player bot of a random class
-# near the companion's level that wanders, engages each pull and takes real damage. The companion follows,
-# assists and guards it; tanks keep enemies on themselves, healers keep the owner alive with effective
-# healing, damage dealers avoid pulling threat. Episodes end when the companion or the owner dies.
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the
-# gauntlet, give it episodes of several minutes.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the gauntlet,
+# give it episodes of several minutes.
 
 run_name: class_role_companion
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from the class/role's gauntlet model: the companion stage's layout extends it.
+# Seed a fresh run from the gauntlet: each layout extends the gauntlet's.
 init_from: runs/{base_run}_gauntlet/best.pt
 
 total_env_steps: 300000000
@@ -43,7 +40,8 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
+# the same seeds. The best networks go to best.pt
 # and are the ones published and seeded from by the next stage.
 eval:
   every_env_steps: 20000000

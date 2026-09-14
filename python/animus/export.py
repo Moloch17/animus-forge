@@ -1,14 +1,13 @@
 """Export a checkpoint's actor for in-game inference by mod-animus.
 
-    python -m animus.export --checkpoint runs/warrior_dummy/latest.pt \\
-        --out ../../mod-animus/models/warrior_dummy.amdl
+    python -m animus.export --checkpoint runs/class_role_duel/best.pt --out ../../mod-animus/models
 
 The .amdl format (little-endian) is read by mod-animus/src/Model/MlpPolicy.cpp; change both together
 and bump AMDL_VERSION:
 
     char[4]  magic "AMDL"
     u32      version
-    u16      scenario name length, then that many bytes (UTF-8, no terminator)
+    u16      model name length, then that many bytes (UTF-8, no terminator)
     u32      obs_dim
     u32      num_agents       the actor input is obs followed by a one-hot agent id
     u32      num_actions
@@ -19,12 +18,17 @@ and bump AMDL_VERSION:
         f32      weight[out_dim * in_dim]   row-major, as nn.Linear stores it
         f32      bias[out_dim]
 
-Every layer but the last is followed by tanh (mappo.networks._mlp). The policy is the argmax of the
-final logits over allowed actions.
+Every layer but the last is followed by tanh. The policy is the argmax of the final logits over allowed actions.
 
-Training also publishes the model on its own: every time it writes latest.pt it exports the actor to
-<dir>/<scenario>.amdl in each dir of $ANIMUS_MODEL_DIRS -- the Animus.ModelDir of the worldserver that
-runs mod-animus, mounted where the learner runs (see publish_model). Unset, nothing is published.
+The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
+around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
+its own model, <model name>.amdl: the layout's name (the class/role, e.g. warrior_dps) with the scenario's stage
+suffix (class_role_duel -> warrior_dps_duel); a single-layout scenario keeps its own name. num_agents is 1, with a
+zero-weight agent column, as mod-animus expects at least one.
+
+Training also publishes the models on its own (see publish_model) to each dir of $ANIMUS_MODEL_DIRS -- the
+Animus.ModelDir of the worldserver that runs mod-animus, mounted where the learner runs. Unset, nothing is
+published.
 """
 
 from __future__ import annotations
@@ -40,25 +44,21 @@ import torch
 
 AMDL_MAGIC = b"AMDL"
 AMDL_VERSION = 1
+CLASS_ROLE_SCENARIO = "class_role"
 
-_LINEAR_KEY = re.compile(r"^net\.(\d+)\.(weight|bias)$")
+_TRUNK_KEY = re.compile(r"^trunk\.layers\.(\d+)\.(weight|bias)$")
 
 
-def actor_layers(actor_state: dict[str, torch.Tensor]) -> list[tuple[np.ndarray, np.ndarray]]:
-    """(weight [out, in], bias [out]) for each Linear of an Actor state dict, in forward order."""
-    params: dict[int, dict[str, np.ndarray]] = {}
-    for key, tensor in actor_state.items():
-        match = _LINEAR_KEY.match(key)
-        if not match:
-            raise ValueError(f"unexpected actor parameter {key!r}")
-        params.setdefault(int(match.group(1)), {})[match.group(2)] = tensor.detach().cpu().numpy()
+def layout_layers(actor_state: dict[str, torch.Tensor], layout: int) -> list[tuple[np.ndarray, np.ndarray]]:
+    """(weight [out, in], bias [out]) of one layout's adapter, the trunk and its head, in forward order."""
 
-    layers = []
-    for index in sorted(params):
-        weight, bias = params[index]["weight"], params[index]["bias"]
-        if weight.ndim != 2 or bias.shape != (weight.shape[0],):
-            raise ValueError(f"layer net.{index} has weight {weight.shape} and bias {bias.shape}")
-        layers.append((weight.astype("<f4"), bias.astype("<f4")))
+    def pair(prefix: str) -> tuple[np.ndarray, np.ndarray]:
+        weight = actor_state[f"{prefix}.weight"].detach().cpu().numpy().astype("<f4")
+        bias = actor_state[f"{prefix}.bias"].detach().cpu().numpy().astype("<f4")
+        return weight, bias
+
+    trunk = sorted({int(m.group(1)) for key in actor_state if (m := _TRUNK_KEY.match(key))})
+    layers = [pair(f"adapters.{layout}"), *(pair(f"trunk.layers.{i}") for i in trunk), pair(f"heads.{layout}")]
 
     for (prev, _), (weight, _) in zip(layers, layers[1:]):
         if weight.shape[1] != prev.shape[0]:
@@ -66,9 +66,23 @@ def actor_layers(actor_state: dict[str, torch.Tensor]) -> list[tuple[np.ndarray,
     return layers
 
 
+def with_agent_column(layers: list[tuple[np.ndarray, np.ndarray]]) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The same network with one zero-weight input appended: the single one-hot agent id of the file format."""
+    weight, bias = layers[0]
+    padded = np.concatenate([weight, np.zeros((weight.shape[0], 1), dtype="<f4")], axis=1)
+    return [(padded, bias), *layers[1:]]
+
+
+def model_name(scenario: str, layout: str, layout_count: int) -> str:
+    """warrior_dps + class_role_duel -> warrior_dps_duel; a single-layout scenario keeps its own name."""
+    if scenario.startswith(CLASS_ROLE_SCENARIO):
+        return layout + scenario[len(CLASS_ROLE_SCENARIO):]
+    return scenario if layout_count == 1 else f"{scenario}_{layout}"
+
+
 def write_amdl(
     path: str | Path,
-    scenario: str,
+    name: str,
     obs_dim: int,
     num_agents: int,
     num_actions: int,
@@ -79,11 +93,11 @@ def write_amdl(
     if layers[-1][0].shape[0] != num_actions:
         raise ValueError(f"last layer has {layers[-1][0].shape[0]} outputs, expected {num_actions}")
 
-    name = scenario.encode("utf-8")
+    encoded = name.encode("utf-8")
     with open(path, "wb") as out:
         out.write(AMDL_MAGIC)
-        out.write(struct.pack("<IH", AMDL_VERSION, len(name)))
-        out.write(name)
+        out.write(struct.pack("<IH", AMDL_VERSION, len(encoded)))
+        out.write(encoded)
         out.write(struct.pack("<IIII", obs_dim, num_agents, num_actions, len(layers)))
         for weight, bias in layers:
             out.write(struct.pack("<II", weight.shape[1], weight.shape[0]))
@@ -91,31 +105,43 @@ def write_amdl(
             out.write(np.ascontiguousarray(bias, dtype="<f4").tobytes())
 
 
-def publish_model(actor_state: dict[str, torch.Tensor], spec: dict, model_dirs: list[str | Path]) -> list[Path]:
-    """Export the actor as <dir>/<scenario>.amdl into every existing model dir; returns the files written.
+def export_layouts(actor_state: dict[str, torch.Tensor], spec: dict, out_dir: str | Path) -> list[Path]:
+    """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written."""
+    out_dir = Path(out_dir)
+    layouts = spec["layouts"]
+    written = []
+    for index, layout in enumerate(layouts):
+        name = model_name(spec["scenario"], layout["name"], len(layouts))
+        layers = with_agent_column(layout_layers(actor_state, index))
+        target = out_dir / f"{name}.amdl"
+        partial = out_dir / f".{target.name}.partial"
+        try:
+            write_amdl(partial, name, layout["obs_dim"], 1, layout["num_actions"], layers)
+            os.replace(partial, target)
+        except OSError:
+            partial.unlink(missing_ok=True)
+            raise
+        written.append(target)
+    return written
 
-    Each file is written beside its target and renamed over it, so a worldserver reloading its config
-    never reads a half-written model. A missing or unwritable dir is reported and skipped: publishing
-    must never stop a training run.
+
+def publish_model(actor_state: dict[str, torch.Tensor], spec: dict, model_dirs: list[str | Path]) -> list[Path]:
+    """Export every layout's model into every existing model dir; returns the files written.
+
+    Each file is written beside its target and renamed over it, so a worldserver reloading its config never reads
+    a half-written model. A missing or unwritable dir is reported and skipped: publishing must never stop a
+    training run.
     """
-    layers = actor_layers(actor_state)
     written = []
     for model_dir in model_dirs:
         model_dir = Path(model_dir)
         if not model_dir.is_dir():
-            print(f"Model dir {model_dir} does not exist; not publishing the model there", flush=True)
+            print(f"Model dir {model_dir} does not exist; not publishing the models there", flush=True)
             continue
-
-        target = model_dir / f"{spec['scenario']}.amdl"
-        partial = model_dir / f".{target.name}.partial"
         try:
-            write_amdl(partial, spec["scenario"], spec["obs_dim"], spec["agents_per_env"], spec["num_actions"], layers)
-            os.replace(partial, target)
+            written += export_layouts(actor_state, spec, model_dir)
         except OSError as error:
-            print(f"Could not publish the model to {target}: {error}", flush=True)
-            partial.unlink(missing_ok=True)
-            continue
-        written.append(target)
+            print(f"Could not publish the models to {model_dir}: {error}", flush=True)
     return written
 
 
@@ -134,7 +160,7 @@ def read_amdl(path: str | Path) -> dict:
     offset += 6
     if version != AMDL_VERSION:
         raise ValueError(f"unsupported .amdl version {version}")
-    scenario = data[offset : offset + name_len].decode("utf-8")
+    name = data[offset : offset + name_len].decode("utf-8")
     offset += name_len
     obs_dim, num_agents, num_actions, layer_count = struct.unpack_from("<IIII", data, offset)
     offset += 16
@@ -152,7 +178,7 @@ def read_amdl(path: str | Path) -> dict:
     if offset != len(data):
         raise ValueError(f"{len(data) - offset} trailing bytes")
     return {
-        "scenario": scenario,
+        "scenario": name,
         "obs_dim": obs_dim,
         "num_agents": num_agents,
         "num_actions": num_actions,
@@ -178,19 +204,14 @@ def reference_decide(model: dict, obs: np.ndarray, mask: np.ndarray, agent: int 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out", required=True, help="directory for the .amdl files, one per layout")
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    spec = checkpoint["spec"]
-    layers = actor_layers(checkpoint["trainer"]["actor"])
-
     out = Path(args.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    write_amdl(out, spec["scenario"], spec["obs_dim"], spec["agents_per_env"], spec["num_actions"], layers)
-
-    shape = " -> ".join(str(w.shape[1]) for w, _ in layers) + f" -> {layers[-1][0].shape[0]}"
-    print(f"Wrote {out} ({spec['scenario']}, update {checkpoint.get('update', '?')}, {shape})")
+    out.mkdir(parents=True, exist_ok=True)
+    for path in export_layouts(checkpoint["trainer"]["actor"], checkpoint["spec"], out):
+        print(f"Wrote {path} (update {checkpoint.get('update', '?')})")
 
 
 if __name__ == "__main__":

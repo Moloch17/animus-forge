@@ -19,14 +19,8 @@
 #ifndef MOD_ANIMUS_FORGE_COMPANION_OWNER_H
 #define MOD_ANIMUS_FORGE_COMPANION_OWNER_H
 
-#include "ClassKit.h"
-#include "ClassRoleProfile.h"
-#include "GearBuilder.h"
+#include "ClassRoleAssets.h"
 #include "Position.h"
-#include "TalentBuilder.h"
-#include <map>
-#include <memory>
-#include <utility>
 #include <vector>
 
 class Creature;
@@ -40,36 +34,6 @@ class Unit;
  */
 namespace AnimusForge::CompanionOwner
 {
-    /// Everything needed to dress a bot as a player of one class in one role: its kit, talents and gear.
-    struct Template
-    {
-        ClassRoleProfile const* Profile = nullptr;
-        std::vector<uint8> Races;
-        std::unique_ptr<ClassKit> Kit;
-        std::unique_ptr<TalentBuilder> Talents;
-        std::unique_ptr<GearBuilder> Gear;
-    };
-
-    /// One template per class and role, built once (item pools and trainer data take a few seconds).
-    class Templates
-    {
-    public:
-        static Templates const& Instance();
-
-        /// The class's damage role.
-        [[nodiscard]] Template const* ForClass(uint8 playerClass) const { return ForClassRole(playerClass, Role::Dps); }
-        [[nodiscard]] Template const* ForClassRole(uint8 playerClass, Role role) const;
-
-        /// Classes a player of `level` can be (damage role), and those that can fill `role`.
-        [[nodiscard]] std::vector<uint8> ClassesForLevel(uint8 level) const { return ClassesForRole(level, Role::Dps); }
-        [[nodiscard]] std::vector<uint8> ClassesForRole(uint8 level, Role role) const;
-
-    private:
-        Templates();
-
-        std::map<std::pair<uint8, Role>, Template> _byClassRole;
-    };
-
     /// A scripted player's role, timers and repertoire.
     struct State
     {
@@ -85,9 +49,9 @@ namespace AnimusForge::CompanionOwner
         std::vector<uint32> Taunts;     // single-target taunts it knows
     };
 
-    /// Dress a placed bot of the template's class and role: proficiencies, a random build of one of the
-    /// role's specs, trainer spells for its level, gear. Fills state's repertoire and role.
-    void Configure(Player* player, Template const& player_template, State& state);
+    /// Dress a placed bot of the assets' class and role: proficiencies, a random build of one of the role's specs,
+    /// trainer spells for its level, gear. Fills state's repertoire and role.
+    void Configure(Player* player, ClassRoleAssets const& assets, State& state);
 
     /// One decision of a scripted damage dealer (the companion's owner). Between pulls it wanders near
     /// `home`, recovering health and mana; once a pull is up (and state.EngageMs has passed) it walks to

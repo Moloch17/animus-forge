@@ -99,23 +99,23 @@ namespace
     }
 }
 
-float AnimusForge::ClassRoleScenario::DesiredRange(EnvData const& data) const
+float AnimusForge::ClassRoleScenario::DesiredRange(Seat const& seat) const
 {
-    return _profile.Specs[data.Spec].Range == RangeBand::Melee ? MELEE_DESIRED_RANGE : RANGED_DESIRED_RANGE;
+    return seat.L->Profile->Specs[seat.Spec].Range == RangeBand::Melee ? MELEE_DESIRED_RANGE : RANGED_DESIRED_RANGE;
 }
 
-void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Unit* /*opponent*/, EnvData& data) const
+void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Seat& seat) const
 {
     // Levelling up mid-episode would change the character under the policy.
     bot->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
 
-    data.Stable = _profile.Class == CLASS_HUNTER
+    seat.Stable = seat.L->Profile->Class == CLASS_HUNTER
         ? DuelArena::OpponentPool::Instance().RandomStable(STABLE_SLOTS) : std::vector<uint32>();
 
     // A warrior has no stance until one is cast (a first login casts it), and nothing works without one.
-    if (_profile.Class == CLASS_WARRIOR)
+    if (seat.L->Profile->Class == CLASS_WARRIOR)
     {
-        uint32 const stance = _profile.PlayRole == Role::Tank && bot->HasSpell(SPELL_DEFENSIVE_STANCE)
+        uint32 const stance = seat.L->PlayRole() == Role::Tank && bot->HasSpell(SPELL_DEFENSIVE_STANCE)
             ? SPELL_DEFENSIVE_STANCE : SPELL_BATTLE_STANCE;
         bot->CastSpell(bot, stance, true);
     }
@@ -124,7 +124,7 @@ void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Unit* /*opponent*/, 
 }
 
 bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction,
-    EnvData const& data) const
+    Seat const& seat) const
 {
     if (!bot->IsAlive())
         return false;
@@ -162,7 +162,7 @@ bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Unit* oppo
     }
 
     uint32 const slot = duelAction - DUEL_ACTION_CALL_BEAST_FIRST;
-    if (slot >= data.Stable.size() || casting || bot->GetPetGUID() || bot->GetLevel() < HUNTER_PET_LEVEL)
+    if (slot >= seat.Stable.size() || casting || bot->GetPetGUID() || bot->GetLevel() < HUNTER_PET_LEVEL)
         return false;
 
     SpellInfo const* callPet = sSpellMgr->GetSpellInfo(SPELL_CALL_PET);
@@ -170,9 +170,9 @@ bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Unit* oppo
 }
 
 void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction,
-    EnvData& data) const
+    Seat& seat) const
 {
-    if (!IsDuelActionAllowed(bot, opponent, duelAction, data))
+    if (!IsDuelActionAllowed(bot, opponent, duelAction, seat))
         return;
 
     float x = 0.0f;
@@ -218,7 +218,7 @@ void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Unit* opponent
         default:
         {
             uint32 const slot = duelAction - DUEL_ACTION_CALL_BEAST_FIRST;
-            if (DuelArena::CallHunterBeast(bot, data.Stable[slot]))
+            if (DuelArena::CallHunterBeast(bot, seat.Stable[slot]))
                 if (SpellInfo const* callPet = sSpellMgr->GetSpellInfo(SPELL_CALL_PET))
                     bot->GetGlobalCooldownMgr().AddGlobalCooldown(callPet, CALL_BEAST_GCD_MS);
             return;
@@ -229,10 +229,10 @@ void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Unit* opponent
     bot->GetMotionMaster()->MovePoint(DUEL_MOVE_POINT_ID, x, y, z);
 }
 
-void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Unit* opponent, float* obs) const
+void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Seat const& seat, Player* bot, Unit* opponent,
+    float* obs) const
 {
-    EnvData const& data = _data[env.Index];
-    float* duel = obs + _duelObsFirst;
+    float* duel = obs + seat.L->DuelObsFirst;
 
     // The bot's own casting and form, with or without a target.
     if (Spell* cast = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
@@ -258,9 +258,9 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Un
         ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
 
     // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
-    for (uint32 slot = 0; slot < data.Stable.size() && slot < STABLE_SLOTS; ++slot)
+    for (uint32 slot = 0; slot < seat.Stable.size() && slot < STABLE_SLOTS; ++slot)
     {
-        CreatureTemplate const* beast = sObjectMgr->GetCreatureTemplate(data.Stable[slot]);
+        CreatureTemplate const* beast = sObjectMgr->GetCreatureTemplate(seat.Stable[slot]);
         if (!beast)
             continue;
 
@@ -290,7 +290,7 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Un
     duel[DUEL_OBS_BOT_STEALTHED] = bot->HasAuraType(SPELL_AURA_MOD_STEALTH) ? 1.0f : 0.0f;
     duel[DUEL_OBS_BOT_AUTO_ATTACKING] = bot->GetVictim() == opponent
         && bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_DAMAGE_TAKEN] = data.LastStepDamageTaken;
+    duel[DUEL_OBS_DAMAGE_TAKEN] = seat.LastStepDamageTaken;
 
     if (Unit* pet = FirstPet(bot))
     {
@@ -300,67 +300,68 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Un
     }
 }
 
-float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Unit* opponent, EnvData& data,
-    int8 opponentDead) const
+float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, uint32 seatIndex, Player* bot, Unit* opponent,
+    int8 opponentDead)
 {
+    Seat& seat = _data[env.Index].Seats[seatIndex];
     float reward = -STEP_COST;
     if (!bot || !opponent)
         return reward;
 
-    AgentStats const& step = env.StepStats[0];
+    AgentStats const& step = env.StepStats[seatIndex];
     float const opponentHealth = float(std::max<uint32>(1, opponent->GetMaxHealth()));
     float const botHealth = float(std::max<uint32>(1, bot->GetMaxHealth()));
 
     reward += DAMAGE_DEALT * float(step.Damage) / opponentHealth;
 
-    data.DamageTaken += step.DamageTaken;
-    data.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
-    reward -= DAMAGE_TAKEN * data.LastStepDamageTaken;
-    reward += CastReward(bot, step, data);
+    seat.DamageTaken += step.DamageTaken;
+    seat.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
+    reward -= DAMAGE_TAKEN * seat.LastStepDamageTaken;
+    reward += CastReward(bot, step, seat);
 
     // Potential-based shaping on the distance still to close to the spec's range: it pays for getting
     // there and takes it back for leaving, so it cannot be farmed.
-    float const excess = std::max(0.0f, bot->GetDistance(opponent) - DesiredRange(data));
-    if (data.LastDistance >= 0.0f)
-        reward += APPROACH * (data.LastDistance - excess) / 40.0f;
-    data.LastDistance = excess;
+    float const excess = std::max(0.0f, bot->GetDistance(opponent) - DesiredRange(seat));
+    if (seat.LastDistance >= 0.0f)
+        reward += APPROACH * (seat.LastDistance - excess) / 40.0f;
+    seat.LastDistance = excess;
 
-    if (data.StepStealthOpener)
+    if (seat.StepStealthOpener)
     {
         reward += STEALTH_OPENER;
-        data.StepStealthOpener = false;
+        seat.StepStealthOpener = false;
     }
 
     if (bot->GetPetGUID() || FirstPet(bot))
-        data.PetSummoned = true;
+        seat.PetSummoned = true;
 
     bool const opponentDown = opponentDead >= 0 ? opponentDead == 1 : !opponent->IsAlive();
-    if (!data.Killed && opponentDown)
+    if (!seat.Killed && opponentDown)
     {
-        data.Killed = true;
-        data.KillTimeMs = env.EpisodeElapsedMs;
+        seat.Killed = true;
+        seat.KillTimeMs = env.EpisodeElapsedMs;
 
         float const timeLeft = env.EpisodeLengthMs
             ? 1.0f - std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
-        float const healthKept = 1.0f - std::min(1.0f, float(data.DamageTaken) / botHealth);
+        float const healthKept = 1.0f - std::min(1.0f, float(seat.DamageTaken) / botHealth);
 
         reward += KILL + FAST_KILL * timeLeft + HEALTH_KEPT * healthKept;
     }
 
-    if (!data.Died && !bot->IsAlive())
+    if (!seat.Died && !bot->IsAlive())
     {
-        data.Died = true;
+        seat.Died = true;
         reward -= DEATH;
     }
 
     return reward;
 }
 
-float AnimusForge::ClassRoleScenario::CastReward(Player* bot, AgentStats const& step, EnvData& data)
+float AnimusForge::ClassRoleScenario::CastReward(Player* bot, AgentStats const& step, Seat& seat)
 {
-    data.CastsCompleted += step.CastsCompleted;
-    data.CastsCancelled += step.CastsCancelled;
-    data.CastMsWasted += step.CastMsWasted;
+    seat.CastsCompleted += step.CastsCompleted;
+    seat.CastsCancelled += step.CastsCancelled;
+    seat.CastMsWasted += step.CastMsWasted;
 
     float reward = -CAST_TIME_WASTED * float(step.CastMsWasted) / 1000.0f;
 
@@ -371,20 +372,21 @@ float AnimusForge::ClassRoleScenario::CastReward(Player* bot, AgentStats const& 
     return reward;
 }
 
-void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, float* info) const
+void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, uint32 seatIndex, float* info) const
 {
     EnvData const& data = _data[env.Index];
-    Player* bot = env.FindBot(0);
+    Seat const& seat = data.Seats[seatIndex];
+    Player* bot = env.FindBot(seatIndex);
 
-    info[DUEL_INFO_KILLED] = data.Killed ? 1.0f : 0.0f;
-    info[DUEL_INFO_DIED] = data.Died ? 1.0f : 0.0f;
-    info[DUEL_INFO_TIME_TO_KILL] = float(data.Killed ? data.KillTimeMs : env.EpisodeElapsedMs) / 1000.0f;
-    info[DUEL_INFO_DAMAGE_TAKEN] = float(data.DamageTaken);
+    info[DUEL_INFO_KILLED] = seat.Killed ? 1.0f : 0.0f;
+    info[DUEL_INFO_DIED] = seat.Died ? 1.0f : 0.0f;
+    info[DUEL_INFO_TIME_TO_KILL] = float(seat.Killed ? seat.KillTimeMs : env.EpisodeElapsedMs) / 1000.0f;
+    info[DUEL_INFO_DAMAGE_TAKEN] = float(seat.DamageTaken);
     info[DUEL_INFO_HEALTH_LEFT] = bot ? bot->GetHealthPct() / 100.0f : 0.0f;
-    info[DUEL_INFO_STEALTH_OPENERS] = float(data.StealthOpeners);
-    info[DUEL_INFO_PET_SUMMONED] = data.PetSummoned ? 1.0f : 0.0f;
+    info[DUEL_INFO_STEALTH_OPENERS] = float(seat.StealthOpeners);
+    info[DUEL_INFO_PET_SUMMONED] = seat.PetSummoned ? 1.0f : 0.0f;
     info[DUEL_INFO_OPPONENT] = float(data.OpponentEntry);
-    info[DUEL_INFO_CASTS_COMPLETED] = float(data.CastsCompleted);
-    info[DUEL_INFO_CASTS_CANCELLED] = float(data.CastsCancelled);
-    info[DUEL_INFO_CAST_TIME_WASTED] = float(data.CastMsWasted) / 1000.0f;
+    info[DUEL_INFO_CASTS_COMPLETED] = float(seat.CastsCompleted);
+    info[DUEL_INFO_CASTS_CANCELLED] = float(seat.CastsCancelled);
+    info[DUEL_INFO_CAST_TIME_WASTED] = float(seat.CastMsWasted) / 1000.0f;
 }
