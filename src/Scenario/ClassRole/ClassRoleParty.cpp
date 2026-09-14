@@ -21,14 +21,18 @@
  * dealers -- and the scripted owner. Each seat observes its three teammates, can assist, guard and heal them, and is
  * rewarded for the party: teammates' damage taken and deaths, healing on them, threat kept off them.
  *
- * The party is not a core Group (whose create, join and leave write to the character database and allocate
- * persistent ids every episode): single-target heals, assists, taunts and threat all work, but spells that need a
- * group (party buffs, party-wide heals) do not reach the others.
+ * The owner and the seats form a real core Group every episode, so party buffs, auras, party-wide heals and every
+ * "party member" check work as in play. It is flagged as a sim group (Group::SetSimGroup): it lives only in memory,
+ * with no group rows, character cache entries or instance bind changes, so rebuilding it every episode costs no
+ * database writes.
  */
 
 #include "ClassRoleScenario.h"
 #include "Creature.h"
 #include "Env.h"
+#include "Group.h"
+#include "GroupMgr.h"
+#include "Log.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
 #include "Player.h"
@@ -105,6 +109,42 @@ Player* AnimusForge::ClassRoleScenario::PartyTank(EnvData const& data) const
                 return tank;
 
     return nullptr;
+}
+
+void AnimusForge::ClassRoleScenario::FormParty(Env& env)
+{
+    EnvData& data = _data[env.Index];
+    Player* owner = FindOwner(data);
+    if (!owner || data.PartyGroup)
+        return;
+
+    // The owner stands in for the player whose party the companions join: it leads.
+    Group* group = new Group();
+    group->SetSimGroup(true);
+    if (!group->Create(owner))
+    {
+        LOG_ERROR("module.animus", "{}: env {} could not create its party", Name(), env.Index);
+        delete group;
+        return;
+    }
+
+    sGroupMgr->AddGroup(group);
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        if (Player* bot = SeatBot(data, seat); bot && !group->AddMember(bot))
+            LOG_ERROR("module.animus", "{}: env {} could not add seat {} to its party", Name(), env.Index, seat);
+
+    data.PartyGroup = group;
+}
+
+void AnimusForge::ClassRoleScenario::DisbandParty(Env& env)
+{
+    EnvData& data = _data[env.Index];
+    if (!data.PartyGroup)
+        return;
+
+    // Disband removes it from the group manager and deletes it.
+    data.PartyGroup->Disband(true);
+    data.PartyGroup = nullptr;
 }
 
 void AnimusForge::ClassRoleScenario::ObserveParty(Env const& env, uint32 seatIndex, Player* bot, float* obs) const

@@ -477,6 +477,10 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         oldBots[seat] = SeatBot(data, seat);
 
+    // The old party goes before its members do.
+    if (IsParty())
+        DisbandParty(env);
+
     // The class/roles first (a party: tank, healer, two damage dealers), then one level they can all be.
     static constexpr std::array<Role, MAX_SEATS> PARTY_ROLES = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
     uint8 minLevel = 1;
@@ -547,6 +551,9 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     // The owner comes before the first pull, which spawns around it.
     if (HasCompanion() && !RebuildOwner(env, lead, map, level))
         return false;
+
+    if (IsParty())
+        FormParty(env);
 
     if (HasPack())
     {
@@ -1315,6 +1322,9 @@ void AnimusForge::ClassRoleScenario::Teardown(Env& env)
     for (uint32 target = 0; target < env.Targets.size(); ++target)
         if (Creature* creature = env.FindTarget(target))
             creature->DespawnOrUnsummon();
+
+    if (IsParty())
+        DisbandParty(env);
 
     if (HasPvp())
         DestroyOpponent(env);

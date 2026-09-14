@@ -31,6 +31,7 @@
 #include <memory>
 
 class Creature;
+class Group;
 class Item;
 class Map;
 class Player;
@@ -623,6 +624,9 @@ namespace AnimusForge
             uint64 OwnerDamageTaken = 0;
             uint64 ThreatOnOwner = 0;
 
+            // Party: the real (sim) group of the owner and the seats, rebuilt every episode.
+            Group* PartyGroup = nullptr;
+
             // PvP: the scripted opponent.
             std::array<WorldSession*, 2> OpponentSessions{};
             std::array<ObjectGuid::LowType, 2> OpponentGuids{};
@@ -717,6 +721,10 @@ namespace AnimusForge
         [[nodiscard]] static uint32 TeammateSeat(uint32 seat, uint32 slot) { return slot < seat ? slot : slot + 1; }
         /// The party's living tank (a tank seat), or null.
         [[nodiscard]] Player* PartyTank(EnvData const& data) const;
+        /// Group the owner (the leader) and every seat into a party: a core Group flagged as a sim group, so party
+        /// spells, auras and group heals work as in play while nothing is written to the database.
+        void FormParty(Env& env);
+        void DisbandParty(Env& env);
         void ObserveParty(Env const& env, uint32 seat, Player* bot, float* obs) const;
         [[nodiscard]] bool IsPartyActionAllowed(Env const& env, uint32 seat, Player* bot, uint32 partyAction) const;
         void ApplyPartyAction(Env& env, uint32 seat, Player* bot, uint32 partyAction);

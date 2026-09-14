@@ -297,9 +297,11 @@ plays with the same policy and sees the other three.
 
 - **Pulls:** 2-4 creatures, each elite half the time, up to 2 levels above the party, pull after pull, spawning
   around the owner. The owner waits 4-7 s so the tank can pull, then attacks the tank's target.
-- **Not a core group:** creating and changing a `Group` writes to the character database and allocates
-  persistent ids, which a rebuild every episode cannot afford. Single-target heals, assists, taunts and threat
-  work; party buffs and party-wide heals do not reach the others (see Known limits).
+- **A real group:** every episode the owner (as leader) and the four seats form a core `Group`, so party buffs,
+  auras, party-wide heals and every "party member" check work as in play. It is a sim group
+  (`Group::SetSimGroup`): it lives only in memory -- no group or member rows, no character cache entries, and
+  joining, leaving or disbanding never touches instance binds or homebind timers -- so rebuilding it every
+  episode writes nothing to the database. It is disbanded before its members are replaced.
 - **Actions:** the companion stage's, then follow the tank, then per teammate assist, guard, and one "cast on
   it" action per single-target heal.
 - **Observation:** the companion stage's, then living party size, the most hurt ally's health, whether a
@@ -563,6 +565,8 @@ That relies on small Forge core APIs:
 - `Player::SetSocial` (set by `BotFactory::Create` to an empty `SocialMgr` list): logout and far
   teleports read the social list, which `LoadFromDB` normally attaches.
 
+- `Group::SetSimGroup` (set by the party stage): a group that lives only in memory -- no database rows,
+  character cache entries, instance bind resets or homebind timers -- so a party can be rebuilt every episode.
 - `rand_seed` (`RandomSeed.h`): restarts the calling thread's `urand`/`frand`/... sequence from a seed,
   so seeded evaluation episodes roll the same characters and opponents every time.
 
@@ -573,9 +577,6 @@ Bots also reuse a fixed pair of player GUIDs per env, because the core keeps som
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick
   (separate work). `warrior_dummy` does not depend on it: Heroic Strike has no cooldown and no GCD.
-- **Parties are not core groups** (stage 6): spells that need a group -- party buffs, auras, party-wide
-  heals -- do not reach the other members. A sim-only `Group` that writes nothing to the database would
-  fix it.
 - **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 7's enemy player are
   scripts; the party's other members and stage 8's opponent are learned.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.
