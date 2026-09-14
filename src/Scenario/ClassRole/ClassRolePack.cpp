@@ -84,14 +84,10 @@ void AnimusForge::ClassRoleScenario::StartSeatPack(Player* bot, Seat& seat) cons
 
     if (HasGauntlet())
     {
-        DuelArena::ConsumablePool const& consumables = DuelArena::ConsumablePool::Instance();
+        ConsumablePool const& consumables = ConsumablePool::Instance();
         seat.FoodItem = consumables.Food(seat.Level);
         seat.DrinkItem = bot->GetMaxPower(POWER_MANA) ? consumables.Drink(seat.Level) : 0;
-
-        for (uint32 item : { seat.FoodItem, seat.DrinkItem })
-            for (uint32 i = 0; item && i < CONSUMABLE_COUNT; ++i)
-                if (!bot->StoreNewItemInBestSlots(item, 1))
-                    break;
+        StockConsumables(bot, seat.FoodItem, seat.DrinkItem);
     }
 }
 

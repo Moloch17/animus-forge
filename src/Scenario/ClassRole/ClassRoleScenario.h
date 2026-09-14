@@ -41,7 +41,7 @@ namespace AnimusForge
 {
     struct AgentStats;
 
-    using ArenaMode = Animus::ClassRole::Stage;
+    using ArenaMode = AnimusForge::ClassRole::Stage;
 
     /// Every class/role, every level, race, spec and build, at one curriculum stage, as layouts of one policy.
     ///
@@ -49,13 +49,13 @@ namespace AnimusForge
     /// AnimusForge.ClassRoles (all 18 by default) -- a race the class allows, random gender, level (1-80, 55-80 for
     /// death knights), one of the role's specs with a random talent build that fills the spec's tree to its capstone
     /// first, the trainer spells of the level, and random level-appropriate gear including trinkets. A seat's
-    /// layout is its class/role's: observation features and actions fixed per class/role (see mod-animus's
-    /// ClassRoleLayout and SeatEncoder, shared with play), padded to the largest layout's on the wire (see LayoutSpec). The learner shares one trunk
-    /// between all layouts, with an input adapter and an action head per layout.
+    /// layout is its class/role's: observation features and actions fixed per class/role (see ClassRoleLayout and
+    /// SeatEncoder), padded to the largest layout's on the wire (see LayoutSpec). The learner shares one trunk between
+    /// all layouts, with an input adapter and an action head per layout.
     ///
     /// The critic state is class-agnostic (BuildState): every seat's and enemy's essentials, the owner and the
     /// pull timing.
-    class ClassRoleScenario final : public Scenario, public Animus::ClassRole::LayoutConstants
+    class ClassRoleScenario final : public Scenario, public AnimusForge::ClassRole::LayoutConstants
     {
     public:
         enum DuelInfoColumn : uint32
@@ -217,7 +217,7 @@ namespace AnimusForge
         void Teardown(Env& env) override;
 
     private:
-        using Layout = Animus::ClassRole::Layout;
+        using Layout = AnimusForge::ClassRole::Layout;
 
         /// One learned agent's character and episode totals.
         struct Seat

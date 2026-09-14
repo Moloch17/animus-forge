@@ -101,7 +101,7 @@ earlier stage stays repeatable.
   health, power, class, role, position and casting; every enemy's health, position, casting, eliteness and
   victim; the owner; pull timing) together with the agent's own observation.
 - **Models:** each layout exports as its own model (`<class>_<role><stage suffix>.amdl`, e.g.
-  `warrior_dps_duel.amdl`): adapter, trunk and head together are exactly the MLP mod-animus runs.
+  `warrior_dps_duel.amdl`): adapter, trunk and head together are one plain MLP.
 - **`AnimusForge.ClassRoles`:** a comma-separated subset (e.g. `"warrior_dps, priest_heal"`) trains only those.
   Changing it changes the layouts, so a run cannot resume across the change.
 
@@ -263,7 +263,7 @@ Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes
 
 #### Stage 5 (`class_role_companion`): the companion
 
-Stage 5: the gauntlet fought beside an owner, as a `mod-animus` companion fights beside a player.
+Stage 5: the gauntlet fought beside an owner, as a companion fights beside a player.
 
 - **Owner:** a scripted player bot of a random class (one a character of that level can be) within 2
   levels of the companion, dressed like the companion: a random damage spec and build, its trainer
@@ -351,9 +351,8 @@ AnimusForge.Queue = "class_role, class_role_duel, class_role_pack, class_role_ga
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
 plateaus or it reaches `total_env_steps` (see
 [Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
-tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/` and publishes its
-models (one per layout, e.g. `warrior_dps_duel.amdl`) to `$ANIMUS_MODEL_DIRS` (see
-[Export for mod-animus](#export-for-mod-animus)). After a server restart, finished scenarios' learners (`runs/<scenario>/finished.json`) exit immediately and the
+tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/`; export its models by
+hand when you want them (see [Export](#export)). After a server restart, finished scenarios' learners (`runs/<scenario>/finished.json`) exit immediately and the
 queue moves on to the first unfinished one. Change the list (or its order)
 in the config and restart to retrain or skip models. A learner that crashes stops the queue at that
 scenario: the sim waits for a learner, as it does without a queue.
@@ -361,7 +360,16 @@ scenario: the sim waits for a learner, as it does without a queue.
 ## Enabling
 
 The module is picked up automatically from `modules/` (it has a `src/` directory). Rebuild the
-worldserver. Settings live in `mod_animus_forge.conf`; `conf/mod_animus_forge.conf.dist` documents
+worldserver.
+
+This module is self-contained: it builds against the forge core on its own and shares no code with any other
+module. Nothing else belongs in a forge build -- in particular mod-animus, which plays exported models on a stock
+AzerothCore, is never built into the forge core. If another module's directory sits in `modules/`, disable it in
+the forge build:
+
+```
+cmake . -DMODULE_MOD-ANIMUS=disabled
+``` Settings live in `mod_animus_forge.conf`; `conf/mod_animus_forge.conf.dist` documents
 every key.
 
 The build installs only the `.dist` file, and AzerothCore never reads a `.dist` directly. Copy it
@@ -511,14 +519,16 @@ Each run writes `config.yaml`, `spec.json`, `metrics.csv`, TensorBoard logs (if 
 checkpoints to `runs/<run_name>/`; with evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`,
 `best.pt` and, once done, `finished.json`.
 
-## Export for mod-animus
+## Export
 
-`mod-animus` runs trained actors in a normal worldserver. Export a checkpoint's actor to its `.amdl`
-format:
+Training writes checkpoints to its run directory and nothing else: models are never published or copied anywhere
+automatically. Export a checkpoint's actor to `.amdl` models by hand:
 
 ```
-python -m animus.export --checkpoint runs/class_role_duel/best.pt --out ../../mod-animus/models
+python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
 ```
+
+Copying exported models to a server that plays them is also done by hand.
 
 It writes one model per layout: `warrior_dps_duel.amdl`, `priest_heal_duel.amdl`, ... (a single-layout scenario
 such as `warrior_dummy` writes `warrior_dummy.amdl`). Each is the layout's input adapter, the shared trunk and the
@@ -527,12 +537,13 @@ layout's action head, in the plain MLP format below.
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
 the exported network reproduces the torch actor's greedy actions.
 
-The class/role scenarios do not keep their own copy of the encoding: layouts (`ClassRoleLayout`), observations,
-action masks and what each action does (`SeatEncoder`) live in `mod-animus/src/ClassRole/`, and both modules use
-them. The scenario only describes each seat's situation (`ClassRoleScenario::ViewSeat`: enemies, owner, teammates,
-opponent, pull timing), so a model is fed and read the same way in training and in play. Each exported model's
-`<model>.json` layout manifest records what that encoding depended on. For `warrior_dummy`, mod-animus still has a
-copy of the encoding (`mod-animus/src/Companion/WarriorDummyPolicyIO.*`) to update when the scenario changes.
+A class/role model's inputs and outputs are defined by `src/Scenario/ClassRole/ClassRoleLayout.*` (what each
+observation feature and action is, and where) and `SeatEncoder.*` (how observations, masks and actions are read
+from and applied to the world); the scenario only describes each seat's situation (`ClassRoleScenario::ViewSeat`:
+enemies, owner, teammates, opponent, pull timing). Each exported class/role model gets its layout manifest beside
+it (`<model>.json`, e.g. `warrior_dps_duel.json`): the stage, class/role, sizes, block offsets, every action and
+talent. Anything that plays the model must build exactly that manifest for it; a different manifest means the
+model would read its observations and actions as something else.
 
 ## Wire protocol
 

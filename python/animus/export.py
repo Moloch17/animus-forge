@@ -1,9 +1,11 @@
-"""Export a checkpoint's actor for in-game inference by mod-animus.
+"""Export a checkpoint's actor as plain MLP models (.amdl) for in-game inference.
 
-    python -m animus.export --checkpoint runs/class_role_duel/best.pt --out ../../mod-animus/models
+    python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
 
-The .amdl format (little-endian) is read by mod-animus/src/Model/MlpPolicy.cpp; change both together
-and bump AMDL_VERSION:
+Exporting is always run by hand, and the exported files are copied to a server by hand: training never writes
+models anywhere but its own run directory.
+
+The .amdl format (little-endian); a reader must follow it exactly, and a change bumps AMDL_VERSION:
 
     char[4]  magic "AMDL"
     u32      version
@@ -24,11 +26,7 @@ The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adap
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
 its own model, <model name>.amdl: the layout's name (the class/role, e.g. warrior_dps) with the scenario's stage
 suffix (class_role_duel -> warrior_dps_duel); a single-layout scenario keeps its own name. num_agents is 1, with a
-zero-weight agent column, as mod-animus expects at least one.
-
-Training also publishes the models on its own (see publish_model) to each dir of $ANIMUS_MODEL_DIRS -- the
-Animus.ModelDir of the worldserver that runs mod-animus, mounted where the learner runs. Unset, nothing is
-published.
+zero-weight agent column (the format has at least one).
 """
 
 from __future__ import annotations
@@ -111,7 +109,7 @@ def export_layouts(
     """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written.
 
     When manifest_dir (the sim writes layouts/<scenario>/ in the learner's directory) holds <model name>.json, the
-    layout manifest is copied beside the model: mod-animus refuses a model whose manifest differs from its own.
+    layout manifest is copied beside the model, so whoever loads the model can check it reads the same layout.
     """
     out_dir = Path(out_dir)
     manifests = Path(manifest_dir) if manifest_dir is not None else Path("layouts") / spec["scenario"]
@@ -136,31 +134,6 @@ def export_layouts(
             partial_manifest.write_bytes(manifest.read_bytes())
             os.replace(partial_manifest, out_dir / f"{name}.json")
     return written
-
-
-def publish_model(actor_state: dict[str, torch.Tensor], spec: dict, model_dirs: list[str | Path]) -> list[Path]:
-    """Export every layout's model into every existing model dir; returns the files written.
-
-    Each file is written beside its target and renamed over it, so a worldserver reloading its config never reads
-    a half-written model. A missing or unwritable dir is reported and skipped: publishing must never stop a
-    training run.
-    """
-    written = []
-    for model_dir in model_dirs:
-        model_dir = Path(model_dir)
-        if not model_dir.is_dir():
-            print(f"Model dir {model_dir} does not exist; not publishing the models there", flush=True)
-            continue
-        try:
-            written += export_layouts(actor_state, spec, model_dir)
-        except OSError as error:
-            print(f"Could not publish the models to {model_dir}: {error}", flush=True)
-    return written
-
-
-def model_dirs_from_env() -> list[str]:
-    """Extra model dirs from $ANIMUS_MODEL_DIRS, separated like PATH."""
-    return [path for path in os.environ.get("ANIMUS_MODEL_DIRS", "").split(os.pathsep) if path]
 
 
 def read_amdl(path: str | Path) -> dict:
@@ -200,7 +173,7 @@ def read_amdl(path: str | Path) -> dict:
 
 
 def reference_decide(model: dict, obs: np.ndarray, mask: np.ndarray, agent: int = 0) -> tuple[int, np.ndarray]:
-    """The forward pass mod-animus runs: returns (greedy allowed action, logits)."""
+    """The forward pass of an exported model: returns (greedy allowed action, logits)."""
     x = np.concatenate([obs.astype(np.float32), np.eye(model["num_agents"], dtype=np.float32)[agent]])
     layers = model["layers"]
     for index, (weight, bias) in enumerate(layers):

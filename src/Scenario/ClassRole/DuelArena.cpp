@@ -37,14 +37,6 @@
 
 namespace
 {
-    enum DuelArenaSpells : uint32
-    {
-        SPELL_TAME_BEAST            = 1515,
-    };
-
-    /// Hunters get Tame Beast and Call Pet at level 10.
-    constexpr uint8 HUNTER_PET_LEVEL = 10;
-
     constexpr uint32 SPAWN_ATTEMPTS = 12;
     constexpr float PACK_SPREAD = 5.0f;
     constexpr float MAX_HEIGHT_DIFFERENCE = 6.0f;
@@ -107,14 +99,10 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
     uint32 opponents = 0;
     uint32 packMembers = 0;
     uint32 elites = 0;
-    std::map<uint32, std::vector<uint32>> beastsByFamily;
     for (auto const& [entry, info] : *sObjectMgr->GetCreatureTemplates())
     {
         if (!spawned.contains(entry))
             continue;
-
-        if (info.IsTameable(false))
-            beastsByFamily[info.family].push_back(entry);
 
         // Plain combat creatures with sane stat multipliers.
         if (!IsFairOpponentType(info.type) || info.npcflag || info.VehicleId || (info.unit_flags & UNUSABLE_UNIT_FLAGS)
@@ -150,11 +138,8 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
         }
     }
 
-    for (auto& [family, entries] : beastsByFamily)
-        _beastsByFamily.push_back(std::move(entries));
-
-    LOG_INFO("module.animus", "Duel arena: {} opponent creatures, {} pack creatures ({} casting), {} elites, {} "
-        "tameable beast families", opponents, packMembers, castOnlySmart.size(), elites, _beastsByFamily.size());
+    LOG_INFO("module.animus", "Duel arena: {} opponent creatures, {} pack creatures ({} casting), {} elites",
+        opponents, packMembers, castOnlySmart.size(), elites);
 }
 
 uint32 AnimusForge::DuelArena::OpponentPool::PickNear(std::array<std::vector<uint32>, 81> const& byLevel, uint8 level)
@@ -188,24 +173,6 @@ uint32 AnimusForge::DuelArena::OpponentPool::RandomPackMember(uint8 level) const
 uint32 AnimusForge::DuelArena::OpponentPool::RandomElite(uint8 level) const
 {
     return PickNear(_elitesByLevel, level);
-}
-
-std::vector<uint32> AnimusForge::DuelArena::OpponentPool::RandomStable(uint32 count) const
-{
-    std::vector<uint32> families(_beastsByFamily.size());
-    for (uint32 i = 0; i < families.size(); ++i)
-        families[i] = i;
-
-    std::vector<uint32> stable;
-    while (stable.size() < count && !families.empty())
-    {
-        uint32 const pick = urand(0, uint32(families.size()) - 1);
-        std::vector<uint32> const& entries = _beastsByFamily[families[pick]];
-        stable.push_back(entries[urand(0, uint32(entries.size()) - 1)]);
-        families.erase(families.begin() + pick);
-    }
-
-    return stable;
 }
 
 Position AnimusForge::DuelArena::FindSpawnPoint(Player* bot, Map* map)
@@ -293,73 +260,3 @@ std::vector<Creature*> AnimusForge::DuelArena::SpawnPack(Player* bot, Map* map, 
     return pack;
 }
 
-AnimusForge::DuelArena::ConsumablePool const& AnimusForge::DuelArena::ConsumablePool::Instance()
-{
-    static ConsumablePool const pool;
-    return pool;
-}
-
-AnimusForge::DuelArena::ConsumablePool::ConsumablePool()
-{
-    std::unordered_set<uint32> sold;
-    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT CAST(item AS SIGNED) FROM npc_vendor"))
-    {
-        do
-        {
-            if (int64 const item = result->Fetch()[0].Get<int64>(); item > 0)
-                sold.insert(uint32(item));
-        } while (result->NextRow());
-    }
-
-    for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
-    {
-        if (proto.Class != ITEM_CLASS_CONSUMABLE || proto.SubClass != ITEM_SUBCLASS_FOOD || !sold.contains(itemId)
-            || proto.RequiredSkill || proto.RequiredReputationFaction)
-            continue;
-
-        _Spell const& use = proto.Spells[0];
-        SpellInfo const* info = use.SpellId > 0 && use.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE
-            ? sSpellMgr->GetSpellInfo(use.SpellId) : nullptr;
-        if (!info)
-            continue;
-
-        uint8 const level = uint8(std::min<uint32>(proto.RequiredLevel, DEFAULT_MAX_LEVEL));
-        if (info->HasAura(SPELL_AURA_MOD_REGEN))
-            _food.emplace_back(level, itemId);
-        else if (info->HasAura(SPELL_AURA_MOD_POWER_REGEN))
-            _drink.emplace_back(level, itemId);
-    }
-
-    std::sort(_food.begin(), _food.end());
-    std::sort(_drink.begin(), _drink.end());
-
-    LOG_INFO("module.animus", "Consumables: {} foods, {} drinks sold by vendors", _food.size(), _drink.size());
-}
-
-uint32 AnimusForge::DuelArena::ConsumablePool::Best(std::vector<std::pair<uint8, uint32>> const& items, uint8 level)
-{
-    uint32 best = 0;
-    for (auto const& [reqLevel, itemId] : items)
-        if (reqLevel <= level)
-            best = itemId;
-
-    return best;
-}
-
-bool AnimusForge::DuelArena::CallHunterBeast(Player* bot, uint32 entry)
-{
-    if (bot->getClass() != CLASS_HUNTER || bot->GetPetGUID() || bot->GetLevel() < HUNTER_PET_LEVEL || !entry)
-        return false;
-
-    Pet* pet = bot->CreateTamedPetFrom(entry, SPELL_TAME_BEAST);
-    if (!pet)
-        return false;
-
-    // Spell::EffectTameCreature without the database save: the bot and its pet are never saved.
-    pet->SetUInt32Value(UNIT_FIELD_LEVEL, bot->GetLevel());
-    pet->GetMap()->AddToMap(pet->ToCreature(), true);
-    bot->SetMinion(pet, true);
-    pet->InitTalentForLevel();
-    bot->PetSpellInitialize();
-    return true;
-}

@@ -90,7 +90,7 @@ void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Seat& seat) const
     bot->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
 
     seat.Stable = seat.L->Profile->Class == CLASS_HUNTER
-        ? DuelArena::OpponentPool::Instance().RandomStable(STABLE_SLOTS) : std::vector<uint32>();
+        ? StablePool::Instance().Random(STABLE_SLOTS) : std::vector<uint32>();
 
     // A warrior has no stance until one is cast (a first login casts it), and nothing works without one.
     if (seat.L->Profile->Class == CLASS_WARRIOR)

@@ -20,31 +20,35 @@
 #define MOD_ANIMUS_FORGE_CLASS_ROLE_COMMON_H
 
 /*
- * The class/role building blocks -- profiles, class kits, talent builds, gear, the action catalog -- live in
- * mod-animus (src/ClassRole), which plays the trained models on a stock server: training and play build characters
- * and actions from the same code. mod-animus is built alongside this module.
+ * The class/role building blocks -- profiles, class kits, talent builds, gear, the action catalog, layouts, the seat
+ * encoder and supplies -- in namespace AnimusForge::ClassRole, made available to the scenario code here.
  */
 #include "ClassRoleAssets.h"
 #include "SeatEncoder.h"
+#include "Supplies.h"
 
 namespace AnimusForge
 {
-    using Animus::ClassRole::ActionCatalog;
-    using Animus::ClassRole::ClassKit;
-    using Animus::ClassRole::ClassRoleAssets;
-    using Animus::ClassRole::ClassRoleProfile;
-    using Animus::ClassRole::ClassRoleProfiles;
-    using Animus::ClassRole::GearBuilder;
-    using Animus::ClassRole::RangeBand;
-    using Animus::ClassRole::Role;
-    using Animus::ClassRole::RoleName;
-    using Animus::ClassRole::SeatActionResult;
-    using Animus::ClassRole::SeatEncoder;
-    using Animus::ClassRole::SeatView;
-    using Animus::ClassRole::SpecProfile;
-    using Animus::ClassRole::StatProfile;
-    using Animus::ClassRole::TalentBuilder;
-    using Animus::ClassRole::WeaponLayout;
+    using AnimusForge::ClassRole::ActionCatalog;
+    using AnimusForge::ClassRole::CallHunterBeast;
+    using AnimusForge::ClassRole::ClassKit;
+    using AnimusForge::ClassRole::ClassRoleAssets;
+    using AnimusForge::ClassRole::ClassRoleProfile;
+    using AnimusForge::ClassRole::ClassRoleProfiles;
+    using AnimusForge::ClassRole::ConsumablePool;
+    using AnimusForge::ClassRole::GearBuilder;
+    using AnimusForge::ClassRole::RangeBand;
+    using AnimusForge::ClassRole::Role;
+    using AnimusForge::ClassRole::RoleName;
+    using AnimusForge::ClassRole::SeatActionResult;
+    using AnimusForge::ClassRole::SeatEncoder;
+    using AnimusForge::ClassRole::SeatView;
+    using AnimusForge::ClassRole::SpecProfile;
+    using AnimusForge::ClassRole::StablePool;
+    using AnimusForge::ClassRole::StatProfile;
+    using AnimusForge::ClassRole::StockConsumables;
+    using AnimusForge::ClassRole::TalentBuilder;
+    using AnimusForge::ClassRole::WeaponLayout;
 }
 
 #endif

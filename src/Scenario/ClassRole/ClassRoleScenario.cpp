@@ -56,13 +56,6 @@ namespace
     constexpr float RANGED_DISTANCE = 20.0f;
     constexpr float PARTY_SPACING = 3.0f;
     constexpr uint32 SEAT_ACCOUNT_SLOTS = AnimusForge::ClassRoleScenario::MAX_SEATS * 2;
-
-    /// Per-decision damage scale: roughly how a well-geared character's damage grows with level, so the
-    /// reward has a similar size at every level (about 16 at level 1, 230 at 40, 3500 at 80).
-    float DamageScaleForLevel(uint8 level)
-    {
-        return 15.0f * std::exp(0.068f * float(level));
-    }
 }
 
 void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
@@ -107,7 +100,7 @@ void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
 
 std::string AnimusForge::ClassRoleScenario::ScenarioName(ArenaMode mode)
 {
-    return Animus::ClassRole::StageScenarioName(mode);
+    return AnimusForge::ClassRole::StageScenarioName(mode);
 }
 
 AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, ArenaMode mode)
@@ -157,7 +150,7 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, Are
     {
         _gauntletInfoFirst = _spec.EpisodeInfoDim;
         _spec.EpisodeInfoDim += GAUNTLET_INFO_COUNT;
-        DuelArena::ConsumablePool::Instance();
+        ConsumablePool::Instance();
     }
     if (HasCompanion())
     {
@@ -450,7 +443,7 @@ bool AnimusForge::ClassRoleScenario::BuildSeat(Env& env, uint32 seatIndex, Map*&
     seat.Spec = uint8(urand(0, uint32(layout.Profile->Specs.size()) - 1));
     seat.StartHealth = frand(0.2f, 1.0f);
     seat.EndHealth = frand(0.0f, seat.StartHealth);
-    seat.DamageScale = DamageScaleForLevel(level);
+    seat.DamageScale = AnimusForge::ClassRole::DamageScale(level);
 
     newSession = old ? uint8(1 - seat.ActiveSession) : seat.ActiveSession;
 
@@ -594,7 +587,9 @@ AnimusForge::SeatView AnimusForge::ClassRoleScenario::ViewSeat(Env const& env, u
     if (HasCompanion())
         view.Owner = FindOwner(data);
 
-    if (HasParty())
+    // Only the party stage has teammates: the PvP stages keep the party block but fight alone (an arena's other seat
+    // is the enemy).
+    if (IsParty())
     {
         for (uint32 slot = 0; slot < PARTY_MEMBERS; ++slot)
         {
@@ -657,7 +652,7 @@ void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex,
     if (!result.PendingInterrupt.IsEmpty())
         seat.PendingInterrupt = result.PendingInterrupt;
 
-    if (result.CallBeast && DuelArena::CallHunterBeast(bot, result.CallBeast))
+    if (result.CallBeast && CallHunterBeast(bot, result.CallBeast))
         SeatEncoder::StartCallBeastCooldown(bot);
 }
 

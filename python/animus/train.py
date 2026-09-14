@@ -7,7 +7,7 @@ The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1
 until the sim's socket appears.
 
 With eval.every_env_steps set, the networks are scored on seeded episodes as they train (see
-animus.evaluation): the best-scoring networks are kept in best.pt and published, and with plateau.patience
+animus.evaluation): the best-scoring networks are kept in best.pt, and with plateau.patience
 set the run stops once the score stops improving.
 """
 
@@ -29,7 +29,6 @@ from .bootstrap import seed_trainer
 from .config import TrainConfig
 from .env import ForgeEnv
 from .evaluation import EvalResult, PlateauTracker, format_summary, run_evaluation
-from .export import model_dirs_from_env, publish_model
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer
 from .runs import start_clean_run
@@ -90,15 +89,6 @@ def save_checkpoint(
         partial,
     )
     partial.replace(path)
-
-
-def publish(actor_state: dict, spec, label: str) -> None:
-    """Export every layout's model to every $ANIMUS_MODEL_DIRS dir; mod-animus loads them on its next config reload."""
-    written = publish_model(actor_state, asdict(spec), model_dirs_from_env())
-    for model_dir in sorted({path.parent for path in written}):
-        names = [path.stem for path in written if path.parent == model_dir]
-        print(f"Published {label}: {len(names)} models to {model_dir} ({', '.join(names[:3])}"
-              f"{', ...' if len(names) > 3 else ''})", flush=True)
 
 
 class EvalLog:
@@ -307,7 +297,6 @@ def main() -> None:
 
         if improved:
             save_checkpoint(run_dir / "best.pt", trainer, config, spec, update, env_steps, checkpoint_extra())
-            publish(trainer.actor.state_dict(), spec, f"best (update {update}, score {result.score:.4g})")
         return next_step
 
     step = env.reset()
@@ -372,8 +361,6 @@ def main() -> None:
                 save_checkpoint(run_dir / f"checkpoint_{update:06d}.pt", trainer, config, spec, update, env_steps,
                                 checkpoint_extra())
                 save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps, checkpoint_extra())
-                if not evaluating:
-                    publish(trainer.actor.state_dict(), spec, f"update {update}")
 
             if evaluating and env_steps - last_eval_env_steps >= config.eval.every_env_steps:
                 # The evaluation resets every env: the training episodes in progress are cut short, and the next
@@ -394,12 +381,6 @@ def main() -> None:
                 last_eval_env_steps = env_steps
     finally:
         save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps, checkpoint_extra())
-        best_path = run_dir / "best.pt"
-        if evaluating and best_path.exists():
-            best = torch.load(best_path, map_location="cpu", weights_only=False)
-            publish(best["trainer"]["actor"], spec, f"best (update {best['update']})")
-        else:
-            publish(trainer.actor.state_dict(), spec, f"update {update}")
         if finish_reason:
             finished_path.write_text(json.dumps({
                 "reason": finish_reason,
