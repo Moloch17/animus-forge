@@ -65,3 +65,8 @@ def test_init_from_resolves_the_base_run():
     config = TrainConfig(run_name="warrior_dps_duel", init_from="runs/{base_run}/latest.pt")
     assert config.resolved_init_from() == "runs/warrior_dps/latest.pt"
     assert TrainConfig(run_name="warrior_dps").resolved_init_from() == ""
+
+    pack = TrainConfig(run_name="mage_dps_pack", init_from="runs/{base_run}_duel/latest.pt")
+    assert pack.resolved_init_from() == "runs/mage_dps_duel/latest.pt"
+    gauntlet = TrainConfig(run_name="druid_tank_gauntlet", init_from="runs/{base_run}_pack/latest.pt")
+    assert gauntlet.resolved_init_from() == "runs/druid_tank_pack/latest.pt"

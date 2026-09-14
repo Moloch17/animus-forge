@@ -1,0 +1,42 @@
+# Shared learner config for every class/role gauntlet stage (warrior_dps_gauntlet, ...), used when the
+# scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+#
+# Stage 4 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level
+# pack) with 8-20 s breaks, until the bot dies or the episode ends. Heals, food and drink are available
+# for recovering between pulls. Each cleared pull pays for speed and health kept; death ends it.
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Give
+# the gauntlet long episodes (AnimusForge.EpisodeSeconds of several minutes) so there are many pulls.
+
+run_name: class_role_gauntlet
+runs_dir: runs
+socket: /tmp/animus-forge.sock
+seed: 1
+
+# Seed a fresh run from the class/role's pack model: the gauntlet's observations and actions extend it.
+init_from: runs/{base_run}_pack/latest.pt
+
+total_env_steps: 300000000
+rollout_length: 128
+log_every: 1
+checkpoint_every: 25
+
+rollout_device: cpu
+train_device: cuda
+
+mappo:
+  # Must match the earlier stages for the seeding to apply.
+  hidden: [512, 512]
+  # Pulls and recovery span minutes: the longest horizon of the curriculum (~1000 decisions, 50 s).
+  gamma: 0.999
+  gae_lambda: 0.95
+  clip: 0.2
+  value_clip: 0.2
+  entropy_coef: 0.01
+  value_coef: 1.0
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  epochs: 4
+  minibatches: 8
+  max_grad_norm: 0.5
+  use_value_norm: true

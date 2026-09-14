@@ -27,6 +27,8 @@
 #include "Pet.h"
 #include "Player.h"
 #include "Random.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "SummonLevel.h"
 #include "TemporarySummon.h"
 #include <cmath>
@@ -44,6 +46,7 @@ namespace
     constexpr uint8 HUNTER_PET_LEVEL = 10;
 
     constexpr uint32 SPAWN_ATTEMPTS = 12;
+    constexpr float PACK_SPREAD = 5.0f;
     constexpr float MAX_HEIGHT_DIFFERENCE = 6.0f;
 
     constexpr uint32 UNUSABLE_UNIT_FLAGS = UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_NOT_SELECTABLE
@@ -86,7 +89,24 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
         } while (result->NextRow());
     }
 
+    // SmartAI creatures whose scripts only cast spells or talk, on combat events: casters and ability users
+    // without scripts that flee, summon, despawn or change phases. Pack and gauntlet stages only.
+    std::unordered_set<uint32> castOnlySmart;
+    if (QueryResult result = WorldDatabase.Query("SELECT ss.entryorguid FROM smart_scripts ss "
+        "JOIN creature_template ct ON ct.entry = ss.entryorguid AND ct.AIName = 'SmartAI' AND ct.ScriptName = '' "
+        "WHERE ss.source_type = 0 AND ss.entryorguid > 0 GROUP BY ss.entryorguid "
+        "HAVING SUM(ss.action_type NOT IN (1, 11)) = 0 "
+        "AND SUM(ss.event_type NOT IN (0, 2, 3, 4, 5, 6, 8, 9, 12, 13, 14)) = 0 AND SUM(ss.action_type = 11) > 0"))
+    {
+        do
+        {
+            castOnlySmart.insert(uint32(result->Fetch()[0].Get<int32>()));
+        } while (result->NextRow());
+    }
+
     uint32 opponents = 0;
+    uint32 packMembers = 0;
+    uint32 elites = 0;
     std::map<uint32, std::vector<uint32>> beastsByFamily;
     for (auto const& [entry, info] : *sObjectMgr->GetCreatureTemplates())
     {
@@ -96,43 +116,78 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
         if (info.IsTameable(false))
             beastsByFamily[info.family].push_back(entry);
 
-        // Default AI only (no SmartAI or C++ script that could summon, flee or despawn), plain
-        // normal-rank combat creatures with sane stat multipliers.
-        if (info.rank != CREATURE_ELITE_NORMAL || !IsFairOpponentType(info.type) || info.npcflag || info.VehicleId
-            || info.ScriptID || !info.AIName.empty() || (info.unit_flags & UNUSABLE_UNIT_FLAGS)
+        // Plain combat creatures with sane stat multipliers.
+        if (!IsFairOpponentType(info.type) || info.npcflag || info.VehicleId || (info.unit_flags & UNUSABLE_UNIT_FLAGS)
             || (info.flags_extra & UNUSABLE_EXTRA_FLAGS) || info.ModHealth < 0.5f || info.ModHealth > 2.0f
             || info.DamageModifier < 0.5f || info.DamageModifier > 2.0f || !info.minlevel)
             continue;
 
-        for (uint32 level = info.minlevel; level <= std::min<uint32>(info.maxlevel, DEFAULT_MAX_LEVEL); ++level)
-            _byLevel[level].push_back(entry);
+        // Default AI: no SmartAI or C++ script that could summon, flee or despawn.
+        bool const defaultAI = !info.ScriptID && info.AIName.empty();
+        bool const castingAI = castOnlySmart.contains(entry);
+        if (!defaultAI && !castingAI)
+            continue;
 
-        ++opponents;
+        uint32 const maxLevel = std::min<uint32>(info.maxlevel, DEFAULT_MAX_LEVEL);
+        if (info.rank == CREATURE_ELITE_NORMAL)
+        {
+            for (uint32 level = info.minlevel; level <= maxLevel; ++level)
+            {
+                if (defaultAI)
+                    _byLevel[level].push_back(entry);
+                _packByLevel[level].push_back(entry);
+            }
+
+            opponents += defaultAI ? 1 : 0;
+            ++packMembers;
+        }
+        else if (info.rank == CREATURE_ELITE_ELITE)
+        {
+            for (uint32 level = info.minlevel; level <= maxLevel; ++level)
+                _elitesByLevel[level].push_back(entry);
+
+            ++elites;
+        }
     }
 
     for (auto& [family, entries] : beastsByFamily)
         _beastsByFamily.push_back(std::move(entries));
 
-    LOG_INFO("module.animus", "Duel arena: {} opponent creatures, {} tameable beast families", opponents,
-        _beastsByFamily.size());
+    LOG_INFO("module.animus", "Duel arena: {} opponent creatures, {} pack creatures ({} casting), {} elites, {} "
+        "tameable beast families", opponents, packMembers, castOnlySmart.size(), elites, _beastsByFamily.size());
 }
 
-uint32 AnimusForge::DuelArena::OpponentPool::Random(uint8 level) const
+uint32 AnimusForge::DuelArena::OpponentPool::PickNear(std::array<std::vector<uint32>, 81> const& byLevel, uint8 level)
 {
     // The level itself, then the nearest levels either side.
     for (int32 offset = 0; offset <= DEFAULT_MAX_LEVEL; ++offset)
     {
         for (int32 candidate : { int32(level) - offset, int32(level) + offset })
         {
-            if (candidate < 1 || candidate > DEFAULT_MAX_LEVEL || _byLevel[candidate].empty())
+            if (candidate < 1 || candidate > DEFAULT_MAX_LEVEL || byLevel[candidate].empty())
                 continue;
 
-            std::vector<uint32> const& entries = _byLevel[candidate];
+            std::vector<uint32> const& entries = byLevel[candidate];
             return entries[urand(0, uint32(entries.size()) - 1)];
         }
     }
 
     return 0;
+}
+
+uint32 AnimusForge::DuelArena::OpponentPool::Random(uint8 level) const
+{
+    return PickNear(_byLevel, level);
+}
+
+uint32 AnimusForge::DuelArena::OpponentPool::RandomPackMember(uint8 level) const
+{
+    return PickNear(_packByLevel, level);
+}
+
+uint32 AnimusForge::DuelArena::OpponentPool::RandomElite(uint8 level) const
+{
+    return PickNear(_elitesByLevel, level);
 }
 
 std::vector<uint32> AnimusForge::DuelArena::OpponentPool::RandomStable(uint32 count) const
@@ -153,7 +208,7 @@ std::vector<uint32> AnimusForge::DuelArena::OpponentPool::RandomStable(uint32 co
     return stable;
 }
 
-Creature* AnimusForge::DuelArena::SpawnOpponent(Player* bot, Map* map, uint32 entry)
+Position AnimusForge::DuelArena::FindSpawnPoint(Player* bot, Map* map)
 {
     // A random bearing and distance; retry a few bearings for a spot in line of sight on roughly level
     // ground, so the opponent is reachable. The last try is used regardless.
@@ -179,14 +234,18 @@ Creature* AnimusForge::DuelArena::SpawnOpponent(Player* bot, Map* map, uint32 en
 
     // A random facing, so the bot has to learn to get behind it.
     pos.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
+    return pos;
+}
 
-    PendingSummonLevel = bot->GetLevel();
+Creature* AnimusForge::DuelArena::SummonOpponent(Player* bot, Map* map, uint32 entry, Position const& pos, uint8 level)
+{
+    PendingSummonLevel = level;
     TempSummon* opponent = map->SummonCreature(entry, pos);
     PendingSummonLevel = 0;
 
     if (!opponent)
     {
-        LOG_ERROR("module.animus", "Could not summon duel opponent {} for bot {}", entry, bot->GetName());
+        LOG_ERROR("module.animus", "Could not summon opponent {} for bot {}", entry, bot->GetName());
         return nullptr;
     }
 
@@ -196,6 +255,95 @@ Creature* AnimusForge::DuelArena::SpawnOpponent(Player* bot, Map* map, uint32 en
     opponent->SetFullHealth();
 
     return opponent;
+}
+
+Creature* AnimusForge::DuelArena::SpawnOpponent(Player* bot, Map* map, uint32 entry)
+{
+    return SummonOpponent(bot, map, entry, FindSpawnPoint(bot, map), bot->GetLevel());
+}
+
+std::vector<Creature*> AnimusForge::DuelArena::SpawnPack(Player* bot, Map* map, std::vector<uint32> const& entries,
+    uint8 level)
+{
+    Position const center = FindSpawnPoint(bot, map);
+
+    std::vector<Creature*> pack;
+    for (uint32 i = 0; i < entries.size(); ++i)
+    {
+        // Loosely clustered around the center, each facing its own way.
+        Position pos = center;
+        if (i)
+        {
+            float const angle = frand(0.0f, 2.0f * float(M_PI));
+            float const offset = frand(2.0f, PACK_SPREAD);
+            pos.m_positionX += offset * std::cos(angle);
+            pos.m_positionY += offset * std::sin(angle);
+
+            float const ground = map->GetHeight(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ() + 5.0f);
+            if (ground > INVALID_HEIGHT)
+                pos.m_positionZ = ground;
+
+            pos.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
+        }
+
+        if (Creature* member = SummonOpponent(bot, map, entries[i], pos, level))
+            pack.push_back(member);
+    }
+
+    return pack;
+}
+
+AnimusForge::DuelArena::ConsumablePool const& AnimusForge::DuelArena::ConsumablePool::Instance()
+{
+    static ConsumablePool const pool;
+    return pool;
+}
+
+AnimusForge::DuelArena::ConsumablePool::ConsumablePool()
+{
+    std::unordered_set<uint32> sold;
+    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT CAST(item AS SIGNED) FROM npc_vendor"))
+    {
+        do
+        {
+            if (int64 const item = result->Fetch()[0].Get<int64>(); item > 0)
+                sold.insert(uint32(item));
+        } while (result->NextRow());
+    }
+
+    for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
+    {
+        if (proto.Class != ITEM_CLASS_CONSUMABLE || proto.SubClass != ITEM_SUBCLASS_FOOD || !sold.contains(itemId)
+            || proto.RequiredSkill || proto.RequiredReputationFaction)
+            continue;
+
+        _Spell const& use = proto.Spells[0];
+        SpellInfo const* info = use.SpellId > 0 && use.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE
+            ? sSpellMgr->GetSpellInfo(use.SpellId) : nullptr;
+        if (!info)
+            continue;
+
+        uint8 const level = uint8(std::min<uint32>(proto.RequiredLevel, DEFAULT_MAX_LEVEL));
+        if (info->HasAura(SPELL_AURA_MOD_REGEN))
+            _food.emplace_back(level, itemId);
+        else if (info->HasAura(SPELL_AURA_MOD_POWER_REGEN))
+            _drink.emplace_back(level, itemId);
+    }
+
+    std::sort(_food.begin(), _food.end());
+    std::sort(_drink.begin(), _drink.end());
+
+    LOG_INFO("module.animus", "Consumables: {} foods, {} drinks sold by vendors", _food.size(), _drink.size());
+}
+
+uint32 AnimusForge::DuelArena::ConsumablePool::Best(std::vector<std::pair<uint8, uint32>> const& items, uint8 level)
+{
+    uint32 best = 0;
+    for (auto const& [reqLevel, itemId] : items)
+        if (reqLevel <= level)
+            best = itemId;
+
+    return best;
 }
 
 bool AnimusForge::DuelArena::CallHunterBeast(Player* bot, uint32 entry)

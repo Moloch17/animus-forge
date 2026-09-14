@@ -1,0 +1,40 @@
+# Shared learner config for every class/role pack stage (warrior_dps_pack, mage_dps_pack, ...), used
+# when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+#
+# Stage 3 of the curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
+# casters included, usually linked. The policy picks targets, interrupts, crowd-controls and clears
+# the pack fast while losing little health. Episodes end when the pack is cleared or the bot dies.
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
+
+run_name: class_role_pack
+runs_dir: runs
+socket: /tmp/animus-forge.sock
+seed: 1
+
+# Seed a fresh run from the class/role's duel model: the pack stage's observations and actions extend it.
+init_from: runs/{base_run}_duel/latest.pt
+
+total_env_steps: 300000000
+rollout_length: 128
+log_every: 1
+checkpoint_every: 25
+
+rollout_device: cpu
+train_device: cuda
+
+mappo:
+  # Must match the earlier stages for the seeding to apply.
+  hidden: [512, 512]
+  gamma: 0.997
+  gae_lambda: 0.95
+  clip: 0.2
+  value_clip: 0.2
+  entropy_coef: 0.01
+  value_coef: 1.0
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  epochs: 4
+  minibatches: 8
+  max_grad_norm: 0.5
+  use_value_norm: true

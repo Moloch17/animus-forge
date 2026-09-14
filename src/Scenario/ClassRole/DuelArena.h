@@ -20,7 +20,9 @@
 #define MOD_ANIMUS_FORGE_DUEL_ARENA_H
 
 #include "Define.h"
+#include "Position.h"
 #include <array>
+#include <utility>
 #include <vector>
 
 class Creature;
@@ -43,9 +45,16 @@ namespace AnimusForge::DuelArena
     public:
         static OpponentPool const& Instance();
 
-        /// A random creature entry whose natural level range covers `level` (the nearest range when
-        /// none does). 0 if the pool is empty.
+        /// A random default-AI creature entry whose natural level range covers `level` (the nearest range
+        /// when none does). 0 if the pool is empty. The duel stage's opponents.
         [[nodiscard]] uint32 Random(uint8 level) const;
+
+        /// Like Random, but also creatures whose SmartAI only casts spells or talks (casters and ability
+        /// users). The pack and gauntlet stages' creatures.
+        [[nodiscard]] uint32 RandomPackMember(uint8 level) const;
+
+        /// An elite creature (default AI or casting SmartAI) for the level, or 0.
+        [[nodiscard]] uint32 RandomElite(uint8 level) const;
 
         /// Tameable, non-exotic beast entries of `count` different random families: a hunter's stable
         /// for one episode. Fewer if the world has fewer families.
@@ -54,13 +63,45 @@ namespace AnimusForge::DuelArena
     private:
         OpponentPool();
 
-        std::array<std::vector<uint32>, 81> _byLevel;     // index = level
+        [[nodiscard]] static uint32 PickNear(std::array<std::vector<uint32>, 81> const& byLevel, uint8 level);
+
+        std::array<std::vector<uint32>, 81> _byLevel;         // index = level
+        std::array<std::vector<uint32>, 81> _packByLevel;
+        std::array<std::vector<uint32>, 81> _elitesByLevel;
         std::vector<std::vector<uint32>> _beastsByFamily;
     };
+
+    /// Vendor-sold food (health regeneration) and drink (mana regeneration) by required level.
+    class ConsumablePool
+    {
+    public:
+        static ConsumablePool const& Instance();
+
+        /// The best food / drink a character of `level` can use, or 0.
+        [[nodiscard]] uint32 Food(uint8 level) const { return Best(_food, level); }
+        [[nodiscard]] uint32 Drink(uint8 level) const { return Best(_drink, level); }
+
+    private:
+        ConsumablePool();
+
+        [[nodiscard]] static uint32 Best(std::vector<std::pair<uint8, uint32>> const& items, uint8 level);
+
+        std::vector<std::pair<uint8, uint32>> _food;     // (required level, item), sorted
+        std::vector<std::pair<uint8, uint32>> _drink;
+    };
+
+    /// A random spot 40-50 yd from the bot, in line of sight on roughly level ground, with a random facing.
+    [[nodiscard]] Position FindSpawnPoint(Player* bot, Map* map);
+
+    /// Summon `entry` at `pos` and `level`, hostile to players and aggressive. Returns nullptr on failure.
+    Creature* SummonOpponent(Player* bot, Map* map, uint32 entry, Position const& pos, uint8 level);
 
     /// Summon `entry` at the bot's level at a random bearing and distance from the bot, facing a random
     /// direction, hostile to players and aggressive. Returns nullptr on failure.
     Creature* SpawnOpponent(Player* bot, Map* map, uint32 entry);
+
+    /// Summon a pack of `entries` at `level`, clustered around one spawn point, each facing its own way.
+    std::vector<Creature*> SpawnPack(Player* bot, Map* map, std::vector<uint32> const& entries, uint8 level);
 
     /// Hunters: bring the stabled beast `entry` out as the bot's pet (Call Pet for a pet that only
     /// exists in memory; Call Pet itself loads pets from the database). Needs level 10 and no pet out.

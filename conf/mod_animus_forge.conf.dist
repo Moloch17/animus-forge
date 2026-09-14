@@ -50,6 +50,12 @@ AnimusForge.Enable = 0
 #                     Episodes end on the kill or death. Its observations and actions extend the
 #                     dummy stage's, and configs/class_role_duel.yaml seeds a new run from the
 #                     class/role's dummy model.
+#                     Class/role pack stage, "<class>_<role>_pack": a pack of 2-4 same-level
+#                     creatures (casters included, usually linked); target selection, interrupts
+#                     and crowd control. Seeded from the duel model. Ends when cleared or on death.
+#                     Class/role gauntlet stage, "<class>_<role>_gauntlet": pull after pull (packs,
+#                     elites, higher levels) with short breaks; heals, food and drink to recover.
+#                     Seeded from the pack model. Ends on death or at the episode length.
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
@@ -118,6 +124,9 @@ AnimusForge.EpisodeSeconds = 60
 #                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
 #                                         then Heroic Strike at the rage threshold
 #                     "greedy"          - (class/role scenarios) first usable spell or trinket
+#                     "fight"           - (class/role duel, pack, gauntlet) start attacking, run
+#                                         to the target, first usable spell; eat and drink
+#                                         between gauntlet pulls
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"

@@ -61,14 +61,29 @@ namespace AnimusForge
 
         [[nodiscard]] std::vector<Action> const& Actions() const { return _actions; }
 
+        /// Interrupts, stuns, silences, fears, roots, polymorphs, knockbacks, taunts and offensive dispels
+        /// that are not already combat actions. Used from the pack stage on.
+        [[nodiscard]] std::vector<Action> const& Tactical() const { return _tactical; }
+
+        /// Heals, heal-over-time, absorbs and friendly dispels that are not already combat or tactical
+        /// actions. Used from the gauntlet stage on.
+        [[nodiscard]] std::vector<Action> const& Sustain() const { return _sustain; }
+
         /// Highest rank of a spell action the bot knows, or nullptr.
         [[nodiscard]] static SpellInfo const* KnownRank(Player const* bot, uint32 firstRank);
 
         /// Whether a spell is worth an action slot for damage on a target dummy.
         [[nodiscard]] static bool IsCombatSpell(SpellInfo const* info);
+        [[nodiscard]] static bool IsTacticalSpell(SpellInfo const* info);
+        [[nodiscard]] static bool IsSustainSpell(SpellInfo const* info);
+
+        /// Whether casting the spell on a casting target stops the cast (interrupt, stun, silence, ...).
+        [[nodiscard]] static bool IsInterruptingSpell(SpellInfo const* info);
 
     private:
         std::vector<Action> _actions;
+        std::vector<Action> _tactical;
+        std::vector<Action> _sustain;
     };
 }
 

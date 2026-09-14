@@ -10,7 +10,7 @@ import yaml
 from .mappo.trainer import MappoConfig
 
 # Curriculum stage suffixes of class/role scenario names, latest stage first.
-STAGE_SUFFIXES = ("_duel",)
+STAGE_SUFFIXES = ("_gauntlet", "_pack", "_duel")
 
 
 @dataclass

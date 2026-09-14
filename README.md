@@ -183,6 +183,54 @@ at zero), hidden layers are copied, the actor keeps stage 1's action logits and 
 near zero, and the critic's output layer starts fresh because the reward scale differs. Queue the
 stages in order, e.g. `AnimusForge.Queue = "warrior_dps, warrior_dps_duel, ..."`.
 
+### Class/role pack stage (`<class>_<role>_pack`)
+
+Stage 3. The duel's characters against a pack instead of a single opponent:
+
+- **Pack:** 2-4 creatures at the bot's level, clustered 40-50 yd away, each facing its own way. The
+  pool adds creatures whose SmartAI only casts spells or talks (casters and ability users, ~3500) to
+  the duel's default-AI creatures. 70% of packs are linked: once one member is in combat, the rest
+  attack the bot.
+- **Actions:** the duel's, then one "target slot" action per enemy (4), then **tactical spells** the
+  earlier stages leave out: interrupts, stuns, silences, fears, roots, polymorphs, knockbacks,
+  taunts and offensive dispels. Every spell, movement and pet action aims at the current target; when
+  it dies the nearest living enemy becomes the target.
+- **Observation:** the duel's (about the current target), then living / in-combat enemy counts, 4
+  enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet,
+  casting, in combat, crowd-controlled, current target, elite, level difference), and each tactical
+  spell's known/cooldown.
+- **Reward:** damage as a fraction of the pack's total health (x2), damage taken as a fraction of
+  the bot's (x1), approach shaping toward the nearest enemy, +0.5 per kill, +0.3 per interrupt (a
+  cast that stops after the bot's interrupt, stun, silence, fear or polymorph), +0.5 for a stealth
+  opener. Clearing the pack: +2, up to +3 for the time left, up to +2 for the health kept. Death -3.
+  The episode ends when the pack is cleared or the bot dies.
+- **Episode info:** the duel's (killed = cleared), then kills, interrupts, pack size, linked.
+
+`configs/class_role_pack.yaml` seeds a fresh run from `runs/<class>_<role>_duel/latest.pt`.
+
+### Class/role gauntlet stage (`<class>_<role>_gauntlet`)
+
+Stage 4: sustained combat.
+
+- **Pulls:** pull after pull until the bot dies or the episode ends: 1-4 creatures from the pack
+  pool, or (15%) a single elite, or (25%) a pack 1-3 levels above the bot. After a clear the field is
+  emptied and the next pull spawns 8-20 s later, out of aggro range.
+- **Recovery:** the pack stage's actions, then eat, drink, and **sustain spells**: heals,
+  heal-over-time, absorbs and friendly dispels (pet heals included). Each episode the bot carries 5
+  of the best vendor food for its level, and 5 drinks if it uses mana; eating and drinking need no
+  combat and no movement.
+- **Observation:** the pack stage's, then pulls cleared, whether a pull is active, time to the next
+  pull, time into the current pull, elite/higher-level pull, eating, drinking, food and drink left,
+  and each sustain spell's known/cooldown. Between pulls there is no target: target features are 0
+  and only self-cast actions are allowed.
+- **Reward:** the pack stage's per-step terms (damage taken weighs x1.5). Each cleared pull: +2, up
+  to +2 for clearing it within a minute, up to +2 for the health kept during that pull. Death -5 and
+  ends the episode.
+- **Episode info:** the pack stage's, then pulls cleared, food used, drinks used, sustain casts.
+
+`configs/class_role_gauntlet.yaml` seeds a fresh run from `runs/<class>_<role>_pack/latest.pt`. Give
+the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
+
 ### Training every model: `AnimusForge.Queue`
 
 `AnimusForge.Queue` lists scenarios to train one after another (it overrides

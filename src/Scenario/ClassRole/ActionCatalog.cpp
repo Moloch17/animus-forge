@@ -291,21 +291,32 @@ AnimusForge::ActionCatalog::ActionCatalog(uint8 playerClass, ClassKit const& kit
             if (rankSpell)
                 candidates.insert(rankSpell);
 
+    // Rank chains by first rank, for each kind; a chain belongs to the first kind any of its ranks fits
+    // (combat, then tactical, then sustain), so the lists never overlap.
     std::set<uint32> chains;
-    for (uint32 spellId : candidates)
+    std::set<uint32> tacticalChains;
+    std::set<uint32> sustainChains;
+    auto const chainOf = [](SpellInfo const* info)
     {
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!IsCombatSpell(info))
-            continue;
-
         SpellInfo const* first = info->GetFirstRankSpell();
-        chains.insert(first ? first->Id : info->Id);
-    }
+        return first ? first->Id : info->Id;
+    };
 
-    _actions.push_back({ Kind::Noop, "noop" });
-    _actions.push_back({ Kind::CancelQueued, "cancel_queued" });
+    for (uint32 spellId : candidates)
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); IsCombatSpell(info))
+            chains.insert(chainOf(info));
 
-    for (uint32 firstRank : chains)
+    for (uint32 spellId : candidates)
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); IsTacticalSpell(info)
+            && !chains.contains(chainOf(info)))
+            tacticalChains.insert(chainOf(info));
+
+    for (uint32 spellId : candidates)
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); IsSustainSpell(info)
+            && !chains.contains(chainOf(info)) && !tacticalChains.contains(chainOf(info)))
+            sustainChains.insert(chainOf(info));
+
+    auto const spellAction = [](uint32 firstRank)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(firstRank);
 
@@ -315,12 +326,140 @@ AnimusForge::ActionCatalog::ActionCatalog(uint8 playerClass, ClassKit const& kit
         action.FirstRank = firstRank;
         action.NextSwing = info->HasAttribute(SPELL_ATTR0_ON_NEXT_SWING)
             || info->HasAttribute(SPELL_ATTR0_ON_NEXT_SWING_NO_DAMAGE);
-        _actions.push_back(action);
-    }
+        return action;
+    };
+
+    _actions.push_back({ Kind::Noop, "noop" });
+    _actions.push_back({ Kind::CancelQueued, "cancel_queued" });
+
+    for (uint32 firstRank : chains)
+        _actions.push_back(spellAction(firstRank));
 
     _actions.push_back({ Kind::Trinket, "trinket_1", 0, EQUIPMENT_SLOT_TRINKET1 });
     _actions.push_back({ Kind::Trinket, "trinket_2", 0, EQUIPMENT_SLOT_TRINKET2 });
 
-    LOG_INFO("module.animus", "Class {}: {} actions from {} candidate spells", playerClass, _actions.size(),
-        candidates.size());
+    for (uint32 firstRank : tacticalChains)
+        _tactical.push_back(spellAction(firstRank));
+
+    for (uint32 firstRank : sustainChains)
+        _sustain.push_back(spellAction(firstRank));
+
+    LOG_INFO("module.animus", "Class {}: {} actions, {} tactical, {} sustain, from {} candidate spells", playerClass,
+        _actions.size(), _tactical.size(), _sustain.size(), candidates.size());
+}
+
+bool AnimusForge::ActionCatalog::IsTacticalSpell(SpellInfo const* info)
+{
+    if (!info || info->IsPassive())
+        return false;
+
+    bool tactical = false;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        if (!effect.Effect)
+            continue;
+
+        if (IsExcludedEffect(effect.Effect) || IsExcludedAura(effect.ApplyAuraName))
+            return false;
+
+        switch (effect.Effect)
+        {
+            case SPELL_EFFECT_INTERRUPT_CAST:
+            case SPELL_EFFECT_KNOCK_BACK:
+            case SPELL_EFFECT_ATTACK_ME:
+                tactical = true;
+                break;
+            case SPELL_EFFECT_DISPEL:
+                tactical |= !info->IsPositive();
+                break;
+            case SPELL_EFFECT_APPLY_AURA:
+            case SPELL_EFFECT_PERSISTENT_AREA_AURA:
+                switch (effect.ApplyAuraName)
+                {
+                    case SPELL_AURA_MOD_STUN:
+                    case SPELL_AURA_MOD_SILENCE:
+                    case SPELL_AURA_MOD_PACIFY_SILENCE:
+                    case SPELL_AURA_MOD_CONFUSE:
+                    case SPELL_AURA_MOD_FEAR:
+                    case SPELL_AURA_MOD_ROOT:
+                    case SPELL_AURA_TRANSFORM:
+                    case SPELL_AURA_MOD_TAUNT:
+                        tactical = true;
+                        break;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    return tactical;
+}
+
+bool AnimusForge::ActionCatalog::IsSustainSpell(SpellInfo const* info)
+{
+    if (!info || info->IsPassive())
+        return false;
+
+    bool sustain = false;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        if (!effect.Effect)
+            continue;
+
+        if (IsExcludedEffect(effect.Effect) || IsExcludedAura(effect.ApplyAuraName))
+            return false;
+
+        switch (effect.Effect)
+        {
+            case SPELL_EFFECT_HEAL:
+            case SPELL_EFFECT_HEAL_PCT:
+            case SPELL_EFFECT_HEAL_MAX_HEALTH:
+                sustain = true;
+                break;
+            case SPELL_EFFECT_DISPEL:
+                sustain |= info->IsPositive();
+                break;
+            case SPELL_EFFECT_APPLY_AURA:
+            case SPELL_EFFECT_APPLY_AREA_AURA_PARTY:
+            case SPELL_EFFECT_APPLY_AREA_AURA_RAID:
+                sustain |= effect.ApplyAuraName == SPELL_AURA_PERIODIC_HEAL
+                    || effect.ApplyAuraName == SPELL_AURA_OBS_MOD_HEALTH
+                    || effect.ApplyAuraName == SPELL_AURA_SCHOOL_ABSORB;
+                break;
+            default:
+                break;
+        }
+    }
+
+    return sustain;
+}
+
+bool AnimusForge::ActionCatalog::IsInterruptingSpell(SpellInfo const* info)
+{
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        if (effect.Effect == SPELL_EFFECT_INTERRUPT_CAST || effect.Effect == SPELL_EFFECT_KNOCK_BACK)
+            return true;
+
+        if (effect.Effect == SPELL_EFFECT_APPLY_AURA)
+        {
+            switch (effect.ApplyAuraName)
+            {
+                case SPELL_AURA_MOD_STUN:
+                case SPELL_AURA_MOD_SILENCE:
+                case SPELL_AURA_MOD_PACIFY_SILENCE:
+                case SPELL_AURA_MOD_CONFUSE:
+                case SPELL_AURA_MOD_FEAR:
+                case SPELL_AURA_TRANSFORM:
+                    return true;
+                default:
+                    break;
+            }
+        }
+    }
+
+    return false;
 }

@@ -32,6 +32,7 @@
 
 class Creature;
 class Item;
+class Map;
 class Player;
 class SpellInfo;
 class Unit;
@@ -48,6 +49,14 @@ namespace AnimusForge
         /// fights back; move to it and kill it quickly while taking little damage. Observations and
         /// actions are stage 1's with duel features and actions appended, so a stage 1 model can seed it.
         Duel,
+        /// Stage 3 (`<class>_<role>_pack`): a pack of 2-4 same-level creatures (casters included), often
+        /// linked; pick targets, interrupt, crowd-control and clear it fast with little damage taken.
+        /// Appends enemy slots, target selection and tactical spells to stage 2's layout.
+        Pack,
+        /// Stage 4 (`<class>_<role>_gauntlet`): pull after pull (1-4 creatures, sometimes elite or higher
+        /// level) with a short break between, until death or the episode ends; recover between pulls with
+        /// heals, food and drink. Appends sustain spells, consumables and pull state to stage 3's layout.
+        Gauntlet,
     };
 
     /// One class in one role on a training dummy, maximising damage, for every level, race and spec.
@@ -164,6 +173,84 @@ namespace AnimusForge
             DUEL_INFO_COUNT
         };
 
+        /// Pack enemies observed, and features per enemy slot.
+        static constexpr uint32 PACK_SLOTS = 4;
+
+        enum PackSlotFeature : uint32
+        {
+            SLOT_PRESENT                = 0,
+            SLOT_ALIVE                  = 1,
+            SLOT_HEALTH                 = 2,
+            SLOT_DISTANCE               = 3,    // yards / 60
+            SLOT_BEARING_SIN            = 4,
+            SLOT_BEARING_COS            = 5,
+            SLOT_BEHIND                 = 6,    // the bot is in its back arc
+            SLOT_ATTACKS_BOT            = 7,
+            SLOT_ATTACKS_PET            = 8,
+            SLOT_CASTING                = 9,
+            SLOT_IN_COMBAT              = 10,
+            SLOT_CROWD_CONTROLLED       = 11,   // stunned, feared, confused, rooted, silenced or polymorphed
+            SLOT_CURRENT_TARGET         = 12,
+            SLOT_ELITE                  = 13,
+            SLOT_LEVEL_DIFFERENCE       = 14,   // (its level - the bot's) / 5
+            SLOT_FEATURES
+        };
+
+        /// Pack observation features, after all of stage 2's: PACK_OBS_GLOBAL_COUNT globals, the enemy slots,
+        /// then per tactical action: known, cooldown.
+        enum PackObs : uint32
+        {
+            PACK_OBS_ALIVE              = 0,    // living enemies / PACK_SLOTS
+            PACK_OBS_IN_COMBAT          = 1,    // enemies in combat / PACK_SLOTS
+            PACK_OBS_GLOBAL_COUNT       = 2
+        };
+
+        /// Pack actions, after all of stage 2's: target slot 0..PACK_SLOTS-1, then the tactical spells.
+        static constexpr uint32 PACK_ACTION_TARGET_FIRST = 0;
+
+        enum PackInfoColumn : uint32
+        {
+            PACK_INFO_KILLS             = 0,
+            PACK_INFO_INTERRUPTS        = 1,
+            PACK_INFO_PACK_SIZE         = 2,    // creatures in the first pull
+            PACK_INFO_LINKED            = 3,
+            PACK_INFO_COUNT
+        };
+
+        /// Gauntlet observation features, after all of stage 3's, then per sustain action: known, cooldown.
+        enum GauntletObs : uint32
+        {
+            GAUNTLET_OBS_PULLS_CLEARED  = 0,    // / 10
+            GAUNTLET_OBS_PULL_ACTIVE    = 1,
+            GAUNTLET_OBS_NEXT_PULL      = 2,    // time until the next pull / 20 s
+            GAUNTLET_OBS_PULL_TIME      = 3,    // time into the current pull / 60 s
+            GAUNTLET_OBS_ELITE_PULL     = 4,
+            GAUNTLET_OBS_EATING         = 5,
+            GAUNTLET_OBS_DRINKING       = 6,
+            GAUNTLET_OBS_FOOD_LEFT      = 7,    // / CONSUMABLE_COUNT
+            GAUNTLET_OBS_DRINK_LEFT     = 8,
+            GAUNTLET_OBS_GLOBAL_COUNT   = 9
+        };
+
+        /// Gauntlet actions, after all of stage 3's: eat, drink, then the sustain spells.
+        enum GauntletAction : uint32
+        {
+            GAUNTLET_ACTION_EAT         = 0,
+            GAUNTLET_ACTION_DRINK       = 1,
+            GAUNTLET_ACTION_SUSTAIN_FIRST = 2
+        };
+
+        enum GauntletInfoColumn : uint32
+        {
+            GAUNTLET_INFO_PULLS_CLEARED = 0,
+            GAUNTLET_INFO_FOOD_USED     = 1,
+            GAUNTLET_INFO_DRINK_USED    = 2,
+            GAUNTLET_INFO_SUSTAIN_CASTS = 3,
+            GAUNTLET_INFO_COUNT
+        };
+
+        static constexpr uint32 CONSUMABLE_COUNT = 5;
+
         enum EpisodeInfoColumn : uint32
         {
             INFO_DAMAGE                 = 0,
@@ -236,8 +323,29 @@ namespace AnimusForge
             uint32 StealthOpeners = 0;
             bool StepStealthOpener = false;
             bool PetSummoned = false;
-            bool Killed = false;
+            bool Killed = false;                        // pack: cleared
             bool Died = false;
+
+            // Pack and gauntlet.
+            uint32 TargetSlot = 0;
+            bool PackLinked = false;
+            uint32 PackSize = 0;
+            uint32 PullKills = 0;                       // dead enemies of the current pull
+            uint32 Kills = 0;
+            uint32 Interrupts = 0;
+            ObjectGuid PendingInterrupt;                // a casting enemy the bot just cast an interrupt at
+            uint32 PullStartMs = 0;
+            uint64 PullDamageTaken = 0;
+
+            // Gauntlet.
+            uint32 PullsCleared = 0;
+            uint32 NextPullMs = 0;                      // spawn the next pull at this episode time
+            bool EliteOrHigherPull = false;
+            uint32 FoodItem = 0;
+            uint32 DrinkItem = 0;
+            uint32 FoodUsed = 0;
+            uint32 DrinkUsed = 0;
+            uint32 SustainCasts = 0;
         };
 
         /// Replace the env's bot and dummy with a newly rolled character.
@@ -248,7 +356,34 @@ namespace AnimusForge
         [[nodiscard]] SpellInfo const* ResolveSpell(Player const* bot, uint32 action) const;
         [[nodiscard]] static SpellInfo const* TrinketSpell(Item const* item);
         [[nodiscard]] bool IsActionAllowed(Player* bot, Creature* dummy, uint32 action) const;
+        [[nodiscard]] bool IsSpellActionAllowed(Player* bot, Unit* target, ActionCatalog::Action const& def) const;
+
+        /// Casts a spell action at `target` (may be null: self-cast spells only). Returns true if it started.
+        bool ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def, EnvData& data) const;
         void UpdateDummyHealth(Env const& env, Creature* dummy) const;
+
+        /// The creature the bot's actions aim at: the dummy or opponent, or the selected pack enemy
+        /// (the nearest living one when the selection is dead). Null between gauntlet pulls.
+        [[nodiscard]] Creature* CurrentTarget(Env const& env);
+
+        [[nodiscard]] bool HasDuel() const { return _mode >= ArenaMode::Duel; }
+        [[nodiscard]] bool HasPack() const { return _mode >= ArenaMode::Pack; }
+        [[nodiscard]] bool HasGauntlet() const { return _mode >= ArenaMode::Gauntlet; }
+
+        // Pack and gauntlet stages (ClassRolePack.cpp).
+        bool StartPack(Env& env, Player* bot, Map* map, EnvData& data) const;
+        bool SpawnPull(Env& env, Player* bot, Map* map, EnvData& data) const;
+        void UpdatePack(Env& env, Player* bot, EnvData& data) const;
+        void ObservePack(Env const& env, Player* bot, float* obs) const;
+        void ObserveGauntlet(Env const& env, Player* bot, float* obs) const;
+        [[nodiscard]] bool IsPackActionAllowed(Env const& env, Player* bot, uint32 packAction) const;
+        void ApplyPackAction(Env& env, Player* bot, Unit* target, uint32 packAction, EnvData& data) const;
+        [[nodiscard]] bool IsGauntletActionAllowed(Player* bot, Unit* target, uint32 gauntletAction,
+            EnvData const& data) const;
+        void ApplyGauntletAction(Player* bot, Unit* target, uint32 gauntletAction, EnvData& data) const;
+        [[nodiscard]] float PackReward(Env& env, Player* bot, EnvData& data) const;
+        void PackEpisodeInfo(Env const& env, float* info) const;
+        void GauntletEpisodeInfo(Env const& env, float* info) const;
 
         // Duel stage (ClassRoleDuel.cpp).
         void StartDuel(Player* bot, Creature* opponent, EnvData& data) const;
@@ -280,6 +415,14 @@ namespace AnimusForge
         uint32 _duelActionFirst = 0;        // duel: first duel action (= stage 1's NumActions)
         uint32 _duelActionCount = 0;
         uint32 _duelInfoFirst = INFO_COUNT;
+        uint32 _packObsFirst = 0;           // pack: first pack observation (= stage 2's ObsDim)
+        uint32 _packActionFirst = 0;
+        uint32 _packActionCount = 0;
+        uint32 _packInfoFirst = 0;
+        uint32 _gauntletObsFirst = 0;       // gauntlet: first gauntlet observation (= stage 3's ObsDim)
+        uint32 _gauntletActionFirst = 0;
+        uint32 _gauntletActionCount = 0;
+        uint32 _gauntletInfoFirst = 0;
         std::vector<EnvData> _data;
     };
 }
