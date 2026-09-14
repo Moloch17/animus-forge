@@ -103,7 +103,7 @@ earlier stage stays repeatable.
 - **Models:** each layout exports as its own model (`<class>_<role><stage suffix>.amdl`, e.g.
   `warrior_dps_duel.amdl`): adapter, trunk and head together are one plain MLP.
 - **`AnimusForge.ClassRoles`:** a comma-separated subset (e.g. `"warrior_dps, priest_heal"`) trains only those.
-  Changing it changes the layouts, so a run cannot resume across the change.
+  Changing it changes the layouts, so models of the earlier list do not fit the new one.
 
 #### Stage 1 (`class_role`): the training dummy
 
@@ -210,7 +210,7 @@ opponent:
   seconds of cast time wasted.
 
 **Bootstrapping:** every stage after the first has `init_from: runs/{base_run}<previous stage>/best.pt`
-(`class_role_duel` seeds from `runs/class_role/best.pt`). A run with nothing to resume seeds its networks from the
+(`class_role_duel` seeds from `runs/class_role/best.pt`). A run seeds its networks from the
 previous stage's (`animus/bootstrap.py`), layout by layout (class/roles are matched by name): each layout's
 earlier features keep their places in its wider adapter (new inputs start at zero) and its earlier actions keep
 their logits (new actions start near zero); the trunk is copied; the critic's state encoder and value head start
@@ -352,9 +352,8 @@ Each scenario runs with its auto-started learner until the learner finishes -- i
 plateaus or it reaches `total_env_steps` (see
 [Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
 tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/`; export its models by
-hand when you want them (see [Export](#export)). After a server restart, finished scenarios' learners (`runs/<scenario>/finished.json`) exit immediately and the
-queue moves on to the first unfinished one. Change the list (or its order)
-in the config and restart to retrain or skip models. A learner that crashes stops the queue at that
+hand when you want them (see [Export](#export)). Change the list (or its order) in the config and restart to
+retrain or skip models; a restart starts the queue over from its first scenario. A learner that crashes stops the queue at that
 scenario: the sim waits for a learner, as it does without a queue.
 
 ## Enabling
@@ -386,7 +385,7 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.Enable` | `1` | `0` turns the module off entirely (no bots, no socket, hooks return immediately) |
 | `AnimusForge.Scenario` | `warrior_dummy` | Scenario started automatically when the server starts |
 | `AnimusForge.Envs` | `64` | Parallel envs (one instance map each) |
-| `AnimusForge.DecisionTicks` | `1` | World ticks per decision (1 = every 50 ms of game time) |
+| `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
 | `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`never_hs`, `hs_at_threshold`) |
 | `AnimusForge.HsRageThreshold` | `15` | Rage threshold for `hs_at_threshold` |
@@ -394,7 +393,6 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
-| `AnimusForge.Learner.CleanRun` | `""` | Run id: a new id archives each run and trains from scratch |
 | `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
 | `AnimusForge.ClassRoles` | `""` | Class/roles the class/role scenarios play; empty = all 18 |
 | `AnimusForge.Arena.*` | Old Hillsbrad entrance | Dungeon map and position for the arena |
@@ -456,19 +454,17 @@ worldserver starts the learner itself once the envs are built, for the scenario 
 
 ```
 <WorkDir>/.venv/bin/python -u -m animus.train --config configs/<scenario>.yaml \
-    --socket <AnimusForge.Socket> --resume-latest
+    --socket <AnimusForge.Socket>
 ```
 
 - **WorkDir** defaults to this module's `python/` directory; each `AnimusForge.Learner.*` key
   overrides one part.
 - **Output** is appended to `animus-learner.log` in `LogsDir`.
 - **An exit** is logged in the worldserver log, with the exit code.
-- **Restarts:** `--resume-latest` continues from `runs/<run_name>/latest.pt`, so a server restart
-  resumes training and appends to `metrics.csv` instead of starting over.
-- **Clean runs:** set `AnimusForge.Learner.CleanRun` to an id (e.g. a date) to train from scratch. The
-  first time each scenario starts under a new id, its `runs/<scenario>/` is moved to
-  `runs/_archive/<scenario>-<time>/` (`--clean-run <id>`); the new directory records the id, so restarts
-  under the same id resume the clean run. A new id starts another one.
+- **No resuming:** every learner start trains from scratch. Whatever `runs/<scenario>/` held is first moved to
+  `runs/_archive/<scenario>-<time>/` (nothing is deleted). The sim never needs a restart -- its game clock and the
+  timestamps compared against it are 64-bit -- so a run goes from start to finish in one server lifetime; a server
+  restart starts the queue over.
 - **Overrides:** `AnimusForge.Learner.Args` appends arguments to every learner, typically
   `--set key=value` (dotted keys for sections: `--set eval.episodes=64`), to change config values for a
   whole queue without editing YAML -- e.g. a short pass over a curriculum before the long run.
@@ -495,7 +491,7 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to baseline.
   `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
   `eval_<band>/*`.
-- **Best model:** each new best score saves `best.pt` and publishes that actor; the next curriculum stage
+- **Best model:** each new best score saves `best.pt`; the next curriculum stage
   seeds from `runs/<previous stage>/best.pt` (its `latest.pt` if there is no best).
 - **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
   the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,

@@ -1,31 +1,26 @@
-from animus.runs import ARCHIVE_DIR, CLEAN_RUN_MARKER, start_clean_run
+from animus.runs import ARCHIVE_DIR, archive_run
 
 
-def test_clean_run_archives_the_old_run_once(tmp_path):
+def test_an_earlier_run_is_archived(tmp_path):
     run_dir = tmp_path / "warrior_dps"
     run_dir.mkdir()
     (run_dir / "latest.pt").write_text("old")
 
-    archived = start_clean_run(run_dir, "pilot-1")
+    archived = archive_run(run_dir)
 
     assert archived is not None and (archived / "latest.pt").read_text() == "old"
     assert archived.parent == tmp_path / ARCHIVE_DIR
-    assert not (run_dir / "latest.pt").exists()
-    assert (run_dir / CLEAN_RUN_MARKER).read_text().strip() == "pilot-1"
+    assert run_dir.is_dir() and not any(run_dir.iterdir())
 
-    # A restart under the same id keeps the clean run's progress.
+    # Every start archives again: nothing is resumed.
     (run_dir / "latest.pt").write_text("new")
-    assert start_clean_run(run_dir, "pilot-1") is None
-    assert (run_dir / "latest.pt").read_text() == "new"
-
-    # A new id starts over again.
-    assert start_clean_run(run_dir, "pilot-2") is not None
-    assert not (run_dir / "latest.pt").exists()
+    second = archive_run(run_dir)
+    assert second is not None and second != archived and (second / "latest.pt").read_text() == "new"
 
 
-def test_clean_run_without_an_earlier_run(tmp_path):
+def test_nothing_to_archive(tmp_path):
     run_dir = tmp_path / "mage_dps_duel"
 
-    assert start_clean_run(run_dir, "a") is None
-    assert (run_dir / CLEAN_RUN_MARKER).exists()
+    assert archive_run(run_dir) is None
+    assert run_dir.is_dir()
     assert not (tmp_path / ARCHIVE_DIR).exists()

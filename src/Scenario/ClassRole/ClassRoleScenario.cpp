@@ -17,6 +17,7 @@
  */
 
 #include "ClassRoleScenario.h"
+#include "Containers.h"
 #include "Creature.h"
 #include "DuelArena.h"
 #include "Env.h"
@@ -55,6 +56,20 @@ namespace
     constexpr float MELEE_DISTANCE = 2.0f;
     constexpr float RANGED_DISTANCE = 20.0f;
     constexpr float PARTY_SPACING = 3.0f;
+    constexpr uint32 WORLD_TICK_MS = 50;            // the sim's fixed world tick
+    constexpr uint32 MAX_COMBAT_TIME_MS = 60000;
+
+    // Party makeup: how many of the four seats have a character (a player may bring 1-4 companions), and how often
+    // the roles follow the classic tank, healer and damage dealers rather than being drawn one by one.
+    constexpr std::array<int32, 4> PARTY_SIZE_WEIGHTS = { 20, 20, 20, 40 };     // 1, 2, 3, 4 seats
+    constexpr int32 CLASSIC_PARTY_CHANCE = 50;
+
+    AnimusForge::Role RandomRole()
+    {
+        // Damage dealers are half of all characters, tanks and healers a quarter each.
+        uint32 const roll = urand(0, 99);
+        return roll < 50 ? AnimusForge::Role::Dps : roll < 75 ? AnimusForge::Role::Tank : AnimusForge::Role::Heal;
+    }
     constexpr uint32 SEAT_ACCOUNT_SLOTS = AnimusForge::ClassRoleScenario::MAX_SEATS * 2;
 }
 
@@ -64,6 +79,8 @@ void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
     LastStepPowerDelta = 0.0f;
     SpellCasts = 0;
     TrinketUses = 0;
+    InCombat = false;
+    CombatStartMs = 0;
 
     LastDistance = -1.0f;
     KillTimeMs = 0;
@@ -107,6 +124,7 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, Are
     : _mode(mode), _name(ScenarioName(mode)), _arenaMapId(config.ArenaMapId), _arenaPosition(config.ArenaPosition)
 {
     _seatCount = IsParty() ? MAX_SEATS : IsArena() ? 2 : 1;
+    _decisionScale = float(config.DecisionTicks * WORLD_TICK_MS) / 50.0f;
 
     // The class/roles this run plays: AnimusForge.ClassRoles, or all of them.
     for (ClassRoleProfile const& profile : ClassRoleProfiles())
@@ -209,7 +227,7 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
     auto const allDied = [&]()
     {
         for (uint32 seat = 0; seat < _seatCount; ++seat)
-            if (!data.Seats[seat].Died)
+            if (data.Seats[seat].L && !data.Seats[seat].Died)
                 return false;
         return true;
     };
@@ -280,6 +298,7 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.PullCleared = false;
     data.NewKills = 0;
     data.PullsCleared = 0;
+    data.QuietSinceMs = 0;
     data.NextPullMs = 0;
     data.EliteOrHigherPull = false;
     data.OwnerDied = false;
@@ -324,14 +343,37 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     if (IsParty())
         DisbandParty(env);
 
-    // The class/roles first (a party: tank, healer, two damage dealers), then one level they can all be.
-    static constexpr std::array<Role, MAX_SEATS> PARTY_ROLES = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
+    // How many seats play this episode: every seat, except in a party, which has 1-4 like a player's companions.
+    // The rest stay empty: no character, no layout, only the no-op allowed.
+    data.ActiveSeats = _seatCount;
+    std::array<Role, MAX_SEATS> roles{};
+    if (IsParty())
+    {
+        int32 roll = irand(0, 99);
+        data.ActiveSeats = 1;
+        while (data.ActiveSeats < MAX_SEATS && roll >= PARTY_SIZE_WEIGHTS[data.ActiveSeats - 1])
+            roll -= PARTY_SIZE_WEIGHTS[data.ActiveSeats++ - 1];
+
+        // Half the parties are the classic makeup (as many of a tank, a healer and two damage dealers as there are
+        // seats, in a random order); the rest draw every seat's role on its own.
+        roles = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
+        if (roll_chance_i(CLASSIC_PARTY_CHANCE))
+            Acore::Containers::RandomShuffle(roles);
+        else
+            for (Role& role : roles)
+                role = RandomRole();
+    }
+    else
+        for (Role& role : roles)
+            role = _layouts[urand(0, uint32(_layouts.size()) - 1)].PlayRole();
+
+    // The class/roles first, then one level they can all be.
     uint8 minLevel = 1;
     for (uint32 seat = 0; seat < _seatCount; ++seat)
     {
-        Role const role = IsParty() ? PARTY_ROLES[seat] : _layouts[urand(0, uint32(_layouts.size()) - 1)].PlayRole();
-        data.Seats[seat].L = &PickLayout(role, DEFAULT_MAX_LEVEL);
-        minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
+        data.Seats[seat].L = seat < data.ActiveSeats ? &PickLayout(roles[seat], DEFAULT_MAX_LEVEL) : nullptr;
+        if (data.Seats[seat].L)
+            minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
     }
 
     uint8 const level = uint8(urand(minLevel, DEFAULT_MAX_LEVEL));
@@ -341,6 +383,9 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     // bound player.
     std::array<uint8, MAX_SEATS> newSessions{};
     for (uint32 seat = 0; seat < _seatCount; ++seat)
+        newSessions[seat] = data.Seats[seat].ActiveSession;
+
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
     {
         Position start = _arenaPosition;
         if (IsParty())
@@ -378,14 +423,15 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 
     env.MapId = map->GetId();
     env.InstanceId = map->GetInstanceId();
+    // One agent slot per seat; an empty seat's slot holds no bot.
     env.Bots.clear();
     for (uint32 seat = 0; seat < _seatCount; ++seat)
-        env.Bots.push_back(SeatBot(data, seat)->GetGUID());
+        env.Bots.push_back(seat < data.ActiveSeats ? SeatBot(data, seat)->GetGUID() : ObjectGuid::Empty);
     env.Targets.clear();
 
     // Teammates are friends whatever their races; arena opponents are made enemies by StartPvp.
     if (IsParty())
-        for (uint32 seat = 1; seat < _seatCount; ++seat)
+        for (uint32 seat = 1; seat < data.ActiveSeats; ++seat)
             SeatBot(data, seat)->SetFaction(lead->GetFaction());
 
     if (HasPvp())
@@ -400,7 +446,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 
     if (HasPack())
     {
-        for (uint32 seat = 0; seat < _seatCount; ++seat)
+        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
             StartSeatPack(SeatBot(data, seat), data.Seats[seat]);
         return SpawnPull(env, map);
     }
@@ -568,8 +614,8 @@ AnimusForge::SeatView AnimusForge::ClassRoleScenario::ViewSeat(Env const& env, u
     view.LastStepDamage = seat.LastStepDamage;
     view.LastStepPowerDelta = seat.LastStepPowerDelta;
     view.LastStepDamageTaken = seat.LastStepDamageTaken;
-    view.EpisodeTime = env.EpisodeLengthMs
-        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
+    view.CombatTime = seat.InCombat
+        ? std::min(1.0f, float(env.EpisodeElapsedMs - seat.CombatStartMs) / float(MAX_COMBAT_TIME_MS)) : 0.0f;
 
     view.StableCount = uint32(std::min<std::size_t>(seat.Stable.size(), STABLE_SLOTS));
     std::copy_n(seat.Stable.begin(), view.StableCount, view.Stable.begin());
@@ -682,7 +728,16 @@ void AnimusForge::ClassRoleScenario::ObserveSeat(Env& env, uint32 seatIndex, flo
 
     Player* bot = env.FindBot(seatIndex);
     Unit* target = CurrentTarget(env, seatIndex);      // may be null between gauntlet pulls
+    TrackCombat(env, _data[env.Index].Seats[seatIndex], bot);
     SeatEncoder::Observe(ViewSeat(env, seatIndex, bot, target), obs, mask);
+}
+
+void AnimusForge::ClassRoleScenario::TrackCombat(Env const& env, Seat& seat, Player* bot) const
+{
+    bool const inCombat = bot && bot->IsAlive() && bot->IsInCombat();
+    if (inCombat && !seat.InCombat)
+        seat.CombatStartMs = env.EpisodeElapsedMs;
+    seat.InCombat = inCombat;
 }
 
 void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
@@ -702,6 +757,8 @@ float AnimusForge::ClassRoleScenario::SeatReward(Env& env, uint32 seatIndex)
 {
     Seat& seat = _data[env.Index].Seats[seatIndex];
     Player* bot = env.FindBot(seatIndex);
+    if (!seat.L)
+        return 0.0f;        // an empty party seat
 
     float reward = float(env.StepStats[seatIndex].Damage) / seat.DamageScale;
     seat.LastStepDamage = reward;
@@ -755,6 +812,7 @@ void AnimusForge::ClassRoleScenario::SeatEpisodeInfo(Env const& env, uint32 seat
     info[INFO_TRINKET_USES] = float(seat.TrinketUses);
     info[INFO_CLASS] = seat.L ? float(seat.L->Profile->Class) : 0.0f;
     info[INFO_ROLE] = seat.L ? float(uint32(seat.L->PlayRole())) : 0.0f;
+    info[INFO_PRESENT] = seat.L ? 1.0f : 0.0f;
 
     if (HasDuel())
         DuelEpisodeInfo(env, seatIndex, info + _duelInfoFirst);
@@ -773,7 +831,7 @@ void AnimusForge::ClassRoleScenario::SeatEpisodeInfo(Env const& env, uint32 seat
 std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() const
 {
     std::vector<std::string> names = { "damage", "dps", "white_damage", "special_damage", "level", "race", "spec",
-        "unspent_talent_points", "equipped_items", "spell_casts", "trinket_uses", "class", "role" };
+        "unspent_talent_points", "equipped_items", "spell_casts", "trinket_uses", "class", "role", "present" };
 
     if (HasDuel())
         names.insert(names.end(), { "killed", "died", "time_to_kill", "damage_taken", "health_left",
@@ -788,7 +846,7 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
 
     if (HasCompanion())
         names.insert(names.end(), { "owner_class", "owner_died", "owner_damage_taken", "owner_healing",
-            "threat_on_bot", "threat_on_owner" });
+            "threat_on_bot", "threat_on_owner", "owner_role" });
 
     if (HasParty())
         names.insert(names.end(), { "teammates_died", "teammate_damage_taken", "teammate_healing",

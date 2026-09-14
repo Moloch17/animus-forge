@@ -17,9 +17,9 @@ seed: 1
 
 # One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so
 # it needs far more experience than the single-character scenarios. At 64 envs one update is
-# 128 x 64 = 8192 env steps; 300M is ~36 600 updates, roughly 780 000 60-second episodes. Raise it for
-# a class whose metrics are still improving: --resume-latest continues from where the run stopped.
-total_env_steps: 300000000
+# 128 x 64 = 8192 env steps. Stage 1 is a warm start: every role only practises damage on a dummy here (tanks and
+# healers included), so it gets a short budget rather than pulling the shared trunk towards pure damage play.
+total_env_steps: 60000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -51,7 +51,7 @@ mappo:
 # Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
 # stats next to the "greedy" baseline, scored once per run on the same seeds. The best networks go to best.pt
-# and are the ones published and seeded from by the next stage.
+# and are the ones the next stage seeds from.
 eval:
   every_env_steps: 20000000
   at_start: true
@@ -60,10 +60,10 @@ eval:
   deterministic: true
   baseline: greedy
 
-# Stop once 5 evaluations in a row (100M env steps) fail to beat the best score by 2%, but not before 40M
-# env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+# Stop once 3 evaluations in a row (60M env steps) fail to beat the best score by 2%, but not before 20M env
+# steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
-  patience: 5
+  patience: 3
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 40000000
+  min_env_steps: 20000000

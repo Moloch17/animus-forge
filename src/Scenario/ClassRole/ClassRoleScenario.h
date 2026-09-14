@@ -100,6 +100,7 @@ namespace AnimusForge
             COMPANION_INFO_OWNER_HEALING    = 3,    // effective healing the bot did on the owner
             COMPANION_INFO_THREAT_ON_BOT    = 4,    // enemy-decisions spent attacking the bot
             COMPANION_INFO_THREAT_ON_OWNER  = 5,    // ... attacking the owner
+            COMPANION_INFO_OWNER_ROLE       = 6,    // 0 damage, 1 tank, 2 healer
             COMPANION_INFO_COUNT
         };
 
@@ -136,6 +137,7 @@ namespace AnimusForge
             INFO_TRINKET_USES           = 10,
             INFO_CLASS                  = 11,
             INFO_ROLE                   = 12,   // 0 damage, 1 tank, 2 healer
+            INFO_PRESENT                = 13,   // 0 for a party seat left empty this episode (ignore its row)
             INFO_COUNT
         };
 
@@ -242,6 +244,8 @@ namespace AnimusForge
             float LastStepPowerDelta = 0.0f;
             uint32 SpellCasts = 0;
             uint32 TrinketUses = 0;
+            bool InCombat = false;
+            uint32 CombatStartMs = 0;                   // episode time the bot entered its current combat
 
             // Duel on.
             std::vector<uint32> Stable;                 // hunters: beasts offered this episode
@@ -290,6 +294,7 @@ namespace AnimusForge
         struct EnvData
         {
             std::array<Seat, MAX_SEATS> Seats;
+            uint32 ActiveSeats = 1;                     // seats with a character this episode (the first ones)
             bool Fresh = false;                         // built by Setup, not yet reset
 
             // Duel and pack on: the current pull.
@@ -304,6 +309,7 @@ namespace AnimusForge
 
             // Gauntlet on.
             uint32 PullsCleared = 0;
+            uint32 QuietSinceMs = 0;                    // episode time the last pull was cleared
             uint32 NextPullMs = 0;                      // spawn the next pull at this episode time
             bool EliteOrHigherPull = false;
 
@@ -312,6 +318,7 @@ namespace AnimusForge
             std::array<ObjectGuid::LowType, 2> OwnerGuids{};
             uint8 OwnerActiveSession = 0;
             uint8 OwnerClass = 0;
+            Role OwnerRole = Role::Dps;
             CompanionOwner::State Owner;
             bool OwnerDied = false;
             uint64 OwnerDamageTaken = 0;
@@ -356,6 +363,8 @@ namespace AnimusForge
         [[nodiscard]] SeatView ViewSeat(Env const& env, uint32 seat, Player* bot, Unit* target) const;
         void ApplySeatAction(Env& env, uint32 seat, int32 action);
         void ObserveSeat(Env& env, uint32 seat, float* obs, uint8* mask);
+        /// Note when the seat's bot entered or left combat (SeatView::CombatTime).
+        void TrackCombat(Env const& env, Seat& seat, Player* bot) const;
         [[nodiscard]] float SeatReward(Env& env, uint32 seat);
         void SeatEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
@@ -420,6 +429,9 @@ namespace AnimusForge
         uint32 _arenaMapId;
         Position _arenaPosition;
         uint32 _seatCount = 1;
+        /// Decision interval / 50 ms: per-decision reward terms are tuned per 50 ms and scaled by this, so they mean
+        /// the same per second at any AnimusForge.DecisionTicks.
+        float _decisionScale = 1.0f;
 
         std::vector<Layout> _layouts;
         ScenarioSpec _spec;

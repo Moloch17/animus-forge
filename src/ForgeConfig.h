@@ -43,7 +43,7 @@ namespace AnimusForge
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
-        uint32 DecisionTicks = 1;
+        uint32 DecisionTicks = 2;
         uint32 EpisodeSeconds = 60;
 
         std::string Policy;
@@ -57,7 +57,6 @@ namespace AnimusForge
         std::string LearnerWorkDir;     // resolved: never empty after Load
         std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = per scenario (LearnerConfigFor)
         std::string LearnerLogFile;     // resolved: never empty after Load
-        std::string LearnerCleanRun;    // AnimusForge.Learner.CleanRun; empty = resume every run
         std::vector<std::string> LearnerArgs;   // AnimusForge.Learner.Args, split on whitespace
         std::vector<std::string> ClassRoles;    // AnimusForge.ClassRoles; empty = every class/role
 

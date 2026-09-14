@@ -73,7 +73,7 @@ AnimusForge.Queue = ""
 #    AnimusForge.ClassRoles
 #        Description: Comma-separated class/roles the class/role scenarios play (their layouts). A subset
 #                     trains a policy for just those, e.g. "warrior_dps, priest_heal". Changing the list
-#                     changes the layouts: a run cannot resume across the change (use a clean run).
+#                     changes the layouts: models of the earlier list do not fit the new one.
 #                     Available: warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
 #                     hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank, deathknight_dps,
 #                     shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps, druid_tank, druid_heal
@@ -100,10 +100,12 @@ AnimusForge.Envs = 64
 
 #
 #    AnimusForge.DecisionTicks
-#        Description: World ticks per agent decision. 1 = decide every tick (50 ms of game time).
-#        Default:     1
+#        Description: World ticks per agent decision; a tick is 50 ms of game time. Per-decision reward
+#                     terms are scaled to stay the same per second. Models play at this interval
+#                     (mod-animus: Animus.DecisionMs = 50 x DecisionTicks).
+#        Default:     2 - (a decision every 100 ms)
 
-AnimusForge.DecisionTicks = 1
+AnimusForge.DecisionTicks = 2
 
 #
 #    AnimusForge.EpisodeSeconds
@@ -164,10 +166,9 @@ AnimusForge.Socket = "/tmp/animus-forge.sock"
 #        Description: With AnimusForge.Policy = "remote", start the Python learner automatically
 #                     once the sim is ready, for the selected scenario:
 #                         <Python> -u -m animus.train --config <Config> --socket <AnimusForge.Socket>
-#                                  --resume-latest
-#                     run in <WorkDir>. --resume-latest continues from the run's latest.pt, so a
-#                     server restart resumes training instead of starting over. The learner is
-#                     stopped (and saves a checkpoint) when the server shuts down.
+#                     run in <WorkDir>. Every start trains from scratch: whatever runs/<scenario>/ held is
+#                     moved to runs/_archive/<scenario>-<time>/ first (nothing is deleted, and nothing is
+#                     resumed). The learner is stopped (and saves latest.pt) when the server shuts down.
 #                     Requires Python and the learner's packages where the worldserver runs: a
 #                     native build or the dev-server container, not the ac-worldserver image.
 #        Default:     1 - (Enabled)
@@ -196,20 +197,6 @@ AnimusForge.Learner.Python = ""
 #        Default:     "" - configs/<scenario>.yaml if it exists, else configs/class_role.yaml
 
 AnimusForge.Learner.Config = ""
-
-#
-#    AnimusForge.Learner.CleanRun
-#        Description: Train from scratch instead of resuming. Set an id (any name, e.g. a date); the first
-#                     time each scenario's learner starts under a new id, its runs/<scenario>/ directory
-#                     is moved to runs/_archive/<scenario>-<time>/ (nothing is deleted) and training
-#                     starts over; stages that seed from an earlier stage (init_from) then seed from this
-#                     run's models, since the queue trains them in order. The fresh directory remembers
-#                     the id, so a server restart under the same id resumes the clean run, and the queue
-#                     still skips scenarios it already finished. Set a new id for another clean run.
-#        Example:     "2026-09-14"
-#        Default:     "" - (resume every run from runs/<scenario>/latest.pt)
-
-AnimusForge.Learner.CleanRun = ""
 
 #
 #    AnimusForge.Learner.Args

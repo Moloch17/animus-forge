@@ -143,7 +143,7 @@ float AnimusForge::ClassRoleScenario::PartyReward(Env& env, uint32 seatIndex, Pl
 
             seat.ThreatOnTeammates += onTeammate;
             if (role == Role::Tank)
-                reward -= TANK_LOSE_TEAMMATE * float(onTeammate);
+                reward -= TANK_LOSE_TEAMMATE * float(onTeammate) * _decisionScale;
         }
 
         if (!teammate->IsAlive() && !seat.TeammateDeathSeen[teammateSeat])

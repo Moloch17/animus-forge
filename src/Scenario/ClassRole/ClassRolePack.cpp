@@ -58,6 +58,10 @@ namespace
     constexpr uint32 OWNER_ENGAGE_MAX_MS = 5000;
     constexpr uint32 PARTY_OWNER_ENGAGE_MIN_MS = 4000;  // after the party's tank has had time to pull
     constexpr uint32 PARTY_OWNER_ENGAGE_MAX_MS = 7000;
+    constexpr uint32 OWNER_PULLS_MIN_MS = 500;          // the owner starts the pull itself
+    constexpr uint32 OWNER_PULLS_MAX_MS = 1500;
+    constexpr int32 OWNER_PULLS_CHANCE = 30;            // a damage dealer or healer owner does, now and then
+    constexpr uint32 QUIET_TIME_SCALE_MS = 20000;
 
     // Reward terms. Damage is a fraction of the pull's total health, taken damage a fraction of the bot's.
     constexpr float DAMAGE_DEALT = 2.0f;
@@ -67,7 +71,7 @@ namespace
     constexpr float STEALTH_OPENER = 0.5f;
     constexpr float INTERRUPT = 0.3f;
     constexpr float KILL = 0.5f;
-    constexpr float STEP_COST = 0.0002f;
+    constexpr float STEP_COST = 0.0002f;         // per 50 ms decision
     constexpr float CLEAR = 2.0f;
     constexpr float FAST_CLEAR = 3.0f;          // pack: times the fraction of the episode still left
     constexpr float FAST_PULL = 2.0f;           // gauntlet: times 1 - pull time / 60 s
@@ -143,12 +147,16 @@ bool AnimusForge::ClassRoleScenario::SpawnPull(Env& env, Map* map)
     }
 
     // With an owner, pulls spawn around the owner, who walks over to them after a moment (in a party, after the
-    // tank has had time to pull).
+    // tank has had time to pull). A tank owner always starts the pull, and any other owner sometimes does, as a
+    // player who pulls without waiting for the companions.
     Player* anchor = HasCompanion() ? FindOwner(data) : nullptr;
     if (anchor)
-        data.Owner.EngageMs = env.EpisodeElapsedMs + (IsParty()
-            ? urand(PARTY_OWNER_ENGAGE_MIN_MS, PARTY_OWNER_ENGAGE_MAX_MS)
+    {
+        bool const ownerPulls = data.OwnerRole == Role::Tank || roll_chance_i(OWNER_PULLS_CHANCE);
+        data.Owner.EngageMs = env.EpisodeElapsedMs + (ownerPulls ? urand(OWNER_PULLS_MIN_MS, OWNER_PULLS_MAX_MS)
+            : IsParty() ? urand(PARTY_OWNER_ENGAGE_MIN_MS, PARTY_OWNER_ENGAGE_MAX_MS)
             : urand(OWNER_ENGAGE_MIN_MS, OWNER_ENGAGE_MAX_MS));
+    }
 
     std::vector<Creature*> pack = DuelArena::SpawnPack(anchor ? anchor : lead, map, entries, level);
     if (pack.empty())
@@ -247,6 +255,7 @@ void AnimusForge::ClassRoleScenario::FinishPull(Env& env)
 
     env.Targets.clear();
     ++data.PullsCleared;
+    data.QuietSinceMs = env.EpisodeElapsedMs;
     data.PullKills = 0;
     data.PullCleared = false;
     data.NextPullMs = env.EpisodeElapsedMs + urand(NEXT_PULL_MIN_MS, NEXT_PULL_MAX_MS);
@@ -262,15 +271,14 @@ void AnimusForge::ClassRoleScenario::ViewPull(Env const& env, SeatView& view) co
     EnvData const& data = _data[env.Index];
 
     view.PullsCleared = data.PullsCleared;
-    view.NextPull =
-        std::clamp((float(data.NextPullMs) - float(env.EpisodeElapsedMs)) / float(NEXT_PULL_MAX_MS), 0.0f, 1.0f);
+    view.QuietTime = std::min(1.0f, float(env.EpisodeElapsedMs - data.QuietSinceMs) / float(QUIET_TIME_SCALE_MS));
     view.PullTime = std::min(1.0f, float(env.EpisodeElapsedMs - data.PullStartMs) / PULL_TIME_SCALE_MS);
     view.ElitePull = data.EliteOrHigherPull;
 }
 
 float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Player* bot)
 {
-    float reward = -STEP_COST;
+    float reward = -STEP_COST * _decisionScale;
     if (!bot)
         return reward;
 

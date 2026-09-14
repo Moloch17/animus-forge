@@ -42,7 +42,7 @@ mappo:
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
 # stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
 # the same seeds. The best networks go to best.pt
-# and are the ones published and seeded from by the next stage.
+# and are the ones the next stage seeds from.
 eval:
   every_env_steps: 20000000
   at_start: true

@@ -50,12 +50,16 @@ namespace
     constexpr float OWNER_DAMAGE_TAKEN_PROTECTOR = 2.0f; // tanks and healers exist to prevent it
     constexpr float HEALING = 2.0f;                     // healers: effective healing, fraction of the owner's health
     constexpr float TANK_DAMAGE_REFUND = 0.5f;          // tanks take hits by design: soften the gauntlet's 1.5
-    constexpr float TANK_HOLD = 0.01f;                  // per enemy on the tank, per decision
+    // Per-decision terms are per 50 ms decision (scaled by _decisionScale).
+    constexpr float TANK_HOLD = 0.002f;                 // per enemy on the tank, per decision
     constexpr float TANK_LOSE = 0.02f;                  // per enemy on the owner, per decision (tanks)
     constexpr float PULLED_THREAT = 0.01f;              // per enemy on a damage dealer or healer, per decision
     constexpr float SOLO_FIGHT = 0.01f;                 // per decision in combat while the owner is not
     constexpr float FOLLOW_FAR = 0.002f;                // per decision out of combat more than 25 yd away
     constexpr float FOLLOW_NEAR = 0.0005f;              // per decision out of combat within 12 yd
+    constexpr float TANK_OWNER_DAMAGE_SHARE = 0.25f;    // a tank owner is hit by design: its damage taken counts this much
+    constexpr int32 OWNER_TANK_CHANCE = 25;             // the owner's role: tank, healer, else damage dealer
+    constexpr int32 OWNER_HEALER_CHANCE = 25;
     constexpr float OWNER_DEATH = 6.0f;
 
 }
@@ -73,12 +77,21 @@ bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* anchor, Map*
 
     uint8 const level = uint8(std::clamp<int32>(int32(botLevel) + irand(-OWNER_LEVEL_SPREAD, OWNER_LEVEL_SPREAD), 1,
         DEFAULT_MAX_LEVEL));
-    std::vector<uint8> const classes = ClassRoleAssets::ClassesForRole(level, Role::Dps);
+    // The owner stands in for a player of any role.
+    int32 const roll = irand(0, 99);
+    Role role = roll < OWNER_TANK_CHANCE ? Role::Tank : roll < OWNER_TANK_CHANCE + OWNER_HEALER_CHANCE ? Role::Heal
+        : Role::Dps;
+    std::vector<uint8> classes = ClassRoleAssets::ClassesForRole(level, role);
+    if (classes.empty())
+    {
+        role = Role::Dps;
+        classes = ClassRoleAssets::ClassesForRole(level, role);
+    }
     if (classes.empty())
         return false;
 
     uint8 const playerClass = classes[urand(0, uint32(classes.size()) - 1)];
-    ClassRoleAssets const& assets = ClassRoleAssets::For(*ClassRoleAssets::FindProfile(playerClass, Role::Dps));
+    ClassRoleAssets const& assets = ClassRoleAssets::For(*ClassRoleAssets::FindProfile(playerClass, role));
 
     // Same session and GUID alternation as the seats (see Rebuild).
     uint8 const session = oldOwner ? uint8(1 - data.OwnerActiveSession) : data.OwnerActiveSession;
@@ -120,6 +133,7 @@ bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* anchor, Map*
 
     data.OwnerActiveSession = session;
     data.OwnerClass = playerClass;
+    data.OwnerRole = role;
     env.Allies = { owner->GetGUID() };
     return true;
 }
@@ -148,10 +162,15 @@ void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env)
         if (Unit* enemy = env.FindTargetUnit(slot); enemy && enemy->IsAlive())
             enemies.push_back(enemy);
 
-    // In a party the owner fights the tank's target once the tank has one.
-    Player* tank = HasParty() ? PartyTank(data) : nullptr;
-    Unit* preferred = tank && tank->IsAlive() ? tank->GetVictim() : nullptr;
-    CompanionOwner::Update(owner, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner, preferred);
+    // The owner plays its role as a party member: a tank owner holds the pull and taunts, a healer owner heals the
+    // most hurt of it and the seats, a damage dealer fights the tank's target once a tank has one.
+    std::vector<Player*> party = { owner };
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        if (Player* bot = SeatBot(data, seat))
+            party.push_back(bot);
+
+    Player* tank = data.OwnerRole == Role::Tank ? owner : HasParty() ? PartyTank(data) : nullptr;
+    CompanionOwner::UpdateMember(owner, party, tank, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner);
 }
 
 float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex, Player* bot)
@@ -173,8 +192,9 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex
         data.OwnerDamageTaken += step.AllyDamageTakenBy[0];
     seat.OwnerHealing += step.AllyHealingBy[0];
 
+    bool const ownerTanks = data.OwnerRole == Role::Tank;
     reward -= (role == Role::Dps ? OWNER_DAMAGE_TAKEN_DPS : OWNER_DAMAGE_TAKEN_PROTECTOR)
-        * float(step.AllyDamageTakenBy[0]) / ownerHealth;
+        * (ownerTanks ? TANK_OWNER_DAMAGE_SHARE : 1.0f) * float(step.AllyDamageTakenBy[0]) / ownerHealth;
 
     if (role == Role::Heal)
         reward += HEALING * float(step.AllyHealingBy[0]) / ownerHealth;
@@ -200,25 +220,25 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex
         data.ThreatOnOwner += onOwner;
 
     if (role == Role::Tank)
-        reward += TANK_HOLD * float(onBot) - TANK_LOSE * float(onOwner);
+        reward += (TANK_HOLD * float(onBot) - (ownerTanks ? 0.0f : TANK_LOSE * float(onOwner))) * _decisionScale;
     else
-        reward -= PULLED_THREAT * float(onBot);
+        reward -= PULLED_THREAT * float(onBot) * _decisionScale;
 
     if (owner->IsAlive())
     {
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
         // tank pulls first by design).
         if (bot->IsInCombat() && !owner->IsInCombat() && !(IsParty() && role == Role::Tank))
-            reward -= SOLO_FIGHT;
+            reward -= SOLO_FIGHT * _decisionScale;
 
         // Out of combat, stay with the owner.
         if (bot->IsAlive() && !bot->IsInCombat() && !owner->IsInCombat() && owner->IsInMap(bot))
         {
             float const distance = bot->GetDistance(owner);
             if (distance > 25.0f)
-                reward -= FOLLOW_FAR;
+                reward -= FOLLOW_FAR * _decisionScale;
             else if (distance < 12.0f)
-                reward += FOLLOW_NEAR;
+                reward += FOLLOW_NEAR * _decisionScale;
         }
     }
     else if (!seat.OwnerDeathSeen)
@@ -243,4 +263,5 @@ void AnimusForge::ClassRoleScenario::CompanionEpisodeInfo(Env const& env, uint32
     info[COMPANION_INFO_OWNER_HEALING] = float(seat.OwnerHealing);
     info[COMPANION_INFO_THREAT_ON_BOT] = float(seat.ThreatOnBot);
     info[COMPANION_INFO_THREAT_ON_OWNER] = float(data.ThreatOnOwner);
+    info[COMPANION_INFO_OWNER_ROLE] = float(uint32(data.OwnerRole));
 }

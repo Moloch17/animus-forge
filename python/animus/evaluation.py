@@ -87,6 +87,8 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
     step = env.set_mode(True, seed, episodes, baseline)
     running = np.zeros((envs, agents), dtype=np.float64)
     finished: dict[int, list[tuple[float, np.ndarray, str]]] = {}
+    # A party seat left empty for an episode reports present = 0: it is not an episode of any class/role.
+    present = spec.episode_info_names.index("present") if "present" in spec.episode_info_names else None
     decisions = 0
 
     while len(finished) < episodes and decisions < max_decisions:
@@ -103,6 +105,7 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
                 finished[index] = [
                     (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])])
                     for a in range(agents)
+                    if present is None or step.episode_info[e, a, present] > 0.0
                 ]
             running[e] = 0.0
 

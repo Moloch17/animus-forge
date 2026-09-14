@@ -71,7 +71,7 @@ void AnimusForge::ForgeConfig::Load()
     QueueLocalEpisodes = sConfigMgr->GetOption<uint32>("AnimusForge.Queue.LocalEpisodes", 0);
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
-    DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 1));
+    DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 2));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");
@@ -95,7 +95,6 @@ void AnimusForge::ForgeConfig::Load()
 
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
 
-    LearnerCleanRun = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.CleanRun", "");
 
     LearnerArgs.clear();
     std::istringstream extraArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Args", ""));

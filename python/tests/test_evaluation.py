@@ -10,7 +10,7 @@ from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
 from animus.evaluation import PlateauTracker, run_evaluation
-from animus.train import init_from_checkpoint, run_finished
+from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
     version=p.PROTOCOL_VERSION,
@@ -175,13 +175,3 @@ def test_init_from_falls_back_to_latest(tmp_path):
     assert init_from_checkpoint(str(run / "best.pt")) == run / "latest.pt"
     (run / "best.pt").write_text("x")
     assert init_from_checkpoint(str(run / "best.pt")) == run / "best.pt"
-
-
-def test_run_finished(tmp_path):
-    marker = tmp_path / "finished.json"
-    assert run_finished(marker, 100) is None
-    marker.write_text('{"reason": "total_env_steps", "env_steps": 100}')
-    assert run_finished(marker, 100)
-    assert run_finished(marker, 200) is None  # the total was raised: keep training
-    marker.write_text('{"reason": "plateau", "env_steps": 50}')
-    assert run_finished(marker, 200)

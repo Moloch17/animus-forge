@@ -55,7 +55,7 @@ namespace
     constexpr float DAMAGE_TAKEN = 1.0f;
     constexpr float APPROACH = 0.5f;            // shaping toward the spec's range, per 40 yd closed
     constexpr float STEALTH_OPENER = 0.5f;
-    constexpr float STEP_COST = 0.0002f;
+    constexpr float STEP_COST = 0.0002f;         // per 50 ms decision
     constexpr float KILL = 2.0f;
     constexpr float FAST_KILL = 3.0f;           // times the fraction of the episode still left
     constexpr float HEALTH_KEPT = 2.0f;         // times the fraction of the bot's health not lost
@@ -63,8 +63,8 @@ namespace
     // Casting: a cast-time spell cut short (by moving, stopping, an interrupt or death) costs the cast time
     // already spent, and one that finishes in combat earns a little per second of cast time. Neither forces
     // anything: cutting a cast short stays the policy's call when something else is worth more.
-    constexpr float CAST_TIME_WASTED = 0.05f;   // per second spent on a cast that did not finish
-    constexpr float CAST_TIME_COMPLETED = 0.02f; // per second of cast time of a cast that finished, in combat
+    constexpr float CAST_TIME_WASTED = 0.03f;   // per second spent on a cast that did not finish
+    constexpr float CAST_TIME_COMPLETED = 0.03f; // per second of cast time of a cast that finished, in combat
 
     Unit* FirstPet(Player* bot)
     {
@@ -107,7 +107,7 @@ float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, uint32 seatInde
     int8 opponentDead)
 {
     Seat& seat = _data[env.Index].Seats[seatIndex];
-    float reward = -STEP_COST;
+    float reward = -STEP_COST * _decisionScale;
     if (!bot || !opponent)
         return reward;
 

@@ -74,15 +74,7 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
         "--config", configPath.string(),
         "--socket", config.SocketPath,
         "--run-name", config.Scenario,
-        "--resume-latest",
     };
-
-    // A clean run: the learner archives runs/<scenario>/ the first time it starts under this id.
-    if (!config.LearnerCleanRun.empty())
-    {
-        args.push_back("--clean-run");
-        args.push_back(config.LearnerCleanRun);
-    }
 
     args.insert(args.end(), config.LearnerArgs.begin(), config.LearnerArgs.end());
 

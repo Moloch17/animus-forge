@@ -56,7 +56,7 @@ class TrainConfig:
     train_device: str = "cpu"
     rollout_device: str = "cpu"
 
-    # A fresh run (nothing to resume) seeds its networks from this earlier-stage checkpoint when it
+    # A run seeds its networks from this earlier-stage checkpoint when it
     # exists (see animus.bootstrap). "{base_run}" is the run name without a stage suffix such as
     # "_duel": runs/{base_run}/best.pt seeds warrior_dps_duel from warrior_dps. A best.pt that does not
     # exist falls back to the latest.pt beside it.

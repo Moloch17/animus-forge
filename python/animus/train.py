@@ -1,10 +1,10 @@
 """Train a MAPPO policy against a running Animus Forge sim.
 
-    python -m animus.train --config configs/warrior_dummy.yaml [--resume runs/<name>/latest.pt]
+    python -m animus.train --config configs/warrior_dummy.yaml
 
-The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1 (with
---resume-latest, so training continues across server restarts). Run by hand, the client retries
-until the sim's socket appears.
+The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1. Run by hand, the client retries
+until the sim's socket appears. Every start trains from scratch: an earlier run in runs/<run_name>/ is archived
+first (animus.runs).
 
 With eval.every_env_steps set, the networks are scored on seeded episodes as they train (see
 animus.evaluation): the best-scoring networks are kept in best.pt, and with plateau.patience
@@ -31,26 +31,21 @@ from .env import ForgeEnv
 from .evaluation import EvalResult, PlateauTracker, format_summary, run_evaluation
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer
-from .runs import start_clean_run
+from .runs import archive_run
 
 
 class RunLogger:
     """CSV always; TensorBoard when it is installed.
 
     Columns are fixed up front so metrics that only exist some updates (episode stats) are never
-    dropped. When resuming, rows are appended to the existing file.
+    dropped.
     """
 
-    def __init__(self, run_dir: Path, columns: list[str], append: bool):
+    def __init__(self, run_dir: Path, columns: list[str]):
         self.csv_path = run_dir / "metrics.csv"
-        resume_file = append and self.csv_path.exists() and self.csv_path.stat().st_size > 0
-        if resume_file:
-            with self.csv_path.open(newline="") as existing:
-                columns = next(csv.reader(existing))
-        self._csv_file = self.csv_path.open("a" if resume_file else "w", newline="")
+        self._csv_file = self.csv_path.open("w", newline="")
         self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=columns, restval="", extrasaction="ignore")
-        if not resume_file:
-            self._csv_writer.writeheader()
+        self._csv_writer.writeheader()
         try:
             from torch.utils.tensorboard import SummaryWriter
 
@@ -142,27 +137,9 @@ def init_from_checkpoint(path: str) -> Path | None:
     return None
 
 
-def run_finished(finished_path: Path, total_env_steps: int) -> dict | None:
-    """The finished.json of a run that is done: stopped on a plateau, or reached a total not raised since."""
-    if not finished_path.exists():
-        return None
-    finished = json.loads(finished_path.read_text())
-    if finished.get("reason") == "plateau" or finished.get("env_steps", 0) >= total_env_steps:
-        return finished
-    return None
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", required=True)
-    parser.add_argument("--resume", help="checkpoint to continue from")
-    parser.add_argument(
-        "--resume-latest", action="store_true", help="continue from runs/<run_name>/latest.pt when it exists"
-    )
-    parser.add_argument(
-        "--clean-run",
-        help="clean run id: the first start under a new id archives runs/<run_name>/ and trains from scratch",
-    )
     parser.add_argument("--socket", help="sim socket path, overriding the config")
     parser.add_argument(
         "--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario"
@@ -183,21 +160,9 @@ def main() -> None:
     torch.manual_seed(config.seed)
 
     run_dir = Path(config.runs_dir) / config.run_name
-    if args.clean_run:
-        if archived := start_clean_run(run_dir, args.clean_run):
-            print(f"Clean run {args.clean_run}: archived the earlier run to {archived}", flush=True)
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    # A finished run exits at once (cleanly), so a queued scenario moves on without training it again.
+    if archived := archive_run(run_dir):
+        print(f"Archived the earlier {config.run_name} run to {archived}; training from scratch", flush=True)
     finished_path = run_dir / "finished.json"
-    if finished := run_finished(finished_path, config.total_env_steps):
-        print(f"{config.run_name} already finished ({finished.get('reason')} at {finished.get('env_steps')} env "
-              "steps); nothing to do", flush=True)
-        return
-
-    resume = args.resume
-    if not resume and args.resume_latest and (run_dir / "latest.pt").exists():
-        resume = str(run_dir / "latest.pt")
     (run_dir / "config.yaml").write_text(yaml.safe_dump(config.to_dict(), sort_keys=False))
 
     print(f"Connecting to {config.socket} ...", flush=True)
@@ -228,19 +193,7 @@ def main() -> None:
 
     update = 0
     env_steps = 0
-    if resume:
-        checkpoint = torch.load(resume, map_location="cpu", weights_only=False)
-        if checkpoint["spec"]["scenario"] != spec.scenario:
-            raise SystemExit(f"{resume} was trained on {checkpoint['spec']['scenario']}, the sim runs {spec.scenario}")
-        if checkpoint["spec"].get("layouts") != asdict(spec)["layouts"]:
-            raise SystemExit(f"{resume} was trained with other agent layouts than the sim now has (AnimusForge."
-                             "ClassRoles or the scenario changed); start a clean run instead")
-        trainer.load_state_dict(checkpoint["trainer"])
-        update = checkpoint["update"]
-        env_steps = checkpoint["env_steps"]
-        tracker.load_state_dict(checkpoint.get("plateau"))
-        print(f"Resumed from {resume} at update {update}, {env_steps} env steps", flush=True)
-    elif init_from := config.resolved_init_from():
+    if init_from := config.resolved_init_from():
         if seed_path := init_from_checkpoint(init_from):
             seeded = seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
             print(f"Seeded the networks from {seed_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
@@ -255,7 +208,7 @@ def main() -> None:
         *(f"episode_{name}" for name in spec.episode_info_names),
         "policy_loss", "value_loss", "entropy", "clip_frac", "approx_kl",
     ]
-    logger = RunLogger(run_dir, columns, append=bool(resume))
+    logger = RunLogger(run_dir, columns)
     eval_log = EvalLog(run_dir, logger.tb)
     report = tuple(config.eval.report)
     baseline_summary: dict | None = None
@@ -305,6 +258,8 @@ def main() -> None:
     last_eval_env_steps = tracker.history[-1][0] if tracker.history else env_steps
 
     finished_episodes: list[np.ndarray] = []
+    # A party seat left empty for an episode reports present = 0; its row is not an episode.
+    present = spec.episode_info_names.index("present") if "present" in spec.episode_info_names else None
     finish_reason = None
 
     try:
@@ -324,7 +279,8 @@ def main() -> None:
                 final_values = np.zeros((envs, agents), dtype=np.float32)
                 if step.done.any():
                     final_values[step.done] = trainer.value(step.final_state, step.final_obs, layout)[step.done]
-                    finished_episodes.extend(step.episode_info[step.done].reshape(-1, spec.episode_info_dim))
+                    ended = step.episode_info[step.done].reshape(-1, spec.episode_info_dim)
+                    finished_episodes.extend(ended if present is None else ended[ended[:, present] > 0.0])
 
                 buffer.add_outcome(step.reward, step.done, step.terminated, final_values)
 
