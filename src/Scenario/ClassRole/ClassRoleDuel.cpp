@@ -46,12 +46,8 @@ namespace
         SPELL_DEFENSIVE_STANCE  = 71,
     };
 
-    constexpr uint32 DUEL_MOVE_POINT_ID = 1;
     constexpr float MELEE_DESIRED_RANGE = 3.5f;
     constexpr float RANGED_DESIRED_RANGE = 25.0f;
-    constexpr float BACK_OFF_DISTANCE = 10.0f;
-    constexpr uint32 CALL_BEAST_GCD_MS = 1500;
-    constexpr uint8 HUNTER_PET_LEVEL = 10;
 
     // Reward terms. Damage is a fraction of the opponent's health, so a kill is worth DAMAGE_DEALT in
     // damage at any level; taken damage is a fraction of the bot's own health.
@@ -70,8 +66,6 @@ namespace
     constexpr float CAST_TIME_WASTED = 0.05f;   // per second spent on a cast that did not finish
     constexpr float CAST_TIME_COMPLETED = 0.02f; // per second of cast time of a cast that finished, in combat
 
-    constexpr uint32 IMMOBILE_STATES = UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
-
     Unit* FirstPet(Player* bot)
     {
         if (Pet* pet = bot->GetPet())
@@ -80,20 +74,6 @@ namespace
         for (Unit* controlled : bot->m_Controlled)
             if (controlled->IsAlive() && !controlled->IsTotem())
                 return controlled;
-
-        return nullptr;
-    }
-
-    /// A shapeshift the player could cancel from the client (druid forms, Shadowform, Ghost Wolf, Stealth);
-    /// stances and presences cannot be.
-    SpellInfo const* CancellableForm(Player const* bot)
-    {
-        for (AuraEffect const* effect : bot->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
-        {
-            SpellInfo const* info = effect->GetSpellInfo();
-            if (!info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL) && info->IsPositive() && !info->IsPassive())
-                return info;
-        }
 
         return nullptr;
     }
@@ -121,183 +101,6 @@ void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Seat& seat) const
     }
 
     // No pet and no attack: summoning one, stealthing and approaching are all the policy's to learn.
-}
-
-bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction,
-    Seat const& seat) const
-{
-    if (!bot->IsAlive())
-        return false;
-
-    bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
-
-    // No target needed (between gauntlet pulls too).
-    if (duelAction == DUEL_ACTION_STOP_CASTING)
-        return casting;
-    if (duelAction == DUEL_ACTION_CANCEL_FORM)
-        return CancellableForm(bot) != nullptr;
-
-    if (!opponent || !opponent->IsAlive())
-        return false;
-    bool const canMove = !casting && !bot->HasUnitState(IMMOBILE_STATES);
-
-    switch (duelAction)
-    {
-        case DUEL_ACTION_MOVE_TO_TARGET:
-        case DUEL_ACTION_MOVE_BEHIND:
-        case DUEL_ACTION_MOVE_TO_RANGE:
-        case DUEL_ACTION_BACK_OFF:
-            return canMove;
-        case DUEL_ACTION_STOP:
-            return !bot->movespline->Finalized();
-        case DUEL_ACTION_START_ATTACK:
-            return bot->GetVictim() != opponent && bot->IsValidAttackTarget(opponent);
-        case DUEL_ACTION_PET_ATTACK:
-            return std::any_of(bot->m_Controlled.begin(), bot->m_Controlled.end(), [opponent](Unit* pet)
-            {
-                return pet->IsAlive() && pet->IsCreature() && pet->GetVictim() != opponent;
-            });
-        default:
-            break;
-    }
-
-    uint32 const slot = duelAction - DUEL_ACTION_CALL_BEAST_FIRST;
-    if (slot >= seat.Stable.size() || casting || bot->GetPetGUID() || bot->GetLevel() < HUNTER_PET_LEVEL)
-        return false;
-
-    SpellInfo const* callPet = sSpellMgr->GetSpellInfo(SPELL_CALL_PET);
-    return !callPet || !bot->GetGlobalCooldownMgr().HasGlobalCooldown(callPet);
-}
-
-void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction,
-    Seat& seat) const
-{
-    if (!IsDuelActionAllowed(bot, opponent, duelAction, seat))
-        return;
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-
-    switch (duelAction)
-    {
-        case DUEL_ACTION_MOVE_TO_TARGET:
-            opponent->GetNearPoint(bot, x, y, z, bot->GetCombatReach(), 0.5f, opponent->GetAngle(bot));
-            break;
-        case DUEL_ACTION_MOVE_BEHIND:
-            opponent->GetNearPoint(bot, x, y, z, bot->GetCombatReach(), 0.5f,
-                Position::NormalizeOrientation(opponent->GetOrientation() + float(M_PI)));
-            break;
-        case DUEL_ACTION_MOVE_TO_RANGE:
-            opponent->GetNearPoint(bot, x, y, z, bot->GetCombatReach(), RANGED_DESIRED_RANGE - 1.0f,
-                opponent->GetAngle(bot));
-            break;
-        case DUEL_ACTION_BACK_OFF:
-            opponent->GetNearPoint(bot, x, y, z, bot->GetCombatReach(), bot->GetDistance(opponent) + BACK_OFF_DISTANCE,
-                opponent->GetAngle(bot));
-            break;
-        case DUEL_ACTION_STOP:
-            bot->GetMotionMaster()->Clear();
-            bot->StopMoving();
-            return;
-        case DUEL_ACTION_START_ATTACK:
-            bot->Attack(opponent, true);
-            return;
-        case DUEL_ACTION_PET_ATTACK:
-            DuelArena::PetAttack(bot, opponent);
-            return;
-        case DUEL_ACTION_STOP_CASTING:
-            // As CMSG_CANCEL_CAST / CMSG_CANCEL_CHANNELLING: the current cast or channel, cancelled by the caster.
-            bot->InterruptNonMeleeSpells(false, 0, false, true);
-            return;
-        case DUEL_ACTION_CANCEL_FORM:
-            // As CMSG_CANCEL_AURA.
-            if (SpellInfo const* form = CancellableForm(bot))
-                bot->RemoveOwnedAura(form->Id, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
-            return;
-        default:
-        {
-            uint32 const slot = duelAction - DUEL_ACTION_CALL_BEAST_FIRST;
-            if (DuelArena::CallHunterBeast(bot, seat.Stable[slot]))
-                if (SpellInfo const* callPet = sSpellMgr->GetSpellInfo(SPELL_CALL_PET))
-                    bot->GetGlobalCooldownMgr().AddGlobalCooldown(callPet, CALL_BEAST_GCD_MS);
-            return;
-        }
-    }
-
-    bot->GetMotionMaster()->Clear();
-    bot->GetMotionMaster()->MovePoint(DUEL_MOVE_POINT_ID, x, y, z);
-}
-
-void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Seat const& seat, Player* bot, Unit* opponent,
-    float* obs) const
-{
-    float* duel = obs + seat.L->DuelObsFirst;
-
-    // The bot's own casting and form, with or without a target.
-    if (Spell* cast = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-        cast && cast->getState() == SPELL_STATE_PREPARING && cast->GetCastTime() > 0)
-    {
-        float const total = float(cast->GetCastTime());
-        float const left = std::clamp(float(cast->GetCastTimeRemaining()), 0.0f, total);
-        duel[DUEL_OBS_CAST_PROGRESS] = 1.0f - left / total;
-        duel[DUEL_OBS_CAST_REMAINING] = std::min(1.0f, left / 3000.0f);
-    }
-    else if (Spell* channel = bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
-        channel && channel->getState() == SPELL_STATE_CASTING)
-    {
-        float const left = float(std::max(0, channel->GetCastTimeRemaining()));
-        float const total = std::max(left, float(std::max(1, channel->m_spellInfo->GetMaxDuration())));
-        duel[DUEL_OBS_CAST_PROGRESS] = 1.0f - left / total;
-        duel[DUEL_OBS_CAST_REMAINING] = std::min(1.0f, left / 3000.0f);
-    }
-
-    duel[DUEL_OBS_SHAPESHIFTED] = CancellableForm(bot) ? 1.0f : 0.0f;
-
-    duel[DUEL_OBS_EPISODE_TIME] = env.EpisodeLengthMs
-        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
-
-    // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
-    for (uint32 slot = 0; slot < seat.Stable.size() && slot < STABLE_SLOTS; ++slot)
-    {
-        CreatureTemplate const* beast = sObjectMgr->GetCreatureTemplate(seat.Stable[slot]);
-        if (!beast)
-            continue;
-
-        float* features = duel + DUEL_OBS_STABLE_FIRST + slot * STABLE_FEATURES;
-        features[0] = 1.0f;
-        features[1] = float(beast->family) / 50.0f;
-
-        if (CreatureFamilyEntry const* family = sCreatureFamilyStore.LookupEntry(beast->family))
-            if (family->petTalentType >= 0 && family->petTalentType < 3)
-                features[2 + family->petTalentType] = 1.0f;     // ferocity, tenacity, cunning
-    }
-
-    if (!opponent)
-        return;
-
-    float const bearing = bot->GetRelativeAngle(opponent);
-    duel[DUEL_OBS_DISTANCE] = std::min(1.0f, bot->GetDistance(opponent) / 60.0f);
-    duel[DUEL_OBS_BEARING_SIN] = std::sin(bearing);
-    duel[DUEL_OBS_BEARING_COS] = std::cos(bearing);
-    duel[DUEL_OBS_BEHIND_TARGET] = opponent->isInBack(bot) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_TARGET_FACING_BOT] = opponent->HasInArc(float(M_PI), bot) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_TARGET_IN_COMBAT] = opponent->IsInCombat() ? 1.0f : 0.0f;
-    duel[DUEL_OBS_TARGET_ATTACKS_BOT] = opponent->GetVictim() == bot ? 1.0f : 0.0f;
-    duel[DUEL_OBS_TARGET_CASTING] = opponent->IsNonMeleeSpellCast(false) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_BOT_MOVING] = bot->movespline->Finalized() ? 0.0f : 1.0f;
-    duel[DUEL_OBS_BOT_IN_COMBAT] = bot->IsInCombat() ? 1.0f : 0.0f;
-    duel[DUEL_OBS_BOT_STEALTHED] = bot->HasAuraType(SPELL_AURA_MOD_STEALTH) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_BOT_AUTO_ATTACKING] = bot->GetVictim() == opponent
-        && bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ? 1.0f : 0.0f;
-    duel[DUEL_OBS_DAMAGE_TAKEN] = seat.LastStepDamageTaken;
-
-    if (Unit* pet = FirstPet(bot))
-    {
-        duel[DUEL_OBS_PET_OUT] = 1.0f;
-        duel[DUEL_OBS_PET_HEALTH] = pet->GetHealthPct() / 100.0f;
-        duel[DUEL_OBS_PET_ATTACKING] = pet->GetVictim() == opponent ? 1.0f : 0.0f;
-    }
 }
 
 float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, uint32 seatIndex, Player* bot, Unit* opponent,

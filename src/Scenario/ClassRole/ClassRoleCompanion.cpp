@@ -41,18 +41,9 @@
 
 namespace
 {
-    constexpr std::array<uint8, 10> OWNER_CLASSES =
-    {
-        CLASS_WARRIOR, CLASS_PALADIN, CLASS_HUNTER, CLASS_ROGUE, CLASS_PRIEST, CLASS_DEATH_KNIGHT, CLASS_SHAMAN,
-        CLASS_MAGE, CLASS_WARLOCK, CLASS_DRUID
-    };
-
     constexpr uint32 OWNER_ACCOUNT_OFFSET = 100000;     // owner accounts sit apart from seat accounts
     constexpr int32 OWNER_LEVEL_SPREAD = 2;
     constexpr float OWNER_START_OFFSET = 3.0f;
-    constexpr uint32 FOLLOW_MOVE_POINT_ID = 3;
-    constexpr float FOLLOW_DISTANCE = 2.0f;
-    constexpr float FOLLOW_MIN_DISTANCE = 4.0f;
 
     // Reward terms added to the gauntlet's.
     constexpr float OWNER_DAMAGE_TAKEN_DPS = 1.0f;      // fraction of the owner's health
@@ -67,39 +58,6 @@ namespace
     constexpr float FOLLOW_NEAR = 0.0005f;              // per decision out of combat within 12 yd
     constexpr float OWNER_DEATH = 6.0f;
 
-    constexpr uint32 IMMOBILE_STATES = UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
-
-    float CooldownFraction(Player const* bot, SpellInfo const* info)
-    {
-        uint32 const full = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
-        return full ? std::min(1.0f, float(bot->GetSpellCooldownDelay(info->Id)) / float(full)) : 0.0f;
-    }
-
-    bool CanCastOn(Player* bot, SpellInfo const* info, Unit* target)
-    {
-        Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-        spell->LoadScripts();
-
-        SpellCastTargets targets;
-        targets.SetUnitTarget(target);
-        spell->InitExplicitTargets(targets);
-
-        SpellCastResult const result = spell->CheckCast(true);
-        delete spell;
-        return result == SPELL_CAST_OK;
-    }
-
-    int32 SlotOf(AnimusForge::Env const& env, Unit const* unit)
-    {
-        if (!unit)
-            return -1;
-
-        for (uint32 slot = 0; slot < env.Targets.size() && slot < AnimusForge::ClassRoleScenario::PACK_SLOTS; ++slot)
-            if (env.Targets[slot] == unit->GetGUID())
-                return int32(slot);
-
-        return -1;
-    }
 }
 
 Player* AnimusForge::ClassRoleScenario::FindOwner(EnvData const& data) const
@@ -194,171 +152,6 @@ void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env)
     Player* tank = HasParty() ? PartyTank(data) : nullptr;
     Unit* preferred = tank && tank->IsAlive() ? tank->GetVictim() : nullptr;
     CompanionOwner::Update(owner, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner, preferred);
-}
-
-void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
-{
-    EnvData const& data = _data[env.Index];
-    Layout const& layout = *data.Seats[seatIndex].L;
-    float* companion = obs + layout.CompanionObsFirst;
-
-    Player* owner = FindOwner(data);
-    if (owner && owner->IsInMap(bot))
-    {
-        float const bearing = bot->GetRelativeAngle(owner);
-        companion[COMPANION_OBS_OWNER_PRESENT] = 1.0f;
-        companion[COMPANION_OBS_OWNER_ALIVE] = owner->IsAlive() ? 1.0f : 0.0f;
-        companion[COMPANION_OBS_OWNER_HEALTH] = owner->GetHealthPct() / 100.0f;
-        if (uint32 const maxMana = owner->GetMaxPower(POWER_MANA))
-            companion[COMPANION_OBS_OWNER_MANA] = float(owner->GetPower(POWER_MANA)) / float(maxMana);
-        companion[COMPANION_OBS_OWNER_DISTANCE] = std::min(1.0f, bot->GetDistance(owner) / 40.0f);
-        companion[COMPANION_OBS_OWNER_BEARING_SIN] = std::sin(bearing);
-        companion[COMPANION_OBS_OWNER_BEARING_COS] = std::cos(bearing);
-        companion[COMPANION_OBS_OWNER_IN_COMBAT] = owner->IsInCombat() ? 1.0f : 0.0f;
-        companion[COMPANION_OBS_OWNER_MOVING] = owner->movespline->Finalized() ? 0.0f : 1.0f;
-        companion[COMPANION_OBS_OWNER_LEVEL_DIFF] = (float(owner->GetLevel()) - float(bot->GetLevel())) / 5.0f;
-
-        for (uint32 i = 0; i < OWNER_CLASSES.size(); ++i)
-            companion[COMPANION_OBS_OWNER_CLASS_FIRST + i] = OWNER_CLASSES[i] == owner->getClass() ? 1.0f : 0.0f;
-
-        int32 const ownerTarget = SlotOf(env, owner->GetVictim());
-        if (ownerTarget >= 0)
-            companion[COMPANION_OBS_OWNER_TARGET_FIRST + ownerTarget] = 1.0f;
-        else
-            companion[COMPANION_OBS_OWNER_NO_TARGET] = 1.0f;
-
-        uint32 attackers = 0;
-        for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
-        {
-            Unit* enemy = env.FindTargetUnit(slot);
-            if (enemy && enemy->IsAlive() && enemy->GetVictim() == owner)
-            {
-                companion[COMPANION_OBS_SLOT_ON_OWNER_FIRST + slot] = 1.0f;
-                ++attackers;
-            }
-        }
-
-        companion[COMPANION_OBS_OWNER_ATTACKERS] = float(attackers) / float(PACK_SLOTS);
-    }
-
-    float* heals = companion + COMPANION_OBS_GLOBAL_COUNT;
-    for (uint32 i = 0; i < layout.AllyHeals.size(); ++i)
-    {
-        if (SpellInfo const* info = ActionCatalog::KnownRank(bot, layout.AllyHeals[i].FirstRank))
-        {
-            heals[i * 2] = 1.0f;
-            heals[i * 2 + 1] = CooldownFraction(bot, info);
-        }
-    }
-}
-
-bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, uint32 seatIndex, Player* bot,
-    uint32 companionAction) const
-{
-    EnvData const& data = _data[env.Index];
-    Seat const& seat = data.Seats[seatIndex];
-    Player* owner = FindOwner(data);
-    if (!owner || !owner->IsAlive() || !bot->IsAlive() || !owner->IsInMap(bot))
-        return false;
-
-    bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
-
-    switch (companionAction)
-    {
-        case COMPANION_ACTION_FOLLOW:
-            return !casting && !bot->HasUnitState(IMMOBILE_STATES) && bot->GetDistance(owner) > FOLLOW_MIN_DISTANCE;
-        case COMPANION_ACTION_ASSIST:
-        {
-            int32 const slot = SlotOf(env, owner->GetVictim());
-            return slot >= 0 && uint32(slot) != seat.TargetSlot && owner->GetVictim()->IsAlive();
-        }
-        case COMPANION_ACTION_GUARD:
-        {
-            for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
-                if (Unit* enemy = env.FindTargetUnit(slot);
-                    enemy && enemy->IsAlive() && enemy->GetVictim() == owner && slot != seat.TargetSlot)
-                    return true;
-            return false;
-        }
-        default:
-            break;
-    }
-
-    ActionCatalog::Action const& heal = seat.L->AllyHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, heal.FirstRank);
-    if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id)
-        || bot->GetGlobalCooldownMgr().HasGlobalCooldown(info) || bot->IsNonMeleeSpellCast(false, true, true))
-        return false;
-
-    if (!bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
-        return false;
-
-    return CanCastOn(bot, info, owner);
-}
-
-void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, uint32 seatIndex, Player* bot,
-    uint32 companionAction)
-{
-    if (!IsCompanionActionAllowed(env, seatIndex, bot, companionAction))
-        return;
-
-    EnvData& data = _data[env.Index];
-    Seat& seat = data.Seats[seatIndex];
-    Player* owner = FindOwner(data);
-
-    switch (companionAction)
-    {
-        case COMPANION_ACTION_FOLLOW:
-        {
-            float x = 0.0f;
-            float y = 0.0f;
-            float z = 0.0f;
-            owner->GetNearPoint(bot, x, y, z, bot->GetCombatReach(), FOLLOW_DISTANCE,
-                Position::NormalizeOrientation(owner->GetOrientation() + float(M_PI)));
-            bot->GetMotionMaster()->Clear();
-            bot->GetMotionMaster()->MovePoint(FOLLOW_MOVE_POINT_ID, x, y, z);
-            return;
-        }
-        case COMPANION_ACTION_ASSIST:
-        case COMPANION_ACTION_GUARD:
-        {
-            int32 slot = -1;
-            if (companionAction == COMPANION_ACTION_ASSIST)
-                slot = SlotOf(env, owner->GetVictim());
-            else
-                for (uint32 candidate = 0; candidate < env.Targets.size() && candidate < PACK_SLOTS && slot < 0;
-                    ++candidate)
-                    if (Unit* enemy = env.FindTargetUnit(candidate); enemy && enemy->IsAlive()
-                        && enemy->GetVictim() == owner && candidate != seat.TargetSlot)
-                        slot = int32(candidate);
-
-            Unit* enemy = slot >= 0 ? env.FindTargetUnit(uint32(slot)) : nullptr;
-            if (!enemy)
-                return;
-
-            seat.TargetSlot = uint32(slot);
-            bot->SetSelection(enemy->GetGUID());
-            if (bot->GetVictim())
-                bot->Attack(enemy, bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
-            return;
-        }
-        default:
-            break;
-    }
-
-    ActionCatalog::Action const& heal = seat.L->AllyHeals[companionAction - COMPANION_ACTION_HEAL_FIRST];
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, heal.FirstRank);
-    if (!info)
-        return;
-
-    SpellCastTargets targets;
-    targets.SetUnitTarget(owner);
-    Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-    if (spell->prepare(&targets) == SPELL_CAST_OK)
-    {
-        ++seat.SpellCasts;
-        ++seat.SustainCasts;
-    }
 }
 
 float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex, Player* bot)

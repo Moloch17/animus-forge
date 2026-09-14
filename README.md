@@ -525,9 +525,14 @@ such as `warrior_dummy` writes `warrior_dummy.amdl`). Each is the layout's input
 layout's action head, in the plain MLP format below.
 
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
-the exported network reproduces the torch actor's greedy actions. If a scenario's observations or
-actions change, update mod-animus's copy of the encoding (for `warrior_dummy`,
-`mod-animus/src/Companion/WarriorDummyPolicyIO.*`).
+the exported network reproduces the torch actor's greedy actions.
+
+The class/role scenarios do not keep their own copy of the encoding: layouts (`ClassRoleLayout`), observations,
+action masks and what each action does (`SeatEncoder`) live in `mod-animus/src/ClassRole/`, and both modules use
+them. The scenario only describes each seat's situation (`ClassRoleScenario::ViewSeat`: enemies, owner, teammates,
+opponent, pull timing), so a model is fed and read the same way in training and in play. Each exported model's
+`<model>.json` layout manifest records what that encoding depended on. For `warrior_dummy`, mod-animus still has a
+copy of the encoding (`mod-animus/src/Companion/WarriorDummyPolicyIO.*`) to update when the scenario changes.
 
 ## Wire protocol
 

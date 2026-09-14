@@ -25,6 +25,7 @@
  * and actions from the same code. mod-animus is built alongside this module.
  */
 #include "ClassRoleAssets.h"
+#include "SeatEncoder.h"
 
 namespace AnimusForge
 {
@@ -37,6 +38,9 @@ namespace AnimusForge
     using Animus::ClassRole::RangeBand;
     using Animus::ClassRole::Role;
     using Animus::ClassRole::RoleName;
+    using Animus::ClassRole::SeatActionResult;
+    using Animus::ClassRole::SeatEncoder;
+    using Animus::ClassRole::SeatView;
     using Animus::ClassRole::SpecProfile;
     using Animus::ClassRole::StatProfile;
     using Animus::ClassRole::TalentBuilder;

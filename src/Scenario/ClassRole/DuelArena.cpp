@@ -363,32 +363,3 @@ bool AnimusForge::DuelArena::CallHunterBeast(Player* bot, uint32 entry)
     bot->PetSpellInitialize();
     return true;
 }
-
-bool AnimusForge::DuelArena::PetAttack(Player* bot, Unit* target)
-{
-    bool ordered = false;
-    for (Unit* controlled : bot->m_Controlled)
-    {
-        Creature* pet = controlled->ToCreature();
-        if (!pet || !pet->IsAlive() || !pet->IsAIEnabled || pet->GetVictim() == target
-            || !pet->CanCreatureAttack(target))
-            continue;
-
-        // HandlePetActionHelper, COMMAND_ATTACK.
-        pet->ClearUnitState(UNIT_STATE_FOLLOW);
-        pet->AttackStop();
-        if (CharmInfo* charmInfo = pet->GetCharmInfo())
-        {
-            charmInfo->SetIsCommandAttack(true);
-            charmInfo->SetIsAtStay(false);
-            charmInfo->SetIsFollowing(false);
-            charmInfo->SetIsCommandFollow(false);
-            charmInfo->SetIsReturning(false);
-        }
-
-        pet->AI()->AttackStart(target);
-        ordered = true;
-    }
-
-    return ordered;
-}

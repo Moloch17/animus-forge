@@ -49,8 +49,8 @@ namespace AnimusForge
     /// AnimusForge.ClassRoles (all 18 by default) -- a race the class allows, random gender, level (1-80, 55-80 for
     /// death knights), one of the role's specs with a random talent build that fills the spec's tree to its capstone
     /// first, the trainer spells of the level, and random level-appropriate gear including trinkets. A seat's
-    /// layout is its class/role's: observation features and actions fixed per class/role (see ActionCatalog and
-    /// ObserveSeat), padded to the largest layout's on the wire (see LayoutSpec). The learner shares one trunk
+    /// layout is its class/role's: observation features and actions fixed per class/role (see mod-animus's
+    /// ClassRoleLayout and SeatEncoder, shared with play), padded to the largest layout's on the wire (see LayoutSpec). The learner shares one trunk
     /// between all layouts, with an input adapter and an action head per layout.
     ///
     /// The critic state is class-agnostic (BuildState): every seat's and enemy's essentials, the owner and the
@@ -348,15 +348,12 @@ namespace AnimusForge
         bool BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start, uint8& newSession);
         void Configure(Player* bot, Seat& seat) const;
         void StartFight(Player* bot, Unit* dummy, Seat const& seat) const;
-        [[nodiscard]] static SpellInfo const* TrinketSpell(Item const* item);
-        [[nodiscard]] bool IsActionAllowed(Seat const& seat, Player* bot, Unit* target, uint32 action) const;
-        [[nodiscard]] bool IsSpellActionAllowed(Player* bot, Unit* target, ActionCatalog::Action const& def) const;
-        /// Casts a spell action at `target` (may be null: self-cast spells only). Returns true if it started.
-        bool ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def, Seat& seat) const;
         void UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const;
         /// What the seat's actions aim at: the dummy or opponent, the selected pack enemy (the nearest living one
         /// when the selection is dead), the enemy player. Null between gauntlet pulls.
         [[nodiscard]] Unit* CurrentTarget(Env const& env, uint32 seat);
+        /// What the encoder needs to know about seat `seat` that only the env knows (see SeatView).
+        [[nodiscard]] SeatView ViewSeat(Env const& env, uint32 seat, Player* bot, Unit* target) const;
         void ApplySeatAction(Env& env, uint32 seat, int32 action);
         void ObserveSeat(Env& env, uint32 seat, float* obs, uint8* mask);
         [[nodiscard]] float SeatReward(Env& env, uint32 seat);
@@ -367,9 +364,6 @@ namespace AnimusForge
 
         // Duel stage (ClassRoleDuel.cpp).
         void StartDuel(Player* bot, Seat& seat) const;
-        [[nodiscard]] bool IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction, Seat const& seat) const;
-        void ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction, Seat& seat) const;
-        void ObserveDuel(Env const& env, Seat const& seat, Player* bot, Unit* opponent, float* obs) const;
         /// `opponentDead` defaults to whether `opponent` is dead.
         [[nodiscard]] float DuelReward(Env const& env, uint32 seat, Player* bot, Unit* opponent,
             int8 opponentDead = -1);
@@ -385,13 +379,8 @@ namespace AnimusForge
         void AssessPull(Env& env);
         /// Once per decision after the seats' rewards: clear a finished gauntlet pull and schedule the next.
         void FinishPull(Env& env);
-        void ObservePack(Env const& env, uint32 seat, Player* bot, float* obs) const;
-        void ObserveGauntlet(Env const& env, uint32 seat, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsPackActionAllowed(Env const& env, uint32 seat, Player* bot, uint32 packAction) const;
-        void ApplyPackAction(Env& env, uint32 seat, Player* bot, Unit* target, uint32 packAction);
-        [[nodiscard]] bool IsGauntletActionAllowed(Player* bot, Unit* target, uint32 gauntletAction,
-            Seat const& seat) const;
-        void ApplyGauntletAction(Player* bot, Unit* target, uint32 gauntletAction, Seat& seat) const;
+        /// The pull timing of the gauntlet block.
+        void ViewPull(Env const& env, SeatView& view) const;
         [[nodiscard]] float PackReward(Env& env, uint32 seat, Player* bot);
         void PackEpisodeInfo(Env const& env, uint32 seat, float* info) const;
         void GauntletEpisodeInfo(Env const& env, uint32 seat, float* info) const;
@@ -401,10 +390,6 @@ namespace AnimusForge
         bool RebuildOwner(Env& env, Player* anchor, Map* map, uint8 level);
         void DestroyOwner(Env& env);
         void UpdateOwner(Env& env);
-        void ObserveCompanion(Env const& env, uint32 seat, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsCompanionActionAllowed(Env const& env, uint32 seat, Player* bot,
-            uint32 companionAction) const;
-        void ApplyCompanionAction(Env& env, uint32 seat, Player* bot, uint32 companionAction);
         [[nodiscard]] float CompanionReward(Env& env, uint32 seat, Player* bot);
         void CompanionEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
@@ -417,9 +402,6 @@ namespace AnimusForge
         /// spells, auras and group heals work as in play while nothing is written to the database.
         void FormParty(Env& env);
         void DisbandParty(Env& env);
-        void ObserveParty(Env const& env, uint32 seat, Player* bot, float* obs) const;
-        [[nodiscard]] bool IsPartyActionAllowed(Env const& env, uint32 seat, Player* bot, uint32 partyAction) const;
-        void ApplyPartyAction(Env& env, uint32 seat, Player* bot, uint32 partyAction);
         [[nodiscard]] float PartyReward(Env& env, uint32 seat, Player* bot);
         void PartyEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
@@ -430,7 +412,6 @@ namespace AnimusForge
         bool RebuildOpponent(Env& env, Player* bot, Map* map);
         void DestroyOpponent(Env& env);
         void UpdatePvp(Env& env);
-        void ObservePvp(Env const& env, uint32 seat, Player* bot, float* obs) const;
         [[nodiscard]] float PvpReward(Env& env, uint32 seat, Player* bot);
         void PvpEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 

@@ -75,29 +75,6 @@ namespace
     constexpr float PACK_DEATH = 3.0f;
     constexpr float GAUNTLET_DEATH = 5.0f;
 
-    constexpr uint32 CROWD_CONTROL_STATES = UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING
-        | UNIT_STATE_ROOT;
-
-    float CooldownFraction(Player const* bot, SpellInfo const* info)
-    {
-        uint32 const full = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
-        return full ? std::min(1.0f, float(bot->GetSpellCooldownDelay(info->Id)) / float(full)) : 0.0f;
-    }
-
-    bool IsCrowdControlled(Unit const* unit)
-    {
-        return unit->HasUnitState(CROWD_CONTROL_STATES) || unit->HasAuraType(SPELL_AURA_MOD_SILENCE)
-            || unit->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE) || unit->HasAuraType(SPELL_AURA_TRANSFORM);
-    }
-
-    SpellInfo const* UseSpell(uint32 itemEntry)
-    {
-        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemEntry);
-        if (!proto || proto->Spells[0].SpellId <= 0 || proto->Spells[0].SpellTrigger != ITEM_SPELLTRIGGER_ON_USE)
-            return nullptr;
-
-        return sSpellMgr->GetSpellInfo(proto->Spells[0].SpellId);
-    }
 }
 
 void AnimusForge::ClassRoleScenario::StartSeatPack(Player* bot, Seat& seat) const
@@ -284,167 +261,15 @@ void AnimusForge::ClassRoleScenario::FinishPull(Env& env)
     }
 }
 
-void AnimusForge::ClassRoleScenario::ObservePack(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
-{
-    Seat const& seat = _data[env.Index].Seats[seatIndex];
-    float* pack = obs + seat.L->PackObsFirst;
-
-    uint32 alive = 0;
-    uint32 inCombat = 0;
-    for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
-    {
-        Unit* enemy = env.FindTargetUnit(slot);
-        if (!enemy)
-            continue;
-
-        float* features = pack + PACK_OBS_GLOBAL_COUNT + slot * SLOT_FEATURES;
-        float const bearing = bot->GetRelativeAngle(enemy);
-        Unit const* victim = enemy->GetVictim();
-
-        features[SLOT_PRESENT] = 1.0f;
-        features[SLOT_ALIVE] = enemy->IsAlive() ? 1.0f : 0.0f;
-        features[SLOT_HEALTH] = enemy->GetHealthPct() / 100.0f;
-        features[SLOT_DISTANCE] = std::min(1.0f, bot->GetDistance(enemy) / 60.0f);
-        features[SLOT_BEARING_SIN] = std::sin(bearing);
-        features[SLOT_BEARING_COS] = std::cos(bearing);
-        features[SLOT_BEHIND] = enemy->isInBack(bot) ? 1.0f : 0.0f;
-        features[SLOT_ATTACKS_BOT] = victim == bot ? 1.0f : 0.0f;
-        features[SLOT_ATTACKS_PET] = victim && victim != bot && victim->GetOwnerGUID() == bot->GetGUID() ? 1.0f : 0.0f;
-        features[SLOT_CASTING] = enemy->IsNonMeleeSpellCast(false) ? 1.0f : 0.0f;
-        features[SLOT_IN_COMBAT] = enemy->IsInCombat() ? 1.0f : 0.0f;
-        features[SLOT_CROWD_CONTROLLED] = IsCrowdControlled(enemy) ? 1.0f : 0.0f;
-        features[SLOT_CURRENT_TARGET] = slot == seat.TargetSlot ? 1.0f : 0.0f;
-        features[SLOT_ELITE] = enemy->ToCreature() && enemy->ToCreature()->isElite() ? 1.0f : 0.0f;
-        features[SLOT_LEVEL_DIFFERENCE] = (float(enemy->GetLevel()) - float(bot->GetLevel())) / 5.0f;
-
-        alive += enemy->IsAlive() ? 1 : 0;
-        inCombat += enemy->IsAlive() && enemy->IsInCombat() ? 1 : 0;
-    }
-
-    pack[PACK_OBS_ALIVE] = float(alive) / float(PACK_SLOTS);
-    pack[PACK_OBS_IN_COMBAT] = float(inCombat) / float(PACK_SLOTS);
-
-    float* tactical = pack + PACK_OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES;
-    std::vector<ActionCatalog::Action> const& actions = seat.L->Catalog().Tactical();
-    for (uint32 i = 0; i < actions.size(); ++i)
-    {
-        if (SpellInfo const* info = ActionCatalog::KnownRank(bot, actions[i].FirstRank))
-        {
-            tactical[i * 2] = 1.0f;
-            tactical[i * 2 + 1] = CooldownFraction(bot, info);
-        }
-    }
-}
-
-void AnimusForge::ClassRoleScenario::ObserveGauntlet(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
+void AnimusForge::ClassRoleScenario::ViewPull(Env const& env, SeatView& view) const
 {
     EnvData const& data = _data[env.Index];
-    Seat const& seat = data.Seats[seatIndex];
-    float* gauntlet = obs + seat.L->GauntletObsFirst;
-    bool const pullActive = !env.Targets.empty();
 
-    gauntlet[GAUNTLET_OBS_PULLS_CLEARED] = std::min(1.0f, float(data.PullsCleared) / 10.0f);
-    gauntlet[GAUNTLET_OBS_PULL_ACTIVE] = pullActive ? 1.0f : 0.0f;
-    gauntlet[GAUNTLET_OBS_NEXT_PULL] = pullActive ? 0.0f
-        : std::clamp((float(data.NextPullMs) - float(env.EpisodeElapsedMs)) / float(NEXT_PULL_MAX_MS), 0.0f, 1.0f);
-    gauntlet[GAUNTLET_OBS_PULL_TIME] = pullActive
-        ? std::min(1.0f, float(env.EpisodeElapsedMs - data.PullStartMs) / PULL_TIME_SCALE_MS) : 0.0f;
-    gauntlet[GAUNTLET_OBS_ELITE_PULL] = pullActive && data.EliteOrHigherPull ? 1.0f : 0.0f;
-    gauntlet[GAUNTLET_OBS_EATING] = bot->HasAuraType(SPELL_AURA_MOD_REGEN) ? 1.0f : 0.0f;
-    gauntlet[GAUNTLET_OBS_DRINKING] = bot->HasAuraType(SPELL_AURA_MOD_POWER_REGEN) ? 1.0f : 0.0f;
-    gauntlet[GAUNTLET_OBS_FOOD_LEFT] = seat.FoodItem
-        ? float(bot->GetItemCount(seat.FoodItem)) / float(CONSUMABLE_COUNT) : 0.0f;
-    gauntlet[GAUNTLET_OBS_DRINK_LEFT] = seat.DrinkItem
-        ? float(bot->GetItemCount(seat.DrinkItem)) / float(CONSUMABLE_COUNT) : 0.0f;
-
-    float* sustain = gauntlet + GAUNTLET_OBS_GLOBAL_COUNT;
-    std::vector<ActionCatalog::Action> const& actions = seat.L->Catalog().Sustain();
-    for (uint32 i = 0; i < actions.size(); ++i)
-    {
-        if (SpellInfo const* info = ActionCatalog::KnownRank(bot, actions[i].FirstRank))
-        {
-            sustain[i * 2] = 1.0f;
-            sustain[i * 2 + 1] = CooldownFraction(bot, info);
-        }
-    }
-}
-
-bool AnimusForge::ClassRoleScenario::IsPackActionAllowed(Env const& env, uint32 seatIndex, Player* bot,
-    uint32 packAction) const
-{
-    // Only the target slots; tactical spells are masked by IsSpellActionAllowed.
-    if (packAction >= PACK_SLOTS || packAction >= env.Targets.size()
-        || packAction == _data[env.Index].Seats[seatIndex].TargetSlot || !bot->IsAlive())
-        return false;
-
-    Unit const* enemy = env.FindTargetUnit(packAction);
-    return enemy && enemy->IsAlive();
-}
-
-void AnimusForge::ClassRoleScenario::ApplyPackAction(Env& env, uint32 seatIndex, Player* bot, Unit* target,
-    uint32 packAction)
-{
-    Seat& seat = _data[env.Index].Seats[seatIndex];
-    if (packAction >= PACK_SLOTS)
-    {
-        if (target)
-            ApplySpellAction(bot, target, seat.L->Catalog().Tactical()[packAction - PACK_SLOTS], seat);
-        return;
-    }
-
-    if (!IsPackActionAllowed(env, seatIndex, bot, packAction))
-        return;
-
-    Unit* enemy = env.FindTargetUnit(packAction);
-    seat.TargetSlot = packAction;
-    bot->SetSelection(enemy->GetGUID());
-
-    // Keep swinging, at the new target.
-    if (bot->GetVictim())
-        bot->Attack(enemy, bot->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
-}
-
-bool AnimusForge::ClassRoleScenario::IsGauntletActionAllowed(Player* bot, Unit* target, uint32 gauntletAction,
-    Seat const& seat) const
-{
-    if (gauntletAction >= GAUNTLET_ACTION_SUSTAIN_FIRST)
-        return IsSpellActionAllowed(bot, target,
-            seat.L->Catalog().Sustain()[gauntletAction - GAUNTLET_ACTION_SUSTAIN_FIRST]);
-
-    bool const eat = gauntletAction == GAUNTLET_ACTION_EAT;
-    uint32 const item = eat ? seat.FoodItem : seat.DrinkItem;
-    SpellInfo const* info = item ? UseSpell(item) : nullptr;
-
-    return info && bot->IsAlive() && !bot->IsInCombat() && bot->movespline->Finalized()
-        && !bot->IsNonMeleeSpellCast(false) && bot->GetItemCount(item) && !bot->HasSpellCooldown(info->Id)
-        && !bot->HasAuraType(eat ? SPELL_AURA_MOD_REGEN : SPELL_AURA_MOD_POWER_REGEN);
-}
-
-void AnimusForge::ClassRoleScenario::ApplyGauntletAction(Player* bot, Unit* target, uint32 gauntletAction,
-    Seat& seat) const
-{
-    if (!IsGauntletActionAllowed(bot, target, gauntletAction, seat))
-        return;
-
-    if (gauntletAction >= GAUNTLET_ACTION_SUSTAIN_FIRST)
-    {
-        if (ApplySpellAction(bot, target, seat.L->Catalog().Sustain()[gauntletAction - GAUNTLET_ACTION_SUSTAIN_FIRST],
-            seat))
-            ++seat.SustainCasts;
-        return;
-    }
-
-    bool const eat = gauntletAction == GAUNTLET_ACTION_EAT;
-    Item* item = bot->GetItemByEntry(eat ? seat.FoodItem : seat.DrinkItem);
-    if (!item)
-        return;
-
-    SpellCastTargets targets;
-    targets.SetUnitTarget(bot);
-    bot->CastItemUseSpell(item, targets, 1, 0);
-
-    if (bot->HasAuraType(eat ? SPELL_AURA_MOD_REGEN : SPELL_AURA_MOD_POWER_REGEN))
-        ++(eat ? seat.FoodUsed : seat.DrinkUsed);
+    view.PullsCleared = data.PullsCleared;
+    view.NextPull =
+        std::clamp((float(data.NextPullMs) - float(env.EpisodeElapsedMs)) / float(NEXT_PULL_MAX_MS), 0.0f, 1.0f);
+    view.PullTime = std::min(1.0f, float(env.EpisodeElapsedMs - data.PullStartMs) / PULL_TIME_SCALE_MS);
+    view.ElitePull = data.EliteOrHigherPull;
 }
 
 float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Player* bot)

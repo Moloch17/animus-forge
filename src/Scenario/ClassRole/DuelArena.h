@@ -108,8 +108,6 @@ namespace AnimusForge::DuelArena
     /// Returns false if no pet was created.
     bool CallHunterBeast(Player* bot, uint32 entry);
 
-    /// Order the bot's pet and guardians to attack `target`. Returns true if a pet was ordered.
-    bool PetAttack(Player* bot, Unit* target);
 }
 
 #endif

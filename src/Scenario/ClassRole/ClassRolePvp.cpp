@@ -37,12 +37,6 @@
 
 namespace
 {
-    constexpr std::array<uint8, 10> PVP_CLASSES =
-    {
-        CLASS_WARRIOR, CLASS_PALADIN, CLASS_HUNTER, CLASS_ROGUE, CLASS_PRIEST, CLASS_DEATH_KNIGHT, CLASS_SHAMAN,
-        CLASS_MAGE, CLASS_WARLOCK, CLASS_DRUID
-    };
-
     constexpr uint32 OPPONENT_ACCOUNT_OFFSET = 300000;
     constexpr int32 OPPONENT_LEVEL_SPREAD = 1;
     constexpr uint32 OPPONENT_ENGAGE_MAX_MS = 3000;
@@ -53,9 +47,6 @@ namespace
     constexpr uint32 FACTION_ALLIANCE_PLAYER = 1;
     constexpr uint32 FACTION_HORDE_PLAYER = 2;
 
-    constexpr uint32 STUN_STATES = UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
-    constexpr uint32 CROWD_CONTROL_STATES = STUN_STATES | UNIT_STATE_ROOT;
-
     /// Make `enemy` hostile to `player` and flag both for PvP, which players need to attack each other.
     void MakeEnemies(Player* player, Player* enemy)
     {
@@ -63,12 +54,6 @@ namespace
         for (Player* fighter : { player, enemy })
             if (!fighter->IsPvP())
                 fighter->UpdatePvP(true, true);
-    }
-
-    bool IsControlled(Unit const* unit)
-    {
-        return unit->HasUnitState(CROWD_CONTROL_STATES) || unit->HasAuraType(SPELL_AURA_MOD_SILENCE)
-            || unit->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE) || unit->HasAuraType(SPELL_AURA_TRANSFORM);
     }
 }
 
@@ -201,46 +186,6 @@ void AnimusForge::ClassRoleScenario::UpdatePvp(Env& env)
 
     if (!IsArena())
         CompanionOwner::UpdateOpponent(opponent, bot, env.EpisodeElapsedMs, data.Opponent);
-}
-
-void AnimusForge::ClassRoleScenario::ObservePvp(Env const& env, uint32 seatIndex, Player* bot, float* obs) const
-{
-    EnvData const& data = _data[env.Index];
-    float* pvp = obs + data.Seats[seatIndex].L->PvpObsFirst;
-
-    pvp[PVP_OBS_BOT_STUNNED] = bot->HasUnitState(STUN_STATES) ? 1.0f : 0.0f;
-    pvp[PVP_OBS_BOT_ROOTED] = bot->HasUnitState(UNIT_STATE_ROOT) ? 1.0f : 0.0f;
-    pvp[PVP_OBS_BOT_SILENCED] = bot->HasAuraType(SPELL_AURA_MOD_SILENCE)
-        || bot->HasAuraType(SPELL_AURA_MOD_PACIFY_SILENCE) ? 1.0f : 0.0f;
-    pvp[PVP_OBS_MIRROR] = IsArena() ? 1.0f : 0.0f;
-
-    Player* opponent = FindOpponent(env, seatIndex);
-    if (!opponent)
-        return;
-
-    Seat const* other = IsArena() ? &data.Seats[1 - seatIndex] : nullptr;
-    uint8 const opponentClass = other && other->L ? other->L->Profile->Class : data.OpponentClass;
-    Role const opponentRole = other && other->L ? other->L->PlayRole() : data.OpponentRole;
-    for (uint32 i = 0; i < PVP_CLASSES.size(); ++i)
-        pvp[PVP_OBS_OPPONENT_CLASS_FIRST + i] = PVP_CLASSES[i] == opponentClass ? 1.0f : 0.0f;
-    pvp[PVP_OBS_OPPONENT_ROLE_FIRST + uint32(opponentRole)] = 1.0f;
-
-    pvp[PVP_OBS_OPPONENT_LEVEL_DIFF] = (float(opponent->GetLevel()) - float(bot->GetLevel())) / 5.0f;
-    if (uint32 const maxMana = opponent->GetMaxPower(POWER_MANA))
-        pvp[PVP_OBS_OPPONENT_MANA] = float(opponent->GetPower(POWER_MANA)) / float(maxMana);
-
-    Powers const power = opponent->getPowerType();
-    if (power != POWER_MANA)
-        if (uint32 const maxPower = opponent->GetMaxPower(power))
-            pvp[PVP_OBS_OPPONENT_RAGE_ENERGY] = float(opponent->GetPower(power)) / float(maxPower);
-
-    pvp[PVP_OBS_OPPONENT_CONTROLLED] = IsControlled(opponent) ? 1.0f : 0.0f;
-    pvp[PVP_OBS_OPPONENT_STEALTHED] = opponent->HasAuraType(SPELL_AURA_MOD_STEALTH) ? 1.0f : 0.0f;
-    pvp[PVP_OBS_OPPONENT_PET_OUT] = opponent->GetPetGUID() || !opponent->m_Controlled.empty() ? 1.0f : 0.0f;
-
-    if (Spell const* cast = opponent->GetCurrentSpell(CURRENT_GENERIC_SPELL))
-        if (cast->m_spellInfo->HasEffect(SPELL_EFFECT_HEAL) || cast->m_spellInfo->HasAura(SPELL_AURA_PERIODIC_HEAL))
-            pvp[PVP_OBS_OPPONENT_HEALING] = 1.0f;
 }
 
 float AnimusForge::ClassRoleScenario::PvpReward(Env& env, uint32 seatIndex, Player* bot)

@@ -46,18 +46,6 @@ namespace
 {
     using AnimusForge::ActionCatalog;
 
-    constexpr std::array<uint8, 10> PLAYABLE_RACES =
-    {
-        RACE_HUMAN, RACE_ORC, RACE_DWARF, RACE_NIGHTELF, RACE_UNDEAD_PLAYER, RACE_TAUREN, RACE_GNOME, RACE_TROLL,
-        RACE_BLOODELF, RACE_DRAENEI
-    };
-
-    constexpr std::array<ShapeshiftForm, 13> TRACKED_FORMS =
-    {
-        FORM_NONE, FORM_CAT, FORM_TREE, FORM_BEAR, FORM_DIREBEAR, FORM_MOONKIN, FORM_SHADOW, FORM_STEALTH,
-        FORM_BATTLESTANCE, FORM_DEFENSIVESTANCE, FORM_BERSERKERSTANCE, FORM_METAMORPHOSIS, FORM_GHOSTWOLF
-    };
-
     enum ClassRoleSpells : uint32
     {
         SPELL_BATTLE_STANCE     = 2457,
@@ -66,9 +54,6 @@ namespace
 
     constexpr float MELEE_DISTANCE = 2.0f;
     constexpr float RANGED_DISTANCE = 20.0f;
-    constexpr float GCD_MS = 1500.0f;
-    constexpr float RUNE_COOLDOWN_MS = 10000.0f;
-    constexpr float TALENT_POINTS_AT_MAX_LEVEL = 71.0f;
     constexpr float PARTY_SPACING = 3.0f;
     constexpr uint32 SEAT_ACCOUNT_SLOTS = AnimusForge::ClassRoleScenario::MAX_SEATS * 2;
 
@@ -77,66 +62,6 @@ namespace
     float DamageScaleForLevel(uint8 level)
     {
         return 15.0f * std::exp(0.068f * float(level));
-    }
-
-    float CooldownFraction(Player const* bot, SpellInfo const* info)
-    {
-        uint32 const full = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
-        return full ? std::min(1.0f, float(bot->GetSpellCooldownDelay(info->Id)) / float(full)) : 0.0f;
-    }
-
-    float AuraFraction(Unit const* unit, uint32 spellId, ObjectGuid caster, float& stacks)
-    {
-        Aura const* aura = unit->GetAura(spellId, caster);
-        if (!aura)
-            return 0.0f;
-
-        stacks = std::max(stacks, std::min(1.0f, float(std::max(aura->GetStackAmount(), aura->GetCharges())) / 5.0f));
-        if (aura->GetMaxDuration() <= 0)
-            return 1.0f;    // permanent (stances, forms, presences, auras)
-
-        return std::clamp(float(aura->GetDuration()) / float(aura->GetMaxDuration()), 0.0f, 1.0f);
-    }
-
-    SpellCastTargets TargetsFor(SpellInfo const* info, Player* bot, Unit* target)
-    {
-        SpellCastTargets targets;
-
-        // No target (between gauntlet pulls): only self-cast spells can succeed.
-        if (target && (info->GetExplicitTargetMask() & TARGET_FLAG_DEST_LOCATION))
-            targets.SetDst(*target);
-
-        if (info->NeedsExplicitUnitTarget() && target && !info->IsPositive())
-            targets.SetUnitTarget(target);
-        else
-            targets.SetUnitTarget(bot);
-
-        return targets;
-    }
-
-    /// A cast in its cast time (channels excluded): the client refuses to start another spell or use an item
-    /// meanwhile. The core only checks this for client casts (m_cast_count), so the bot's actions check it
-    /// here -- otherwise a new cast would silently cancel the one in progress. Stopping it is its own action.
-    bool CastInProgress(Player const* bot)
-    {
-        return bot->IsNonMeleeSpellCast(false, true, true);
-    }
-
-    /// The core's own cast validation, without casting: cooldown, GCD, power, stance, range, facing,
-    /// reagents, reactive requirements. Same pattern as PetAI.
-    bool CanCast(Player* bot, SpellInfo const* info, Unit* target, Item* castItem = nullptr)
-    {
-        Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-        spell->m_CastItem = castItem;
-        spell->LoadScripts();
-
-        SpellCastTargets targets = TargetsFor(info, bot, target);
-        spell->InitExplicitTargets(targets);
-
-        SpellCastResult const result = spell->CheckCast(true);
-        delete spell;
-
-        return result == SPELL_CAST_OK;
     }
 }
 
@@ -611,99 +536,6 @@ void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, Seat c
     dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * seat.StartHealth)));
 }
 
-SpellInfo const* AnimusForge::ClassRoleScenario::TrinketSpell(Item const* item)
-{
-    if (!item)
-        return nullptr;
-
-    for (_Spell const& spellData : item->GetTemplate()->Spells)
-        if (spellData.SpellId > 0 && spellData.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE)
-            return sSpellMgr->GetSpellInfo(spellData.SpellId);
-
-    return nullptr;
-}
-
-bool AnimusForge::ClassRoleScenario::IsActionAllowed(Seat const& seat, Player* bot, Unit* target, uint32 action) const
-{
-    ActionCatalog::Action const& def = seat.L->Catalog().Actions()[action];
-
-    switch (def.Type)
-    {
-        case ActionCatalog::Kind::Noop:
-            return true;
-        case ActionCatalog::Kind::CancelQueued:
-            return bot->GetCurrentSpell(CURRENT_MELEE_SPELL) != nullptr;
-        case ActionCatalog::Kind::Trinket:
-        {
-            Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, def.EquipmentSlot);
-            SpellInfo const* info = TrinketSpell(item);
-            return info && !CastInProgress(bot) && !bot->HasSpellCooldown(info->Id) && CanCast(bot, info, target, item);
-        }
-        case ActionCatalog::Kind::Spell:
-            break;
-    }
-
-    return IsSpellActionAllowed(bot, target, def);
-}
-
-bool AnimusForge::ClassRoleScenario::IsSpellActionAllowed(Player* bot, Unit* target,
-    ActionCatalog::Action const& def) const
-{
-    // Cheap rejections before the full cast check.
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, def.FirstRank);
-    if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id) || CastInProgress(bot))
-        return false;
-
-    if (def.NextSwing && bot->GetCurrentSpell(CURRENT_MELEE_SPELL))
-        return false;
-
-    if (bot->GetGlobalCooldownMgr().HasGlobalCooldown(info))
-        return false;
-
-    // Server-driven movement does not set the movement flags CheckCast looks at: no cast-time or
-    // channeled spell while running.
-    if (HasDuel() && !bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
-        return false;
-
-    return CanCast(bot, info, target);
-}
-
-bool AnimusForge::ClassRoleScenario::ApplySpellAction(Player* bot, Unit* target, ActionCatalog::Action const& def,
-    Seat& seat) const
-{
-    if (def.NextSwing && bot->GetCurrentSpell(CURRENT_MELEE_SPELL))
-        return false;
-
-    SpellInfo const* info = ActionCatalog::KnownRank(bot, def.FirstRank);
-    if (!info || !bot->HasActiveSpell(info->Id) || CastInProgress(bot))
-        return false;
-
-    // Same path as CMSG_CAST_SPELL. prepare() runs the full cast validation again, so a masked action
-    // from a misbehaving client simply fails. The spell owns and frees itself.
-    SpellCastTargets targets = TargetsFor(info, bot, target);
-    bool const stealthed = bot->HasAuraType(SPELL_AURA_MOD_STEALTH);
-    bool const targetCasting = target && target->IsNonMeleeSpellCast(false);
-    Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-    if (spell->prepare(&targets) != SPELL_CAST_OK)
-        return false;
-
-    ++seat.SpellCasts;
-
-    // A stealth opener (Ambush, Garrote, Cheap Shot, Ravage, Pounce, ...) on the opponent.
-    if (HasDuel() && stealthed && info->HasAttribute(SPELL_ATTR0_ONLY_STEALTHED)
-        && info->NeedsExplicitUnitTarget() && !info->IsPositive())
-    {
-        seat.StepStealthOpener = true;
-        ++seat.StealthOpeners;
-    }
-
-    // An interrupt attempt on a casting enemy; the reward checks next decision whether the cast stopped.
-    if (HasPack() && targetCasting && target != bot && ActionCatalog::IsInterruptingSpell(info))
-        seat.PendingInterrupt = target->GetGUID();
-
-    return true;
-}
-
 void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const
 {
     float const progress = env.EpisodeLengthMs
@@ -726,6 +558,69 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
         ApplySeatAction(env, seat, actions[seat]);
 }
 
+AnimusForge::SeatView AnimusForge::ClassRoleScenario::ViewSeat(Env const& env, uint32 seatIndex, Player* bot,
+    Unit* target) const
+{
+    EnvData const& data = _data[env.Index];
+    Seat const& seat = data.Seats[seatIndex];
+
+    SeatView view;
+    view.L = seat.L;
+    view.Bot = bot;
+    view.Target = target;
+    view.Level = seat.Level;
+    view.Race = seat.Race;
+    view.Spec = seat.Spec;
+    view.Build = &seat.Build;
+    view.LastStepDamage = seat.LastStepDamage;
+    view.LastStepPowerDelta = seat.LastStepPowerDelta;
+    view.LastStepDamageTaken = seat.LastStepDamageTaken;
+    view.EpisodeTime = env.EpisodeLengthMs
+        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
+
+    view.StableCount = uint32(std::min<std::size_t>(seat.Stable.size(), STABLE_SLOTS));
+    std::copy_n(seat.Stable.begin(), view.StableCount, view.Stable.begin());
+
+    view.EnemyCount = uint32(std::min<std::size_t>(env.Targets.size(), PACK_SLOTS));
+    for (uint32 slot = 0; slot < view.EnemyCount; ++slot)
+        view.Enemies[slot] = env.FindTargetUnit(slot);
+    view.TargetSlot = seat.TargetSlot;
+
+    if (HasGauntlet())
+        ViewPull(env, view);
+    view.FoodItem = seat.FoodItem;
+    view.DrinkItem = seat.DrinkItem;
+
+    if (HasCompanion())
+        view.Owner = FindOwner(data);
+
+    if (HasParty())
+    {
+        for (uint32 slot = 0; slot < PARTY_MEMBERS; ++slot)
+        {
+            uint32 const teammateSeat = TeammateSeat(seatIndex, slot);
+            if (teammateSeat >= _seatCount || !data.Seats[teammateSeat].L)
+                continue;
+
+            Layout const& other = *data.Seats[teammateSeat].L;
+            view.Teammates[slot] = { env.FindBot(teammateSeat), other.PlayRole(), other.Profile->Class };
+        }
+
+        view.Tank = PartyTank(data);
+    }
+
+    if (HasPvp())
+    {
+        Seat const* other = IsArena() ? &data.Seats[1 - seatIndex] : nullptr;
+        view.Opponent = FindOpponent(env, seatIndex);
+        view.OpponentClass = other && other->L ? other->L->Profile->Class : data.OpponentClass;
+        view.OpponentRole = other && other->L ? other->L->PlayRole() : data.OpponentRole;
+        view.Mirror = IsArena();
+    }
+
+    return view;
+}
+
 void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex, int32 action)
 {
     Player* bot = env.FindBot(seatIndex);
@@ -733,7 +628,6 @@ void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex,
         return;
 
     Seat& seat = _data[env.Index].Seats[seatIndex];
-    Layout const& layout = *seat.L;
     Unit* target = CurrentTarget(env, seatIndex);
 
     // Only the gauntlet has moments without a target (between pulls).
@@ -742,78 +636,29 @@ void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex,
 
     if (_mode == ArenaMode::Dummy)
         UpdateDummyHealth(env, seat, target);
-    else
+
+    SeatView view = ViewSeat(env, seatIndex, bot, target);
+    SeatActionResult result;
+    SeatEncoder::Apply(view, action, result);
+
+    seat.TargetSlot = view.TargetSlot;
+    seat.SpellCasts += result.SpellCasts;
+    seat.TrinketUses += result.TrinketUses;
+    seat.SustainCasts += result.SustainCasts;
+    seat.FoodUsed += result.FoodUsed;
+    seat.DrinkUsed += result.DrinkUsed;
+
+    if (result.StealthOpener)
     {
-        // Face the target whenever not running somewhere: casts and swings need it, and turning is not a decision
-        // worth learning.
-        if (target && bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, target))
-            bot->SetFacingToObject(target);
-
-        if (HasParty() && action >= int32(layout.PartyActionFirst))
-        {
-            ApplyPartyAction(env, seatIndex, bot, uint32(action) - layout.PartyActionFirst);
-            return;
-        }
-
-        if (HasCompanion() && action >= int32(layout.CompanionActionFirst)
-            && action < int32(layout.CompanionActionFirst + layout.CompanionActionCount))
-        {
-            ApplyCompanionAction(env, seatIndex, bot, uint32(action) - layout.CompanionActionFirst);
-            return;
-        }
-
-        if (HasGauntlet() && action >= int32(layout.GauntletActionFirst)
-            && action < int32(layout.GauntletActionFirst + layout.GauntletActionCount))
-        {
-            ApplyGauntletAction(bot, target, uint32(action) - layout.GauntletActionFirst, seat);
-            return;
-        }
-
-        if (HasPack() && action >= int32(layout.PackActionFirst)
-            && action < int32(layout.PackActionFirst + layout.PackActionCount))
-        {
-            ApplyPackAction(env, seatIndex, bot, target, uint32(action) - layout.PackActionFirst);
-            return;
-        }
-
-        if (action >= int32(layout.DuelActionFirst) && action < int32(layout.DuelActionFirst + layout.DuelActionCount))
-        {
-            // Stopping a cast and leaving a form need no target; ApplyDuelAction checks the rest.
-            ApplyDuelAction(bot, target, uint32(action) - layout.DuelActionFirst, seat);
-            return;
-        }
+        seat.StepStealthOpener = true;
+        ++seat.StealthOpeners;
     }
 
-    std::vector<ActionCatalog::Action> const& catalog = layout.Catalog().Actions();
-    if (action <= 0 || action >= int32(catalog.size()))
-        return;
+    if (!result.PendingInterrupt.IsEmpty())
+        seat.PendingInterrupt = result.PendingInterrupt;
 
-    ActionCatalog::Action const& def = catalog[action];
-    switch (def.Type)
-    {
-        case ActionCatalog::Kind::Noop:
-            return;
-        case ActionCatalog::Kind::CancelQueued:
-            if (bot->GetCurrentSpell(CURRENT_MELEE_SPELL))
-                bot->InterruptSpell(CURRENT_MELEE_SPELL);
-            return;
-        case ActionCatalog::Kind::Trinket:
-        {
-            Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, def.EquipmentSlot);
-            SpellInfo const* info = TrinketSpell(item);
-            if (!info || bot->HasSpellCooldown(info->Id))
-                return;
-
-            bot->CastItemUseSpell(item, TargetsFor(info, bot, target), 1, 0);
-            if (bot->HasSpellCooldown(info->Id))
-                ++seat.TrinketUses;
-            return;
-        }
-        case ActionCatalog::Kind::Spell:
-            break;
-    }
-
-    ApplySpellAction(bot, target, def, seat);
+    if (result.CallBeast && DuelArena::CallHunterBeast(bot, result.CallBeast))
+        SeatEncoder::StartCallBeastCooldown(bot);
 }
 
 void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
@@ -837,159 +682,12 @@ void AnimusForge::ClassRoleScenario::ObserveSeat(Env& env, uint32 seatIndex, flo
     std::fill(mask, mask + _spec.NumActions, 0);
     mask[0] = 1;
 
-    Seat const& seat = _data[env.Index].Seats[seatIndex];
-    if (!seat.L)
+    if (!_data[env.Index].Seats[seatIndex].L)
         return;
 
-    Layout const& layout = *seat.L;
     Player* bot = env.FindBot(seatIndex);
     Unit* target = CurrentTarget(env, seatIndex);      // may be null between gauntlet pulls
-
-    obs[OBS_LEVEL] = float(seat.Level) / float(DEFAULT_MAX_LEVEL);
-    for (uint32 i = 0; i < PLAYABLE_RACES.size(); ++i)
-        obs[OBS_RACE_FIRST + i] = PLAYABLE_RACES[i] == seat.Race ? 1.0f : 0.0f;
-    obs[OBS_SPEC_FIRST + std::min<uint32>(seat.Spec, MAX_SPECS - 1)] = 1.0f;
-
-    if (bot && bot->IsAlive() && (target || HasGauntlet()))
-    {
-        ObjectGuid const botGuid = bot->GetGUID();
-        uint8 const level = bot->GetLevel();
-
-        obs[OBS_HEALTH] = bot->GetHealthPct() / 100.0f;
-        if (uint32 const maxMana = bot->GetMaxPower(POWER_MANA))
-            obs[OBS_MANA] = float(bot->GetPower(POWER_MANA)) / float(maxMana);
-        obs[OBS_RAGE] = float(bot->GetPower(POWER_RAGE)) / 1000.0f;
-        if (uint32 const maxEnergy = bot->GetMaxPower(POWER_ENERGY))
-            obs[OBS_ENERGY] = float(bot->GetPower(POWER_ENERGY)) / float(maxEnergy);
-        obs[OBS_RUNIC_POWER] = float(bot->GetPower(POWER_RUNIC_POWER)) / 1000.0f;
-
-        if (bot->getClass() == CLASS_DEATH_KNIGHT)
-            for (uint8 rune = 0; rune < MAX_RUNES; ++rune)
-                obs[OBS_RUNE_FIRST + rune] = 1.0f
-                    - std::min(1.0f, float(bot->GetRuneCooldown(rune)) / RUNE_COOLDOWN_MS);
-
-        if (target)
-            obs[OBS_COMBO_POINTS] = float(bot->GetComboPoints(target)) / 5.0f;
-
-        ShapeshiftForm const form = bot->GetShapeshiftForm();
-        for (uint32 i = 0; i < TRACKED_FORMS.size(); ++i)
-            obs[OBS_FORM_FIRST + i] = TRACKED_FORMS[i] == form ? 1.0f : 0.0f;
-
-        obs[OBS_CASTING] = bot->IsNonMeleeSpellCast(false, false, true) ? 1.0f : 0.0f;
-        obs[OBS_QUEUED_NEXT_SWING] = bot->GetCurrentSpell(CURRENT_MELEE_SPELL) ? 1.0f : 0.0f;
-
-        for (auto const& [index, attack] : { std::pair{ OBS_MAIN_HAND_SWING, BASE_ATTACK },
-            std::pair{ OBS_OFF_HAND_SWING, OFF_ATTACK }, std::pair{ OBS_RANGED_SWING, RANGED_ATTACK } })
-        {
-            if (uint32 const attackTime = bot->GetAttackTime(attack))
-                obs[index] = std::clamp(float(bot->getAttackTimer(attack)) / float(attackTime), 0.0f, 1.0f);
-        }
-
-        obs[OBS_MAIN_HAND_SPEED] = float(bot->GetAttackTime(BASE_ATTACK)) / 4000.0f;
-        if (target)
-        {
-            obs[OBS_TARGET_HEALTH] = target->GetHealthPct() / 100.0f;
-            obs[OBS_TARGET_DISTANCE] = std::min(1.0f, bot->GetDistance(target) / 40.0f);
-            obs[OBS_IN_MELEE_FRONT] = bot->IsWithinMeleeRange(target) && bot->HasInArc(2 * float(M_PI) / 3, target)
-                ? 1.0f : 0.0f;
-        }
-
-        obs[OBS_ATTACK_POWER] = bot->GetTotalAttackPowerValue(BASE_ATTACK) / (100.0f + 50.0f * level);
-        obs[OBS_SPELL_POWER] = float(bot->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_MAGIC)) / (50.0f + 30.0f * level);
-        obs[OBS_MELEE_CRIT] = bot->GetFloatValue(PLAYER_CRIT_PERCENTAGE) / 100.0f;
-
-        float spellCrit = 0.0f;
-        for (uint8 school = SPELL_SCHOOL_HOLY; school < MAX_SPELL_SCHOOL; ++school)
-            spellCrit = std::max(spellCrit, bot->GetFloatValue(PLAYER_SPELL_CRIT_PERCENTAGE1 + school));
-        obs[OBS_SPELL_CRIT] = spellCrit / 100.0f;
-
-        obs[OBS_MELEE_HASTE] = bot->GetRatingBonusValue(CR_HASTE_MELEE) / 100.0f;
-        obs[OBS_SPELL_HASTE] = bot->GetRatingBonusValue(CR_HASTE_SPELL) / 100.0f;
-        obs[OBS_MELEE_HIT] = bot->GetRatingBonusValue(CR_HIT_MELEE) / 100.0f;
-        obs[OBS_SPELL_HIT] = bot->GetRatingBonusValue(CR_HIT_SPELL) / 100.0f;
-        obs[OBS_EXPERTISE] = float(bot->GetUInt32Value(PLAYER_EXPERTISE)) / 30.0f;
-        obs[OBS_ARMOR_PENETRATION] = bot->GetRatingBonusValue(CR_ARMOR_PENETRATION) / 100.0f;
-        obs[OBS_LAST_STEP_DAMAGE] = seat.LastStepDamage;
-        obs[OBS_LAST_STEP_POWER_DELTA] = seat.LastStepPowerDelta;
-
-        std::vector<ActionCatalog::Action> const& actions = layout.Catalog().Actions();
-        for (uint32 action = 0; action < actions.size(); ++action)
-        {
-            SpellInfo const* info = nullptr;
-            if (actions[action].Type == ActionCatalog::Kind::Spell)
-                info = ActionCatalog::KnownRank(bot, actions[action].FirstRank);
-            else if (actions[action].Type == ActionCatalog::Kind::Trinket)
-                info = TrinketSpell(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, actions[action].EquipmentSlot));
-
-            if (info)
-            {
-                float* features = obs + layout.ActionObsFirst + action * ACTION_FEATURES;
-                float stacks = 0.0f;
-                features[0] = 1.0f;
-                features[1] = CooldownFraction(bot, info);
-                features[2] = target ? AuraFraction(target, info->Id, botGuid, stacks) : 0.0f;
-                features[3] = AuraFraction(bot, info->Id, botGuid, stacks);
-                features[4] = stacks;
-
-                if (!obs[OBS_GCD] && info->StartRecoveryTime)
-                    obs[OBS_GCD] = std::min(1.0f, float(bot->GetGlobalCooldownMgr().GetGlobalCooldown(info)) / GCD_MS);
-            }
-
-            if (action > 0)
-                mask[action] = IsActionAllowed(seat, bot, target, action) ? 1 : 0;
-        }
-
-        if (HasDuel())
-        {
-            ObserveDuel(env, seat, bot, target, obs);
-            for (uint32 duelAction = 0; duelAction < layout.DuelActionCount; ++duelAction)
-                mask[layout.DuelActionFirst + duelAction] = IsDuelActionAllowed(bot, target, duelAction, seat) ? 1 : 0;
-        }
-
-        if (HasPack())
-        {
-            ObservePack(env, seatIndex, bot, obs);
-            std::vector<ActionCatalog::Action> const& tactical = layout.Catalog().Tactical();
-            for (uint32 packAction = 0; packAction < layout.PackActionCount; ++packAction)
-                mask[layout.PackActionFirst + packAction] = packAction < PACK_SLOTS
-                    ? IsPackActionAllowed(env, seatIndex, bot, packAction)
-                    : target && IsSpellActionAllowed(bot, target, tactical[packAction - PACK_SLOTS]);
-        }
-
-        if (HasGauntlet())
-        {
-            ObserveGauntlet(env, seatIndex, bot, obs);
-            for (uint32 gauntletAction = 0; gauntletAction < layout.GauntletActionCount; ++gauntletAction)
-                mask[layout.GauntletActionFirst + gauntletAction] =
-                    IsGauntletActionAllowed(bot, target, gauntletAction, seat) ? 1 : 0;
-        }
-
-        if (HasCompanion())
-        {
-            ObserveCompanion(env, seatIndex, bot, obs);
-            for (uint32 companionAction = 0; companionAction < layout.CompanionActionCount; ++companionAction)
-                mask[layout.CompanionActionFirst + companionAction] =
-                    IsCompanionActionAllowed(env, seatIndex, bot, companionAction) ? 1 : 0;
-        }
-
-        if (HasParty())
-        {
-            ObserveParty(env, seatIndex, bot, obs);
-            for (uint32 partyAction = 0; partyAction < layout.PartyActionCount; ++partyAction)
-                mask[layout.PartyActionFirst + partyAction] =
-                    IsPartyActionAllowed(env, seatIndex, bot, partyAction) ? 1 : 0;
-        }
-
-        if (HasPvp())
-            ObservePvp(env, seatIndex, bot, obs);
-    }
-
-    std::vector<TalentBuilder::Talent> const& talents = layout.Assets->Talents->Talents();
-    for (uint32 i = 0; i < talents.size() && i < seat.Build.Ranks.size(); ++i)
-        obs[layout.TalentObsFirst + i] = float(seat.Build.Ranks[i]) / float(std::max<uint8>(1, talents[i].MaxRank));
-
-    for (uint32 tree = 0; tree < TalentBuilder::TREE_COUNT; ++tree)
-        obs[layout.TreeObsFirst + tree] = float(seat.Build.TreePoints[tree]) / TALENT_POINTS_AT_MAX_LEVEL;
+    SeatEncoder::Observe(ViewSeat(env, seatIndex, bot, target), obs, mask);
 }
 
 void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
