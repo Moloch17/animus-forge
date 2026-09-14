@@ -20,6 +20,7 @@
 #define MOD_ANIMUS_FORGE_BOT_FACTORY_H
 
 #include "Define.h"
+#include "ObjectGuid.h"
 #include <string>
 
 class Map;
@@ -37,6 +38,12 @@ namespace AnimusForge::BotFactory
         uint8 Gender = 0;
         uint8 Level = 1;
         uint32 AccountId = 0;
+
+        /// Player GUID counter to create the bot with; 0 = a new one. A scenario that rebuilds bots
+        /// reuses a fixed set: the core keeps some per-GUID state for the life of the server (e.g.
+        /// InstanceSaveMgr's bind storage), so a new GUID per rebuild would grow memory forever.
+        /// The previous bot with the GUID must be destroyed first.
+        ObjectGuid::LowType GuidLow = 0;
     };
 
     /// Build a socketless session and a freshly created (never saved) character.

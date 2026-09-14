@@ -223,12 +223,14 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
     spec.Level = data.Level;
     spec.AccountId = TrainingDummyArena::BOT_ACCOUNT_BASE + env.Index * 2 + session;
+    spec.GuidLow = data.Guids[session];
 
     Player* bot = BotFactory::Create(spec, data.Sessions[session]);
     if (!bot)
         return false;
 
     data.Sessions[session] = bot->GetSession();
+    data.Guids[session] = bot->GetGUID().GetCounter();
 
     Map* map = oldBot ? oldBot->GetMap() : nullptr;
     if (map ? !BotFactory::PlaceInMap(bot, map, _arenaPosition)

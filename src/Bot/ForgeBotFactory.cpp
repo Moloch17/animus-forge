@@ -79,7 +79,9 @@ Player* AnimusForge::BotFactory::Create(BotSpec const& spec, WorldSession* sessi
     bot->GetMotionMaster()->Initialize();
 
     BotCreateInfo info(spec);
-    if (!bot->Create(sObjectMgr->GetGenerator<HighGuid::Player>().Generate(), &info))
+    ObjectGuid::LowType const guidLow = spec.GuidLow
+        ? spec.GuidLow : sObjectMgr->GetGenerator<HighGuid::Player>().Generate();
+    if (!bot->Create(guidLow, &info))
     {
         LOG_ERROR("module.animus", "Player::Create failed for bot {} (race {}, class {})", spec.Name, spec.Race,
             spec.Class);
@@ -176,6 +178,12 @@ WorldSession* AnimusForge::BotFactory::Destroy(Player* bot, bool keepSession)
     // A dead bot would be repopped at a graveyard (a far teleport) by LogoutPlayer.
     if (!bot->IsAlive())
         bot->ResurrectPlayer(1.0f);
+
+    // Totems, guardians and pets (trinket summons, warlock demons, ghouls, ...) find their owner through
+    // ObjectAccessor when they unsummon, to leave its controlled list; do it while the bot is still
+    // registered, or ~Unit finds them still listed.
+    bot->UnsummonAllTotems();
+    bot->RemoveAllControlled();
 
     // LogoutPlayer announces the logout to the player's friends, which looks the player up as a
     // connected player and reads its social list -- null for a bot (see the top of this file).

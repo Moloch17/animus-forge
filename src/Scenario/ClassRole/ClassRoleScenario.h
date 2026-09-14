@@ -23,6 +23,7 @@
 #include "ClassKit.h"
 #include "ClassRoleProfile.h"
 #include "GearBuilder.h"
+#include "ObjectGuid.h"
 #include "Position.h"
 #include "Scenario.h"
 #include "TalentBuilder.h"
@@ -133,6 +134,7 @@ namespace AnimusForge
         struct EnvData
         {
             std::array<WorldSession*, 2> Sessions{};    // alternate so the old bot outlives the new one's placement
+            std::array<ObjectGuid::LowType, 2> Guids{}; // one GUID per session slot, reused (see BotSpec::GuidLow)
             uint8 ActiveSession = 0;
             bool Fresh = false;                         // built by Setup, not yet reset
 
