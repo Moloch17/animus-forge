@@ -56,6 +56,10 @@ AnimusForge.Enable = 0
 #                     Class/role gauntlet stage, "<class>_<role>_gauntlet": pull after pull (packs,
 #                     elites, higher levels) with short breaks; heals, food and drink to recover.
 #                     Seeded from the pack model. Ends on death or at the episode length.
+#                     Class/role companion stage, "<class>_<role>_companion": the gauntlet beside a
+#                     scripted owner of a random class; follow, assist, guard and heal it. Tanks keep
+#                     enemies off it, healers are rewarded for effective healing on it, damage dealers
+#                     avoid pulling threat. Seeded from the gauntlet model. Ends when either dies.
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
@@ -124,9 +128,10 @@ AnimusForge.EpisodeSeconds = 60
 #                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
 #                                         then Heroic Strike at the rage threshold
 #                     "greedy"          - (class/role scenarios) first usable spell or trinket
-#                     "fight"           - (class/role duel, pack, gauntlet) start attacking, run
+#                     "fight"           - (class/role duel stage on) start attacking, run
 #                                         to the target, first usable spell; eat and drink
-#                                         between gauntlet pulls
+#                                         between gauntlet pulls; heal a hurt companion owner
+#                                         (leaving a form to do it)
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"

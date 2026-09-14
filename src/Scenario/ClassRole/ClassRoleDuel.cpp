@@ -17,8 +17,8 @@
  */
 
 /*
- * The duel stage of ClassRoleScenario (ArenaMode::Duel): movement and pet actions, the duel
- * observations and the kill-fast, take-little-damage reward.
+ * The duel stage of ClassRoleScenario (ArenaMode::Duel): movement, pet, stop-casting and cancel-form
+ * actions, the duel observations and the kill-fast, take-little-damage, finish-your-casts reward.
  */
 
 #include "ClassRoleScenario.h"
@@ -31,6 +31,8 @@
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
+#include "Spell.h"
+#include "SpellAuraEffects.h"
 #include "SpellMgr.h"
 #include <algorithm>
 #include <cmath>
@@ -62,6 +64,11 @@ namespace
     constexpr float FAST_KILL = 3.0f;           // times the fraction of the episode still left
     constexpr float HEALTH_KEPT = 2.0f;         // times the fraction of the bot's health not lost
     constexpr float DEATH = 3.0f;
+    // Casting: a cast-time spell cut short (by moving, stopping, an interrupt or death) costs the cast time
+    // already spent, and one that finishes in combat earns a little per second of cast time. Neither forces
+    // anything: cutting a cast short stays the policy's call when something else is worth more.
+    constexpr float CAST_TIME_WASTED = 0.05f;   // per second spent on a cast that did not finish
+    constexpr float CAST_TIME_COMPLETED = 0.02f; // per second of cast time of a cast that finished, in combat
 
     constexpr uint32 IMMOBILE_STATES = UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
 
@@ -73,6 +80,20 @@ namespace
         for (Unit* controlled : bot->m_Controlled)
             if (controlled->IsAlive() && !controlled->IsTotem())
                 return controlled;
+
+        return nullptr;
+    }
+
+    /// A shapeshift the player could cancel from the client (druid forms, Shadowform, Ghost Wolf, Stealth);
+    /// stances and presences cannot be.
+    SpellInfo const* CancellableForm(Player const* bot)
+    {
+        for (AuraEffect const* effect : bot->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
+        {
+            SpellInfo const* info = effect->GetSpellInfo();
+            if (!info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL) && info->IsPositive() && !info->IsPassive())
+                return info;
+        }
 
         return nullptr;
     }
@@ -105,10 +126,19 @@ void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Creature* /*opponent
 bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Creature* opponent, uint32 duelAction,
     EnvData const& data) const
 {
-    if (!bot->IsAlive() || !opponent->IsAlive())
+    if (!bot->IsAlive())
         return false;
 
     bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
+
+    // No target needed (between gauntlet pulls too).
+    if (duelAction == DUEL_ACTION_STOP_CASTING)
+        return casting;
+    if (duelAction == DUEL_ACTION_CANCEL_FORM)
+        return CancellableForm(bot) != nullptr;
+
+    if (!opponent || !opponent->IsAlive())
+        return false;
     bool const canMove = !casting && !bot->HasUnitState(IMMOBILE_STATES);
 
     switch (duelAction)
@@ -176,6 +206,15 @@ void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Creature* oppo
         case DUEL_ACTION_PET_ATTACK:
             DuelArena::PetAttack(bot, opponent);
             return;
+        case DUEL_ACTION_STOP_CASTING:
+            // As CMSG_CANCEL_CAST / CMSG_CANCEL_CHANNELLING: the current cast or channel, cancelled by the caster.
+            bot->InterruptNonMeleeSpells(false, 0, false, true);
+            return;
+        case DUEL_ACTION_CANCEL_FORM:
+            // As CMSG_CANCEL_AURA.
+            if (SpellInfo const* form = CancellableForm(bot))
+                bot->RemoveOwnedAura(form->Id, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
+            return;
         default:
         {
             uint32 const slot = duelAction - DUEL_ACTION_CALL_BEAST_FIRST;
@@ -194,6 +233,48 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Cr
 {
     EnvData const& data = _data[env.Index];
     float* duel = obs + _duelObsFirst;
+
+    // The bot's own casting and form, with or without a target.
+    if (Spell* cast = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        cast && cast->getState() == SPELL_STATE_PREPARING && cast->GetCastTime() > 0)
+    {
+        float const total = float(cast->GetCastTime());
+        float const left = std::clamp(float(cast->GetCastTimeRemaining()), 0.0f, total);
+        duel[DUEL_OBS_CAST_PROGRESS] = 1.0f - left / total;
+        duel[DUEL_OBS_CAST_REMAINING] = std::min(1.0f, left / 3000.0f);
+    }
+    else if (Spell* channel = bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
+        channel && channel->getState() == SPELL_STATE_CASTING)
+    {
+        float const left = float(std::max(0, channel->GetCastTimeRemaining()));
+        float const total = std::max(left, float(std::max(1, channel->m_spellInfo->GetMaxDuration())));
+        duel[DUEL_OBS_CAST_PROGRESS] = 1.0f - left / total;
+        duel[DUEL_OBS_CAST_REMAINING] = std::min(1.0f, left / 3000.0f);
+    }
+
+    duel[DUEL_OBS_SHAPESHIFTED] = CancellableForm(bot) ? 1.0f : 0.0f;
+
+    duel[DUEL_OBS_EPISODE_TIME] = env.EpisodeLengthMs
+        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
+
+    // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
+    for (uint32 slot = 0; slot < data.Stable.size() && slot < STABLE_SLOTS; ++slot)
+    {
+        CreatureTemplate const* beast = sObjectMgr->GetCreatureTemplate(data.Stable[slot]);
+        if (!beast)
+            continue;
+
+        float* features = duel + DUEL_OBS_STABLE_FIRST + slot * STABLE_FEATURES;
+        features[0] = 1.0f;
+        features[1] = float(beast->family) / 50.0f;
+
+        if (CreatureFamilyEntry const* family = sCreatureFamilyStore.LookupEntry(beast->family))
+            if (family->petTalentType >= 0 && family->petTalentType < 3)
+                features[2 + family->petTalentType] = 1.0f;     // ferocity, tenacity, cunning
+    }
+
+    if (!opponent)
+        return;
 
     float const bearing = bot->GetRelativeAngle(opponent);
     duel[DUEL_OBS_DISTANCE] = std::min(1.0f, bot->GetDistance(opponent) / 60.0f);
@@ -217,25 +298,6 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Cr
         duel[DUEL_OBS_PET_HEALTH] = pet->GetHealthPct() / 100.0f;
         duel[DUEL_OBS_PET_ATTACKING] = pet->GetVictim() == opponent ? 1.0f : 0.0f;
     }
-
-    duel[DUEL_OBS_EPISODE_TIME] = env.EpisodeLengthMs
-        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
-
-    // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
-    for (uint32 slot = 0; slot < data.Stable.size() && slot < STABLE_SLOTS; ++slot)
-    {
-        CreatureTemplate const* beast = sObjectMgr->GetCreatureTemplate(data.Stable[slot]);
-        if (!beast)
-            continue;
-
-        float* features = duel + DUEL_OBS_STABLE_FIRST + slot * STABLE_FEATURES;
-        features[0] = 1.0f;
-        features[1] = float(beast->family) / 50.0f;
-
-        if (CreatureFamilyEntry const* family = sCreatureFamilyStore.LookupEntry(beast->family))
-            if (family->petTalentType >= 0 && family->petTalentType < 3)
-                features[2 + family->petTalentType] = 1.0f;     // ferocity, tenacity, cunning
-    }
 }
 
 float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Creature* opponent, EnvData& data) const
@@ -253,6 +315,7 @@ float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Cr
     data.DamageTaken += step.DamageTaken;
     data.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
     reward -= DAMAGE_TAKEN * data.LastStepDamageTaken;
+    reward += CastReward(bot, step, data);
 
     // Potential-based shaping on the distance still to close to the spec's range: it pays for getting
     // there and takes it back for leaving, so it cannot be farmed.
@@ -291,6 +354,21 @@ float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Cr
     return reward;
 }
 
+float AnimusForge::ClassRoleScenario::CastReward(Player* bot, AgentStats const& step, EnvData& data)
+{
+    data.CastsCompleted += step.CastsCompleted;
+    data.CastsCancelled += step.CastsCancelled;
+    data.CastMsWasted += step.CastMsWasted;
+
+    float reward = -CAST_TIME_WASTED * float(step.CastMsWasted) / 1000.0f;
+
+    // Only in combat, so casting long spells at nothing is not a way to earn it.
+    if (bot->IsInCombat())
+        reward += CAST_TIME_COMPLETED * float(step.CastMsCompleted) / 1000.0f;
+
+    return reward;
+}
+
 void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, float* info) const
 {
     EnvData const& data = _data[env.Index];
@@ -304,4 +382,7 @@ void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, float* info
     info[DUEL_INFO_STEALTH_OPENERS] = float(data.StealthOpeners);
     info[DUEL_INFO_PET_SUMMONED] = data.PetSummoned ? 1.0f : 0.0f;
     info[DUEL_INFO_OPPONENT] = float(data.OpponentEntry);
+    info[DUEL_INFO_CASTS_COMPLETED] = float(data.CastsCompleted);
+    info[DUEL_INFO_CASTS_CANCELLED] = float(data.CastsCancelled);
+    info[DUEL_INFO_CAST_TIME_WASTED] = float(data.CastMsWasted) / 1000.0f;
 }

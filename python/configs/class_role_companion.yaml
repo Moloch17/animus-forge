@@ -1,0 +1,42 @@
+# Shared learner config for every class/role companion stage (warrior_tank_companion, priest_heal_companion,
+# ...), used when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+#
+# Stage 5 of the curriculum: the gauntlet fought beside a scripted owner, a player bot of a random class
+# near the companion's level that wanders, engages each pull and takes real damage. The companion follows,
+# assists and guards it; tanks keep enemies on themselves, healers keep the owner alive with effective
+# healing, damage dealers avoid pulling threat. Episodes end when the companion or the owner dies.
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the
+# gauntlet, give it episodes of several minutes.
+
+run_name: class_role_companion
+runs_dir: runs
+socket: /tmp/animus-forge.sock
+seed: 1
+
+# Seed a fresh run from the class/role's gauntlet model: the companion stage's layout extends it.
+init_from: runs/{base_run}_gauntlet/latest.pt
+
+total_env_steps: 300000000
+rollout_length: 128
+log_every: 1
+checkpoint_every: 25
+
+rollout_device: cpu
+train_device: cuda
+
+mappo:
+  # Must match the earlier stages for the seeding to apply.
+  hidden: [512, 512]
+  gamma: 0.999
+  gae_lambda: 0.95
+  clip: 0.2
+  value_clip: 0.2
+  entropy_coef: 0.01
+  value_coef: 1.0
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  epochs: 4
+  minibatches: 8
+  max_grad_norm: 0.5
+  use_value_norm: true

@@ -70,3 +70,5 @@ def test_init_from_resolves_the_base_run():
     assert pack.resolved_init_from() == "runs/mage_dps_duel/latest.pt"
     gauntlet = TrainConfig(run_name="druid_tank_gauntlet", init_from="runs/{base_run}_pack/latest.pt")
     assert gauntlet.resolved_init_from() == "runs/druid_tank_pack/latest.pt"
+    companion = TrainConfig(run_name="priest_heal_companion", init_from="runs/{base_run}_gauntlet/latest.pt")
+    assert companion.resolved_init_from() == "runs/priest_heal_gauntlet/latest.pt"

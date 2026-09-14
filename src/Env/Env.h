@@ -39,6 +39,12 @@ namespace AnimusForge
         uint32 WhiteHits = 0;
         uint32 SpecialHits = 0;
         uint64 DamageTaken = 0;         // by the agent, from anything
+        uint64 AllyDamageTaken = 0;     // by the env's allies (Env::Allies), from anything
+        uint64 AllyHealing = 0;         // effective healing the agent (or its pets) did on the env's allies
+        uint32 CastsCompleted = 0;      // the agent's own cast-time spells that finished casting
+        uint32 CastsCancelled = 0;      // ... that were cut short (moved, stopped, interrupted, died)
+        uint64 CastMsCompleted = 0;     // cast time of the completed casts
+        uint64 CastMsWasted = 0;        // cast time already spent on the cancelled casts
 
         void Add(AgentStats const& other)
         {
@@ -48,6 +54,12 @@ namespace AnimusForge
             WhiteHits += other.WhiteHits;
             SpecialHits += other.SpecialHits;
             DamageTaken += other.DamageTaken;
+            AllyDamageTaken += other.AllyDamageTaken;
+            AllyHealing += other.AllyHealing;
+            CastsCompleted += other.CastsCompleted;
+            CastsCancelled += other.CastsCancelled;
+            CastMsCompleted += other.CastMsCompleted;
+            CastMsWasted += other.CastMsWasted;
         }
     };
 
@@ -63,6 +75,7 @@ namespace AnimusForge
 
         std::vector<ObjectGuid> Bots;       // one per agent, agent order
         std::vector<ObjectGuid> Targets;
+        std::vector<ObjectGuid> Allies;     // scripted friendly players the agents fight for (not agents)
 
         uint32 EpisodeElapsedMs = 0;
         uint32 EpisodeLengthMs = 0;

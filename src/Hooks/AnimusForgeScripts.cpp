@@ -17,6 +17,7 @@
  */
 
 #include "AllCreatureScript.h"
+#include "AllSpellScript.h"
 #include "AnimusForge.h"
 #include "SummonLevel.h"
 #include "UnitScript.h"
@@ -49,6 +50,34 @@ namespace
 
             return damage;
         }
+
+        /// Called for every heal, on map threads, with the health actually gained (overhealing excluded).
+        void OnHeal(Unit* healer, Unit* receiver, uint32& gain) override
+        {
+            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
+                pool->RecordHeal(healer, receiver, gain);
+        }
+    };
+
+    class AnimusForgeSpellScript : public AllSpellScript
+    {
+    public:
+        AnimusForgeSpellScript() : AllSpellScript("AnimusForgeSpellScript",
+            { ALLSPELLHOOK_ON_CAST, ALLSPELLHOOK_ON_CAST_CANCEL }) { }
+
+        /// Called on map threads once a spell's cast time is over and it goes off.
+        void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool /*skipCheck*/) override
+        {
+            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
+                pool->RecordCastCompleted(caster, spell);
+        }
+
+        /// Called on map threads when a cast or channel is cancelled, with the spell still in its old state.
+        void OnSpellCastCancel(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool /*bySelf*/) override
+        {
+            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
+                pool->RecordCastCancelled(caster, spell);
+        }
     };
 
     class AnimusForgeCreatureScript : public AllCreatureScript
@@ -69,5 +98,6 @@ void AddSC_animus_forge()
 {
     new AnimusForgeWorldScript();
     new AnimusForgeUnitScript();
+    new AnimusForgeSpellScript();
     new AnimusForgeCreatureScript();
 }

@@ -50,6 +50,8 @@ namespace
     constexpr uint32 NEXT_PULL_MIN_MS = 8000;
     constexpr uint32 NEXT_PULL_MAX_MS = 20000;
     constexpr float PULL_TIME_SCALE_MS = 60000.0f;
+    constexpr uint32 OWNER_ENGAGE_MIN_MS = 1500;
+    constexpr uint32 OWNER_ENGAGE_MAX_MS = 5000;
 
     // Reward terms. Damage is a fraction of the pull's total health, taken damage a fraction of the bot's.
     constexpr float DAMAGE_DEALT = 2.0f;
@@ -143,7 +145,12 @@ bool AnimusForge::ClassRoleScenario::SpawnPull(Env& env, Player* bot, Map* map, 
                 entries.push_back(entry);
     }
 
-    std::vector<Creature*> pack = DuelArena::SpawnPack(bot, map, entries, level);
+    // With a companion's owner, pulls spawn around the owner, who walks over to them after a moment.
+    Player* anchor = HasCompanion() ? FindOwner(data) : nullptr;
+    if (anchor)
+        data.Owner.EngageMs = env.EpisodeElapsedMs + urand(OWNER_ENGAGE_MIN_MS, OWNER_ENGAGE_MAX_MS);
+
+    std::vector<Creature*> pack = DuelArena::SpawnPack(anchor ? anchor : bot, map, entries, level);
     if (pack.empty())
         return false;
 
@@ -168,28 +175,36 @@ bool AnimusForge::ClassRoleScenario::SpawnPull(Env& env, Player* bot, Map* map, 
 
 void AnimusForge::ClassRoleScenario::UpdatePack(Env& env, Player* bot, EnvData& data) const
 {
-    // Linked pulls: once one member is in combat, the rest of the pack joins in on the bot.
+    Player* owner = HasCompanion() ? FindOwner(data) : nullptr;
+
+    // Linked pulls: once one member is in combat, the rest of the pack joins in, on the bot (or, with a
+    // companion's owner, on whoever the engaged member is fighting).
     if (data.PackLinked)
     {
         std::vector<Creature*> members;
-        bool engaged = false;
+        Unit* engagedVictim = nullptr;
         for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
         {
             if (Creature* member = env.FindTarget(slot); member && member->IsAlive())
             {
                 members.push_back(member);
-                engaged |= member->IsInCombat();
+                if (member->IsInCombat() && !engagedVictim)
+                    engagedVictim = HasCompanion() && member->GetVictim() ? member->GetVictim() : bot;
             }
         }
 
-        if (engaged && bot->IsAlive())
+        if (engagedVictim && engagedVictim->IsAlive())
             for (Creature* member : members)
-                if (!member->IsInCombat() && member->IsAIEnabled && member->CanCreatureAttack(bot))
-                    member->AI()->AttackStart(bot);
+                if (!member->IsInCombat() && member->IsAIEnabled && member->CanCreatureAttack(engagedVictim))
+                    member->AI()->AttackStart(engagedVictim);
     }
 
+    if (HasCompanion())
+        UpdateOwner(env, data);
+
     // Gauntlet: the next pull once the break is over.
-    if (HasGauntlet() && env.Targets.empty() && bot->IsAlive() && env.EpisodeElapsedMs >= data.NextPullMs)
+    if (HasGauntlet() && env.Targets.empty() && bot->IsAlive() && (!HasCompanion() || (owner && owner->IsAlive()))
+        && env.EpisodeElapsedMs >= data.NextPullMs)
         if (Map* map = env.FindMap())
             SpawnPull(env, bot, map, data);
 }
@@ -390,6 +405,7 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, Player* bot, EnvData&
     data.PullDamageTaken += step.DamageTaken;
     data.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
     reward -= (HasGauntlet() ? GAUNTLET_DAMAGE_TAKEN : DAMAGE_TAKEN) * data.LastStepDamageTaken;
+    reward += CastReward(bot, step, data);
 
     // Potential-based shaping toward the nearest living enemy, as in the duel.
     if (nearest)

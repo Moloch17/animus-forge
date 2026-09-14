@@ -22,6 +22,7 @@
 #include "ActionCatalog.h"
 #include "ClassKit.h"
 #include "ClassRoleProfile.h"
+#include "CompanionOwner.h"
 #include "GearBuilder.h"
 #include "ObjectGuid.h"
 #include "Position.h"
@@ -40,6 +41,8 @@ class WorldSession;
 
 namespace AnimusForge
 {
+    struct AgentStats;
+
     /// What a class/role scenario fights.
     enum class ArenaMode : uint8
     {
@@ -57,6 +60,11 @@ namespace AnimusForge
         /// level) with a short break between, until death or the episode ends; recover between pulls with
         /// heals, food and drink. Appends sustain spells, consumables and pull state to stage 3's layout.
         Gauntlet,
+        /// Stage 5 (`<class>_<role>_companion`): the gauntlet fought beside a scripted owner (a player bot
+        /// of a random class near the bot's level) who wanders, engages each pull and takes real damage.
+        /// Follow, assist and guard the owner; tanks keep enemies off it, healers keep it alive, damage
+        /// dealers avoid pulling threat. Appends owner state, companion actions and owner heals.
+        Companion,
     };
 
     /// One class in one role on a training dummy, maximising damage, for every level, race and spec.
@@ -137,8 +145,11 @@ namespace AnimusForge
             DUEL_OBS_PET_HEALTH         = 14,
             DUEL_OBS_PET_ATTACKING      = 15,   // the pet's victim is the opponent
             DUEL_OBS_EPISODE_TIME       = 16,   // elapsed / episode length
-            DUEL_OBS_STABLE_FIRST       = 17,   // hunters' stable: per slot STABLE_FEATURES
-            DUEL_OBS_COUNT_WITHOUT_STABLE = 17
+            DUEL_OBS_CAST_PROGRESS      = 17,   // fraction of the current cast time done; 0 when not casting
+            DUEL_OBS_CAST_REMAINING     = 18,   // seconds left of the current cast / 3
+            DUEL_OBS_SHAPESHIFTED       = 19,   // in a form the bot can cancel
+            DUEL_OBS_STABLE_FIRST       = 20,   // hunters' stable: per slot STABLE_FEATURES
+            DUEL_OBS_COUNT_WITHOUT_STABLE = 20
         };
 
         /// Hunters' stable: beasts per episode, and features per beast (offered, family / 50,
@@ -156,8 +167,10 @@ namespace AnimusForge
             DUEL_ACTION_STOP            = 4,
             DUEL_ACTION_START_ATTACK    = 5,    // start auto-attack on the opponent
             DUEL_ACTION_PET_ATTACK      = 6,    // send pets and guardians at the opponent
-            DUEL_ACTION_CALL_BEAST_FIRST = 7,   // hunters: call stable slot 0..STABLE_SLOTS-1
-            DUEL_ACTION_COUNT_WITHOUT_STABLE = 7
+            DUEL_ACTION_STOP_CASTING    = 7,    // cancel the current cast or channel
+            DUEL_ACTION_CANCEL_FORM     = 8,    // leave the current shapeshift form, as right-clicking it does
+            DUEL_ACTION_CALL_BEAST_FIRST = 9,   // hunters: call stable slot 0..STABLE_SLOTS-1
+            DUEL_ACTION_COUNT_WITHOUT_STABLE = 9
         };
 
         enum DuelInfoColumn : uint32
@@ -170,6 +183,9 @@ namespace AnimusForge
             DUEL_INFO_STEALTH_OPENERS   = 5,
             DUEL_INFO_PET_SUMMONED      = 6,
             DUEL_INFO_OPPONENT          = 7,    // creature entry
+            DUEL_INFO_CASTS_COMPLETED   = 8,    // cast-time spells that finished casting
+            DUEL_INFO_CASTS_CANCELLED   = 9,    // ... that were cut short
+            DUEL_INFO_CAST_TIME_WASTED  = 10,   // seconds spent on the cut-short casts
             DUEL_INFO_COUNT
         };
 
@@ -251,6 +267,49 @@ namespace AnimusForge
 
         static constexpr uint32 CONSUMABLE_COUNT = 5;
 
+        /// Companion observation features, after all of stage 4's, then per owner-heal action: known,
+        /// cooldown.
+        enum CompanionObs : uint32
+        {
+            COMPANION_OBS_OWNER_PRESENT     = 0,
+            COMPANION_OBS_OWNER_ALIVE       = 1,
+            COMPANION_OBS_OWNER_HEALTH      = 2,
+            COMPANION_OBS_OWNER_MANA        = 3,    // 0 without mana
+            COMPANION_OBS_OWNER_DISTANCE    = 4,    // yards / 40
+            COMPANION_OBS_OWNER_BEARING_SIN = 5,
+            COMPANION_OBS_OWNER_BEARING_COS = 6,
+            COMPANION_OBS_OWNER_IN_COMBAT   = 7,
+            COMPANION_OBS_OWNER_MOVING      = 8,
+            COMPANION_OBS_OWNER_LEVEL_DIFF  = 9,    // (owner level - bot level) / 5
+            COMPANION_OBS_OWNER_CLASS_FIRST = 10,   // one-hot over OWNER_CLASSES (10)
+            COMPANION_OBS_OWNER_ATTACKERS   = 20,   // enemies attacking the owner / PACK_SLOTS
+            COMPANION_OBS_OWNER_TARGET_FIRST = 21,  // one-hot: which enemy slot the owner attacks
+            COMPANION_OBS_OWNER_NO_TARGET   = 25,
+            COMPANION_OBS_SLOT_ON_OWNER_FIRST = 26, // per enemy slot: attacking the owner
+            COMPANION_OBS_GLOBAL_COUNT      = 30
+        };
+
+        /// Companion actions, after all of stage 4's: follow, assist, guard, then one "cast on the owner"
+        /// action per single-target heal.
+        enum CompanionAction : uint32
+        {
+            COMPANION_ACTION_FOLLOW         = 0,    // run to just behind the owner
+            COMPANION_ACTION_ASSIST         = 1,    // target the owner's target
+            COMPANION_ACTION_GUARD          = 2,    // target an enemy attacking the owner
+            COMPANION_ACTION_HEAL_FIRST     = 3
+        };
+
+        enum CompanionInfoColumn : uint32
+        {
+            COMPANION_INFO_OWNER_CLASS      = 0,
+            COMPANION_INFO_OWNER_DIED       = 1,
+            COMPANION_INFO_OWNER_DAMAGE_TAKEN = 2,
+            COMPANION_INFO_OWNER_HEALING    = 3,    // effective healing the bot did on the owner
+            COMPANION_INFO_THREAT_ON_BOT    = 4,    // enemy-decisions spent attacking the bot
+            COMPANION_INFO_THREAT_ON_OWNER  = 5,    // ... attacking the owner
+            COMPANION_INFO_COUNT
+        };
+
         enum EpisodeInfoColumn : uint32
         {
             INFO_DAMAGE                 = 0,
@@ -323,6 +382,9 @@ namespace AnimusForge
             uint32 StealthOpeners = 0;
             bool StepStealthOpener = false;
             bool PetSummoned = false;
+            uint32 CastsCompleted = 0;
+            uint32 CastsCancelled = 0;
+            uint64 CastMsWasted = 0;
             bool Killed = false;                        // pack: cleared
             bool Died = false;
 
@@ -346,6 +408,18 @@ namespace AnimusForge
             uint32 FoodUsed = 0;
             uint32 DrinkUsed = 0;
             uint32 SustainCasts = 0;
+
+            // Companion.
+            std::array<WorldSession*, 2> OwnerSessions{};
+            std::array<ObjectGuid::LowType, 2> OwnerGuids{};
+            uint8 OwnerActiveSession = 0;
+            uint8 OwnerClass = 0;
+            CompanionOwner::State Owner;
+            bool OwnerDied = false;
+            uint64 OwnerDamageTaken = 0;
+            uint64 OwnerHealing = 0;
+            uint64 ThreatOnBot = 0;
+            uint64 ThreatOnOwner = 0;
         };
 
         /// Replace the env's bot and dummy with a newly rolled character.
@@ -369,6 +443,18 @@ namespace AnimusForge
         [[nodiscard]] bool HasDuel() const { return _mode >= ArenaMode::Duel; }
         [[nodiscard]] bool HasPack() const { return _mode >= ArenaMode::Pack; }
         [[nodiscard]] bool HasGauntlet() const { return _mode >= ArenaMode::Gauntlet; }
+        [[nodiscard]] bool HasCompanion() const { return _mode >= ArenaMode::Companion; }
+
+        // Companion stage (ClassRoleCompanion.cpp).
+        [[nodiscard]] Player* FindOwner(EnvData const& data) const;
+        bool RebuildOwner(Env& env, Player* bot, Map* map, EnvData& data) const;
+        void DestroyOwner(Env& env, EnvData& data) const;
+        void UpdateOwner(Env& env, EnvData& data) const;
+        void ObserveCompanion(Env const& env, Player* bot, float* obs) const;
+        [[nodiscard]] bool IsCompanionActionAllowed(Env const& env, Player* bot, uint32 companionAction) const;
+        void ApplyCompanionAction(Env& env, Player* bot, uint32 companionAction, EnvData& data) const;
+        [[nodiscard]] float CompanionReward(Env& env, Player* bot, EnvData& data) const;
+        void CompanionEpisodeInfo(Env const& env, float* info) const;
 
         // Pack and gauntlet stages (ClassRolePack.cpp).
         bool StartPack(Env& env, Player* bot, Map* map, EnvData& data) const;
@@ -392,6 +478,7 @@ namespace AnimusForge
         void ApplyDuelAction(Player* bot, Creature* opponent, uint32 duelAction, EnvData& data) const;
         void ObserveDuel(Env const& env, Player* bot, Creature* opponent, float* obs) const;
         [[nodiscard]] float DuelReward(Env const& env, Player* bot, Creature* opponent, EnvData& data) const;
+        [[nodiscard]] static float CastReward(Player* bot, AgentStats const& step, EnvData& data);
         void DuelEpisodeInfo(Env const& env, float* info) const;
         [[nodiscard]] float DesiredRange(EnvData const& data) const;
 
@@ -423,6 +510,11 @@ namespace AnimusForge
         uint32 _gauntletActionFirst = 0;
         uint32 _gauntletActionCount = 0;
         uint32 _gauntletInfoFirst = 0;
+        uint32 _companionObsFirst = 0;      // companion: first companion observation (= stage 4's ObsDim)
+        uint32 _companionActionFirst = 0;
+        uint32 _companionActionCount = 0;
+        uint32 _companionInfoFirst = 0;
+        std::vector<ActionCatalog::Action> _ownerHeals;     // single-target heals, cast on the owner
         std::vector<EnvData> _data;
     };
 }

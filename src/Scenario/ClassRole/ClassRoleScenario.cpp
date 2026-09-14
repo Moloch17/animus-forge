@@ -110,6 +110,14 @@ namespace
         return targets;
     }
 
+    /// A cast in its cast time (channels excluded): the client refuses to start another spell or use an item
+    /// meanwhile. The core only checks this for client casts (m_cast_count), so the bot's actions check it
+    /// here -- otherwise a new cast would silently cancel the one in progress. Stopping it is its own action.
+    bool CastInProgress(Player const* bot)
+    {
+        return bot->IsNonMeleeSpellCast(false, true, true);
+    }
+
     /// The core's own cast validation, without casting: cooldown, GCD, power, stance, range, facing,
     /// reagents, reactive requirements. Same pattern as PetAI.
     bool CanCast(Player* bot, SpellInfo const* info, Unit* dummy, Item* castItem = nullptr)
@@ -135,6 +143,7 @@ std::string AnimusForge::ClassRoleScenario::ScenarioName(ClassRoleProfile const&
         case ArenaMode::Duel:     return profile.ScenarioName + "_duel";
         case ArenaMode::Pack:     return profile.ScenarioName + "_pack";
         case ArenaMode::Gauntlet: return profile.ScenarioName + "_gauntlet";
+        case ArenaMode::Companion: return profile.ScenarioName + "_companion";
         case ArenaMode::Dummy:    break;
     }
 
@@ -221,6 +230,33 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profil
         DuelArena::ConsumablePool::Instance();
     }
 
+    if (HasCompanion())
+    {
+        // Heals that take a friendly unit target can be cast on the owner.
+        for (ActionCatalog::Action const& heal : _catalog->Sustain())
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(heal.FirstRank);
+                info && info->IsPositive() && info->NeedsExplicitUnitTarget())
+                _ownerHeals.push_back(heal);
+
+        std::string names;
+        for (ActionCatalog::Action const& heal : _ownerHeals)
+            names += (names.empty() ? "" : ", ") + heal.Name;
+        LOG_INFO("module.animus", "{}: owner heals: {}", Name(), names.empty() ? "none" : names);
+
+        _companionObsFirst = _spec.ObsDim;
+        _spec.ObsDim += COMPANION_OBS_GLOBAL_COUNT + uint32(_ownerHeals.size()) * 2;
+        _spec.StateDim = _spec.ObsDim;
+
+        _companionActionFirst = _spec.NumActions;
+        _companionActionCount = COMPANION_ACTION_HEAL_FIRST + uint32(_ownerHeals.size());
+        _spec.NumActions += _companionActionCount;
+
+        _companionInfoFirst = _spec.EpisodeInfoDim;
+        _spec.EpisodeInfoDim += COMPANION_INFO_COUNT;
+
+        CompanionOwner::Templates::Instance();
+    }
+
     _data.resize(config.Envs);
 
     LOG_INFO("module.animus", "{}: {} races, {} specs, {} actions, {} talents, obs {}", Name(), _races.size(),
@@ -237,6 +273,8 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
             return data.Killed || data.Died;    // pack: Killed = cleared
         case ArenaMode::Gauntlet:
             return data.Died;
+        case ArenaMode::Companion:
+            return data.Died || data.OwnerDied;
         case ArenaMode::Dummy:
             break;
     }
@@ -248,8 +286,12 @@ AnimusForge::ClassRoleScenario::~ClassRoleScenario()
 {
     // Sessions kept for the next rebuild. Teardown already destroyed the active one with its bot.
     for (EnvData& data : _data)
+    {
         for (WorldSession*& session : data.Sessions)
             delete session;
+        for (WorldSession*& session : data.OwnerSessions)
+            delete session;
+    }
 }
 
 bool AnimusForge::ClassRoleScenario::Setup(Env& env)
@@ -282,6 +324,9 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.StealthOpeners = 0;
     data.StepStealthOpener = false;
     data.PetSummoned = false;
+    data.CastsCompleted = 0;
+    data.CastsCancelled = 0;
+    data.CastMsWasted = 0;
     data.Killed = false;
     data.Died = false;
 
@@ -300,6 +345,12 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.FoodUsed = 0;
     data.DrinkUsed = 0;
     data.SustainCasts = 0;
+
+    data.OwnerDied = false;
+    data.OwnerDamageTaken = 0;
+    data.OwnerHealing = 0;
+    data.ThreatOnBot = 0;
+    data.ThreatOnOwner = 0;
 
     // Setup already built the first episode's character.
     if (data.Fresh)
@@ -382,6 +433,10 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     env.InstanceId = map->GetInstanceId();
     env.Bots = { bot->GetGUID() };
     env.Targets.clear();
+
+    // The owner comes before the first pull, which spawns around it.
+    if (HasCompanion() && !RebuildOwner(env, bot, map, data))
+        return false;
 
     if (HasPack())
         return StartPack(env, bot, map, data);
@@ -490,7 +545,7 @@ bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Creature* dumm
         {
             Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, def.EquipmentSlot);
             SpellInfo const* info = TrinketSpell(item);
-            return info && !bot->HasSpellCooldown(info->Id) && CanCast(bot, info, dummy, item);
+            return info && !CastInProgress(bot) && !bot->HasSpellCooldown(info->Id) && CanCast(bot, info, dummy, item);
         }
         case ActionCatalog::Kind::Spell:
             break;
@@ -504,7 +559,7 @@ bool AnimusForge::ClassRoleScenario::IsSpellActionAllowed(Player* bot, Unit* tar
 {
     // Cheap rejections before the full cast check.
     SpellInfo const* info = ActionCatalog::KnownRank(bot, def.FirstRank);
-    if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id))
+    if (!info || !bot->HasActiveSpell(info->Id) || bot->HasSpellCooldown(info->Id) || CastInProgress(bot))
         return false;
 
     if (def.NextSwing && bot->GetCurrentSpell(CURRENT_MELEE_SPELL))
@@ -528,7 +583,7 @@ bool AnimusForge::ClassRoleScenario::ApplySpellAction(Player* bot, Unit* target,
         return false;
 
     SpellInfo const* info = ActionCatalog::KnownRank(bot, def.FirstRank);
-    if (!info || !bot->HasActiveSpell(info->Id))
+    if (!info || !bot->HasActiveSpell(info->Id) || CastInProgress(bot))
         return false;
 
     // Same path as CMSG_CAST_SPELL. prepare() runs the full cast validation again, so a masked action
@@ -595,7 +650,14 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
         if (dummy && bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, dummy))
             bot->SetFacingToObject(dummy);
 
-        if (HasGauntlet() && action >= int32(_gauntletActionFirst))
+        if (HasCompanion() && action >= int32(_companionActionFirst))
+        {
+            ApplyCompanionAction(env, bot, uint32(action) - _companionActionFirst, data);
+            return;
+        }
+
+        if (HasGauntlet() && action >= int32(_gauntletActionFirst)
+            && action < int32(_gauntletActionFirst + _gauntletActionCount))
         {
             ApplyGauntletAction(bot, dummy, uint32(action) - _gauntletActionFirst, data);
             return;
@@ -609,8 +671,8 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
 
         if (action >= int32(_duelActionFirst) && action < int32(_duelActionFirst + _duelActionCount))
         {
-            if (dummy)
-                ApplyDuelAction(bot, dummy, uint32(action) - _duelActionFirst, data);
+            // Stopping a cast and leaving a form need no target; ApplyDuelAction checks the rest.
+            ApplyDuelAction(bot, dummy, uint32(action) - _duelActionFirst, data);
             return;
         }
     }
@@ -751,7 +813,7 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
                 mask[action] = IsActionAllowed(bot, dummy, action) ? 1 : 0;
         }
 
-        if (HasDuel() && dummy)
+        if (HasDuel())
         {
             ObserveDuel(env, bot, dummy, obs);
             for (uint32 duelAction = 0; duelAction < _duelActionCount; ++duelAction)
@@ -777,6 +839,14 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
                 mask[_gauntletActionFirst + gauntletAction] =
                     IsGauntletActionAllowed(bot, dummy, gauntletAction, data) ? 1 : 0;
         }
+
+        if (HasCompanion())
+        {
+            ObserveCompanion(env, bot, obs);
+            for (uint32 companionAction = 0; companionAction < _companionActionCount; ++companionAction)
+                mask[_companionActionFirst + companionAction] =
+                    IsCompanionActionAllowed(env, bot, companionAction) ? 1 : 0;
+        }
     }
 
     std::vector<TalentBuilder::Talent> const& talents = _talents->Talents();
@@ -799,6 +869,8 @@ void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
 
     if (_mode == ArenaMode::Duel)
         reward[0] = DuelReward(env, env.FindBot(0), env.FindTarget(0), data);
+    else if (HasCompanion())
+        reward[0] = CompanionReward(env, env.FindBot(0), data);
     else if (HasPack())
         reward[0] = PackReward(env, env.FindBot(0), data);
 
@@ -836,6 +908,8 @@ void AnimusForge::ClassRoleScenario::EpisodeInfo(Env const& env, float* info) co
         PackEpisodeInfo(env, info + _packInfoFirst);
     if (HasGauntlet())
         GauntletEpisodeInfo(env, info + _gauntletInfoFirst);
+    if (HasCompanion())
+        CompanionEpisodeInfo(env, info + _companionInfoFirst);
 }
 
 std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() const
@@ -845,13 +919,18 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
 
     if (HasDuel())
         names.insert(names.end(), { "killed", "died", "time_to_kill", "damage_taken", "health_left",
-            "stealth_openers", "pet_summoned", "opponent" });
+            "stealth_openers", "pet_summoned", "opponent", "casts_completed", "casts_cancelled",
+            "cast_seconds_wasted" });
 
     if (HasPack())
         names.insert(names.end(), { "kills", "interrupts", "pack_size", "linked" });
 
     if (HasGauntlet())
         names.insert(names.end(), { "pulls_cleared", "food_used", "drink_used", "sustain_casts" });
+
+    if (HasCompanion())
+        names.insert(names.end(), { "owner_class", "owner_died", "owner_damage_taken", "owner_healing",
+            "threat_on_bot", "threat_on_owner" });
 
     return names;
 }
@@ -912,6 +991,27 @@ bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, f
             return true;
         }
 
+        if (HasCompanion() && obs[_companionObsFirst + COMPANION_OBS_OWNER_ALIVE] > 0.0f
+            && obs[_companionObsFirst + COMPANION_OBS_OWNER_HEALTH] < 0.7f)
+        {
+            for (uint32 heal = 0; heal < _ownerHeals.size(); ++heal)
+            {
+                uint32 const index = _companionActionFirst + COMPANION_ACTION_HEAL_FIRST + heal;
+                if (mask[index])
+                {
+                    action = int32(index);
+                    return true;
+                }
+            }
+
+            // Heals cannot be cast in most forms.
+            if (!_ownerHeals.empty() && mask[_duelActionFirst + DUEL_ACTION_CANCEL_FORM])
+            {
+                action = int32(_duelActionFirst + DUEL_ACTION_CANCEL_FORM);
+                return true;
+            }
+        }
+
         if (mask[_duelActionFirst + DUEL_ACTION_START_ATTACK])
         {
             action = int32(_duelActionFirst + DUEL_ACTION_START_ATTACK);
@@ -945,6 +1045,9 @@ void AnimusForge::ClassRoleScenario::Teardown(Env& env)
     for (uint32 target = 0; target < env.Targets.size(); ++target)
         if (Creature* creature = env.FindTarget(target))
             creature->DespawnOrUnsummon();
+
+    if (HasCompanion())
+        DestroyOwner(env, data);
 
     WorldSession* activeSession = data.Sessions[data.ActiveSession];
     if (Player* bot = activeSession ? activeSession->GetPlayer() : nullptr)

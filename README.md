@@ -129,7 +129,8 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   damage-relevant buff/debuff/DoT, generates resources, shapeshifts, or summons (pets, totems);
   movement, travel, crafting, pure heals and utility are left out. Every action is masked by the
   core's `Spell::CheckCast` each decision (race, level, talent, cooldown, GCD, power, stance, range,
-  reagents).
+  reagents). As on a client, no spell or trinket can be started while a cast is in its cast time (the
+  core only checks that for client casts, so a bot's new cast would otherwise silently replace it).
 - **Observation:** level, race and spec one-hots, health and every power type, runes, combo points,
   shapeshift form, GCD, casting, swing timers, target health and distance, attack power, spell power,
   crit, haste, hit, expertise and armor penetration; per action: known, cooldown, its aura on the
@@ -161,20 +162,30 @@ as in stage 1 (race, level, spec, talents, kit, gear); the target is now a real 
   each episode through 4 `call_beast` actions; the observation shows each beast's family and pet
   type (ferocity, tenacity, cunning), so the policy can find the one it prefers.
 - **Actions:** stage 1's actions, then: move to the opponent, move behind it, move to casting range
-  (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, and (hunters) the 4
-  `call_beast` actions. The bot turns to face the opponent whenever it is not running. Movement is
-  masked while casting, and cast-time or channeled spells while running.
+  (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, stop casting (the current cast
+  or channel, as the client's cancel-cast), cancel form (a shapeshift the client could cancel: druid
+  forms, Shadowform, Ghost Wolf, Stealth; not stances or presences), and (hunters) the 4 `call_beast`
+  actions. The bot turns to face the opponent whenever it is not running. Movement is masked while
+  casting, and cast-time or channeled spells while running. Stop casting and cancel form need no
+  target, so they stay available between pulls in later stages.
 - **Observation:** stage 1's, then: distance, bearing to the opponent, whether the bot is behind it
   and whether it faces the bot, the opponent's combat, target and casting state, the bot's movement,
   combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
-  episode time, and (hunters) the stable.
+  episode time, the current cast's progress and time left (casts and channels), whether the bot is in
+  a form it can cancel, and (hunters) the stable.
 - **Reward:** per decision, damage dealt as a fraction of the opponent's health (x2) minus damage
   taken as a fraction of the bot's (x1), potential-based shaping toward the spec's range (melee or
-  25 yd), +0.5 for a stealth-only opener from stealth, and a small time cost. On the kill: +2, plus
+  25 yd), +0.5 for a stealth-only opener from stealth, and a small time cost. Casting: every cast-time
+  spell that does not finish (stopped, interrupted, pushed into death) costs 0.05 per second of cast
+  time already spent, and every one that finishes while the bot is in combat earns 0.02 per second of
+  its cast time. Nothing forces a cast to finish; cutting one short stays the policy's call when
+  something else is worth more. Channels are paid by their ticks. Later stages keep this term.
+  On the kill: +2, plus
   up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health it did
   not lose. Death: -3. The episode ends on the kill or the bot's death.
 - **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
-  stealth openers, whether a pet was out, and the opponent's entry.
+  stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled and
+  seconds of cast time wasted.
 
 **Bootstrapping:** `configs/class_role_duel.yaml` has `init_from: runs/{base_run}/latest.pt`. A
 duel run with nothing to resume seeds its networks from the class/role's stage 1 model
@@ -230,6 +241,36 @@ Stage 4: sustained combat.
 
 `configs/class_role_gauntlet.yaml` seeds a fresh run from `runs/<class>_<role>_pack/latest.pt`. Give
 the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
+
+### Class/role companion stage (`<class>_<role>_companion`)
+
+Stage 5: the gauntlet fought beside an owner, as a `mod-animus` companion fights beside a player.
+
+- **Owner:** a scripted player bot of a random class (one a character of that level can be) within 2
+  levels of the companion, dressed like the companion: a random damage spec and build, its trainer
+  spells and level-appropriate gear. It gets the companion's faction so either faction's races can be
+  paired. Between pulls it wanders near the arena and recovers health and mana; each pull spawns around
+  it and it walks in after 1.5-5 s, fights the enemy attacking it (else the nearest) in melee and casts
+  one of its own damage spells every 2-4 s. Linked packs join in on whoever their engaged member fights.
+- **Actions:** the gauntlet's, then follow the owner, assist (target the owner's target), guard (target an
+  enemy attacking the owner), and one "cast on the owner" action per single-target heal.
+- **Observation:** the gauntlet's, then the owner's presence, health, mana, distance, bearing, combat,
+  movement, level difference and class, how many enemies attack it, which enemy slot it attacks, which
+  enemies attack it, and each owner heal's known/cooldown.
+- **Reward:** the gauntlet's, plus, by role:
+  - everyone: the owner's damage taken (fraction of its health; x1 for damage dealers, x2 for tanks and
+    healers), -0.01 per decision in combat while the owner is not, a small bonus for staying within 12 yd
+    out of combat and a penalty beyond 25 yd, -6 if the owner dies;
+  - tanks: +0.01 per enemy attacking the tank, -0.02 per enemy attacking the owner, per decision (and
+    half of the gauntlet's damage-taken penalty back);
+  - healers: effective healing on the owner (x2, fraction of its health; the core's heal hook reports the
+    health actually gained, so overhealing earns nothing);
+  - damage dealers and healers: -0.01 per enemy attacking them, per decision.
+  The episode ends when the companion or the owner dies.
+- **Episode info:** the gauntlet's, then the owner's class, whether it died, its damage taken, the
+  companion's healing on it, and enemy-decisions spent on the companion and on the owner.
+
+`configs/class_role_companion.yaml` seeds a fresh run from `runs/<class>_<role>_gauntlet/latest.pt`.
 
 ### Training every model: `AnimusForge.Queue`
 

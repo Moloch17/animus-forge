@@ -21,6 +21,8 @@
 #include "Common.h"
 #include "Log.h"
 #include "Random.h"
+#include "Spell.h"
+#include "SpellInfo.h"
 #include "StringFormat.h"
 #include "Unit.h"
 #include <algorithm>
@@ -68,6 +70,9 @@ bool AnimusForge::EnvPool::Setup()
 
         for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
             _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
+
+        for (ObjectGuid const& guid : env.Allies)
+            _allies[guid] = env.Index;
     }
 
     LOG_INFO("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
@@ -79,6 +84,7 @@ bool AnimusForge::EnvPool::Setup()
 void AnimusForge::EnvPool::Teardown()
 {
     _agents.clear();
+    _allies.clear();
 
     for (Env& env : _envs)
         _scenario.Teardown(env);
@@ -210,6 +216,11 @@ void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim
     if (auto const hit = _agents.find(victim->GetGUID()); hit != _agents.end())
         _envs[hit->second.Env].StepStats[hit->second.Agent].DamageTaken += damage;
 
+    // Damage an ally takes counts against every agent of its env.
+    if (auto const ally = _allies.find(victim->GetGUID()); ally != _allies.end())
+        for (AgentStats& stats : _envs[ally->second].StepStats)
+            stats.AllyDamageTaken += damage;
+
     // Pets, guardians and totems deal damage for their owner.
     auto const itr = _agents.find(attacker->GetCharmerOrOwnerOrOwnGUID());
     if (itr == _agents.end())
@@ -238,18 +249,21 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
 {
     env.EpisodeElapsedMs = 0;
 
+    std::vector<ObjectGuid> const previousBots = env.Bots;
+    std::vector<ObjectGuid> const previousAllies = env.Allies;
+
+    _scenario.Reset(env);
+
+    // After the reset: tearing down the old character (a cast cut short, its pet's last hit) still reports
+    // to the hooks, and none of that belongs to the new episode.
     for (uint32 agent = 0; agent < _spec.AgentsPerEnv; ++agent)
     {
         env.StepStats[agent] = AgentStats();
         env.EpisodeStats[agent] = AgentStats();
     }
 
-    std::vector<ObjectGuid> const previousBots = env.Bots;
-
-    _scenario.Reset(env);
-
-    // A scenario may rebuild its bots on reset. Safe to update here: resets run on the world thread
-    // while no map is updating, so no damage hook is reading the map.
+    // A scenario may rebuild its bots and allies on reset. Safe to update here: resets run on the world
+    // thread while no map is updating, so no damage or heal hook is reading the maps.
     if (env.Bots != previousBots)
     {
         for (ObjectGuid const& guid : previousBots)
@@ -258,6 +272,65 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
         for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
             _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
     }
+
+    if (env.Allies != previousAllies)
+    {
+        for (ObjectGuid const& guid : previousAllies)
+            _allies.erase(guid);
+
+        for (ObjectGuid const& guid : env.Allies)
+            _allies[guid] = env.Index;
+    }
+}
+
+void AnimusForge::EnvPool::RecordHeal(Unit const* healer, Unit const* receiver, uint32 gain)
+{
+    if (!healer || !receiver || !gain)
+        return;
+
+    auto const ally = _allies.find(receiver->GetGUID());
+    if (ally == _allies.end())
+        return;
+
+    // Pets and totems heal for their owner.
+    auto const agent = _agents.find(healer->GetCharmerOrOwnerOrOwnGUID());
+    if (agent == _agents.end() || agent->second.Env != ally->second)
+        return;
+
+    _envs[agent->second.Env].StepStats[agent->second.Agent].AllyHealing += gain;
+}
+
+void AnimusForge::EnvPool::RecordCastCompleted(Unit const* caster, Spell* spell)
+{
+    if (!caster || !spell || spell->IsTriggered() || spell->GetCastTime() <= 0 || spell->m_spellInfo->IsChanneled())
+        return;
+
+    auto const agent = _agents.find(caster->GetGUID());
+    if (agent == _agents.end())
+        return;
+
+    AgentStats& stats = _envs[agent->second.Env].StepStats[agent->second.Agent];
+    ++stats.CastsCompleted;
+    stats.CastMsCompleted += uint32(spell->GetCastTime());
+}
+
+void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell)
+{
+    // Only a cast still in its cast time: a cancelled channel has already paid out its ticks.
+    if (!caster || !spell || spell->getState() != SPELL_STATE_PREPARING || spell->IsTriggered()
+        || spell->GetCastTime() <= 0)
+        return;
+
+    auto const agent = _agents.find(caster->GetGUID());
+    if (agent == _agents.end())
+        return;
+
+    // Pushback adds to the time left, so clamp what was spent to [0, cast time].
+    int32 const spent = std::clamp(spell->GetCastTime() - spell->GetCastTimeRemaining(), 0, spell->GetCastTime());
+
+    AgentStats& stats = _envs[agent->second.Env].StepStats[agent->second.Agent];
+    ++stats.CastsCancelled;
+    stats.CastMsWasted += uint32(spent);
 }
 
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)

@@ -25,6 +25,7 @@
 #include <unordered_map>
 #include <vector>
 
+class Spell;
 class Unit;
 enum DamageEffectType : uint8;
 
@@ -60,6 +61,15 @@ namespace AnimusForge
         /// Damage hook, called from map worker threads. Only touches the stats of the env whose
         /// instance the calling thread is updating.
         void RecordDamage(Unit const* attacker, Unit const* victim, uint32 damage, DamageEffectType type);
+
+        /// Heal hook, called from map threads with the health actually gained. Counts healing an agent
+        /// (or its pets) does on its env's allies.
+        void RecordHeal(Unit const* healer, Unit const* receiver, uint32 gain);
+
+        /// Spell hooks, called from map threads when an agent's cast-time spell finishes casting or is
+        /// cancelled before it does. Triggered spells and channels are not counted.
+        void RecordCastCompleted(Unit const* caster, Spell* spell);
+        void RecordCastCancelled(Unit const* caster, Spell* spell);
 
         [[nodiscard]] Scenario const& GetScenario() const { return _scenario; }
         [[nodiscard]] ScenarioSpec const& Spec() const { return _spec; }
@@ -100,6 +110,9 @@ namespace AnimusForge
         /// on the world thread while no map updates, so the concurrent lookups from map threads need
         /// no lock.
         std::unordered_map<ObjectGuid, AgentSlot> _agents;
+
+        /// Ally GUID -> env. Maintained like _agents.
+        std::unordered_map<ObjectGuid, uint32> _allies;
 
         std::vector<uint8> _scratchMask;
 

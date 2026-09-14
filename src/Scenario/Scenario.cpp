@@ -58,7 +58,8 @@ namespace
             using AnimusForge::ArenaMode;
             using AnimusForge::ClassRoleScenario;
 
-            for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet })
+            for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet,
+                ArenaMode::Companion })
             {
                 for (AnimusForge::ClassRoleProfile const& profile : AnimusForge::ClassRoleProfiles())
                 {
