@@ -93,8 +93,9 @@ namespace AnimusForge
 
         std::vector<Env> _envs;
 
-        /// Bot GUID -> env/agent. Built in Setup and read-only afterwards, so the concurrent
-        /// lookups from map threads need no lock.
+        /// Bot GUID -> env/agent. Built in Setup and changed only when a reset rebuilds an env's bots,
+        /// on the world thread while no map updates, so the concurrent lookups from map threads need
+        /// no lock.
         std::unordered_map<ObjectGuid, AgentSlot> _agents;
 
         std::vector<uint8> _scratchMask;

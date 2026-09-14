@@ -36,7 +36,9 @@ namespace AnimusForge::TrainingDummyArena
     /// Summon a Grandmaster's Training Dummy in front of the bot at the bot's level and turn the
     /// bot to face it. The dummy is rooted, never attacks, and its script zeroes all damage, so
     /// damage has to be measured before that (UnitScript::DealDamage). Returns nullptr on failure.
-    Creature* SpawnDummy(Player* bot, Map* map);
+    /// `distance` is how far in front of the bot it stands (melee by default; casters and hunters
+    /// stand further back).
+    Creature* SpawnDummy(Player* bot, Map* map, float distance = 2.0f);
 }
 
 #endif

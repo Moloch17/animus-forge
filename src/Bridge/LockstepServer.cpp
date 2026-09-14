@@ -40,6 +40,11 @@ AnimusForge::LockstepServer::~LockstepServer()
 
 bool AnimusForge::LockstepServer::Listen(std::string const& path)
 {
+    if (_listener >= 0 && _path == path)
+        return true;
+
+    Shutdown();
+
     sockaddr_un addr{};
     if (path.size() >= sizeof(addr.sun_path))
     {
@@ -85,7 +90,7 @@ void AnimusForge::LockstepServer::Shutdown()
     }
 }
 
-bool AnimusForge::LockstepServer::AcceptClient(std::function<void()> const& onIdle)
+bool AnimusForge::LockstepServer::AcceptClient(std::function<bool()> const& onIdle)
 {
     DropClient();
 
@@ -211,7 +216,7 @@ bool AnimusForge::LockstepServer::Receive(MsgType& type, void* dst, std::size_t 
     return ReadExact(dst, size);
 }
 
-bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<void()> const& onIdle)
+bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<bool()> const& onIdle)
 {
     pollfd pfd{ fd, POLLIN, 0 };
 
@@ -221,8 +226,8 @@ bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<void()> con
         if (ready > 0)
             return true;
 
-        if (ready == 0 && onIdle)
-            onIdle();
+        if (ready == 0 && onIdle && !onIdle())
+            return false;
 
         if (ready < 0 && errno != EINTR)
         {

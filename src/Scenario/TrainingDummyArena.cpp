@@ -34,9 +34,6 @@ namespace
         NPC_TRAINING_DUMMY          = 31144,
     };
 
-    /// Distance from the bot to the dummy, well inside melee range for both models.
-    constexpr float DUMMY_DISTANCE = 2.0f;
-
     /// Creatures within this radius of the bot that the scenario did not spawn are removed.
     constexpr float ARENA_CLEAR_RADIUS = 60.0f;
 
@@ -58,13 +55,13 @@ void AnimusForge::TrainingDummyArena::ClearArena(Player* bot)
         LOG_WARN("module.animus", "Removed {} creatures from the arena around {}", creatures.size(), bot->GetName());
 }
 
-Creature* AnimusForge::TrainingDummyArena::SpawnDummy(Player* bot, Map* map)
+Creature* AnimusForge::TrainingDummyArena::SpawnDummy(Player* bot, Map* map, float distance)
 {
     float const facing = bot->GetOrientation();
 
     Position pos;
-    pos.m_positionX = bot->GetPositionX() + DUMMY_DISTANCE * std::cos(facing);
-    pos.m_positionY = bot->GetPositionY() + DUMMY_DISTANCE * std::sin(facing);
+    pos.m_positionX = bot->GetPositionX() + distance * std::cos(facing);
+    pos.m_positionY = bot->GetPositionY() + distance * std::sin(facing);
     pos.m_positionZ = bot->GetPositionZ();
 
     float const ground = map->GetHeight(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ() + 2.0f);

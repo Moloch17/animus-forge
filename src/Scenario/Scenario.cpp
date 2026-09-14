@@ -17,6 +17,8 @@
  */
 
 #include "Scenario.h"
+#include "ClassRoleProfile.h"
+#include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
 #include "WarriorDummy20Scenario.h"
 #include "WarriorDummyScenario.h"
@@ -28,26 +30,41 @@ namespace
     using ScenarioFactory = std::function<std::unique_ptr<AnimusForge::Scenario>(AnimusForge::ForgeConfig const&)>;
 
     /// Every scenario the module can run, by the name used in AnimusForge.Scenario.
-    /// Adding a scenario = implementing AnimusForge::Scenario and adding one row here.
+    /// Adding a scenario = implementing AnimusForge::Scenario and adding one row here; class/role
+    /// scenarios come from ClassRoleProfiles().
     std::vector<std::pair<std::string, ScenarioFactory>> const& Registry()
     {
-        static std::vector<std::pair<std::string, ScenarioFactory>> const registry =
+        static std::vector<std::pair<std::string, ScenarioFactory>> const registry = []()
         {
+            std::vector<std::pair<std::string, ScenarioFactory>> scenarios =
             {
-                "warrior_dummy",
-                [](AnimusForge::ForgeConfig const& config)
                 {
-                    return std::make_unique<AnimusForge::WarriorDummyScenario>(config);
-                }
-            },
+                    "warrior_dummy",
+                    [](AnimusForge::ForgeConfig const& config)
+                    {
+                        return std::make_unique<AnimusForge::WarriorDummyScenario>(config);
+                    }
+                },
+                {
+                    "warrior_dummy_20",
+                    [](AnimusForge::ForgeConfig const& config)
+                    {
+                        return std::make_unique<AnimusForge::WarriorDummy20Scenario>(config);
+                    }
+                },
+            };
+
+            for (AnimusForge::ClassRoleProfile const& profile : AnimusForge::ClassRoleProfiles())
             {
-                "warrior_dummy_20",
-                [](AnimusForge::ForgeConfig const& config)
-                {
-                    return std::make_unique<AnimusForge::WarriorDummy20Scenario>(config);
-                }
-            },
-        };
+                scenarios.emplace_back(profile.ScenarioName,
+                    [&profile](AnimusForge::ForgeConfig const& config) -> std::unique_ptr<AnimusForge::Scenario>
+                    {
+                        return std::make_unique<AnimusForge::ClassRoleScenario>(profile, config);
+                    });
+            }
+
+            return scenarios;
+        }();
 
         return registry;
     }

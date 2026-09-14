@@ -197,7 +197,8 @@ void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim
     if (!attacker || !victim || !damage || (type != DIRECT_DAMAGE && type != SPELL_DIRECT_DAMAGE && type != DOT))
         return;
 
-    auto const itr = _agents.find(attacker->GetGUID());
+    // Pets, guardians and totems deal damage for their owner.
+    auto const itr = _agents.find(attacker->GetCharmerOrOwnerOrOwnGUID());
     if (itr == _agents.end())
         return;
 
@@ -230,7 +231,20 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
         env.EpisodeStats[agent] = AgentStats();
     }
 
+    std::vector<ObjectGuid> const previousBots = env.Bots;
+
     _scenario.Reset(env);
+
+    // A scenario may rebuild its bots on reset. Safe to update here: resets run on the world thread
+    // while no map is updating, so no damage hook is reading the map.
+    if (env.Bots != previousBots)
+    {
+        for (ObjectGuid const& guid : previousBots)
+            _agents.erase(guid);
+
+        for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
+            _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
+    }
 }
 
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)

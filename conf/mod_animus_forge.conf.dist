@@ -27,9 +27,42 @@ AnimusForge.Enable = 0
 #                                          full level 20 trainer kit on a training dummy; a new
 #                                          random Arms talent build (one of all valid 11-point
 #                                          builds) every episode
+#                     Class/role models: one class in one role maximising damage on a training
+#                     dummy. Every episode is a new character: a random race the class allows,
+#                     gender, level (1-80; 55-80 for death knights), one of the role's specs with a
+#                     random talent build that fills the spec's tree to its 51-point capstone first
+#                     and spreads the rest over the other trees, the trainer spells of the level,
+#                     and random level-appropriate gear and trinkets for the spec:
+#                       "warrior_dps"      (Arms, Fury)          "warrior_tank"     (Protection)
+#                       "paladin_heal"     (Holy)                "paladin_tank"     (Protection)
+#                       "paladin_dps"      (Retribution)         "hunter_dps"       (all three)
+#                       "rogue_dps"        (all three)           "priest_heal"      (Discipline, Holy)
+#                       "priest_dps"       (Shadow)              "deathknight_tank" (Blood)
+#                       "deathknight_dps"  (Frost, Unholy)       "shaman_dps"       (Elemental, Enh.)
+#                       "shaman_heal"      (Restoration)         "mage_dps"         (all three)
+#                       "warlock_dps"      (all three)           "druid_dps"        (Balance, Feral)
+#                       "druid_tank"       (Feral bear)          "druid_heal"       (Restoration)
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
+
+#
+#    AnimusForge.Queue
+#        Description: Comma-separated scenarios to train one after another, overriding
+#                     AnimusForge.Scenario. Each runs until its auto-started learner finishes
+#                     (reaches total_env_steps and exits cleanly), then the next one starts. After a
+#                     restart the finished scenarios' learners exit at once and the queue moves on.
+#                     When the last one finishes the sim idles. Needs AnimusForge.Policy = "remote"
+#                     and AnimusForge.Learner.AutoStart = 1. Each scenario trains in runs/<scenario>/
+#                     and publishes <scenario>.amdl. Can be set from the environment:
+#                     AC_ANIMUS_FORGE_QUEUE.
+#        Example:     "warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
+#                      hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank,
+#                      deathknight_dps, shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps,
+#                      druid_tank, druid_heal"
+#        Default:     "" - (run AnimusForge.Scenario only)
+
+AnimusForge.Queue = ""
 
 #
 #    AnimusForge.Envs
@@ -67,6 +100,7 @@ AnimusForge.EpisodeSeconds = 60
 #                     "rotation"        - (warrior_dummy_20) levelling priority: Battle Shout,
 #                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
 #                                         then Heroic Strike at the rage threshold
+#                     "greedy"          - (class/role scenarios) first usable spell or trinket
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"
@@ -127,8 +161,9 @@ AnimusForge.Learner.Python = ""
 
 #
 #    AnimusForge.Learner.Config
-#        Description: Learner config, relative to WorkDir or absolute.
-#        Default:     "" - configs/<AnimusForge.Scenario>.yaml
+#        Description: Learner config for every scenario, relative to WorkDir or absolute. The run is
+#                     always named after the scenario (--run-name).
+#        Default:     "" - configs/<scenario>.yaml if it exists, else configs/class_role.yaml
 
 AnimusForge.Learner.Config = ""
 

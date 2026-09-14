@@ -93,11 +93,14 @@ def main() -> None:
         "--resume-latest", action="store_true", help="continue from runs/<run_name>/latest.pt when it exists"
     )
     parser.add_argument("--socket", help="sim socket path, overriding the config")
+    parser.add_argument("--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario")
     args = parser.parse_args()
 
     config = TrainConfig.load(args.config)
     if args.socket:
         config.socket = args.socket
+    if args.run_name:
+        config.run_name = args.run_name
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)

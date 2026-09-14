@@ -24,6 +24,7 @@
 
 class Map;
 class Player;
+class WorldSession;
 struct Position;
 
 namespace AnimusForge::BotFactory
@@ -44,14 +45,24 @@ namespace AnimusForge::BotFactory
     /// deleted there on the next update, logging its player out with a save. The bot is driven by
     /// Map::Update (MapSessionFilter + Player::Update) once it is on a map. Autosave is disabled.
     /// Returns nullptr on failure. The player is not in the world yet.
-    Player* Create(BotSpec const& spec);
+    ///
+    /// `session` reuses the socketless session of a bot destroyed with keepSession, so a scenario that
+    /// rebuilds its bots every episode does not create and delete a session each time.
+    Player* Create(BotSpec const& spec, WorldSession* session = nullptr);
 
     /// Put a Create()d bot into its own new instance of `mapId` at `pos`, the server-side
     /// equivalent of logging in there. Returns the map, or nullptr on failure.
     Map* PlaceInNewInstance(Player* bot, uint32 mapId, Position const& pos);
 
-    /// Log the bot out without saving, drop its instance bind and delete its session.
-    void Destroy(Player* bot);
+    /// Put a Create()d bot into an existing instance map at `pos`. Returns false on failure.
+    bool PlaceInMap(Player* bot, Map* map, Position const& pos);
+
+    /// Log the bot out without saving and drop its instance bind. Deletes the session unless
+    /// keepSession, in which case it is returned for the next Create.
+    WorldSession* Destroy(Player* bot, bool keepSession = false);
+
+    /// Delete a Create()d bot that was never placed on a map (and its session).
+    void DestroyUnplaced(Player* bot);
 }
 
 #endif

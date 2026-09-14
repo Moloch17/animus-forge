@@ -22,6 +22,7 @@
 #include "Define.h"
 #include "Position.h"
 #include <string>
+#include <vector>
 
 namespace AnimusForge
 {
@@ -30,8 +31,12 @@ namespace AnimusForge
     {
         bool Enable = true;
 
-        /// Scenario started automatically when the server starts.
+        /// Scenario currently running: AnimusForge.Scenario, or the current entry of Queue.
         std::string Scenario;
+
+        /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes.
+        /// Empty = run Scenario only.
+        std::vector<std::string> Queue;
 
         uint32 Envs = 64;
         uint32 DecisionTicks = 1;
@@ -46,13 +51,17 @@ namespace AnimusForge
         bool LearnerAutoStart = true;
         std::string LearnerPython;      // resolved: never empty after Load
         std::string LearnerWorkDir;     // resolved: never empty after Load
-        std::string LearnerConfig;      // resolved: never empty after Load
+        std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = per scenario (LearnerConfigFor)
         std::string LearnerLogFile;     // resolved: never empty after Load
 
         uint32 ArenaMapId = 560;
         Position ArenaPosition;
 
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
+
+        /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else
+        /// configs/<scenario>.yaml if it exists, else configs/class_role.yaml.
+        [[nodiscard]] std::string LearnerConfigFor(std::string const& scenario) const;
 
         void Load();
     };

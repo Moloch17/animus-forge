@@ -18,7 +18,9 @@
 
 #include "ForgeConfig.h"
 #include "Config.h"
+#include "Tokenize.h"
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 namespace
@@ -37,6 +39,21 @@ void AnimusForge::ForgeConfig::Load()
     Enable = sConfigMgr->GetOption<bool>("AnimusForge.Enable", true);
 
     Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Scenario", "warrior_dummy");
+
+    Queue.clear();
+    std::string const queue = sConfigMgr->GetOption<std::string>("AnimusForge.Queue", "");
+    for (std::string_view name : Acore::Tokenize(queue, ',', false))
+    {
+        std::string entry(name);
+        entry.erase(std::remove_if(entry.begin(), entry.end(), [](unsigned char c) { return std::isspace(c); }),
+            entry.end());
+
+        if (!entry.empty())
+            Queue.push_back(entry);
+    }
+
+    if (!Queue.empty())
+        Scenario = Queue.front();
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
     DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 1));
@@ -62,8 +79,6 @@ void AnimusForge::ForgeConfig::Load()
     }
 
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
-    if (LearnerConfig.empty())
-        LearnerConfig = "configs/" + Scenario + ".yaml";
 
     LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
     if (LearnerLogFile.empty())
@@ -78,4 +93,21 @@ void AnimusForge::ForgeConfig::Load()
         sConfigMgr->GetOption<float>("AnimusForge.Arena.Y", 1315.2f),
         sConfigMgr->GetOption<float>("AnimusForge.Arena.Z", 14.0f),
         sConfigMgr->GetOption<float>("AnimusForge.Arena.O", 2.96f));
+}
+
+std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenario) const
+{
+    namespace fs = std::filesystem;
+
+    fs::path const workDir = LearnerWorkDir;
+    auto const absolute = [&workDir](fs::path const& path) { return path.is_relative() ? workDir / path : path; };
+
+    if (!LearnerConfig.empty())
+        return absolute(LearnerConfig).string();
+
+    fs::path const own = absolute(fs::path("configs") / (scenario + ".yaml"));
+    if (fs::exists(own))
+        return own.string();
+
+    return absolute("configs/class_role.yaml").string();
 }

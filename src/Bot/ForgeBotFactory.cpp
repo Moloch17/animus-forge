@@ -61,15 +61,19 @@ namespace
     };
 }
 
-Player* AnimusForge::BotFactory::Create(BotSpec const& spec)
+Player* AnimusForge::BotFactory::Create(BotSpec const& spec, WorldSession* session)
 {
-    // accountFlags 0: no collector's edition voucher mail (Player::Create's only DB write).
-    WorldSession* session = new WorldSession(spec.AccountId, std::string(spec.Name), 0, nullptr, SEC_PLAYER,
-        EXPANSION_WRATH_OF_THE_LICH_KING, 0, LOCALE_enUS, 0, false, false, 0);
+    bool const ownSession = !session;
+    if (ownSession)
+    {
+        // accountFlags 0: no collector's edition voucher mail (Player::Create's only DB write).
+        session = new WorldSession(spec.AccountId, std::string(spec.Name), 0, nullptr, SEC_PLAYER,
+            EXPANSION_WRATH_OF_THE_LICH_KING, 0, LOCALE_enUS, 0, false, false, 0);
 
-    // Default permissions for the security level, in memory. Must precede new Player, whose
-    // constructor checks a permission and would otherwise run a sync login DB query.
-    session->InitRBACDataForTest();
+        // Default permissions for the security level, in memory. Must precede new Player, whose
+        // constructor checks a permission and would otherwise run a sync login DB query.
+        session->InitRBACDataForTest();
+    }
 
     Player* bot = new Player(session);
     bot->GetMotionMaster()->Initialize();
@@ -80,7 +84,8 @@ Player* AnimusForge::BotFactory::Create(BotSpec const& spec)
         LOG_ERROR("module.animus", "Player::Create failed for bot {} (race {}, class {})", spec.Name, spec.Race,
             spec.Class);
         delete bot;
-        delete session;
+        if (ownSession)
+            delete session;
         return nullptr;
     }
 
@@ -121,6 +126,11 @@ Map* AnimusForge::BotFactory::PlaceInNewInstance(Player* bot, uint32 mapId, Posi
         return nullptr;
     }
 
+    return PlaceInMap(bot, map, pos) ? map : nullptr;
+}
+
+bool AnimusForge::BotFactory::PlaceInMap(Player* bot, Map* map, Position const& pos)
+{
     // Player::Create parked the bot on its race's start continent; move it before entering.
     bot->ResetMap();
     bot->Relocate(pos);
@@ -132,16 +142,31 @@ Map* AnimusForge::BotFactory::PlaceInNewInstance(Player* bot, uint32 mapId, Posi
 
     if (!map->AddPlayerToMap(bot))
     {
-        LOG_ERROR("module.animus", "Could not add bot {} to map {} instance {}", bot->GetName(), mapId,
+        LOG_ERROR("module.animus", "Could not add bot {} to map {} instance {}", bot->GetName(), map->GetId(),
             map->GetInstanceId());
         ObjectAccessor::RemoveObject(bot);
-        return nullptr;
+        return false;
     }
 
-    return map;
+    return true;
 }
 
-void AnimusForge::BotFactory::Destroy(Player* bot)
+void AnimusForge::BotFactory::DestroyUnplaced(Player* bot)
+{
+    WorldSession* session = bot->GetSession();
+
+    // ~Unit asserts that every aura (passives included) is gone; this is what removing it from a map
+    // would have done. A failed placement may have set the map already.
+    bot->CleanupsBeforeDelete();
+    if (bot->FindMap())
+        bot->ResetMap();
+
+    session->SetPlayer(nullptr);
+    delete bot;
+    delete session;
+}
+
+WorldSession* AnimusForge::BotFactory::Destroy(Player* bot, bool keepSession)
 {
     WorldSession* session = bot->GetSession();
     ObjectGuid const guid = bot->GetGUID();
@@ -152,10 +177,20 @@ void AnimusForge::BotFactory::Destroy(Player* bot)
     if (!bot->IsAlive())
         bot->ResurrectPlayer(1.0f);
 
+    // LogoutPlayer announces the logout to the player's friends, which looks the player up as a
+    // connected player and reads its social list -- null for a bot (see the top of this file).
+    // Unregistered first, the lookup finds nobody. Map::DeleteFromWorld unregisters it again, which
+    // is a no-op.
+    ObjectAccessor::RemoveObject(bot);
+
     // Removes the player from its map and deletes it; false = no SaveToDB.
     session->LogoutPlayer(false);
 
     sInstanceSaveMgr->PlayerUnbindInstance(guid, mapId, difficulty, true);
 
+    if (keepSession)
+        return session;
+
     delete session;
+    return nullptr;
 }

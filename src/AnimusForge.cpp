@@ -96,12 +96,40 @@ bool AnimusForge::Forge::Start()
         // one started by hand still works.
         if (_config.LearnerAutoStart && !_learner.Start(_config))
             LOG_ERROR("module.animus", "Learner auto-start failed; start it manually: cd {} && {} -m animus.train "
-                "--config {} --socket {}", _config.LearnerWorkDir, _config.LearnerPython, _config.LearnerConfig,
-                _config.SocketPath);
+                "--config {} --socket {} --run-name {}", _config.LearnerWorkDir, _config.LearnerPython,
+                _config.LearnerConfigFor(_config.Scenario), _config.SocketPath, _config.Scenario);
     }
 
     _pool->ResetAll();
     return true;
+}
+
+bool AnimusForge::Forge::QueueScenarioFinished() const
+{
+    return !_config.Queue.empty() && _config.IsRemote() && _config.LearnerAutoStart && _learner.FinishedCleanly();
+}
+
+void AnimusForge::Forge::AdvanceQueue()
+{
+    LOG_INFO("module.animus", "Queue: {} finished ({} of {})", _config.Scenario, _queueIndex + 1, _config.Queue.size());
+
+    _running = false;
+    _pool->Teardown();
+    _pool.reset();
+    _scenario.reset();
+
+    if (++_queueIndex >= _config.Queue.size())
+    {
+        LOG_INFO("module.animus", "Queue complete: every scenario in AnimusForge.Queue has finished training. The sim "
+            "idles until the server is stopped.");
+        return;
+    }
+
+    _config.Scenario = _config.Queue[_queueIndex];
+    LOG_INFO("module.animus", "Queue: starting {} ({} of {})", _config.Scenario, _queueIndex + 1, _config.Queue.size());
+
+    if (Start())
+        _running = true;
 }
 
 void AnimusForge::Forge::Fail(char const* reason)
@@ -154,9 +182,23 @@ void AnimusForge::Forge::RemoteDecision()
 {
     if (!_server.HasClient())
     {
-        // Blocks the world thread until the learner connects; returns false only on shutdown.
-        // Polls the auto-started learner meanwhile, so an early exit is logged instead of silent.
-        if (!_server.AcceptClient([this]() { _learner.Poll(); }) || !SendSpec())
+        // Blocks the world thread until the learner connects; returns false on shutdown, or when a
+        // queued scenario's learner has finished its run. Polls the auto-started learner meanwhile,
+        // so an early exit is logged instead of silent.
+        bool const connected = _server.AcceptClient([this]()
+        {
+            _learner.Poll();
+            return !QueueScenarioFinished();
+        });
+
+        if (!connected)
+        {
+            if (QueueScenarioFinished())
+                AdvanceQueue();
+            return;
+        }
+
+        if (!SendSpec())
             return;
 
         // A new learner starts from fresh episodes; whatever ran unobserved is discarded.

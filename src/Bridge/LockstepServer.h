@@ -48,12 +48,14 @@ namespace AnimusForge
         LockstepServer(LockstepServer const&) = delete;
         LockstepServer& operator=(LockstepServer const&) = delete;
 
+        /// Open the listening socket. Does nothing if it is already open on `path`.
         bool Listen(std::string const& path);
         void Shutdown();
 
         /// Block until a client connects and sends a valid HELLO, or the world stops. `onIdle` runs
-        /// every poll interval while nobody is connecting.
-        bool AcceptClient(std::function<void()> const& onIdle = {});
+        /// every poll interval while nobody is connecting; returning false stops waiting (and
+        /// AcceptClient returns false).
+        bool AcceptClient(std::function<bool()> const& onIdle = {});
         void DropClient();
         [[nodiscard]] bool HasClient() const { return _client >= 0; }
 
@@ -66,7 +68,7 @@ namespace AnimusForge
         bool Receive(MsgType& type, void* dst, std::size_t size);
 
     private:
-        bool WaitReadable(int fd, std::function<void()> const& onIdle = {});
+        bool WaitReadable(int fd, std::function<bool()> const& onIdle = {});
         bool ReadExact(void* dst, std::size_t size);
 
         std::string _path;

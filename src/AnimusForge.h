@@ -50,6 +50,12 @@ namespace AnimusForge
         bool Start();
         void Fail(char const* reason);
 
+        /// The running scenario belongs to AnimusForge.Queue and its auto-started learner finished.
+        [[nodiscard]] bool QueueScenarioFinished() const;
+
+        /// Tear down the finished scenario and start the next one in the queue (or idle at the end).
+        void AdvanceQueue();
+
         void LocalDecision();
         void RemoteDecision();
         bool SendSpec();
@@ -62,6 +68,7 @@ namespace AnimusForge
         LearnerProcess _learner;
 
         bool _running = false;
+        uint32 _queueIndex = 0;
         uint64 _ticks = 0;
         uint64 _decisions = 0;
         uint32 _tickMs = 0;

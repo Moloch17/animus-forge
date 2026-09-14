@@ -55,10 +55,7 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
         return false;
     }
 
-    fs::path configPath = config.LearnerConfig;
-    if (configPath.is_relative())
-        configPath = workDir / configPath;
-
+    fs::path const configPath = config.LearnerConfigFor(config.Scenario);
     if (!fs::exists(configPath))
     {
         LOG_ERROR("module.animus", "Learner config '{}' does not exist (scenario {}). Create it or set "
@@ -67,12 +64,16 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
     }
 
     _logFile = config.LearnerLogFile;
+    _exitedCleanly = false;
 
+    // The run is named after the scenario, so a shared config (configs/class_role.yaml) still gives
+    // every queued scenario its own runs/<scenario>/ and <scenario>.amdl.
     std::vector<std::string> args =
     {
         config.LearnerPython, "-u", "-m", "animus.train",
         "--config", configPath.string(),
         "--socket", config.SocketPath,
+        "--run-name", config.Scenario,
         "--resume-latest",
     };
 
@@ -153,7 +154,9 @@ bool AnimusForge::LearnerProcess::WaitForExit(std::chrono::milliseconds timeout)
 
 void AnimusForge::LearnerProcess::ReportExit(int status)
 {
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+    _exitedCleanly = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+
+    if (_exitedCleanly)
         LOG_INFO("module.animus", "Learner (pid {}) finished; output in {}", _pid, _logFile);
     else if (WIFEXITED(status))
         LOG_ERROR("module.animus", "Learner (pid {}) exited with code {}; see {}", _pid, WEXITSTATUS(status), _logFile);

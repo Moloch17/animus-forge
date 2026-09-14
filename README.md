@@ -38,7 +38,9 @@ worldserver (forge)                                   python -m animus.train
 
 ## Scenarios
 
-Select one with `AnimusForge.Scenario`. The learner auto-starts with `configs/<scenario>.yaml`.
+Select one with `AnimusForge.Scenario` (or several with `AnimusForge.Queue`). The learner auto-starts
+with `configs/<scenario>.yaml`, or `configs/class_role.yaml` when the scenario has none, and trains in
+`runs/<scenario>/`.
 
 ### `warrior_dummy`
 
@@ -79,6 +81,85 @@ A level 20 human Arms warrior on a level 20 training dummy.
   - the 10 talent ranks
 - **Episode info:** damage and DPS, hit counts, the talent build index, and casts per ability.
 - **Baselines:** `white_only`, `hs_at_threshold`, and `rotation`, a conventional levelling priority.
+
+### Class/role models (`<class>_<role>`)
+
+One model per class and role, 18 in all, each maximising damage on a training dummy (tank and healer
+roles too: they learn their spec's damage play in role gear):
+
+| Class | Scenarios (specs) |
+|---|---|
+| Warrior | `warrior_dps` (Arms, Fury), `warrior_tank` (Protection) |
+| Paladin | `paladin_heal` (Holy), `paladin_tank` (Protection), `paladin_dps` (Retribution) |
+| Hunter | `hunter_dps` (Beast Mastery, Marksmanship, Survival) |
+| Rogue | `rogue_dps` (Assassination, Combat, Subtlety) |
+| Priest | `priest_heal` (Discipline, Holy), `priest_dps` (Shadow) |
+| Death Knight | `deathknight_tank` (Blood), `deathknight_dps` (Frost, Unholy) |
+| Shaman | `shaman_dps` (Elemental, Enhancement), `shaman_heal` (Restoration) |
+| Mage | `mage_dps` (Arcane, Fire, Frost) |
+| Warlock | `warlock_dps` (Affliction, Demonology, Destruction) |
+| Druid | `druid_dps` (Balance, Feral cat), `druid_tank` (Feral bear), `druid_heal` (Restoration) |
+
+The table lives in `src/Scenario/ClassRole/ClassRoleProfile.cpp`, with each spec's stat profile,
+range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
+
+- **Race and level:** a random race the class allows (`playercreateinfo`), random gender, level
+  1-80 (55-80 for death knights). The dummy is summoned at the bot's level, 2 yd away for melee
+  specs and 20 yd for casters and hunters.
+- **Talents:** one of the role's specs, then a random build spent one point at a time on a uniformly
+  chosen learnable talent: the spec's tree first until it holds 51 points (the capstone row) or the
+  points run out, then the other two trees. Row and prerequisite rules follow `Player::LearnTalent`.
+- **Kit:** every spell of the class trainers up to the level (`trainer`/`trainer_spell`, learn-spells
+  resolved), talent-gated ranks when the talent was taken, and class-quest spells trainers do not
+  teach (stances, Bear Form, warlock demons, Raise Dead). Weapon and armor skills are the ones the
+  race and class may have, maxed for the level. Reagents: totems, soul shards, corpse dust, flash
+  powder; hunters get ammo for their ranged weapon.
+- **Gear:** random level-appropriate items for every slot including both trinkets, drawn from
+  every obtainable item (loot, vendors, quest rewards, crafted) the class can use and whose stats
+  suit the spec (strength melee, agility melee, ranged, caster, healer or tank). Items with random
+  stats roll only suffixes that suit it. A slot takes an item required at the bot's level or up to
+  4 below, widening the window (9, 19, any) and falling back to lighter armor, then stat-less
+  items, when nothing closer exists. Armor is plate/mail/leather/cloth by class and level; weapons
+  follow the spec's layouts (two-hander, dual wield when the bot can, one-hander with shield or
+  off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or relics.
+- **Actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
+  chain of every combat spell a level 80 character of any of the class's races knows (trainer,
+  starting and racial spells, active talents of all three trees), casting the highest rank the bot
+  knows, and one action per trinket slot. A spell counts as combat if it deals damage, applies a
+  damage-relevant buff/debuff/DoT, generates resources, shapeshifts, or summons (pets, totems);
+  movement, travel, crafting, pure heals and utility are left out. Every action is masked by the
+  core's `Spell::CheckCast` each decision (race, level, talent, cooldown, GCD, power, stance, range,
+  reagents).
+- **Observation:** level, race and spec one-hots, health and every power type, runes, combo points,
+  shapeshift form, GCD, casting, swing timers, target health and distance, attack power, spell power,
+  crit, haste, hit, expertise and armor penetration; per action: known, cooldown, its aura on the
+  target and on the bot, stacks; every talent's rank; points per tree.
+- **Reward:** damage per decision divided by a level scale (`15 * e^(0.068 * level)`), so early
+  and late levels weigh alike. Pet, guardian and totem damage counts for the owner.
+- **Dummy health:** the dummy takes no damage, so its health follows a random line over the episode
+  (start 20-100%, end anywhere below): execute-range abilities come up without killing it.
+- **Episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
+  equipped items, spell casts, trinket uses.
+- **Baseline:** `greedy`, the first usable spell or trinket.
+
+Learner settings come from `configs/class_role.yaml` unless a `configs/<scenario>.yaml` exists.
+
+### Training every model: `AnimusForge.Queue`
+
+`AnimusForge.Queue` lists scenarios to train one after another (it overrides
+`AnimusForge.Scenario`):
+
+```
+AnimusForge.Queue = "warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps, hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank, deathknight_dps, shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps, druid_tank, druid_heal"
+```
+
+Each scenario runs with its auto-started learner until the learner reaches `total_env_steps` and
+exits cleanly; the sim then tears the scenario down and starts the next one. Every run trains in
+`runs/<scenario>/` and publishes `<scenario>.amdl` to `$ANIMUS_MODEL_DIRS` at each checkpoint (see
+[Export for mod-animus](#export-for-mod-animus)). After a server restart, finished scenarios' learners
+exit immediately and the queue moves on to the first unfinished one. Change the list (or its order)
+in the config and restart to retrain or skip models. A learner that crashes stops the queue at that
+scenario: the sim waits for a learner, as it does without a queue.
 
 ## Enabling
 
