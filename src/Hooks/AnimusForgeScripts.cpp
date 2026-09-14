@@ -73,10 +73,10 @@ namespace
         }
 
         /// Called on map threads when a cast or channel is cancelled, with the spell still in its old state.
-        void OnSpellCastCancel(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool /*bySelf*/) override
+        void OnSpellCastCancel(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool bySelf) override
         {
             if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
-                pool->RecordCastCancelled(caster, spell);
+                pool->RecordCastCancelled(caster, spell, bySelf);
         }
     };
 

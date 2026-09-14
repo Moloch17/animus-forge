@@ -64,6 +64,18 @@ namespace
     constexpr std::array<int32, 4> PARTY_SIZE_WEIGHTS = { 20, 20, 20, 40 };     // 1, 2, 3, 4 seats
     constexpr int32 CLASSIC_PARTY_CHANCE = 50;
 
+    // Levels: half the characters are 61-80, where most players are and where the pilot played worst; the rest are
+    // spread over every level the class/roles can be.
+    constexpr uint8 HIGH_LEVEL_FIRST = 61;
+    constexpr int32 HIGH_LEVEL_CHANCE = 50;
+
+    uint8 RandomLevel(uint8 minLevel)
+    {
+        if (minLevel <= HIGH_LEVEL_FIRST && roll_chance_i(HIGH_LEVEL_CHANCE))
+            return uint8(urand(HIGH_LEVEL_FIRST, DEFAULT_MAX_LEVEL));
+        return uint8(urand(minLevel, DEFAULT_MAX_LEVEL));
+    }
+
     AnimusForge::Role RandomRole()
     {
         // Damage dealers are half of all characters, tanks and healers a quarter each.
@@ -92,8 +104,14 @@ void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
     CastsCompleted = 0;
     CastsCancelled = 0;
     CastMsWasted = 0;
+    CastsStopped = 0;
+    CastsMoved = 0;
+    CastsTargetLost = 0;
+    CastsOther = 0;
     Killed = false;
     Died = false;
+    Deaths = 0;
+    DeathCounted = false;
 
     TargetSlot = 0;
     Interrupts = 0;
@@ -224,13 +242,6 @@ AnimusForge::ClassRoleScenario::Layout const& AnimusForge::ClassRoleScenario::Pi
 bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
 {
     EnvData const& data = _data[env.Index];
-    auto const allDied = [&]()
-    {
-        for (uint32 seat = 0; seat < _seatCount; ++seat)
-            if (data.Seats[seat].L && !data.Seats[seat].Died)
-                return false;
-        return true;
-    };
 
     switch (_mode)
     {
@@ -240,9 +251,8 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
         case ArenaMode::Gauntlet:
             return data.Seats[0].Died;
         case ArenaMode::Companion:
-            return data.Seats[0].Died || data.OwnerDied;
         case ArenaMode::Party:
-            return data.OwnerDied || allDied();
+            return false;       // deaths are recovered from after the pull (Recover); episodes end at their length
         case ArenaMode::Pvp:
             return data.Seats[0].Died || data.Seats[0].Killed;
         case ArenaMode::Arena:
@@ -302,6 +312,9 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.NextPullMs = 0;
     data.EliteOrHigherPull = false;
     data.OwnerDied = false;
+    data.OwnerDeaths = 0;
+    data.OwnerDeathCounted = false;
+    data.Wipes = 0;
     data.OwnerDamageTaken = 0;
     data.ThreatOnOwner = 0;
 
@@ -376,7 +389,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
     }
 
-    uint8 const level = uint8(urand(minLevel, DEFAULT_MAX_LEVEL));
+    uint8 const level = RandomLevel(minLevel);
     Map* map = oldBots[0] ? env.FindMap() : nullptr;
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a
@@ -836,17 +849,17 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
     if (HasDuel())
         names.insert(names.end(), { "killed", "died", "time_to_kill", "damage_taken", "health_left",
             "stealth_openers", "pet_summoned", "opponent", "casts_completed", "casts_cancelled",
-            "cast_seconds_wasted" });
+            "cast_seconds_wasted", "cancelled_stopped", "cancelled_moved", "cancelled_target", "cancelled_other" });
 
     if (HasPack())
         names.insert(names.end(), { "kills", "interrupts", "pack_size", "linked" });
 
     if (HasGauntlet())
-        names.insert(names.end(), { "pulls_cleared", "food_used", "drink_used", "sustain_casts" });
+        names.insert(names.end(), { "pulls_cleared", "food_used", "drink_used", "sustain_casts", "deaths" });
 
     if (HasCompanion())
         names.insert(names.end(), { "owner_class", "owner_died", "owner_damage_taken", "owner_healing",
-            "threat_on_bot", "threat_on_owner", "owner_role" });
+            "threat_on_bot", "threat_on_owner", "owner_role", "owner_deaths", "wipes" });
 
     if (HasParty())
         names.insert(names.end(), { "teammates_died", "teammate_damage_taken", "teammate_healing",

@@ -126,9 +126,9 @@ damage play in role gear):
 The table lives in `src/Scenario/ClassRole/ClassRoleProfile.cpp`, with each spec's stat profile,
 range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
 
-- **Race and level:** a random race the class allows (`playercreateinfo`), random gender, level
-  1-80 (55-80 for death knights). The dummy is summoned at the bot's level, 2 yd away for melee
-  specs and 20 yd for casters and hunters.
+- **Race and level:** a random race the class allows (`playercreateinfo`), random gender; half the characters
+  are level 61-80 and the rest any level 1-80 (55-80 for death knights), since most players are high level.
+  The dummy is summoned at the bot's level, 2 yd away for melee specs and 20 yd for casters and hunters.
 - **Talents:** one of the role's specs, then a random build spent one point at a time on a uniformly
   chosen learnable talent: the spec's tree first until it holds 51 points (the capstone row) or the
   points run out, then the other two trees. Row and prerequisite rules follow `Player::LearnTalent`.
@@ -198,20 +198,22 @@ opponent:
 - **Reward:** per decision, damage dealt as a fraction of the opponent's health (x2) minus damage
   taken as a fraction of the bot's (x1), potential-based shaping toward the spec's range (melee or
   25 yd), +0.5 for a stealth-only opener from stealth, and a small time cost. Casting: every cast-time
-  spell that does not finish (stopped, interrupted, pushed into death) costs 0.05 per second of cast
-  time already spent, and every one that finishes while the bot is in combat earns 0.02 per second of
+  spell that does not finish (stopped, interrupted, pushed into death) costs 0.03 per second of cast
+  time already spent, and every one that finishes while the bot is in combat earns 0.03 per second of
   its cast time. Nothing forces a cast to finish; cutting one short stays the policy's call when
   something else is worth more. Channels are paid by their ticks. Later stages keep this term.
   On the kill: +2, plus
   up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health it did
   not lose. Death: -3. The episode ends on the kill or the bot's death.
 - **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
-  stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled and
-  seconds of cast time wasted.
+  stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled,
+  seconds of cast time wasted, and why casts were cancelled: stopped by the bot, while moving, target died or
+  gone, or anything else (interrupts, silences, stuns, form changes, death).
 
-**Bootstrapping:** every stage after the first has `init_from: runs/{base_run}<previous stage>/best.pt`
-(`class_role_duel` seeds from `runs/class_role/best.pt`). A run seeds its networks from the
-previous stage's (`animus/bootstrap.py`), layout by layout (class/roles are matched by name): each layout's
+**Bootstrapping:** every stage after the first lists the earlier stages in `init_from`, closest first
+(`class_role_party`: companion, gauntlet, pack, duel, stage 1), and seeds from the first that has been trained, so
+skipping a stage still seeds from the nearest one. A run seeds its networks from that stage's
+(`animus/bootstrap.py`), layout by layout (class/roles are matched by name): each layout's
 earlier features keep their places in its wider adapter (new inputs start at zero) and its earlier actions keep
 their logits (new actions start near zero); the trunk is copied; the critic's state encoder and value head start
 fresh because the global state and reward differ. Queue the stages in order.
@@ -265,12 +267,14 @@ Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes
 
 Stage 5: the gauntlet fought beside an owner, as a companion fights beside a player.
 
-- **Owner:** a scripted player bot of a random class (one a character of that level can be) within 2
-  levels of the companion, dressed like the companion: a random damage spec and build, its trainer
-  spells and level-appropriate gear. It gets the companion's faction so either faction's races can be
-  paired. Between pulls it wanders near the arena and recovers health and mana; each pull spawns around
-  it and it walks in after 1.5-5 s, fights the enemy attacking it (else the nearest) in melee and casts
-  one of its own damage spells every 2-4 s. Linked packs join in on whoever their engaged member fights.
+- **Owner:** a scripted player bot within 2 levels of the companion, of any role -- a tank a quarter of the
+  time, a healer a quarter, else a damage dealer -- and a random class that can fill it, dressed like the
+  companion: a random spec of the role and build, its trainer spells and level-appropriate gear. It gets the
+  companion's faction so either faction's races can be paired. Between pulls it wanders near the arena and
+  recovers health and mana. Each pull spawns around it; a tank owner starts the pull at once, other owners do
+  30% of the time and otherwise walk in after 1.5-5 s. It plays its role: a tank holds and taunts, a healer
+  heals the most hurt of it and the companion, a damage dealer fights (the tank's target once there is one).
+  Linked packs join in on whoever their engaged member fights.
 - **Actions:** the gauntlet's, then follow the owner, assist (target the owner's target), guard (target an
   enemy attacking the owner), and one "cast on the owner" action per single-target heal.
 - **Observation:** the gauntlet's, then the owner's presence, health, mana, distance, bearing, combat,
@@ -278,25 +282,36 @@ Stage 5: the gauntlet fought beside an owner, as a companion fights beside a pla
   enemies attack it, and each owner heal's known/cooldown.
 - **Reward:** the gauntlet's, plus, by role:
   - everyone: the owner's damage taken (fraction of its health; x1 for damage dealers, x2 for tanks and
-    healers), -0.01 per decision in combat while the owner is not, a small bonus for staying within 12 yd
-    out of combat and a penalty beyond 25 yd, -6 if the owner dies;
-  - tanks: +0.01 per enemy attacking the tank, -0.02 per enemy attacking the owner, per decision (and
-    half of the gauntlet's damage-taken penalty back);
+    healers; a quarter of that when the owner is the tank), -0.01 per decision in combat while the owner is
+    not, a small bonus for staying within 12 yd out of combat and a penalty beyond 25 yd, -6 for each of the
+    owner's deaths; kills and clears count double;
+  - tanks: +0.002 per enemy attacking the tank, -0.02 per enemy attacking the owner unless the owner tanks,
+    per decision (and half of the gauntlet's damage-taken penalty back);
   - healers: effective healing on the owner (x2, fraction of its health; the core's heal hook reports the
     health actually gained, so overhealing earns nothing);
-  - damage dealers and healers: -0.01 per enemy attacking them, per decision.
-  The episode ends when the companion or the owner dies.
-- **Episode info:** the gauntlet's, then the owner's class, whether it died, its damage taken, the
-  companion's healing on it, and enemy-decisions spent on the companion and on the owner.
+  - damage dealers and healers: -0.004 per enemy attacking them, per decision.
+  Per-decision terms are per 50 ms and scale with `AnimusForge.DecisionTicks`.
+- **Deaths do not end the episode.** After each pull everyone who died -- the companion or the owner -- stands
+  up with half health and mana, and the next death is paid for again; a pull that kills everyone is cleared
+  away (a wipe) and the next comes after the usual break. The episode runs its full length, so letting the
+  owner die is never a way out of the penalties that follow.
+- **Episode info:** the gauntlet's (with the companion's deaths), then the owner's class, whether it died, its
+  damage taken, the companion's healing on it, enemy-decisions spent on the companion and on the owner, the
+  owner's role, its deaths and the wipes.
 
 #### Stage 6 (`class_role_party`): the party
 
-Four learned seats -- a tank, a healer and two damage dealers of random classes that can fill the role, all at
-one level -- and the companion stage's scripted owner as the fifth player, against dungeon-like pulls. Every seat
-plays with the same policy and sees the other three.
+Up to four learned seats, all at one level, and the companion stage's scripted owner, against dungeon-like
+pulls. Every seat plays with the same policy and sees the others.
+
+- **Makeup:** like a player with 1-4 companions, each episode fills 1, 2 or 3 seats 20% of the time each and all
+  four 40% of the time. Half the parties are the classic tank, healer and damage dealers (as many as there are
+  seats, in a random order); the rest draw each seat's role on its own (half damage dealers, a quarter each tanks
+  and healers). An empty seat keeps its agent slot with no character: only the no-op, reward 0, and episode info
+  `present` = 0, which the learner leaves out of its stats and evaluations.
 
 - **Pulls:** 2-4 creatures, each elite half the time, up to 2 levels above the party, pull after pull, spawning
-  around the owner. The owner waits 4-7 s so the tank can pull, then attacks the tank's target.
+  around the owner. The owner waits 4-7 s so a tank can pull (unless it starts the pull itself, as above).
 - **A real group:** every episode the owner (as leader) and the four seats form a core `Group`, so party buffs,
   auras, party-wide heals and every "party member" check work as in play. It is a sim group
   (`Group::SetSimGroup`): it lives only in memory -- no group or member rows, no character cache entries, and
@@ -309,9 +324,9 @@ plays with the same policy and sees the other three.
   class, attackers, target slot and which enemies attack it.
 - **Reward:** per seat, the companion stage's (its own damage, threat and survival, the owner's), plus per
   teammate: its damage taken (not for a tank teammate; x0.5 for a damage dealer, x1 otherwise), effective
-  healing on it for healers (x2), -0.02 per enemy on a non-tank teammate per decision for tanks, and -3 when it
-  dies. Kills and clears are shared by the party. A tank is not charged for fighting before the owner joins.
-  The episode ends when the owner dies or every seat has.
+  healing on it for healers (x2), -0.02 per enemy on a non-tank teammate per decision for tanks, and -3 each time
+  it dies. Kills and clears are shared by the party. A tank is not charged for fighting before the owner joins.
+  As in the companion stage, the dead stand up after the pull and the episode runs its full length.
 - **Episode info:** per seat, the companion stage's, then teammates died, teammate damage taken, its healing
   on teammates, enemy-decisions spent on non-tank teammates, and the seat.
 
@@ -486,17 +501,18 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
 - **Baseline:** `eval.baseline` (`greedy` for stage 1, `fight` for later stages) is played by the sim on the
   same seeds once per run and cached in `eval_baseline.json`.
 - **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
-  `eval.every_env_steps` (20M), and at `total_env_steps`.
+  `eval.every_env_steps` (10M, 20M for the party), and at `total_env_steps`.
 - **Output:** the log prints the score, the best so far and a table of score and key episode stats
   (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to baseline.
   `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
   `eval_<band>/*`.
-- **Best model:** each new best score saves `best.pt`; the next curriculum stage
-  seeds from `runs/<previous stage>/best.pt` (its `latest.pt` if there is no best).
+- **Best model:** each new best score saves `best.pt`; later curriculum stages seed from it (a stage's
+  `latest.pt` if it has no best).
 - **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
   the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,
-  whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations
-  (100M env steps), 2% and 40M; `total_env_steps` stays the upper bound. `finished.json` records why a
+  whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations, 2%,
+  and 30-60M; `total_env_steps` stays the upper bound, sized from measured throughput (stage 1 60M, duel, pack
+  and PvP 150M, gauntlet, companion and arena 200M, party 300M: roughly 4-8 hours each at the most). `finished.json` records why a
   run stopped.
 
 To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from `python/`:

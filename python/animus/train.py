@@ -193,13 +193,14 @@ def main() -> None:
 
     update = 0
     env_steps = 0
-    if init_from := config.resolved_init_from():
-        if seed_path := init_from_checkpoint(init_from):
+    if candidates := config.resolved_init_from():
+        seed_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
+        if seed_path:
             seeded = seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
             print(f"Seeded the networks from {seed_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
                   flush=True)
         else:
-            print(f"No {init_from} to seed from; starting from scratch", flush=True)
+            print(f"None of {', '.join(candidates)} to seed from; starting from scratch", flush=True)
 
     envs, agents = spec.num_envs, spec.agents_per_env
     buffer = RolloutBuffer(config.rollout_length, envs, agents, spec.obs_dim, spec.state_dim, spec.num_actions)

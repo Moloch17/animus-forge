@@ -11,11 +11,14 @@ runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed a fresh run from stage 1 (runs/class_role/best.pt, else its latest.pt): each class/role's duel layout
-# extends its stage 1 layout, and the trunk carries over.
-init_from: runs/{base_run}/best.pt
+# Seed from the closest earlier stage that has been trained (the first candidate that exists): each
+# layout extends the earlier stage's, and the trunk carries over.
+init_from:
+  - runs/{base_run}/best.pt
 
-total_env_steps: 300000000
+# Budget sized from throughput: 150M env steps is ~6 h at the pilot's ~7k env steps/s.
+# The plateau stop usually ends the stage sooner.
+total_env_steps: 150000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -46,17 +49,17 @@ mappo:
 # the same seeds. The best networks go to best.pt
 # and are the ones the next stage seeds from.
 eval:
-  every_env_steps: 20000000
+  every_env_steps: 10000000
   at_start: true
   episodes: 128
   seed: 1000
   deterministic: true
   baseline: fight
 
-# Stop once 5 evaluations in a row (100M env steps) fail to beat the best score by 2%, but not before 40M
-# env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+# Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
+# 30M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
   patience: 5
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 40000000
+  min_env_steps: 30000000

@@ -77,6 +77,9 @@ namespace
     constexpr float FAST_PULL = 2.0f;           // gauntlet: times 1 - pull time / 60 s
     constexpr float HEALTH_KEPT = 2.0f;         // times the fraction of the bot's health not lost this pull
     constexpr float PACK_DEATH = 3.0f;
+    constexpr float OWNER_STAGE_CLEAR_SCALE = 2.0f;  // with an owner, kills and clears count double: the pilot's party
+                                                     // learned to fight less to avoid the penalties
+    constexpr float RECOVER_HEALTH = 0.5f;          // the fraction of health and mana a recovered player stands up with
     constexpr float GAUNTLET_DEATH = 5.0f;
 
 }
@@ -211,7 +214,10 @@ void AnimusForge::ClassRoleScenario::UpdatePack(Env& env)
     }
 
     if (HasCompanion())
+    {
         UpdateOwner(env);
+        Recover(env);
+    }
 
     // Gauntlet: the next pull once the break is over, if anyone is left to fight it.
     bool anyoneAlive = false;
@@ -224,6 +230,67 @@ void AnimusForge::ClassRoleScenario::UpdatePack(Env& env)
         && env.EpisodeElapsedMs >= data.NextPullMs)
         if (Map* map = env.FindMap())
             SpawnPull(env, map);
+}
+
+void AnimusForge::ClassRoleScenario::Recover(Env& env)
+{
+    EnvData& data = _data[env.Index];
+    Player* owner = FindOwner(data);
+
+    bool anyoneAlive = owner && owner->IsAlive();
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        if (Player* bot = SeatBot(data, seat); bot && bot->IsAlive())
+            anyoneAlive = true;
+
+    // A wipe: nobody is left to finish the pull, so it is cleared away and the next one comes after the usual break.
+    if (!anyoneAlive && !env.Targets.empty())
+    {
+        for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
+            if (Creature* enemy = env.FindTarget(slot))
+                enemy->DespawnOrUnsummon();
+
+        env.Targets.clear();
+        ++data.Wipes;
+        data.PullKills = 0;
+        data.PullCleared = false;
+        data.QuietSinceMs = env.EpisodeElapsedMs;
+        data.NextPullMs = env.EpisodeElapsedMs + urand(NEXT_PULL_MIN_MS, NEXT_PULL_MAX_MS);
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+        {
+            data.Seats[seat].TargetSlot = 0;
+            data.Seats[seat].LastDistance = -1.0f;
+        }
+    }
+
+    if (!env.Targets.empty())
+        return;
+
+    // Between pulls: the dead stand up with half their health and mana, and their deaths can be paid for again.
+    auto const recover = [](Player* player)
+    {
+        player->ResurrectPlayer(RECOVER_HEALTH);
+        player->SetPower(POWER_MANA, uint32(float(player->GetMaxPower(POWER_MANA)) * RECOVER_HEALTH));
+    };
+
+    if (owner && !owner->IsAlive())
+    {
+        recover(owner);
+        data.OwnerDeathCounted = false;
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+            data.Seats[seat].OwnerDeathSeen = false;
+    }
+
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+    {
+        Player* bot = SeatBot(data, seat);
+        if (!bot || bot->IsAlive())
+            continue;
+
+        recover(bot);
+        data.Seats[seat].DeathCounted = false;
+        for (uint32 other = 0; other < _seatCount; ++other)
+            data.Seats[other].TeammateDeathSeen[seat] = false;
+    }
 }
 
 void AnimusForge::ClassRoleScenario::AssessPull(Env& env)
@@ -343,7 +410,8 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Pla
         seat.PetSummoned = true;
 
     // Kills and clears are the party's: every seat shares them.
-    reward += KILL * float(data.NewKills);
+    float const clearScale = HasCompanion() ? OWNER_STAGE_CLEAR_SCALE : 1.0f;
+    reward += KILL * clearScale * float(data.NewKills);
 
     if (data.PullCleared)
     {
@@ -358,7 +426,7 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Pla
         if (HasGauntlet())
         {
             float const pullTime = float(env.EpisodeElapsedMs - data.PullStartMs);
-            reward += CLEAR + FAST_PULL * (1.0f - std::min(1.0f, pullTime / PULL_TIME_SCALE_MS))
+            reward += (CLEAR + FAST_PULL * (1.0f - std::min(1.0f, pullTime / PULL_TIME_SCALE_MS))) * clearScale
                 + HEALTH_KEPT * healthKept;
             seat.PullDamageTaken = 0;
         }
@@ -370,9 +438,11 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Pla
         }
     }
 
-    if (!seat.Died && !bot->IsAlive())
+    if (!seat.DeathCounted && !bot->IsAlive())
     {
+        seat.DeathCounted = true;
         seat.Died = true;
+        ++seat.Deaths;
         reward -= HasGauntlet() ? GAUNTLET_DEATH : PACK_DEATH;
     }
 
@@ -398,4 +468,5 @@ void AnimusForge::ClassRoleScenario::GauntletEpisodeInfo(Env const& env, uint32 
     info[GAUNTLET_INFO_FOOD_USED] = float(seat.FoodUsed);
     info[GAUNTLET_INFO_DRINK_USED] = float(seat.DrinkUsed);
     info[GAUNTLET_INFO_SUSTAIN_CASTS] = float(seat.SustainCasts);
+    info[GAUNTLET_INFO_DEATHS] = float(seat.Deaths);
 }

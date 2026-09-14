@@ -53,7 +53,7 @@ namespace
     // Per-decision terms are per 50 ms decision (scaled by _decisionScale).
     constexpr float TANK_HOLD = 0.002f;                 // per enemy on the tank, per decision
     constexpr float TANK_LOSE = 0.02f;                  // per enemy on the owner, per decision (tanks)
-    constexpr float PULLED_THREAT = 0.01f;              // per enemy on a damage dealer or healer, per decision
+    constexpr float PULLED_THREAT = 0.004f;             // per enemy on a damage dealer or healer, per decision
     constexpr float SOLO_FIGHT = 0.01f;                 // per decision in combat while the owner is not
     constexpr float FOLLOW_FAR = 0.002f;                // per decision out of combat more than 25 yd away
     constexpr float FOLLOW_NEAR = 0.0005f;              // per decision out of combat within 12 yd
@@ -243,9 +243,14 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex
     }
     else if (!seat.OwnerDeathSeen)
     {
-        // Every seat pays for the owner's death, once.
+        // Every seat pays for each of the owner's deaths, once.
         seat.OwnerDeathSeen = true;
         data.OwnerDied = true;
+        if (!data.OwnerDeathCounted)
+        {
+            data.OwnerDeathCounted = true;
+            ++data.OwnerDeaths;
+        }
         reward -= OWNER_DEATH;
     }
 
@@ -264,4 +269,6 @@ void AnimusForge::ClassRoleScenario::CompanionEpisodeInfo(Env const& env, uint32
     info[COMPANION_INFO_THREAT_ON_BOT] = float(seat.ThreatOnBot);
     info[COMPANION_INFO_THREAT_ON_OWNER] = float(data.ThreatOnOwner);
     info[COMPANION_INFO_OWNER_ROLE] = float(uint32(data.OwnerRole));
+    info[COMPANION_INFO_OWNER_DEATHS] = float(data.OwnerDeaths);
+    info[COMPANION_INFO_WIPES] = float(data.Wipes);
 }

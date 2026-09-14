@@ -81,6 +81,18 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
         } while (result->NextRow());
     }
 
+    // Creatures that walk waypoint paths are scripted set pieces (rares on patrol, escorts): not fair opponents or pets.
+    std::unordered_set<uint32> walkers;
+    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT c.id FROM creature c "
+        "LEFT JOIN creature_addon a ON a.guid = c.guid WHERE c.MovementType = 2 OR IFNULL(a.path_id, 0) <> 0 "
+        "UNION SELECT entry FROM creature_template_addon WHERE path_id <> 0"))
+    {
+        do
+        {
+            walkers.insert(result->Fetch()[0].Get<uint32>());
+        } while (result->NextRow());
+    }
+
     // SmartAI creatures whose scripts only cast spells or talk, on combat events: casters and ability users
     // without scripts that flee, summon, despawn or change phases. Pack and gauntlet stages only.
     std::unordered_set<uint32> castOnlySmart;
@@ -101,7 +113,7 @@ AnimusForge::DuelArena::OpponentPool::OpponentPool()
     uint32 elites = 0;
     for (auto const& [entry, info] : *sObjectMgr->GetCreatureTemplates())
     {
-        if (!spawned.contains(entry))
+        if (!spawned.contains(entry) || walkers.contains(entry))
             continue;
 
         // Plain combat creatures with sane stat multipliers.

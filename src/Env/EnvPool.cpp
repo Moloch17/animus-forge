@@ -21,6 +21,7 @@
 #include "Protocol.h"
 #include "Common.h"
 #include "Log.h"
+#include "MoveSpline.h"
 #include "Random.h"
 #include "RandomSeed.h"
 #include "Spell.h"
@@ -370,7 +371,7 @@ void AnimusForge::EnvPool::RecordCastCompleted(Unit const* caster, Spell* spell)
     stats.CastMsCompleted += uint32(spell->GetCastTime());
 }
 
-void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell)
+void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell, bool bySelf)
 {
     // Only a cast still in its cast time: a cancelled channel has already paid out its ticks.
     if (!caster || !spell || spell->getState() != SPELL_STATE_PREPARING || spell->IsTriggered()
@@ -387,6 +388,16 @@ void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell)
     AgentStats& stats = _envs[agent->second.Env].StepStats[agent->second.Agent];
     ++stats.CastsCancelled;
     stats.CastMsWasted += uint32(spent);
+
+    Unit const* target = spell->m_targets.GetUnitTarget();
+    if (bySelf)
+        ++stats.CastsStopped;
+    else if (caster->IsAlive() && !caster->movespline->Finalized())
+        ++stats.CastsMoved;
+    else if (spell->m_targets.GetObjectTargetGUID() && (!target || !target->IsAlive() || !target->IsInWorld()))
+        ++stats.CastsTargetLost;
+    else
+        ++stats.CastsOther;
 }
 
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)

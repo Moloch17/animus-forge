@@ -56,6 +56,11 @@ namespace AnimusForge
         uint32 CastsCancelled = 0;      // ... that were cut short (moved, stopped, interrupted, died)
         uint64 CastMsCompleted = 0;     // cast time of the completed casts
         uint64 CastMsWasted = 0;        // cast time already spent on the cancelled casts
+        // Why cancelled casts were cancelled (they add up to CastsCancelled):
+        uint32 CastsStopped = 0;        // by the caster itself (the stop-casting action)
+        uint32 CastsMoved = 0;          // the caster was moving
+        uint32 CastsTargetLost = 0;     // the cast's unit target died or is gone
+        uint32 CastsOther = 0;          // anything else: interrupts, silences, stuns, form changes, death
 
         void Add(AgentStats const& other)
         {
@@ -78,6 +83,10 @@ namespace AnimusForge
             CastsCancelled += other.CastsCancelled;
             CastMsCompleted += other.CastMsCompleted;
             CastMsWasted += other.CastMsWasted;
+            CastsStopped += other.CastsStopped;
+            CastsMoved += other.CastsMoved;
+            CastsTargetLost += other.CastsTargetLost;
+            CastsOther += other.CastsOther;
         }
     };
 

@@ -71,6 +71,10 @@ namespace AnimusForge
             DUEL_INFO_CASTS_COMPLETED   = 8,    // cast-time spells that finished casting
             DUEL_INFO_CASTS_CANCELLED   = 9,    // ... that were cut short
             DUEL_INFO_CAST_TIME_WASTED  = 10,   // seconds spent on the cut-short casts
+            DUEL_INFO_CANCELLED_STOPPED = 11,   // cut-short casts: stopped by the bot itself
+            DUEL_INFO_CANCELLED_MOVED   = 12,   // ... the bot was moving
+            DUEL_INFO_CANCELLED_TARGET  = 13,   // ... the target died or is gone
+            DUEL_INFO_CANCELLED_OTHER   = 14,   // ... interrupts, silences, stuns, form changes, death
             DUEL_INFO_COUNT
         };
 
@@ -89,6 +93,7 @@ namespace AnimusForge
             GAUNTLET_INFO_FOOD_USED     = 1,
             GAUNTLET_INFO_DRINK_USED    = 2,
             GAUNTLET_INFO_SUSTAIN_CASTS = 3,
+            GAUNTLET_INFO_DEATHS        = 4,    // with an owner the bot stands up again after the pull
             GAUNTLET_INFO_COUNT
         };
 
@@ -101,6 +106,8 @@ namespace AnimusForge
             COMPANION_INFO_THREAT_ON_BOT    = 4,    // enemy-decisions spent attacking the bot
             COMPANION_INFO_THREAT_ON_OWNER  = 5,    // ... attacking the owner
             COMPANION_INFO_OWNER_ROLE       = 6,    // 0 damage, 1 tank, 2 healer
+            COMPANION_INFO_OWNER_DEATHS     = 7,    // the owner stands up again after the pull
+            COMPANION_INFO_WIPES            = 8,    // pulls that killed everyone and were cleared away
             COMPANION_INFO_COUNT
         };
 
@@ -259,8 +266,14 @@ namespace AnimusForge
             uint32 CastsCompleted = 0;
             uint32 CastsCancelled = 0;
             uint64 CastMsWasted = 0;
+            uint32 CastsStopped = 0;
+            uint32 CastsMoved = 0;
+            uint32 CastsTargetLost = 0;
+            uint32 CastsOther = 0;
             bool Killed = false;                        // its opponent died (pack: the pull was cleared)
-            bool Died = false;
+            bool Died = false;                          // died at least once
+            uint32 Deaths = 0;
+            bool DeathCounted = false;                  // the current death has been paid for
 
             // Pack on.
             uint32 TargetSlot = 0;
@@ -320,7 +333,10 @@ namespace AnimusForge
             uint8 OwnerClass = 0;
             Role OwnerRole = Role::Dps;
             CompanionOwner::State Owner;
-            bool OwnerDied = false;
+            bool OwnerDied = false;                     // died at least once
+            uint32 OwnerDeaths = 0;
+            bool OwnerDeathCounted = false;
+            uint32 Wipes = 0;
             uint64 OwnerDamageTaken = 0;
             uint64 ThreatOnOwner = 0;
 
@@ -388,6 +404,9 @@ namespace AnimusForge
         void AssessPull(Env& env);
         /// Once per decision after the seats' rewards: clear a finished gauntlet pull and schedule the next.
         void FinishPull(Env& env);
+        /// Owner stages: after a pull everyone who died stands up again, and a pull that killed everyone is cleared
+        /// away. Nobody's death ends the episode, so letting the owner die is never a way out of the penalties.
+        void Recover(Env& env);
         /// The pull timing of the gauntlet block.
         void ViewPull(Env const& env, SeatView& view) const;
         [[nodiscard]] float PackReward(Env& env, uint32 seat, Player* bot);

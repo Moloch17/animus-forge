@@ -165,6 +165,10 @@ float AnimusForge::ClassRoleScenario::CastReward(Player* bot, AgentStats const& 
     seat.CastsCompleted += step.CastsCompleted;
     seat.CastsCancelled += step.CastsCancelled;
     seat.CastMsWasted += step.CastMsWasted;
+    seat.CastsStopped += step.CastsStopped;
+    seat.CastsMoved += step.CastsMoved;
+    seat.CastsTargetLost += step.CastsTargetLost;
+    seat.CastsOther += step.CastsOther;
 
     float reward = -CAST_TIME_WASTED * float(step.CastMsWasted) / 1000.0f;
 
@@ -192,4 +196,8 @@ void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, uint32 seat
     info[DUEL_INFO_CASTS_COMPLETED] = float(seat.CastsCompleted);
     info[DUEL_INFO_CASTS_CANCELLED] = float(seat.CastsCancelled);
     info[DUEL_INFO_CAST_TIME_WASTED] = float(seat.CastMsWasted) / 1000.0f;
+    info[DUEL_INFO_CANCELLED_STOPPED] = float(seat.CastsStopped);
+    info[DUEL_INFO_CANCELLED_MOVED] = float(seat.CastsMoved);
+    info[DUEL_INFO_CANCELLED_TARGET] = float(seat.CastsTargetLost);
+    info[DUEL_INFO_CANCELLED_OTHER] = float(seat.CastsOther);
 }

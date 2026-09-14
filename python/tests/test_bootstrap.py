@@ -58,10 +58,12 @@ def test_critic_state_encoder_and_head_are_not_copied():
 
 def test_init_from_resolves_the_base_run():
     config = TrainConfig(run_name="class_role_duel", init_from="runs/{base_run}/best.pt")
-    assert config.resolved_init_from() == "runs/class_role/best.pt"
-    assert TrainConfig(run_name="class_role").resolved_init_from() == ""
+    assert config.resolved_init_from() == ["runs/class_role/best.pt"]
+    assert TrainConfig(run_name="class_role").resolved_init_from() == []
+    assert TrainConfig(run_name="class_role", init_from=None).resolved_init_from() == []
 
     for stage, previous in (("pack", "_duel"), ("gauntlet", "_pack"), ("companion", "_gauntlet"),
                             ("party", "_companion"), ("pvp", "_party"), ("arena", "_pvp")):
-        run = TrainConfig(run_name=f"class_role_{stage}", init_from=f"runs/{{base_run}}{previous}/best.pt")
-        assert run.resolved_init_from() == f"runs/class_role{previous}/best.pt"
+        run = TrainConfig(run_name=f"class_role_{stage}", init_from=[f"runs/{{base_run}}{previous}/best.pt",
+                                                                       "runs/{base_run}/best.pt"])
+        assert run.resolved_init_from() == [f"runs/class_role{previous}/best.pt", "runs/class_role/best.pt"]

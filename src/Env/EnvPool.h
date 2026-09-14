@@ -77,7 +77,7 @@ namespace AnimusForge
         /// Spell hooks, called from map threads when an agent's cast-time spell finishes casting or is
         /// cancelled before it does. Triggered spells and channels are not counted.
         void RecordCastCompleted(Unit const* caster, Spell* spell);
-        void RecordCastCancelled(Unit const* caster, Spell* spell);
+        void RecordCastCancelled(Unit const* caster, Spell* spell, bool bySelf);
 
         [[nodiscard]] Scenario const& GetScenario() const { return _scenario; }
         [[nodiscard]] ScenarioSpec const& Spec() const { return _spec; }
