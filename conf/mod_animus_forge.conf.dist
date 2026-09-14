@@ -60,6 +60,15 @@ AnimusForge.Enable = 0
 #                     scripted owner of a random class; follow, assist, guard and heal it. Tanks keep
 #                     enemies off it, healers are rewarded for effective healing on it, damage dealers
 #                     avoid pulling threat. Seeded from the gauntlet model. Ends when either dies.
+#                     Class/role party stage, "<class>_<role>_party": a five-player party (the bot, the
+#                     owner and scripted members completing tank, healer and damage dealers) against
+#                     elite-heavy pulls; assist, guard and heal every member. Seeded from the companion
+#                     model.
+#                     Class/role PvP stage, "<class>_<role>_pvp": one-on-one against a scripted enemy
+#                     player of a random class and role. Seeded from the party model.
+#                     Class/role arena stage, "<class>_<role>_arena": self-play one-on-one; envs pair up
+#                     and fight each other's bots with the same policy (needs an even Envs). Seeded from
+#                     the PvP model.
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"

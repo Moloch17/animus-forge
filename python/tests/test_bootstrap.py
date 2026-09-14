@@ -72,3 +72,9 @@ def test_init_from_resolves_the_base_run():
     assert gauntlet.resolved_init_from() == "runs/druid_tank_pack/latest.pt"
     companion = TrainConfig(run_name="priest_heal_companion", init_from="runs/{base_run}_gauntlet/latest.pt")
     assert companion.resolved_init_from() == "runs/priest_heal_gauntlet/latest.pt"
+    party = TrainConfig(run_name="warrior_tank_party", init_from="runs/{base_run}_companion/best.pt")
+    assert party.resolved_init_from() == "runs/warrior_tank_companion/best.pt"
+    pvp = TrainConfig(run_name="rogue_dps_pvp", init_from="runs/{base_run}_party/best.pt")
+    assert pvp.resolved_init_from() == "runs/rogue_dps_party/best.pt"
+    arena = TrainConfig(run_name="mage_dps_arena", init_from="runs/{base_run}_pvp/best.pt")
+    assert arena.resolved_init_from() == "runs/mage_dps_pvp/best.pt"

@@ -1,0 +1,64 @@
+# Shared learner config for every class/role party stage (warrior_tank_party, priest_heal_party, ...), used
+# when the scenario has no configs/<scenario>.yaml of its own. The sim passes --run-name <scenario>.
+#
+# Stage 6 of the curriculum: a five-player party -- the bot, the companion stage's owner and three scripted
+# members that complete a tank, a healer and three damage dealers -- against elite-heavy packs. The bot assists,
+# guards and heals every member; tanks hold the pull, healers keep the party up, damage dealers stay off the
+# threat table. Episodes end when the bot or the owner dies.
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the
+# gauntlet, give it episodes of several minutes.
+
+run_name: class_role_party
+runs_dir: runs
+socket: /tmp/animus-forge.sock
+seed: 1
+
+# Seed a fresh run from the class/role's companion model: the party stage's layout extends it.
+init_from: runs/{base_run}_companion/best.pt
+
+total_env_steps: 300000000
+rollout_length: 128
+log_every: 1
+checkpoint_every: 25
+
+rollout_device: cpu
+train_device: cuda
+
+mappo:
+  # Must match the earlier stages for the seeding to apply.
+  hidden: [512, 512]
+  gamma: 0.999
+  gae_lambda: 0.95
+  clip: 0.2
+  value_clip: 0.2
+  entropy_coef: 0.01
+  value_coef: 1.0
+  actor_lr: 0.0003
+  critic_lr: 0.0003
+  epochs: 4
+  minibatches: 8
+  max_grad_norm: 0.5
+  use_value_norm: true
+
+# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
+# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
+# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# and are the ones published and seeded from by the next stage.
+eval:
+  every_env_steps: 20000000
+  at_start: true
+  episodes: 128
+  seed: 1000
+  deterministic: true
+  baseline: fight
+  report: [dps, died, kills, pulls_cleared, owner_died, owner_healing, members_died, member_healing,
+    threat_on_members, cast_seconds_wasted]
+
+# Stop once 5 evaluations in a row (100M env steps) fail to beat the best score by 2%, but not before 40M
+# env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+plateau:
+  patience: 5
+  min_improvement: 0.02
+  min_improvement_abs: 0.01
+  min_env_steps: 40000000

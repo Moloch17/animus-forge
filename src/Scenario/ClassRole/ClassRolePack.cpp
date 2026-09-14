@@ -30,6 +30,7 @@
 #include "Item.h"
 #include "Map.h"
 #include "MoveSpline.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
@@ -46,6 +47,7 @@ namespace
     constexpr int32 LINKED_CHANCE = 70;         // percent of pulls whose members aggro together
     constexpr int32 ELITE_CHANCE = 15;          // gauntlet: a single elite instead of a pack
     constexpr int32 HIGHER_LEVEL_CHANCE = 25;   // gauntlet: a pack 1-3 levels above the bot
+    constexpr int32 PARTY_ELITE_CHANCE = 50;    // party: per pack member
     constexpr uint32 HIGHEST_OPPONENT_LEVEL = 83;
     constexpr uint32 NEXT_PULL_MIN_MS = 8000;
     constexpr uint32 NEXT_PULL_MAX_MS = 20000;
@@ -122,7 +124,22 @@ bool AnimusForge::ClassRoleScenario::SpawnPull(Env& env, Player* bot, Map* map, 
     std::vector<uint32> entries;
     data.EliteOrHigherPull = false;
 
-    if (HasGauntlet() && roll_chance_i(ELITE_CHANCE))
+    // A party faces dungeon-like packs: 2-4 creatures, each elite half the time, up to 2 levels higher.
+    if (HasParty())
+    {
+        level = uint8(std::min<uint32>(HIGHEST_OPPONENT_LEVEL, data.Level + urand(0, 2)));
+        uint8 const poolLevel = uint8(std::min<uint32>(level, DEFAULT_MAX_LEVEL));
+        for (uint32 i = urand(2, PACK_SLOTS); i > 0; --i)
+        {
+            uint32 const entry = roll_chance_i(PARTY_ELITE_CHANCE) ? pool.RandomElite(poolLevel) : 0;
+            if (entry)
+                data.EliteOrHigherPull = true;
+            if (uint32 const member = entry ? entry : pool.RandomPackMember(poolLevel))
+                entries.push_back(member);
+        }
+    }
+
+    if (entries.empty() && HasGauntlet() && roll_chance_i(ELITE_CHANCE))
     {
         if (uint32 const elite = pool.RandomElite(data.Level))
         {
@@ -149,13 +166,15 @@ bool AnimusForge::ClassRoleScenario::SpawnPull(Env& env, Player* bot, Map* map, 
     Player* anchor = HasCompanion() ? FindOwner(data) : nullptr;
     if (anchor)
         data.Owner.EngageMs = env.EpisodeElapsedMs + urand(OWNER_ENGAGE_MIN_MS, OWNER_ENGAGE_MAX_MS);
+    if (anchor && HasParty())
+        ScheduleMembers(env, data);
 
     std::vector<Creature*> pack = DuelArena::SpawnPack(anchor ? anchor : bot, map, entries, level);
     if (pack.empty())
         return false;
 
     env.Targets.clear();
-    for (Creature* member : pack)
+    for (Unit* member : pack)
         env.Targets.push_back(member->GetGUID());
 
     if (!data.PullsCleared && !data.PackSize)
@@ -201,6 +220,8 @@ void AnimusForge::ClassRoleScenario::UpdatePack(Env& env, Player* bot, EnvData& 
 
     if (HasCompanion())
         UpdateOwner(env, data);
+    if (HasParty())
+        UpdateMembers(env, bot, data);
 
     // Gauntlet: the next pull once the break is over.
     if (HasGauntlet() && env.Targets.empty() && bot->IsAlive() && (!HasCompanion() || (owner && owner->IsAlive()))
@@ -218,7 +239,7 @@ void AnimusForge::ClassRoleScenario::ObservePack(Env const& env, Player* bot, fl
     uint32 inCombat = 0;
     for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
     {
-        Creature* enemy = env.FindTarget(slot);
+        Unit* enemy = env.FindTargetUnit(slot);
         if (!enemy)
             continue;
 
@@ -239,7 +260,7 @@ void AnimusForge::ClassRoleScenario::ObservePack(Env const& env, Player* bot, fl
         features[SLOT_IN_COMBAT] = enemy->IsInCombat() ? 1.0f : 0.0f;
         features[SLOT_CROWD_CONTROLLED] = IsCrowdControlled(enemy) ? 1.0f : 0.0f;
         features[SLOT_CURRENT_TARGET] = slot == data.TargetSlot ? 1.0f : 0.0f;
-        features[SLOT_ELITE] = enemy->isElite() ? 1.0f : 0.0f;
+        features[SLOT_ELITE] = enemy->ToCreature() && enemy->ToCreature()->isElite() ? 1.0f : 0.0f;
         features[SLOT_LEVEL_DIFFERENCE] = (float(enemy->GetLevel()) - float(bot->GetLevel())) / 5.0f;
 
         alive += enemy->IsAlive() ? 1 : 0;
@@ -300,7 +321,7 @@ bool AnimusForge::ClassRoleScenario::IsPackActionAllowed(Env const& env, Player*
         || !bot->IsAlive())
         return false;
 
-    Creature const* enemy = env.FindTarget(packAction);
+    Unit const* enemy = env.FindTargetUnit(packAction);
     return enemy && enemy->IsAlive();
 }
 
@@ -317,7 +338,7 @@ void AnimusForge::ClassRoleScenario::ApplyPackAction(Env& env, Player* bot, Unit
     if (!IsPackActionAllowed(env, bot, packAction))
         return;
 
-    Creature* enemy = env.FindTarget(packAction);
+    Unit* enemy = env.FindTargetUnit(packAction);
     data.TargetSlot = packAction;
     bot->SetSelection(enemy->GetGUID());
 
@@ -379,10 +400,10 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, Player* bot, EnvData&
     float pullHealth = 0.0f;
     uint32 alive = 0;
     uint32 dead = 0;
-    Creature* nearest = nullptr;
+    Unit* nearest = nullptr;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
     {
-        Creature* enemy = env.FindTarget(slot);
+        Unit* enemy = env.FindTargetUnit(slot);
         if (!enemy)
             continue;
 
@@ -428,7 +449,7 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, Player* bot, EnvData&
     if (!data.PendingInterrupt.IsEmpty())
     {
         Map* map = env.FindMap();
-        Creature* interrupted = map ? map->GetCreature(data.PendingInterrupt) : nullptr;
+        Unit* interrupted = map ? ObjectAccessor::GetUnit(*bot, data.PendingInterrupt) : nullptr;
         if (!interrupted || !interrupted->IsNonMeleeSpellCast(false))
         {
             reward += INTERRUPT;

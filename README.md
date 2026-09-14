@@ -270,7 +270,61 @@ Stage 5: the gauntlet fought beside an owner, as a `mod-animus` companion fights
 - **Episode info:** the gauntlet's, then the owner's class, whether it died, its damage taken, the
   companion's healing on it, and enemy-decisions spent on the companion and on the owner.
 
-`configs/class_role_companion.yaml` seeds a fresh run from `runs/<class>_<role>_gauntlet/latest.pt`.
+`configs/class_role_companion.yaml` seeds a fresh run from `runs/<class>_<role>_gauntlet/best.pt`.
+
+### Class/role party stage (`<class>_<role>_party`)
+
+Stage 6: a five-player party against dungeon-like pulls.
+
+- **Party:** the bot, the companion stage's owner (a damage dealer, ally 0) and three scripted members that
+  complete a tank, a healer and three damage dealers (a tank bot gets a healer and two damage dealers, and so
+  on), each a random class that can fill the role, within 2 levels of the bot, with that role's spec, talents,
+  kit and gear. The scripted tank opens and taunts enemies off the others, the healer heals the most hurt
+  member below 85% and keeps within 30 yd of the tank, damage dealers attack the tank's target. When the bot
+  is the tank, everyone waits 4-7 s so it can pull.
+- **Pulls:** 2-4 creatures, each elite half the time, up to 2 levels above the bot, pull after pull.
+- **Not a core group:** creating and changing a `Group` writes to the character database and allocates
+  persistent ids, which a rebuild every episode cannot afford. Single-target heals, assists, taunts and threat
+  work; party buffs and party-wide heals do not reach the members (see Known limits).
+- **Actions:** the companion stage's, then follow the tank, then per member assist, guard, and one "cast on
+  it" action per single-target heal.
+- **Observation:** the companion stage's, then living party size, the most hurt ally's health, whether a
+  living tank and healer are present, and per member presence, health, mana, distance, bearing, combat, role,
+  class, attackers, target slot and which enemies attack it.
+- **Reward:** the companion stage's, plus per member: its damage taken (not for a tank member; x0.5 for a
+  damage-dealing bot, x1 otherwise), effective healing on it for healers (x2), -0.02 per enemy on a non-tank
+  member per decision for tanks, and -3 when it dies. A party's tank bot is not charged for fighting before
+  the owner joins.
+- **Episode info:** the companion stage's, then members died, member damage taken, the bot's healing on
+  members, enemy-decisions spent on non-tank members, and the tank's and healer's classes (0 = the bot).
+
+`configs/class_role_party.yaml` seeds a fresh run from `runs/<class>_<role>_companion/best.pt`.
+
+### Class/role PvP stages (`<class>_<role>_pvp`, `<class>_<role>_arena`)
+
+Stages 7 and 8: one-on-one against a player. They keep stage 6's layout (so they seed from it), but there
+are no pulls, owner or party: those observations stay zero and those actions masked. Both players get the
+other side's player faction and the PvP flag, which players need to attack each other.
+
+- **`_pvp` (stage 7):** a scripted enemy player at the bot's level (within 1), of a random class and role
+  (damage 60%, tank 20%, healer 20%) with that role's spec, talents, kit and gear, spawned 40-50 yd away facing
+  a random way. It closes in after up to 3 s: melee specs fight in melee, ranged specs hold 10-30 yd and cast,
+  healers heal themselves below 60%.
+- **`_arena` (stage 8), self-play:** envs pair up (0-1, 2-3, ...; `AnimusForge.Envs` must be even). Both bots of
+  a pair share the lower env's instance, are the same class and role at the same level, and each env's
+  opponent is the other env's bot, so one policy plays both sides and every fight is training data twice.
+  Whatever ends one side's episode ends the other's on the same decision.
+- **Observation:** stage 6's, then the opponent's class, role, level difference, mana, rage/energy/runic
+  power, whether it is crowd-controlled, stealthed, has a pet out or is casting a heal, whether the bot is
+  stunned/feared, rooted or silenced, and whether the opponent is the policy itself.
+- **Reward:** the duel's (damage dealt and taken, closing in, stealth openers, casts, a fast kill with health
+  kept, death). The episode ends when either player dies.
+- **Episode info:** stage 6's, then won, opponent class and opponent role.
+
+`configs/class_role_pvp.yaml` seeds from `runs/<class>_<role>_party/best.pt` and scores against the `fight`
+baseline. `configs/class_role_arena.yaml` seeds from `runs/<class>_<role>_pvp/best.pt`; against itself a
+policy's evaluation score does not track progress, so it has no baseline or plateau stop -- judge an arena
+model with `animus.evaluate` on a `_pvp` sim.
 
 ### Training every model: `AnimusForge.Queue`
 
@@ -502,5 +556,10 @@ Bots also reuse a fixed pair of player GUIDs per env, because the core keeps som
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick
   (separate work). `warrior_dummy` does not depend on it: Heroic Strike has no cooldown and no GCD.
+- **Parties are not core groups** (stage 6): spells that need a group -- party buffs, auras, party-wide
+  heals -- do not reach the scripted members. A sim-only `Group` that writes nothing to the database would
+  fix it.
+- **Scripted teammates and opponents:** stages 5-7 train beside and against scripts, and stage 8 against the
+  same class/role. Bots of different learned models have not played together yet.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.
   Raise `Envs` until the learner, not the world thread, is the bottleneck.

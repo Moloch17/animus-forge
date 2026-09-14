@@ -120,8 +120,8 @@ namespace AnimusForge
         /// no lock.
         std::unordered_map<ObjectGuid, AgentSlot> _agents;
 
-        /// Ally GUID -> env. Maintained like _agents.
-        std::unordered_map<ObjectGuid, uint32> _allies;
+        /// Ally GUID -> env and index in Env::Allies. Maintained like _agents.
+        std::unordered_map<ObjectGuid, AgentSlot> _allies;
 
         std::vector<uint8> _scratchMask;
 

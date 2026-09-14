@@ -144,6 +144,9 @@ std::string AnimusForge::ClassRoleScenario::ScenarioName(ClassRoleProfile const&
         case ArenaMode::Pack:     return profile.ScenarioName + "_pack";
         case ArenaMode::Gauntlet: return profile.ScenarioName + "_gauntlet";
         case ArenaMode::Companion: return profile.ScenarioName + "_companion";
+        case ArenaMode::Party:    return profile.ScenarioName + "_party";
+        case ArenaMode::Pvp:      return profile.ScenarioName + "_pvp";
+        case ArenaMode::Arena:    return profile.ScenarioName + "_arena";
         case ArenaMode::Dummy:    break;
     }
 
@@ -257,6 +260,34 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profil
         CompanionOwner::Templates::Instance();
     }
 
+    if (HasParty())
+    {
+        uint32 const heals = uint32(_ownerHeals.size());
+
+        _partyObsFirst = _spec.ObsDim;
+        _spec.ObsDim += PARTY_OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES;
+        _spec.StateDim = _spec.ObsDim;
+
+        _partyActionFirst = _spec.NumActions;
+        _partyActionCount = PARTY_ACTION_HEAL_FIRST + PARTY_MEMBERS * heals;
+        _spec.NumActions += _partyActionCount;
+
+        _partyInfoFirst = _spec.EpisodeInfoDim;
+        _spec.EpisodeInfoDim += PARTY_INFO_COUNT;
+    }
+
+    if (HasPvp())
+    {
+        _pvpObsFirst = _spec.ObsDim;
+        _spec.ObsDim += PVP_OBS_COUNT;
+        _spec.StateDim = _spec.ObsDim;
+
+        _pvpInfoFirst = _spec.EpisodeInfoDim;
+        _spec.EpisodeInfoDim += PVP_INFO_COUNT;
+    }
+
+    _envs.assign(config.Envs, nullptr);
+
     _data.resize(config.Envs);
 
     LOG_INFO("module.animus", "{}: {} races, {} specs, {} actions, {} talents, obs {}", Name(), _races.size(),
@@ -274,7 +305,12 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
         case ArenaMode::Gauntlet:
             return data.Died;
         case ArenaMode::Companion:
+        case ArenaMode::Party:
             return data.Died || data.OwnerDied;
+        case ArenaMode::Pvp:
+            return data.Died || data.Killed;
+        case ArenaMode::Arena:
+            return data.Died || data.Killed || data.PartnerEnded;
         case ArenaMode::Dummy:
             break;
     }
@@ -291,6 +327,11 @@ AnimusForge::ClassRoleScenario::~ClassRoleScenario()
             delete session;
         for (WorldSession*& session : data.OwnerSessions)
             delete session;
+        for (EnvData::Member& member : data.Members)
+            for (WorldSession*& session : member.Sessions)
+                delete session;
+        for (WorldSession*& session : data.OpponentSessions)
+            delete session;
     }
 }
 
@@ -299,6 +340,16 @@ bool AnimusForge::ClassRoleScenario::Setup(Env& env)
     if (_races.empty())
     {
         LOG_ERROR("module.animus", "{}: no race can be class {}", Name(), _profile.Class);
+        return false;
+    }
+
+    _envs[env.Index] = &env;
+
+    // Self-play pairs envs 0-1, 2-3, ...: an odd env count leaves the last one without an opponent.
+    if (IsArena() && env.Index % 2 == 0 && env.Index + 1 >= _envs.size())
+    {
+        LOG_ERROR("module.animus", "{}: self-play needs an even AnimusForge.Envs; env {} has no partner", Name(),
+            env.Index);
         return false;
     }
 
@@ -312,6 +363,23 @@ bool AnimusForge::ClassRoleScenario::Setup(Env& env)
 void AnimusForge::ClassRoleScenario::Reset(Env& env)
 {
     EnvData& data = _data[env.Index];
+
+    // Self-play: the lower env of a pair resets first; leave the higher one how this episode ended (see
+    // ClassRolePvp.cpp). The higher env's own reset clears it.
+    if (IsArena())
+    {
+        if (env.Index % 2 == 0)
+        {
+            EnvData& partner = _data[PartnerIndex(env.Index)];
+            partner.PartnerEnded = true;
+            partner.PartnerDied = data.Died;
+        }
+        else
+        {
+            data.PartnerEnded = false;
+            data.PartnerDied = false;
+        }
+    }
     data.LastStepDamage = 0.0f;
     data.LastStepPowerDelta = 0.0f;
     data.SpellCasts = 0;
@@ -352,6 +420,13 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.ThreatOnBot = 0;
     data.ThreatOnOwner = 0;
 
+    data.MembersDied = 0;
+    data.MemberDamageTaken = 0;
+    data.MemberHealing = 0;
+    data.ThreatOnMembers = 0;
+    for (EnvData::Member& member : data.Members)
+        member.Died = false;
+
     // Setup already built the first episode's character.
     if (data.Fresh)
     {
@@ -380,6 +455,11 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 
     data.Race = _races[urand(0, uint32(_races.size()) - 1)];
     data.Level = uint8(urand(_kit->MinLevel(), DEFAULT_MAX_LEVEL));
+
+    // Self-play pairs fight at the same level: the higher env takes the lower one's (built just before).
+    if (IsArena() && env.Index % 2 == 1)
+        data.Level = _data[PartnerIndex(env.Index)].Level;
+
     data.Spec = uint8(urand(0, uint32(_profile.Specs.size()) - 1));
     data.StartHealth = frand(0.2f, 1.0f);
     data.EndHealth = frand(0.0f, data.StartHealth);
@@ -405,9 +485,23 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     data.Sessions[session] = bot->GetSession();
     data.Guids[session] = bot->GetGUID().GetCounter();
 
+    // Self-play: the higher env of a pair joins the lower env's instance, out of range of its bot.
+    Position start = _arenaPosition;
     Map* map = oldBot ? env.FindMap() : nullptr;
-    if (map ? !BotFactory::PlaceInMap(bot, map, _arenaPosition)
-        : !(map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, _arenaPosition)))
+    if (IsArena() && env.Index % 2 == 1)
+    {
+        Env* partner = _envs[PartnerIndex(env.Index)];
+        Player* partnerBot = partner ? partner->FindBot(0) : nullptr;
+        map = partner ? partner->FindMap() : nullptr;
+        if (partnerBot && map)
+        {
+            start = DuelArena::FindSpawnPoint(partnerBot, map);
+            start.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
+        }
+    }
+
+    if (map ? !BotFactory::PlaceInMap(bot, map, start)
+        : !(map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, start)))
     {
         data.Sessions[session] = nullptr;
         BotFactory::DestroyUnplaced(bot);
@@ -424,7 +518,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 
     if (oldBot)
         data.Sessions[data.ActiveSession] = BotFactory::Destroy(oldBot, true);
-    else
+    else if (!(IsArena() && env.Index % 2 == 1))    // a pair's higher env shares an arena already cleared
         TrainingDummyArena::ClearArena(bot);
 
     data.ActiveSession = session;
@@ -434,8 +528,14 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     env.Bots = { bot->GetGUID() };
     env.Targets.clear();
 
+    if (HasPvp())
+        return StartPvp(env, bot, map, data);
+
     // The owner comes before the first pull, which spawns around it.
     if (HasCompanion() && !RebuildOwner(env, bot, map, data))
+        return false;
+
+    if (HasParty() && !RebuildMembers(env, bot, map, data))
         return false;
 
     if (HasPack())
@@ -444,7 +544,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     if (_mode == ArenaMode::Duel)
     {
         data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(data.Level);
-        Creature* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(bot, map, data.OpponentEntry) : nullptr;
+        Unit* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(bot, map, data.OpponentEntry) : nullptr;
         if (!opponent)
             return false;
 
@@ -456,7 +556,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     SpecProfile const& specProfile = _profile.Specs[data.Spec];
     float const distance = specProfile.Range == RangeBand::Melee ? MELEE_DISTANCE : RANGED_DISTANCE;
 
-    Creature* dummy = TrainingDummyArena::SpawnDummy(bot, map, distance);
+    Unit* dummy = TrainingDummyArena::SpawnDummy(bot, map, distance);
     if (!dummy)
         return false;
 
@@ -490,7 +590,7 @@ void AnimusForge::ClassRoleScenario::Configure(Player* bot, EnvData& data) const
     bot->SetPower(POWER_RUNIC_POWER, 0);
 }
 
-void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Creature* dummy, EnvData const& data) const
+void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, EnvData const& data) const
 {
     SpecProfile const& spec = _profile.Specs[data.Spec];
 
@@ -531,7 +631,7 @@ SpellInfo const* AnimusForge::ClassRoleScenario::TrinketSpell(Item const* item)
     return nullptr;
 }
 
-bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Creature* dummy, uint32 action) const
+bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Unit* dummy, uint32 action) const
 {
     ActionCatalog::Action const& def = _catalog->Actions()[action];
 
@@ -612,7 +712,7 @@ bool AnimusForge::ClassRoleScenario::ApplySpellAction(Player* bot, Unit* target,
     return true;
 }
 
-void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Creature* dummy) const
+void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Unit* dummy) const
 {
     EnvData const& data = _data[env.Index];
     float const progress = env.EpisodeLengthMs
@@ -632,10 +732,12 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
     EnvData& data = _data[env.Index];
 
     // Pack upkeep first (linked pulls, the gauntlet's next pull), so the target below is current.
-    if (HasPack())
+    if (HasPvp())
+        UpdatePvp(env, bot, data);
+    else if (HasPack())
         UpdatePack(env, bot, data);
 
-    Creature* dummy = CurrentTarget(env);
+    Unit* dummy = CurrentTarget(env);
 
     // Only the gauntlet has moments without a target (between pulls).
     if (!dummy && !HasGauntlet())
@@ -650,7 +752,14 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
         if (dummy && bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, dummy))
             bot->SetFacingToObject(dummy);
 
-        if (HasCompanion() && action >= int32(_companionActionFirst))
+        if (HasParty() && action >= int32(_partyActionFirst))
+        {
+            ApplyPartyAction(env, bot, uint32(action) - _partyActionFirst, data);
+            return;
+        }
+
+        if (HasCompanion() && action >= int32(_companionActionFirst)
+            && action < int32(_companionActionFirst + _companionActionCount))
         {
             ApplyCompanionAction(env, bot, uint32(action) - _companionActionFirst, data);
             return;
@@ -716,7 +825,7 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
     mask[0] = 1;
 
     Player* bot = env.FindBot(0);
-    Creature* dummy = CurrentTarget(env);      // may be null between gauntlet pulls
+    Unit* dummy = CurrentTarget(env);      // may be null between gauntlet pulls
     EnvData const& data = _data[env.Index];
 
     obs[OBS_LEVEL] = float(data.Level) / float(DEFAULT_MAX_LEVEL);
@@ -847,6 +956,16 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
                 mask[_companionActionFirst + companionAction] =
                     IsCompanionActionAllowed(env, bot, companionAction) ? 1 : 0;
         }
+
+        if (HasPvp())
+            ObservePvp(env, bot, obs);
+
+        if (HasParty())
+        {
+            ObserveParty(env, bot, obs);
+            for (uint32 partyAction = 0; partyAction < _partyActionCount; ++partyAction)
+                mask[_partyActionFirst + partyAction] = IsPartyActionAllowed(env, bot, partyAction) ? 1 : 0;
+        }
     }
 
     std::vector<TalentBuilder::Talent> const& talents = _talents->Talents();
@@ -868,7 +987,11 @@ void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
     data.LastStepDamage = scaled;
 
     if (_mode == ArenaMode::Duel)
-        reward[0] = DuelReward(env, env.FindBot(0), env.FindTarget(0), data);
+        reward[0] = DuelReward(env, env.FindBot(0), env.FindTargetUnit(0), data);
+    else if (HasPvp())
+        reward[0] = PvpReward(env, env.FindBot(0), data);
+    else if (HasParty())
+        reward[0] = PartyReward(env, env.FindBot(0), data);
     else if (HasCompanion())
         reward[0] = CompanionReward(env, env.FindBot(0), data);
     else if (HasPack())
@@ -910,6 +1033,10 @@ void AnimusForge::ClassRoleScenario::EpisodeInfo(Env const& env, float* info) co
         GauntletEpisodeInfo(env, info + _gauntletInfoFirst);
     if (HasCompanion())
         CompanionEpisodeInfo(env, info + _companionInfoFirst);
+    if (HasParty())
+        PartyEpisodeInfo(env, info + _partyInfoFirst);
+    if (HasPvp())
+        PvpEpisodeInfo(env, info + _pvpInfoFirst);
 }
 
 std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() const
@@ -932,24 +1059,31 @@ std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() cons
         names.insert(names.end(), { "owner_class", "owner_died", "owner_damage_taken", "owner_healing",
             "threat_on_bot", "threat_on_owner" });
 
+    if (HasParty())
+        names.insert(names.end(), { "members_died", "member_damage_taken", "member_healing", "threat_on_members",
+            "tank_class", "healer_class" });
+
+    if (HasPvp())
+        names.insert(names.end(), { "won", "opponent_class", "opponent_role" });
+
     return names;
 }
 
-Creature* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env)
+Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env)
 {
     if (!HasPack())
-        return env.FindTarget(0);
+        return env.FindTargetUnit(0);
 
     EnvData& data = _data[env.Index];
-    if (Creature* selected = env.FindTarget(data.TargetSlot); selected && selected->IsAlive())
+    if (Unit* selected = env.FindTargetUnit(data.TargetSlot); selected && selected->IsAlive())
         return selected;
 
     // The selection died or despawned: the nearest living enemy, like a player tabbing to the next one.
     Player* bot = env.FindBot(0);
-    Creature* nearest = nullptr;
+    Unit* nearest = nullptr;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
     {
-        Creature* enemy = env.FindTarget(slot);
+        Unit* enemy = env.FindTargetUnit(slot);
         if (!enemy || !enemy->IsAlive())
             continue;
 
@@ -1012,6 +1146,28 @@ bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, f
             }
         }
 
+        // A hurt party member: the first heal that can reach it.
+        if (HasParty() && !_ownerHeals.empty())
+        {
+            for (uint32 member = 0; member < PARTY_MEMBERS; ++member)
+            {
+                float const* features = obs + _partyObsFirst + PARTY_OBS_GLOBAL_COUNT + member * MEMBER_FEATURES;
+                if (features[MEMBER_ALIVE] == 0.0f || features[MEMBER_HEALTH] >= 0.6f)
+                    continue;
+
+                for (uint32 heal = 0; heal < _ownerHeals.size(); ++heal)
+                {
+                    uint32 const index = _partyActionFirst + PARTY_ACTION_HEAL_FIRST
+                        + member * uint32(_ownerHeals.size()) + heal;
+                    if (mask[index])
+                    {
+                        action = int32(index);
+                        return true;
+                    }
+                }
+            }
+        }
+
         if (mask[_duelActionFirst + DUEL_ACTION_START_ATTACK])
         {
             action = int32(_duelActionFirst + DUEL_ACTION_START_ATTACK);
@@ -1045,6 +1201,12 @@ void AnimusForge::ClassRoleScenario::Teardown(Env& env)
     for (uint32 target = 0; target < env.Targets.size(); ++target)
         if (Creature* creature = env.FindTarget(target))
             creature->DespawnOrUnsummon();
+
+    if (HasPvp())
+        DestroyOpponent(env, data);
+
+    if (HasParty())
+        DestroyMembers(env, data);
 
     if (HasCompanion())
         DestroyOwner(env, data);

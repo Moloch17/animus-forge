@@ -21,14 +21,19 @@
 
 #include "Define.h"
 #include "ObjectGuid.h"
+#include <array>
 #include <vector>
 
 class Map;
 class Player;
 class Creature;
+class Unit;
 
 namespace AnimusForge
 {
+    /// Most scripted allies an env can have (Env::Allies): a party's other four members.
+    constexpr std::size_t MAX_ALLIES = 4;
+
     /// Combat totals for one agent. Written only by the map thread that updates the agent's
     /// instance (damage hooks), read by the world thread after MapMgr::Update has joined.
     struct AgentStats
@@ -41,6 +46,8 @@ namespace AnimusForge
         uint64 DamageTaken = 0;         // by the agent, from anything
         uint64 AllyDamageTaken = 0;     // by the env's allies (Env::Allies), from anything
         uint64 AllyHealing = 0;         // effective healing the agent (or its pets) did on the env's allies
+        std::array<uint64, MAX_ALLIES> AllyDamageTakenBy{};    // the same, per Env::Allies index
+        std::array<uint64, MAX_ALLIES> AllyHealingBy{};
         uint32 CastsCompleted = 0;      // the agent's own cast-time spells that finished casting
         uint32 CastsCancelled = 0;      // ... that were cut short (moved, stopped, interrupted, died)
         uint64 CastMsCompleted = 0;     // cast time of the completed casts
@@ -56,6 +63,11 @@ namespace AnimusForge
             DamageTaken += other.DamageTaken;
             AllyDamageTaken += other.AllyDamageTaken;
             AllyHealing += other.AllyHealing;
+            for (std::size_t ally = 0; ally < MAX_ALLIES; ++ally)
+            {
+                AllyDamageTakenBy[ally] += other.AllyDamageTakenBy[ally];
+                AllyHealingBy[ally] += other.AllyHealingBy[ally];
+            }
             CastsCompleted += other.CastsCompleted;
             CastsCancelled += other.CastsCancelled;
             CastMsCompleted += other.CastMsCompleted;
@@ -87,6 +99,7 @@ namespace AnimusForge
         [[nodiscard]] Map* FindMap() const;
         [[nodiscard]] Player* FindBot(uint32 agent) const;
         [[nodiscard]] Creature* FindTarget(uint32 target) const;
+        [[nodiscard]] Unit* FindTargetUnit(uint32 target) const;  // a creature or a player target
     };
 }
 

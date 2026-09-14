@@ -44,3 +44,21 @@ Creature* AnimusForge::Env::FindTarget(uint32 target) const
     Map* map = FindMap();
     return map ? map->GetCreature(Targets[target]) : nullptr;
 }
+
+Unit* AnimusForge::Env::FindTargetUnit(uint32 target) const
+{
+    if (target >= Targets.size())
+        return nullptr;
+
+    Map* map = FindMap();
+    if (!map)
+        return nullptr;
+
+    if (Targets[target].IsPlayer())
+    {
+        Player* player = ObjectAccessor::FindPlayer(Targets[target]);
+        return player && player->GetMap() == map ? player : nullptr;
+    }
+
+    return map->GetCreature(Targets[target]);
+}

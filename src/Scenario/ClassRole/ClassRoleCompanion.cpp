@@ -183,12 +183,15 @@ void AnimusForge::ClassRoleScenario::UpdateOwner(Env& env, EnvData& data) const
     if (!owner)
         return;
 
-    std::vector<Creature*> enemies;
+    std::vector<Unit*> enemies;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
-        if (Creature* enemy = env.FindTarget(slot); enemy && enemy->IsAlive())
+        if (Unit* enemy = env.FindTargetUnit(slot); enemy && enemy->IsAlive())
             enemies.push_back(enemy);
 
-    CompanionOwner::Update(owner, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner);
+    // In a party the owner fights the tank's target once the tank has one.
+    Player* tank = HasParty() ? PartyTank(env.FindBot(0), data) : nullptr;
+    Unit* preferred = tank && tank != owner && tank->IsAlive() ? tank->GetVictim() : nullptr;
+    CompanionOwner::Update(owner, enemies, env.EpisodeElapsedMs, _arenaPosition, data.Owner, preferred);
 }
 
 void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, Player* bot, float* obs) const
@@ -224,7 +227,7 @@ void AnimusForge::ClassRoleScenario::ObserveCompanion(Env const& env, Player* bo
         uint32 attackers = 0;
         for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
         {
-            Creature* enemy = env.FindTarget(slot);
+            Unit* enemy = env.FindTargetUnit(slot);
             if (enemy && enemy->IsAlive() && enemy->GetVictim() == owner)
             {
                 companion[COMPANION_OBS_SLOT_ON_OWNER_FIRST + slot] = 1.0f;
@@ -267,7 +270,7 @@ bool AnimusForge::ClassRoleScenario::IsCompanionActionAllowed(Env const& env, Pl
         case COMPANION_ACTION_GUARD:
         {
             for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)
-                if (Creature* enemy = env.FindTarget(slot);
+                if (Unit* enemy = env.FindTargetUnit(slot);
                     enemy && enemy->IsAlive() && enemy->GetVictim() == owner && slot != data.TargetSlot)
                     return true;
             return false;
@@ -318,11 +321,11 @@ void AnimusForge::ClassRoleScenario::ApplyCompanionAction(Env& env, Player* bot,
             else
                 for (uint32 candidate = 0; candidate < env.Targets.size() && candidate < PACK_SLOTS && slot < 0;
                     ++candidate)
-                    if (Creature* enemy = env.FindTarget(candidate); enemy && enemy->IsAlive()
+                    if (Unit* enemy = env.FindTargetUnit(candidate); enemy && enemy->IsAlive()
                         && enemy->GetVictim() == owner && candidate != data.TargetSlot)
                         slot = int32(candidate);
 
-            Creature* enemy = slot >= 0 ? env.FindTarget(uint32(slot)) : nullptr;
+            Unit* enemy = slot >= 0 ? env.FindTargetUnit(uint32(slot)) : nullptr;
             if (!enemy)
                 return;
 
@@ -363,14 +366,15 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
     Role const role = _profile.PlayRole;
     float const ownerHealth = float(std::max<uint32>(1, owner->GetMaxHealth()));
 
-    data.OwnerDamageTaken += step.AllyDamageTaken;
-    data.OwnerHealing += step.AllyHealing;
+    // The owner is ally 0 (a party's other members follow it).
+    data.OwnerDamageTaken += step.AllyDamageTakenBy[0];
+    data.OwnerHealing += step.AllyHealingBy[0];
 
     reward -= (role == Role::Dps ? OWNER_DAMAGE_TAKEN_DPS : OWNER_DAMAGE_TAKEN_PROTECTOR)
-        * float(step.AllyDamageTaken) / ownerHealth;
+        * float(step.AllyDamageTakenBy[0]) / ownerHealth;
 
     if (role == Role::Heal)
-        reward += HEALING * float(step.AllyHealing) / ownerHealth;
+        reward += HEALING * float(step.AllyHealingBy[0]) / ownerHealth;
 
     if (role == Role::Tank)
         reward += TANK_DAMAGE_REFUND * data.LastStepDamageTaken;
@@ -380,7 +384,7 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
     uint32 onOwner = 0;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
     {
-        Creature* enemy = env.FindTarget(slot);
+        Unit* enemy = env.FindTargetUnit(slot);
         if (!enemy || !enemy->IsAlive() || !enemy->IsInCombat())
             continue;
 
@@ -399,7 +403,8 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, Player* bot, Env
     if (owner->IsAlive())
     {
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped.
-        if (bot->IsInCombat() && !owner->IsInCombat())
+        // A party's tank pulls first by design.
+        if (bot->IsInCombat() && !owner->IsInCombat() && !(HasParty() && role == Role::Tank))
             reward -= SOLO_FIGHT;
 
         // Out of combat, stay with the owner.

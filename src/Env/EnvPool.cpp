@@ -75,8 +75,8 @@ bool AnimusForge::EnvPool::Setup()
         for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
             _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
 
-        for (ObjectGuid const& guid : env.Allies)
-            _allies[guid] = env.Index;
+        for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
+            _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
     }
 
     LOG_INFO("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
@@ -232,8 +232,13 @@ void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim
 
     // Damage an ally takes counts against every agent of its env.
     if (auto const ally = _allies.find(victim->GetGUID()); ally != _allies.end())
-        for (AgentStats& stats : _envs[ally->second].StepStats)
+    {
+        for (AgentStats& stats : _envs[ally->second.Env].StepStats)
+        {
             stats.AllyDamageTaken += damage;
+            stats.AllyDamageTakenBy[ally->second.Agent] += damage;
+        }
+    }
 
     // Pets, guardians and totems deal damage for their owner.
     auto const itr = _agents.find(attacker->GetCharmerOrOwnerOrOwnGUID());
@@ -307,8 +312,8 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
         for (ObjectGuid const& guid : previousAllies)
             _allies.erase(guid);
 
-        for (ObjectGuid const& guid : env.Allies)
-            _allies[guid] = env.Index;
+        for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
+            _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
     }
 }
 
@@ -323,10 +328,12 @@ void AnimusForge::EnvPool::RecordHeal(Unit const* healer, Unit const* receiver, 
 
     // Pets and totems heal for their owner.
     auto const agent = _agents.find(healer->GetCharmerOrOwnerOrOwnGUID());
-    if (agent == _agents.end() || agent->second.Env != ally->second)
+    if (agent == _agents.end() || agent->second.Env != ally->second.Env)
         return;
 
-    _envs[agent->second.Env].StepStats[agent->second.Agent].AllyHealing += gain;
+    AgentStats& stats = _envs[agent->second.Env].StepStats[agent->second.Agent];
+    stats.AllyHealing += gain;
+    stats.AllyHealingBy[ally->second.Agent] += gain;
 }
 
 void AnimusForge::EnvPool::RecordCastCompleted(Unit const* caster, Spell* spell)

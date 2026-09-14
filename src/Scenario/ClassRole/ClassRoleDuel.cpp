@@ -104,7 +104,7 @@ float AnimusForge::ClassRoleScenario::DesiredRange(EnvData const& data) const
     return _profile.Specs[data.Spec].Range == RangeBand::Melee ? MELEE_DESIRED_RANGE : RANGED_DESIRED_RANGE;
 }
 
-void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Creature* /*opponent*/, EnvData& data) const
+void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Unit* /*opponent*/, EnvData& data) const
 {
     // Levelling up mid-episode would change the character under the policy.
     bot->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
@@ -123,7 +123,7 @@ void AnimusForge::ClassRoleScenario::StartDuel(Player* bot, Creature* /*opponent
     // No pet and no attack: summoning one, stealthing and approaching are all the policy's to learn.
 }
 
-bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Creature* opponent, uint32 duelAction,
+bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Unit* opponent, uint32 duelAction,
     EnvData const& data) const
 {
     if (!bot->IsAlive())
@@ -169,7 +169,7 @@ bool AnimusForge::ClassRoleScenario::IsDuelActionAllowed(Player* bot, Creature* 
     return !callPet || !bot->GetGlobalCooldownMgr().HasGlobalCooldown(callPet);
 }
 
-void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Creature* opponent, uint32 duelAction,
+void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Unit* opponent, uint32 duelAction,
     EnvData& data) const
 {
     if (!IsDuelActionAllowed(bot, opponent, duelAction, data))
@@ -229,7 +229,7 @@ void AnimusForge::ClassRoleScenario::ApplyDuelAction(Player* bot, Creature* oppo
     bot->GetMotionMaster()->MovePoint(DUEL_MOVE_POINT_ID, x, y, z);
 }
 
-void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Creature* opponent, float* obs) const
+void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Unit* opponent, float* obs) const
 {
     EnvData const& data = _data[env.Index];
     float* duel = obs + _duelObsFirst;
@@ -300,7 +300,8 @@ void AnimusForge::ClassRoleScenario::ObserveDuel(Env const& env, Player* bot, Cr
     }
 }
 
-float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Creature* opponent, EnvData& data) const
+float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Unit* opponent, EnvData& data,
+    int8 opponentDead) const
 {
     float reward = -STEP_COST;
     if (!bot || !opponent)
@@ -333,7 +334,8 @@ float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, Player* bot, Cr
     if (bot->GetPetGUID() || FirstPet(bot))
         data.PetSummoned = true;
 
-    if (!data.Killed && !opponent->IsAlive())
+    bool const opponentDown = opponentDead >= 0 ? opponentDead == 1 : !opponent->IsAlive();
+    if (!data.Killed && opponentDown)
     {
         data.Killed = true;
         data.KillTimeMs = env.EpisodeElapsedMs;
