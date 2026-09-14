@@ -216,6 +216,34 @@ bool AnimusForge::LockstepServer::Receive(MsgType& type, void* dst, std::size_t 
     return ReadExact(dst, size);
 }
 
+bool AnimusForge::LockstepServer::ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize)
+{
+    MsgHeader header{};
+    if (!ReadExact(&header, sizeof(header)))
+        return false;
+
+    type = static_cast<MsgType>(header.Type);
+    payload.clear();
+
+    if (type == MsgType::Close)
+    {
+        LOG_INFO("module.animus", "Learner closed the session");
+        DropClient();
+        return true;
+    }
+
+    if (header.Length > maxSize)
+    {
+        LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes, at most {} expected", header.Type,
+            header.Length, maxSize);
+        DropClient();
+        return false;
+    }
+
+    payload.resize(header.Length);
+    return ReadExact(payload.data(), payload.size());
+}
+
 bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<bool()> const& onIdle)
 {
     pollfd pfd{ fd, POLLIN, 0 };

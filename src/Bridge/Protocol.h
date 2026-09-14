@@ -39,8 +39,19 @@
  *                              f32 final_obs[E*A*O]   last obs of the ended episode (valid if done)
  *                              f32 final_state[E*S]   last state of the ended episode (valid if done)
  *                              f32 episode_info[E*K]  totals for the ended episode (valid if done)
+ *                              u32 episode_seed[E]    evaluation seed index of the ended episode (valid if
+ *                                                     done); NO_EPISODE_SEED for a training episode
  *   client -> server  ACT    { i32 actions[E*A] }
+ *   client -> server  MODE   ModeMsg (instead of ACT) -- switch between training and evaluation; the server
+ *                            resets every env and answers with a fresh STEP (zero reward and done)
  *   client -> server  CLOSE  {}  (instead of ACT) -- server drops the client and waits for a new one
+ *
+ * Evaluation (MODE with Mode = 1): episodes seed index 0..Episodes-1 are handed out in order to the envs as
+ * they reset, and the scenario builds each one right after reseeding the world thread's random numbers from
+ * (SeedBase, index) -- the same characters and opponents every evaluation, whatever the env count. Envs that
+ * reset once every index is handed out run unseeded episodes (NO_EPISODE_SEED). With a Baseline policy name
+ * the sim ignores the ACT actions and runs that scripted policy instead, so the learner can score it on the
+ * same seeds. MODE with Mode = 0 returns to unseeded training episodes.
  *
  * The first STEP after SPEC carries freshly reset envs: its reward and done arrays are zero and
  * must not be recorded as a transition. A truncated episode (done, not terminated) bootstraps from
@@ -55,8 +66,10 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 1;
+    constexpr uint32 PROTOCOL_VERSION = 2;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
+    constexpr uint32 POLICY_NAME_SIZE = 32;
+    constexpr uint32 NO_EPISODE_SEED = 0xFFFFFFFF;
 
     static_assert(std::endian::native == std::endian::little, "the wire protocol is little-endian");
 
@@ -67,6 +80,7 @@ namespace AnimusForge
         Step  = 3,
         Act   = 4,
         Close = 5,
+        Mode  = 6,
     };
 
 #pragma pack(push, 1)
@@ -94,6 +108,14 @@ namespace AnimusForge
         uint32 DecisionTicks;
         uint32 EpisodeSeconds;
         char Scenario[SCENARIO_NAME_SIZE];
+    };
+
+    struct ModeMsg
+    {
+        uint32 Mode;                        // 0 = training, 1 = evaluation
+        uint32 SeedBase;
+        uint32 Episodes;                    // seeded evaluation episodes
+        char Baseline[POLICY_NAME_SIZE];    // scripted policy to run instead of the learner's; empty = learner
     };
 
     struct StepHeader

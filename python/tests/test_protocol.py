@@ -39,6 +39,7 @@ def make_step(decision: int, rng: np.random.Generator) -> p.Step:
         final_obs=rng.random((e, a, SPEC.obs_dim), dtype=np.float32),
         final_state=rng.random((e, SPEC.state_dim), dtype=np.float32),
         episode_info=rng.random((e, SPEC.episode_info_dim), dtype=np.float32),
+        episode_seed=rng.integers(0, 2**32, size=e, dtype=np.uint32),
     )
 
 
@@ -56,6 +57,12 @@ def test_spec_matches_cpp_layout():
     # SpecMsg in Protocol.h: ten uint32 fields and a 32-byte name, packed.
     assert p.SPEC.size == 10 * 4 + 32
     assert p.HEADER.size == 8
+
+
+def test_mode_matches_cpp_layout():
+    # ModeMsg in Protocol.h: three uint32 fields and a 32-byte policy name, packed.
+    assert p.MODE.size == 3 * 4 + 32
+    assert p.decode_mode(p.encode_mode(True, 1000, 128, "fight")) == (True, 1000, 128, "fight")
 
 
 def test_step_round_trip_and_size():

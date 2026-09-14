@@ -58,6 +58,7 @@ namespace AnimusForge
         std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = per scenario (LearnerConfigFor)
         std::string LearnerLogFile;     // resolved: never empty after Load
         std::string LearnerCleanRun;    // AnimusForge.Learner.CleanRun; empty = resume every run
+        std::vector<std::string> LearnerArgs;   // AnimusForge.Learner.Args, split on whitespace
 
         uint32 ArenaMapId = 560;
         Position ArenaPosition;

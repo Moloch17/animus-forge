@@ -11,8 +11,10 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 SCENARIO_NAME_SIZE = 32
+POLICY_NAME_SIZE = 32
+NO_EPISODE_SEED = 0xFFFFFFFF
 
 
 class MsgType(IntEnum):
@@ -21,12 +23,14 @@ class MsgType(IntEnum):
     STEP = 3
     ACT = 4
     CLOSE = 5
+    MODE = 6
 
 
 HEADER = struct.Struct("<II")  # type, payload length
 HELLO = struct.Struct("<I")  # version
 SPEC = struct.Struct(f"<10I{SCENARIO_NAME_SIZE}s")
 STEP_HEADER = struct.Struct("<Q")  # decision counter
+MODE = struct.Struct(f"<III{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, baseline policy
 
 
 @dataclass(frozen=True)
@@ -51,7 +55,7 @@ class Spec:
     def step_layout(self) -> list[tuple[str, np.dtype, tuple[int, ...]]]:
         """STEP payload arrays after the header, in wire order: (name, dtype, shape)."""
         e, a = self.num_envs, self.agents_per_env
-        f32, u8 = np.dtype("<f4"), np.dtype("u1")
+        f32, u8, u32 = np.dtype("<f4"), np.dtype("u1"), np.dtype("<u4")
         return [
             ("obs", f32, (e, a, self.obs_dim)),
             ("state", f32, (e, self.state_dim)),
@@ -62,6 +66,7 @@ class Spec:
             ("final_obs", f32, (e, a, self.obs_dim)),
             ("final_state", f32, (e, self.state_dim)),
             ("episode_info", f32, (e, self.episode_info_dim)),
+            ("episode_seed", u32, (e,)),
         ]
 
     def step_payload_size(self) -> int:
@@ -86,6 +91,7 @@ class Step:
     final_obs: np.ndarray  # [E, A, O] float32, valid where done
     final_state: np.ndarray  # [E, S] float32, valid where done
     episode_info: np.ndarray  # [E, K] float32, valid where done
+    episode_seed: np.ndarray  # [E] uint32, evaluation seed index where done; NO_EPISODE_SEED for training
 
 
 def encode_spec(spec: Spec) -> bytes:
@@ -136,6 +142,18 @@ def decode_step(spec: Spec, payload: bytes | bytearray | memoryview) -> Step:
             array = array.astype(bool)
         arrays[name] = array
     return Step(decision=decision, **arrays)
+
+
+def encode_mode(evaluate: bool, seed_base: int = 0, episodes: int = 0, baseline: str = "") -> bytes:
+    name = baseline.encode("ascii")
+    if len(name) >= POLICY_NAME_SIZE:
+        raise ValueError(f"baseline policy name '{baseline}' is too long")
+    return MODE.pack(int(evaluate), seed_base, episodes, name)
+
+
+def decode_mode(payload: bytes) -> tuple[bool, int, int, str]:
+    mode, seed_base, episodes, name = MODE.unpack(payload)
+    return bool(mode), seed_base, episodes, name.split(b"\0", 1)[0].decode("ascii")
 
 
 def encode_header(msg_type: MsgType, length: int) -> bytes:

@@ -281,11 +281,13 @@ Stage 5: the gauntlet fought beside an owner, as a `mod-animus` companion fights
 AnimusForge.Queue = "warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps, hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank, deathknight_dps, shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps, druid_tank, druid_heal"
 ```
 
-Each scenario runs with its auto-started learner until the learner reaches `total_env_steps` and
-exits cleanly; the sim then tears the scenario down and starts the next one. Every run trains in
-`runs/<scenario>/` and publishes `<scenario>.amdl` to `$ANIMUS_MODEL_DIRS` at each checkpoint (see
-[Export for mod-animus](#export-for-mod-animus)). After a server restart, finished scenarios' learners
-exit immediately and the queue moves on to the first unfinished one. Change the list (or its order)
+Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
+plateaus or it reaches `total_env_steps` (see
+[Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
+tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/` and publishes
+`<scenario>.amdl` to `$ANIMUS_MODEL_DIRS` (see [Export for mod-animus](#export-for-mod-animus)). After a
+server restart, finished scenarios' learners (`runs/<scenario>/finished.json`) exit immediately and the
+queue moves on to the first unfinished one. Change the list (or its order)
 in the config and restart to retrain or skip models. A learner that crashes stops the queue at that
 scenario: the sim waits for a learner, as it does without a queue.
 
@@ -317,6 +319,8 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
+| `AnimusForge.Learner.CleanRun` | `""` | Run id: a new id archives each run and trains from scratch |
+| `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
 | `AnimusForge.Arena.*` | Old Hillsbrad entrance | Dungeon map and position for the arena |
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_SCENARIO=warrior_dummy`.
@@ -389,15 +393,46 @@ worldserver starts the learner itself once the envs are built, for the scenario 
   first time each scenario starts under a new id, its `runs/<scenario>/` is moved to
   `runs/_archive/<scenario>-<time>/` (`--clean-run <id>`); the new directory records the id, so restarts
   under the same id resume the clean run. A new id starts another one.
+- **Overrides:** `AnimusForge.Learner.Args` appends arguments to every learner, typically
+  `--set key=value` (dotted keys for sections: `--set eval.episodes=64`), to change config values for a
+  whole queue without editing YAML -- e.g. a short pass over a curriculum before the long run.
 - **Shutdown:** closing the socket makes the learner save a checkpoint and exit; it is interrupted
   after 10 s if it has not.
+
+### Evaluation and plateau stopping
+
+Training curves are noisy when every episode rolls a new character, so the class/role configs score the
+networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `animus/evaluation.py`):
+
+- **Seeds:** the learner switches the sim to evaluation (protocol `MODE`). Every env resets, and episode
+  seed index *i* (0 to `eval.episodes - 1`) is built right after the world thread's random numbers are
+  reseeded from (`eval.seed`, *i*): the same race, level, spec, talents, gear, opponents and spawn points
+  every evaluation, whatever the env count. Combat rolls stay random, so scores are averages, not replays.
+  Afterwards the learner switches back and training resumes from fresh episodes.
+- **Policy:** argmax actions (`eval.deterministic`). The score is the mean episode return -- the scenario's
+  own reward -- so it measures what training optimises and compares checkpoints of one scenario.
+- **Baseline:** `eval.baseline` (`greedy` for stage 1, `fight` for later stages) is played by the sim on the
+  same seeds once per run and cached in `eval_baseline.json`.
+- **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
+  `eval.every_env_steps` (20M), and at `total_env_steps`.
+- **Output:** the log prints the score, the best so far and a table of score and key episode stats
+  (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to baseline.
+  `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
+  `eval_<band>/*`.
+- **Best model:** each new best score saves `best.pt` and publishes that actor; the next curriculum stage
+  seeds from `runs/<previous stage>/best.pt` (its `latest.pt` if there is no best).
+- **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
+  the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,
+  whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations
+  (100M env steps), 2% and 40M; `total_env_steps` stays the upper bound. `finished.json` records why a
+  run stopped.
 
 To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from `python/`:
 
 ```
 pytest                                                    # protocol, GAE and trainer tests
 python -m animus.train --config configs/warrior_dummy.yaml
-python -m animus.evaluate --checkpoint runs/warrior_dummy/latest.pt --episodes 256
+python -m animus.evaluate --checkpoint runs/warrior_dps/best.pt --episodes 128 --seed 1000 --baseline greedy
 ```
 
 A hand-started learner can start before or after the worldserver; it retries until the socket
@@ -405,7 +440,8 @@ exists. Disconnecting (Ctrl+C) is safe: the sim waits for the next learner and r
 one connects.
 
 Each run writes `config.yaml`, `spec.json`, `metrics.csv`, TensorBoard logs (if installed) and
-checkpoints to `runs/<run_name>/`.
+checkpoints to `runs/<run_name>/`; with evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`,
+`best.pt` and, once done, `finished.json`.
 
 ## Export for mod-animus
 
@@ -424,12 +460,14 @@ actions change, update mod-animus's copy of the encoding (for `warrior_dummy`,
 ## Wire protocol
 
 `src/Bridge/Protocol.h` is the reference; `python/animus/protocol.py` mirrors it. Messages are
-little-endian: `HELLO` → `SPEC` → (`STEP` → `ACT`)* → `CLOSE`. A `STEP` carries, for every env:
+little-endian: `HELLO` → `SPEC` → (`STEP` → `ACT` or `MODE`)* → `CLOSE`. `MODE` switches between
+training and seeded evaluation (optionally running a scripted baseline instead of the learner's actions)
+and is answered with a fresh `STEP`. A `STEP` carries, for every env:
 - observation, critic state and action mask
 - reward
 - `done` / `terminated`
 - the final observation and state of an episode that just ended (for truncation bootstrapping)
-- episode totals
+- episode totals and, in evaluation, the ended episode's seed index
 
 ## Adding a scenario
 
@@ -445,7 +483,7 @@ provides a real global `State`, and MAPPO's shared actor and centralized critic 
 ## Core requirements
 
 The class/role scenarios rebuild every bot each episode, hundreds of times a second in a fast sim.
-That relies on two small Forge core APIs:
+That relies on small Forge core APIs:
 
 - `WorldSession::SetSimSession(true)` (set by `BotFactory::Create`): the session's account and
   characters exist only in memory, so logout, play time and instance binds write nothing to the
@@ -453,6 +491,9 @@ That relies on two small Forge core APIs:
   them, and the async queue grew without bound.
 - `Player::SetSocial` (set by `BotFactory::Create` to an empty `SocialMgr` list): logout and far
   teleports read the social list, which `LoadFromDB` normally attaches.
+
+- `rand_seed` (`RandomSeed.h`): restarts the calling thread's `urand`/`frand`/... sequence from a seed,
+  so seeded evaluation episodes roll the same characters and opponents every time.
 
 Bots also reuse a fixed pair of player GUIDs per env, because the core keeps some per-GUID state
 (instance bind storage) for the life of the server.

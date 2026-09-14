@@ -18,9 +18,11 @@
 
 #include "EnvPool.h"
 #include "ForgeConfig.h"
+#include "Protocol.h"
 #include "Common.h"
 #include "Log.h"
 #include "Random.h"
+#include "RandomSeed.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "StringFormat.h"
@@ -52,6 +54,8 @@ AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     FinalObs.assign(agents * _spec.ObsDim, 0.0f);
     FinalState.assign(envs * _spec.StateDim, 0.0f);
     EpisodeInfo.assign(envs * _spec.EpisodeInfoDim, 0.0f);
+    EpisodeSeed.assign(envs, NO_EPISODE_SEED);
+    _envSeed.assign(envs, NO_EPISODE_SEED);
     Actions.assign(agents, 0);
 
     _scratchMask.assign(_spec.AgentsPerEnv * _spec.NumActions, 0);
@@ -147,6 +151,7 @@ void AnimusForge::EnvPool::Collect()
             _scenario.Observe(env, &FinalObs[e * agentsPerEnv * _spec.ObsDim], &FinalState[e * _spec.StateDim],
                 _scratchMask.data());
             _scenario.EpisodeInfo(env, &EpisodeInfo[e * _spec.EpisodeInfoDim]);
+            EpisodeSeed[e] = _envSeed[e];
 
             ++env.EpisodesCompleted;
             ReportEpisode(e);
@@ -201,6 +206,15 @@ bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
     return true;
 }
 
+void AnimusForge::EnvPool::SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline)
+{
+    _evaluating = enabled;
+    _evalSeedBase = seedBase;
+    _evalEpisodes = enabled ? episodes : 0;
+    _evalNextSeed = 0;
+    _evalBaseline = enabled ? baseline : std::string();
+}
+
 void AnimusForge::EnvPool::ApplyActions()
 {
     for (Env& env : _envs)
@@ -252,7 +266,22 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
     std::vector<ObjectGuid> const previousBots = env.Bots;
     std::vector<ObjectGuid> const previousAllies = env.Allies;
 
+    // An evaluation episode is built from its seed: the world thread's random numbers restart from it for
+    // the reset (race, level, spec, talents, gear, opponents, spawn points) and go back to entropy afterwards.
+    // Resets run on the world thread, and everything a scenario rolls there comes from those numbers.
+    _envSeed[env.Index] = NO_EPISODE_SEED;
+    if (_evaluating && _evalNextSeed < _evalEpisodes)
+    {
+        uint32 const index = _evalNextSeed++;
+        uint32 seed = (_evalSeedBase + 1) * 2654435761u ^ (index + 1) * 2246822519u;
+        rand_seed(seed ? seed : 1);
+        _envSeed[env.Index] = index;
+    }
+
     _scenario.Reset(env);
+
+    if (_envSeed[env.Index] != NO_EPISODE_SEED)
+        rand_seed(0);
 
     // After the reset: tearing down the old character (a cast cut short, its pet's last hit) still reports
     // to the hooks, and none of that belongs to the new episode.

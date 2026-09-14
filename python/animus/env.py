@@ -64,6 +64,16 @@ class ForgeEnv:
         self._pending = self._receive_step()
         return self._pending
 
+    def set_mode(self, evaluate: bool, seed_base: int = 0, episodes: int = 0, baseline: str = "") -> p.Step:
+        """Switch the sim between training and seeded evaluation (see protocol MODE).
+
+        Every env resets; the returned STEP holds the fresh observations and, like the first one, no transition.
+        """
+        payload = p.encode_mode(evaluate, seed_base, episodes, baseline)
+        self.sock.sendall(p.encode_header(p.MsgType.MODE, len(payload)) + payload)
+        self._pending = self._receive_step()
+        return self._pending
+
     def close(self) -> None:
         try:
             self.sock.sendall(p.encode_header(p.MsgType.CLOSE, 0))

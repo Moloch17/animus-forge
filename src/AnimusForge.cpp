@@ -219,16 +219,92 @@ void AnimusForge::Forge::RemoteDecision()
     if (!SendStep())
         return;
 
-    MsgType type;
     std::size_t const actionBytes = _pool->Actions.size() * sizeof(int32);
-    if (!_server.Receive(type, _pool->Actions.data(), actionBytes) || type != MsgType::Act)
+
+    // ACT, or MODE first: a mode switch resets every env and answers with a fresh STEP before the ACT.
+    for (;;)
     {
-        // CLOSE or a protocol error: the client is gone, the next decision waits for a new one.
+        MsgType type;
+        std::vector<char> payload;
+        if (!_server.ReceiveAny(type, payload, std::max(actionBytes, sizeof(ModeMsg))))
+        {
+            _server.DropClient();
+            return;
+        }
+
+        if (type == MsgType::Act && payload.size() == actionBytes)
+        {
+            std::memcpy(_pool->Actions.data(), payload.data(), actionBytes);
+            break;
+        }
+
+        if (type == MsgType::Mode && payload.size() == sizeof(ModeMsg))
+        {
+            ModeMsg mode{};
+            std::memcpy(&mode, payload.data(), sizeof(mode));
+            if (!ApplyMode(mode))
+            {
+                _server.DropClient();
+                return;
+            }
+
+            _pool->ResetAll();
+            if (!SendStep())
+                return;
+
+            continue;
+        }
+
+        // CLOSE (the client is already gone) or a protocol error: the next decision waits for a new learner.
+        if (type != MsgType::Close)
+            LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes where ACT or MODE was expected",
+                uint32(type), payload.size());
+
         _server.DropClient();
         return;
     }
 
+    // Scoring a scripted baseline on the evaluation seeds: its actions replace the learner's.
+    if (!_pool->EvalBaseline().empty())
+        _pool->ChooseLocalActions(_pool->EvalBaseline());
+
     _pool->ApplyActions();
+}
+
+bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
+{
+    std::string const baseline(mode.Baseline, strnlen(mode.Baseline, POLICY_NAME_SIZE));
+
+    if (mode.Mode > 1)
+    {
+        LOG_ERROR("module.animus", "Learner asked for unknown mode {}", mode.Mode);
+        return false;
+    }
+
+    if (mode.Mode == 1 && !baseline.empty() && baseline != "random")
+    {
+        ScenarioSpec const spec = _scenario->Spec();
+        std::vector<float> obs(spec.ObsDim, 0.0f);
+        std::vector<uint8> mask(spec.NumActions, 0);
+        int32 action = 0;
+
+        if (!_scenario->ScriptedAction(baseline, obs.data(), mask.data(), action))
+        {
+            LOG_ERROR("module.animus", "Learner asked for baseline '{}', which scenario {} does not have", baseline,
+                _scenario->Name());
+            return false;
+        }
+    }
+
+    _pool->SetEvaluation(mode.Mode == 1, mode.SeedBase, mode.Episodes, baseline);
+
+    if (mode.Mode == 1)
+        LOG_INFO("module.animus", "Evaluation: {} seeded episodes from seed {}, policy {}", mode.Episodes,
+            mode.SeedBase, baseline.empty() ? "learner" : baseline);
+    else
+        LOG_INFO("module.animus", "Evaluation finished; training");
+
+    return true;
 }
 
 bool AnimusForge::Forge::SendSpec()
@@ -273,5 +349,6 @@ bool AnimusForge::Forge::SendStep()
         chunk(_pool->FinalObs),
         chunk(_pool->FinalState),
         chunk(_pool->EpisodeInfo),
+        chunk(_pool->EpisodeSeed),
     });
 }

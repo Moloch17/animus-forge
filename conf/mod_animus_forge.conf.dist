@@ -213,6 +213,16 @@ AnimusForge.Learner.Config = ""
 AnimusForge.Learner.CleanRun = ""
 
 #
+#    AnimusForge.Learner.Args
+#        Description: Extra learner arguments appended to every learner command line, split on spaces
+#                     (no quoting). Mostly "--set key=value" to override learner config values for the
+#                     whole queue without editing the YAML files, e.g. a short pass over a curriculum.
+#        Example:     "--set total_env_steps=5000000 --set eval.every_env_steps=1000000"
+#        Default:     ""
+
+AnimusForge.Learner.Args = ""
+
+#
 #    AnimusForge.Learner.LogFile
 #        Description: File the learner's stdout and stderr are appended to.
 #        Default:     "" - animus-learner.log in LogsDir

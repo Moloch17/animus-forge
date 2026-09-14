@@ -84,6 +84,8 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
         args.push_back(config.LearnerCleanRun);
     }
 
+    args.insert(args.end(), config.LearnerArgs.begin(), config.LearnerArgs.end());
+
     std::vector<char*> argv;
     for (std::string& arg : args)
         argv.push_back(arg.data());

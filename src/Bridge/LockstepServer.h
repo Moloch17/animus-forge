@@ -67,6 +67,11 @@ namespace AnimusForge
         /// true is returned. False on error, disconnect or world stop.
         bool Receive(MsgType& type, void* dst, std::size_t size);
 
+        /// Receive one message of any type with a payload of at most `maxSize` bytes into `payload`.
+        /// On CLOSE the client is dropped and true is returned with an empty payload. False on error,
+        /// disconnect or world stop.
+        bool ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize);
+
     private:
         bool WaitReadable(int fd, std::function<bool()> const& onIdle = {});
         bool ReadExact(void* dst, std::size_t size);

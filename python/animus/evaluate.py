@@ -1,27 +1,31 @@
-"""Evaluate a checkpoint against a running Animus Forge sim.
+"""Evaluate a checkpoint against a running Animus Forge sim, on seeded episodes.
 
-    python -m animus.evaluate --checkpoint runs/<name>/latest.pt --episodes 256 [--stochastic]
+    python -m animus.evaluate --checkpoint runs/<name>/best.pt [--episodes 128] [--seed 1000] [--baseline fight]
 
-Compare the printed DPS with the scripted baselines, which the sim itself runs and logs with
-AnimusForge.Policy = never_hs / hs_at_threshold / random.
+Uses the same seeded evaluation as training (animus.evaluation): with the same --seed and --episodes the
+characters and opponents match the ones training scored. --baseline also scores a scripted sim policy on
+those seeds. The sim must run the checkpoint's scenario with AnimusForge.Policy = "remote" and no learner of
+its own attached (AnimusForge.Learner.AutoStart = 0).
 """
 
 from __future__ import annotations
 
 import argparse
 
-import numpy as np
 import torch
 
-from .config import TrainConfig
+from .config import REPORT_COLUMNS, TrainConfig
 from .env import ForgeEnv
+from .evaluation import format_summary, run_evaluation
 from .mappo.trainer import MappoConfig, MappoTrainer
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--episodes", type=int, default=256)
+    parser.add_argument("--episodes", type=int, default=128)
+    parser.add_argument("--seed", type=int, default=1000)
+    parser.add_argument("--baseline", default="", help="also score this scripted sim policy on the same seeds")
     parser.add_argument("--socket", help="override the socket stored in the checkpoint config")
     parser.add_argument("--stochastic", action="store_true", help="sample actions instead of taking the argmax")
     args = parser.parse_args()
@@ -39,26 +43,22 @@ def main() -> None:
     trainer = MappoTrainer(spec.obs_dim, spec.state_dim, spec.num_actions, spec.agents_per_env, mappo)
     trainer.load_state_dict(checkpoint["trainer"], load_optimizers=False)
 
-    episodes: list[np.ndarray] = []
-    action_counts = np.zeros(spec.num_actions, dtype=np.int64)
+    def actions(step):
+        return trainer.act(step.obs, step.mask, deterministic=not args.stochastic)[0]
 
     try:
-        step = env.reset()
-        while len(episodes) < args.episodes:
-            actions, _ = trainer.act(step.obs, step.mask, deterministic=not args.stochastic)
-            action_counts += np.bincount(actions.ravel(), minlength=spec.num_actions)
-            step = env.step(actions)
-            if step.done.any():
-                episodes.extend(step.episode_info[step.done])
+        env.reset()
+        baseline = None
+        if args.baseline:
+            result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline)
+            baseline = result.summary(REPORT_COLUMNS)
+        result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed)
     finally:
         env.close()
 
-    results = np.array(episodes[: args.episodes])
-    print(f"{spec.scenario}: {len(results)} episodes, {'stochastic' if args.stochastic else 'greedy'} policy")
-    for column, name in enumerate(spec.episode_info_names):
-        print(f"  {name:>16}: {results[:, column].mean():10.2f} +- {results[:, column].std():.2f}")
-    rates = action_counts / max(1, action_counts.sum())
-    print("  action rates: " + ", ".join(f"{a}={r:.3f}" for a, r in enumerate(rates)))
+    print(f"{spec.scenario} (update {checkpoint['update']}): score {result.score:.4g} over {result.episodes} seeded "
+          f"episodes, {'stochastic' if args.stochastic else 'greedy'} policy [learner/{args.baseline or '-'}]")
+    print(format_summary(result.summary(REPORT_COLUMNS), baseline, REPORT_COLUMNS))
 
 
 if __name__ == "__main__":

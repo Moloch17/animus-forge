@@ -15,7 +15,7 @@ socket: /tmp/animus-forge.sock
 seed: 1
 
 # Seed a fresh run from the class/role's gauntlet model: the companion stage's layout extends it.
-init_from: runs/{base_run}_gauntlet/latest.pt
+init_from: runs/{base_run}_gauntlet/best.pt
 
 total_env_steps: 300000000
 rollout_length: 128
@@ -40,3 +40,23 @@ mappo:
   minibatches: 8
   max_grad_norm: 0.5
   use_value_norm: true
+
+# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
+# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
+# stats next to the "fight" baseline, scored once per run on the same seeds. The best networks go to best.pt
+# and are the ones published and seeded from by the next stage.
+eval:
+  every_env_steps: 20000000
+  at_start: true
+  episodes: 128
+  seed: 1000
+  deterministic: true
+  baseline: fight
+
+# Stop once 5 evaluations in a row (100M env steps) fail to beat the best score by 2%, but not before 40M
+# env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+plateau:
+  patience: 5
+  min_improvement: 0.02
+  min_improvement_abs: 0.01
+  min_env_steps: 40000000

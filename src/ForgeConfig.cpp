@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <sstream>
 
 namespace
 {
@@ -83,6 +84,11 @@ void AnimusForge::ForgeConfig::Load()
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
 
     LearnerCleanRun = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.CleanRun", "");
+
+    LearnerArgs.clear();
+    std::istringstream extraArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Args", ""));
+    for (std::string arg; extraArgs >> arg;)
+        LearnerArgs.push_back(arg);
 
     LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
     if (LearnerLogFile.empty())

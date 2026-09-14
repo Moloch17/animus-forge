@@ -58,6 +58,14 @@ namespace AnimusForge
 
         void ApplyActions();
 
+        /// Evaluation (see ModeMsg in Protocol.h): hand seed indexes 0..episodes-1 to envs as they reset, each
+        /// env rebuilt right after reseeding the world thread's random numbers from (seedBase, index). With a
+        /// baseline policy name, EvalBaseline() tells the caller to run it instead of the learner's actions.
+        /// Takes effect at the next reset; call ResetAll to start every env on it.
+        void SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline);
+        [[nodiscard]] bool IsEvaluating() const { return _evaluating; }
+        [[nodiscard]] std::string const& EvalBaseline() const { return _evalBaseline; }
+
         /// Damage hook, called from map worker threads. Only touches the stats of the env whose
         /// instance the calling thread is updating.
         void RecordDamage(Unit const* attacker, Unit const* victim, uint32 damage, DamageEffectType type);
@@ -87,6 +95,7 @@ namespace AnimusForge
         std::vector<float> FinalObs;
         std::vector<float> FinalState;
         std::vector<float> EpisodeInfo;
+        std::vector<uint32> EpisodeSeed;        // per env: seed index of the episode that just ended
         std::vector<int32> Actions;
 
     private:
@@ -115,6 +124,13 @@ namespace AnimusForge
         std::unordered_map<ObjectGuid, uint32> _allies;
 
         std::vector<uint8> _scratchMask;
+
+        bool _evaluating = false;
+        uint32 _evalSeedBase = 0;
+        uint32 _evalEpisodes = 0;
+        uint32 _evalNextSeed = 0;
+        std::string _evalBaseline;
+        std::vector<uint32> _envSeed;           // per env: seed index of the running episode
 
         std::vector<double> _reportInfoSum;
         uint32 _reportedEpisodes = 0;

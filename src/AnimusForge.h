@@ -60,6 +60,7 @@ namespace AnimusForge
         void RemoteDecision();
         bool SendSpec();
         bool SendStep();
+        bool ApplyMode(ModeMsg const& mode);
 
         ForgeConfig _config;
         std::unique_ptr<Scenario> _scenario;
