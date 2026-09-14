@@ -38,6 +38,7 @@ namespace AnimusForge
         uint64 SpecialDamage = 0;
         uint32 WhiteHits = 0;
         uint32 SpecialHits = 0;
+        uint64 DamageTaken = 0;         // by the agent, from anything
 
         void Add(AgentStats const& other)
         {
@@ -46,6 +47,7 @@ namespace AnimusForge
             SpecialDamage += other.SpecialDamage;
             WhiteHits += other.WhiteHits;
             SpecialHits += other.SpecialHits;
+            DamageTaken += other.DamageTaken;
         }
     };
 

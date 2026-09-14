@@ -197,6 +197,10 @@ void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim
     if (!attacker || !victim || !damage || (type != DIRECT_DAMAGE && type != SPELL_DIRECT_DAMAGE && type != DOT))
         return;
 
+    // Damage an agent takes. The victim is the agent itself (pets absorb their own damage).
+    if (auto const hit = _agents.find(victim->GetGUID()); hit != _agents.end())
+        _envs[hit->second.Env].StepStats[hit->second.Agent].DamageTaken += damage;
+
     // Pets, guardians and totems deal damage for their owner.
     auto const itr = _agents.find(attacker->GetCharmerOrOwnerOrOwnGUID());
     if (itr == _agents.end())

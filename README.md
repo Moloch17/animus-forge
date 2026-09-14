@@ -144,6 +144,45 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
 
 Learner settings come from `configs/class_role.yaml` unless a `configs/<scenario>.yaml` exists.
 
+### Class/role duel stage (`<class>_<role>_duel`)
+
+The second curriculum stage, one scenario per class/role (`warrior_dps_duel`, `druid_tank_duel`, ...).
+Each stage is its own scenario, so every earlier stage stays repeatable. Characters are built exactly
+as in stage 1 (race, level, spec, talents, kit, gear); the target is now a real opponent:
+
+- **Opponent:** a random creature whose natural levels cover the bot's (normal rank, attackable,
+  default AI with no script, no NPC services, not civilian, guard or trigger, spawned somewhere in
+  the world), summoned at the bot's level 40-50 yd away at a random bearing (a spot in line of sight
+  on level ground), facing a random direction, hostile and aggressive. It is out of aggro range, so
+  the bot has to close in, and it fights back. The bot gains no XP, so its level never changes.
+- **Pets:** nothing is pre-summoned. Warlock demons, Raise Dead, Water Elemental, Feral Spirit and
+  the like are ordinary spell actions (with their reagents in the bags). Hunters, whose Call Pet
+  needs a pet saved in the database, are offered 4 tameable beasts of different random families
+  each episode through 4 `call_beast` actions; the observation shows each beast's family and pet
+  type (ferocity, tenacity, cunning), so the policy can find the one it prefers.
+- **Actions:** stage 1's actions, then: move to the opponent, move behind it, move to casting range
+  (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, and (hunters) the 4
+  `call_beast` actions. The bot turns to face the opponent whenever it is not running. Movement is
+  masked while casting, and cast-time or channeled spells while running.
+- **Observation:** stage 1's, then: distance, bearing to the opponent, whether the bot is behind it
+  and whether it faces the bot, the opponent's combat, target and casting state, the bot's movement,
+  combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
+  episode time, and (hunters) the stable.
+- **Reward:** per decision, damage dealt as a fraction of the opponent's health (x2) minus damage
+  taken as a fraction of the bot's (x1), potential-based shaping toward the spec's range (melee or
+  25 yd), +0.5 for a stealth-only opener from stealth, and a small time cost. On the kill: +2, plus
+  up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health it did
+  not lose. Death: -3. The episode ends on the kill or the bot's death.
+- **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
+  stealth openers, whether a pet was out, and the opponent's entry.
+
+**Bootstrapping:** `configs/class_role_duel.yaml` has `init_from: runs/{base_run}/latest.pt`. A
+duel run with nothing to resume seeds its networks from the class/role's stage 1 model
+(`animus/bootstrap.py`): stage 1's weights keep their places in the wider first layer (new inputs start
+at zero), hidden layers are copied, the actor keeps stage 1's action logits and new actions start
+near zero, and the critic's output layer starts fresh because the reward scale differs. Queue the
+stages in order, e.g. `AnimusForge.Queue = "warrior_dps, warrior_dps_duel, ..."`.
+
 ### Training every model: `AnimusForge.Queue`
 
 `AnimusForge.Queue` lists scenarios to train one after another (it overrides

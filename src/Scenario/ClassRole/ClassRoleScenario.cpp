@@ -18,12 +18,14 @@
 
 #include "ClassRoleScenario.h"
 #include "Creature.h"
+#include "DuelArena.h"
 #include "Env.h"
 #include "ForgeBotFactory.h"
 #include "ForgeConfig.h"
 #include "Item.h"
 #include "Log.h"
 #include "Map.h"
+#include "MoveSpline.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "Random.h"
@@ -125,8 +127,15 @@ namespace
     }
 }
 
-AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config)
-    : _profile(profile), _arenaMapId(config.ArenaMapId), _arenaPosition(config.ArenaPosition)
+std::string AnimusForge::ClassRoleScenario::ScenarioName(ClassRoleProfile const& profile, ArenaMode mode)
+{
+    return mode == ArenaMode::Duel ? profile.ScenarioName + "_duel" : profile.ScenarioName;
+}
+
+AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config,
+    ArenaMode mode)
+    : _mode(mode), _name(ScenarioName(profile, mode)), _profile(profile), _arenaMapId(config.ArenaMapId),
+    _arenaPosition(config.ArenaPosition)
 {
     for (uint8 race : PLAYABLE_RACES)
         if (sObjectMgr->GetPlayerInfo(race, profile.Class))
@@ -150,10 +159,35 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ClassRoleProfile const& profil
     _spec.NumActions = actions;
     _spec.EpisodeInfoDim = INFO_COUNT;
 
+    if (_mode == ArenaMode::Duel)
+    {
+        // Stage 1's layout first, unchanged, then the duel's (see ArenaMode::Duel).
+        uint32 const stable = _profile.Class == CLASS_HUNTER ? STABLE_SLOTS : 0;
+
+        _duelObsFirst = _spec.ObsDim;
+        _spec.ObsDim += DUEL_OBS_COUNT_WITHOUT_STABLE + stable * STABLE_FEATURES;
+        _spec.StateDim = _spec.ObsDim;
+
+        _duelActionFirst = _spec.NumActions;
+        _duelActionCount = DUEL_ACTION_COUNT_WITHOUT_STABLE + stable;
+        _spec.NumActions += _duelActionCount;
+
+        _duelInfoFirst = _spec.EpisodeInfoDim;
+        _spec.EpisodeInfoDim += DUEL_INFO_COUNT;
+
+        DuelArena::OpponentPool::Instance();    // load it at startup rather than on the first episode
+    }
+
     _data.resize(config.Envs);
 
     LOG_INFO("module.animus", "{}: {} races, {} specs, {} actions, {} talents, obs {}", Name(), _races.size(),
-        profile.Specs.size(), actions, talents, _spec.ObsDim);
+        profile.Specs.size(), _spec.NumActions, talents, _spec.ObsDim);
+}
+
+bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
+{
+    EnvData const& data = _data[env.Index];
+    return _mode == ArenaMode::Duel && (data.Killed || data.Died);
 }
 
 AnimusForge::ClassRoleScenario::~ClassRoleScenario()
@@ -186,6 +220,16 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     data.LastStepPowerDelta = 0.0f;
     data.SpellCasts = 0;
     data.TrinketUses = 0;
+
+    data.LastDistance = -1.0f;
+    data.KillTimeMs = 0;
+    data.DamageTaken = 0;
+    data.LastStepDamageTaken = 0.0f;
+    data.StealthOpeners = 0;
+    data.StepStealthOpener = false;
+    data.PetSummoned = false;
+    data.Killed = false;
+    data.Died = false;
 
     // Setup already built the first episode's character.
     if (data.Fresh)
@@ -260,6 +304,18 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     env.InstanceId = map->GetInstanceId();
     env.Bots = { bot->GetGUID() };
     env.Targets.clear();
+
+    if (_mode == ArenaMode::Duel)
+    {
+        data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(data.Level);
+        Creature* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(bot, map, data.OpponentEntry) : nullptr;
+        if (!opponent)
+            return false;
+
+        env.Targets = { opponent->GetGUID() };
+        StartDuel(bot, opponent, data);
+        return true;
+    }
 
     SpecProfile const& specProfile = _profile.Specs[data.Spec];
     float const distance = specProfile.Range == RangeBand::Melee ? MELEE_DISTANCE : RANGED_DISTANCE;
@@ -370,6 +426,11 @@ bool AnimusForge::ClassRoleScenario::IsActionAllowed(Player* bot, Creature* dumm
     if (bot->GetGlobalCooldownMgr().HasGlobalCooldown(info))
         return false;
 
+    // Server-driven movement does not set the movement flags CheckCast looks at: no cast-time or
+    // channeled spell while running.
+    if (_mode == ArenaMode::Duel && !bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
+        return false;
+
     return CanCast(bot, info, dummy);
 }
 
@@ -390,14 +451,29 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
     if (!bot || !dummy)
         return;
 
-    UpdateDummyHealth(env, dummy);
-
     int32 const action = actions[0];
+    EnvData& data = _data[env.Index];
+
+    if (_mode == ArenaMode::Dummy)
+        UpdateDummyHealth(env, dummy);
+    else
+    {
+        // Face the opponent whenever not running somewhere: casts and swings need it, and turning is
+        // not a decision worth learning.
+        if (bot->IsAlive() && bot->movespline->Finalized() && !bot->HasInArc(float(M_PI) / 2, dummy))
+            bot->SetFacingToObject(dummy);
+
+        if (action >= int32(_duelActionFirst) && action < int32(_spec.NumActions))
+        {
+            ApplyDuelAction(bot, dummy, uint32(action) - _duelActionFirst, data);
+            return;
+        }
+    }
+
     if (action <= 0 || action >= int32(_catalog->Actions().size()))
         return;
 
     ActionCatalog::Action const& def = _catalog->Actions()[action];
-    EnvData& data = _data[env.Index];
 
     switch (def.Type)
     {
@@ -433,9 +509,20 @@ void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions
     // Same path as CMSG_CAST_SPELL. prepare() runs the full cast validation again, so a masked action
     // from a misbehaving client simply fails. The spell owns and frees itself.
     SpellCastTargets targets = TargetsFor(info, bot, dummy);
+    bool const stealthed = bot->HasAuraType(SPELL_AURA_MOD_STEALTH);
     Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-    if (spell->prepare(&targets) == SPELL_CAST_OK)
-        ++data.SpellCasts;
+    if (spell->prepare(&targets) != SPELL_CAST_OK)
+        return;
+
+    ++data.SpellCasts;
+
+    // A stealth opener (Ambush, Garrote, Cheap Shot, Ravage, Pounce, ...) on the opponent.
+    if (_mode == ArenaMode::Duel && stealthed && info->HasAttribute(SPELL_ATTR0_ONLY_STEALTHED)
+        && info->NeedsExplicitUnitTarget() && !info->IsPositive())
+    {
+        data.StepStealthOpener = true;
+        ++data.StealthOpeners;
+    }
 }
 
 void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
@@ -537,6 +624,13 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
             if (action > 0)
                 mask[action] = IsActionAllowed(bot, dummy, action) ? 1 : 0;
         }
+
+        if (_mode == ArenaMode::Duel)
+        {
+            ObserveDuel(env, bot, dummy, obs);
+            for (uint32 duelAction = 0; duelAction < _duelActionCount; ++duelAction)
+                mask[_duelActionFirst + duelAction] = IsDuelActionAllowed(bot, dummy, duelAction, data) ? 1 : 0;
+        }
     }
 
     std::vector<TalentBuilder::Talent> const& talents = _talents->Talents();
@@ -556,6 +650,9 @@ void AnimusForge::ClassRoleScenario::Reward(Env& env, float* reward)
     float const scaled = float(env.StepStats[0].Damage) / data.DamageScale;
     reward[0] = scaled;
     data.LastStepDamage = scaled;
+
+    if (_mode == ArenaMode::Duel)
+        reward[0] = DuelReward(env, env.FindBot(0), env.FindTarget(0), data);
 
     if (Player* bot = env.FindBot(0))
     {
@@ -584,12 +681,21 @@ void AnimusForge::ClassRoleScenario::EpisodeInfo(Env const& env, float* info) co
     info[INFO_EQUIPPED_ITEMS] = float(data.EquippedItems);
     info[INFO_SPELL_CASTS] = float(data.SpellCasts);
     info[INFO_TRINKET_USES] = float(data.TrinketUses);
+
+    if (_mode == ArenaMode::Duel)
+        DuelEpisodeInfo(env, info + _duelInfoFirst);
 }
 
 std::vector<std::string> AnimusForge::ClassRoleScenario::EpisodeInfoNames() const
 {
-    return { "damage", "dps", "white_damage", "special_damage", "level", "race", "spec", "unspent_talent_points",
-        "equipped_items", "spell_casts", "trinket_uses" };
+    std::vector<std::string> names = { "damage", "dps", "white_damage", "special_damage", "level", "race", "spec",
+        "unspent_talent_points", "equipped_items", "spell_casts", "trinket_uses" };
+
+    if (_mode == ArenaMode::Duel)
+        names.insert(names.end(), { "killed", "died", "time_to_kill", "damage_taken", "health_left",
+            "stealth_openers", "pet_summoned", "opponent" });
+
+    return names;
 }
 
 bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, float const* /*obs*/,

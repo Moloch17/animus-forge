@@ -54,13 +54,21 @@ namespace
                 },
             };
 
-            for (AnimusForge::ClassRoleProfile const& profile : AnimusForge::ClassRoleProfiles())
+            // Curriculum stages, each its own scenario so every stage stays repeatable.
+            using AnimusForge::ArenaMode;
+            using AnimusForge::ClassRoleScenario;
+
+            for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel })
             {
-                scenarios.emplace_back(profile.ScenarioName,
-                    [&profile](AnimusForge::ForgeConfig const& config) -> std::unique_ptr<AnimusForge::Scenario>
-                    {
-                        return std::make_unique<AnimusForge::ClassRoleScenario>(profile, config);
-                    });
+                for (AnimusForge::ClassRoleProfile const& profile : AnimusForge::ClassRoleProfiles())
+                {
+                    scenarios.emplace_back(ClassRoleScenario::ScenarioName(profile, mode),
+                        [&profile, mode](AnimusForge::ForgeConfig const& config)
+                        {
+                            return std::unique_ptr<AnimusForge::Scenario>(
+                                std::make_unique<ClassRoleScenario>(profile, config, mode));
+                        });
+                }
             }
 
             return scenarios;

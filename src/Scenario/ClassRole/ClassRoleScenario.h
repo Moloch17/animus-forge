@@ -39,6 +39,17 @@ class WorldSession;
 
 namespace AnimusForge
 {
+    /// What a class/role scenario fights.
+    enum class ArenaMode : uint8
+    {
+        /// Stage 1 (`<class>_<role>`): a training dummy in range that takes no damage; maximise damage.
+        Dummy,
+        /// Stage 2 (`<class>_<role>_duel`): a same-level hostile creature spawned out of aggro range that
+        /// fights back; move to it and kill it quickly while taking little damage. Observations and
+        /// actions are stage 1's with duel features and actions appended, so a stage 1 model can seed it.
+        Duel,
+    };
+
     /// One class in one role on a training dummy, maximising damage, for every level, race and spec.
     ///
     /// Every episode builds a new bot: a race the class allows, a random gender and level (1-80;
@@ -97,6 +108,62 @@ namespace AnimusForge
         static constexpr uint32 ACTION_FEATURES = 5;
         static constexpr uint32 MAX_SPECS = 3;
 
+        /// Duel observation features, after all of stage 1's.
+        enum DuelObs : uint32
+        {
+            DUEL_OBS_DISTANCE           = 0,    // yards / 60
+            DUEL_OBS_BEARING_SIN        = 1,    // direction to the opponent relative to the bot's facing
+            DUEL_OBS_BEARING_COS        = 2,
+            DUEL_OBS_BEHIND_TARGET      = 3,    // the bot is in the opponent's back arc
+            DUEL_OBS_TARGET_FACING_BOT  = 4,
+            DUEL_OBS_TARGET_IN_COMBAT   = 5,
+            DUEL_OBS_TARGET_ATTACKS_BOT = 6,
+            DUEL_OBS_TARGET_CASTING     = 7,
+            DUEL_OBS_BOT_MOVING         = 8,
+            DUEL_OBS_BOT_IN_COMBAT      = 9,
+            DUEL_OBS_BOT_STEALTHED      = 10,
+            DUEL_OBS_BOT_AUTO_ATTACKING = 11,
+            DUEL_OBS_DAMAGE_TAKEN       = 12,   // since the last decision / bot max health
+            DUEL_OBS_PET_OUT            = 13,
+            DUEL_OBS_PET_HEALTH         = 14,
+            DUEL_OBS_PET_ATTACKING      = 15,   // the pet's victim is the opponent
+            DUEL_OBS_EPISODE_TIME       = 16,   // elapsed / episode length
+            DUEL_OBS_STABLE_FIRST       = 17,   // hunters' stable: per slot STABLE_FEATURES
+            DUEL_OBS_COUNT_WITHOUT_STABLE = 17
+        };
+
+        /// Hunters' stable: beasts per episode, and features per beast (offered, family / 50,
+        /// ferocity, tenacity, cunning).
+        static constexpr uint32 STABLE_SLOTS = 4;
+        static constexpr uint32 STABLE_FEATURES = 5;
+
+        /// Duel actions, after all of stage 1's.
+        enum DuelAction : uint32
+        {
+            DUEL_ACTION_MOVE_TO_TARGET  = 0,    // run to melee reach, on the side the bot is on
+            DUEL_ACTION_MOVE_BEHIND     = 1,    // run to melee reach behind the opponent
+            DUEL_ACTION_MOVE_TO_RANGE   = 2,    // run to casting range (25 yd)
+            DUEL_ACTION_BACK_OFF        = 3,    // run 10 yd further away
+            DUEL_ACTION_STOP            = 4,
+            DUEL_ACTION_START_ATTACK    = 5,    // start auto-attack on the opponent
+            DUEL_ACTION_PET_ATTACK      = 6,    // send pets and guardians at the opponent
+            DUEL_ACTION_CALL_BEAST_FIRST = 7,   // hunters: call stable slot 0..STABLE_SLOTS-1
+            DUEL_ACTION_COUNT_WITHOUT_STABLE = 7
+        };
+
+        enum DuelInfoColumn : uint32
+        {
+            DUEL_INFO_KILLED            = 0,
+            DUEL_INFO_DIED              = 1,
+            DUEL_INFO_TIME_TO_KILL      = 2,    // seconds; the episode length when not killed
+            DUEL_INFO_DAMAGE_TAKEN      = 3,
+            DUEL_INFO_HEALTH_LEFT       = 4,    // fraction at the end
+            DUEL_INFO_STEALTH_OPENERS   = 5,
+            DUEL_INFO_PET_SUMMONED      = 6,
+            DUEL_INFO_OPPONENT          = 7,    // creature entry
+            DUEL_INFO_COUNT
+        };
+
         enum EpisodeInfoColumn : uint32
         {
             INFO_DAMAGE                 = 0,
@@ -113,10 +180,14 @@ namespace AnimusForge
             INFO_COUNT
         };
 
-        ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config);
+        ClassRoleScenario(ClassRoleProfile const& profile, ForgeConfig const& config, ArenaMode mode);
         ~ClassRoleScenario() override;
 
-        [[nodiscard]] char const* Name() const override { return _profile.ScenarioName.c_str(); }
+        /// `<class>_<role>` for the dummy, `<class>_<role>_duel` for the duel.
+        [[nodiscard]] static std::string ScenarioName(ClassRoleProfile const& profile, ArenaMode mode);
+
+        [[nodiscard]] char const* Name() const override { return _name.c_str(); }
+        [[nodiscard]] bool IsTerminal(Env const& env) const override;
         [[nodiscard]] ScenarioSpec Spec() const override { return _spec; }
 
         bool Setup(Env& env) override;
@@ -154,6 +225,19 @@ namespace AnimusForge
             float LastStepPowerDelta = 0.0f;
             uint32 SpellCasts = 0;
             uint32 TrinketUses = 0;
+
+            // Duel only.
+            uint32 OpponentEntry = 0;
+            std::vector<uint32> Stable;                 // hunters: beasts offered this episode
+            float LastDistance = -1.0f;                 // < 0 until the first reward
+            uint32 KillTimeMs = 0;
+            uint64 DamageTaken = 0;
+            float LastStepDamageTaken = 0.0f;
+            uint32 StealthOpeners = 0;
+            bool StepStealthOpener = false;
+            bool PetSummoned = false;
+            bool Killed = false;
+            bool Died = false;
         };
 
         /// Replace the env's bot and dummy with a newly rolled character.
@@ -166,6 +250,18 @@ namespace AnimusForge
         [[nodiscard]] bool IsActionAllowed(Player* bot, Creature* dummy, uint32 action) const;
         void UpdateDummyHealth(Env const& env, Creature* dummy) const;
 
+        // Duel stage (ClassRoleDuel.cpp).
+        void StartDuel(Player* bot, Creature* opponent, EnvData& data) const;
+        [[nodiscard]] bool IsDuelActionAllowed(Player* bot, Creature* opponent, uint32 duelAction,
+            EnvData const& data) const;
+        void ApplyDuelAction(Player* bot, Creature* opponent, uint32 duelAction, EnvData& data) const;
+        void ObserveDuel(Env const& env, Player* bot, Creature* opponent, float* obs) const;
+        [[nodiscard]] float DuelReward(Env const& env, Player* bot, Creature* opponent, EnvData& data) const;
+        void DuelEpisodeInfo(Env const& env, float* info) const;
+        [[nodiscard]] float DesiredRange(EnvData const& data) const;
+
+        ArenaMode _mode;
+        std::string _name;
         ClassRoleProfile const& _profile;
         uint32 _arenaMapId;
         Position _arenaPosition;
@@ -180,6 +276,10 @@ namespace AnimusForge
         uint32 _actionObsFirst = OBS_GLOBAL_COUNT;
         uint32 _talentObsFirst = 0;
         uint32 _treeObsFirst = 0;
+        uint32 _duelObsFirst = 0;           // duel: first duel observation (= stage 1's ObsDim)
+        uint32 _duelActionFirst = 0;        // duel: first duel action (= stage 1's NumActions)
+        uint32 _duelActionCount = 0;
+        uint32 _duelInfoFirst = INFO_COUNT;
         std::vector<EnvData> _data;
     };
 }

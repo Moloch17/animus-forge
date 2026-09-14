@@ -41,6 +41,7 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "WorldSession.h"
 
@@ -182,6 +183,10 @@ WorldSession* AnimusForge::BotFactory::Destroy(Player* bot, bool keepSession)
     // Totems, guardians and pets (trinket summons, warlock demons, ghouls, ...) find their owner through
     // ObjectAccessor when they unsummon, to leave its controlled list; do it while the bot is still
     // registered, or ~Unit finds them still listed.
+    // The pet goes first, unsaved: unsummoning it with the rest would write it to the character database.
+    if (Pet* pet = bot->GetPet())
+        bot->RemovePet(pet, PET_SAVE_AS_DELETED);
+
     bot->UnsummonAllTotems();
     bot->RemoveAllControlled();
 

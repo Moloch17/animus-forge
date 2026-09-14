@@ -9,6 +9,9 @@ import yaml
 
 from .mappo.trainer import MappoConfig
 
+# Curriculum stage suffixes of class/role scenario names, latest stage first.
+STAGE_SUFFIXES = ("_duel",)
+
 
 @dataclass
 class TrainConfig:
@@ -24,6 +27,19 @@ class TrainConfig:
 
     train_device: str = "cpu"
     rollout_device: str = "cpu"
+
+    # A fresh run (nothing to resume) seeds its networks from this earlier-stage checkpoint when it
+    # exists (see animus.bootstrap). "{base_run}" is the run name without a stage suffix such as
+    # "_duel": runs/{base_run}/latest.pt seeds warrior_dps_duel from warrior_dps.
+    init_from: str = ""
+
+    def resolved_init_from(self) -> str:
+        base = self.run_name
+        for suffix in STAGE_SUFFIXES:
+            if base.endswith(suffix):
+                base = base[: -len(suffix)]
+                break
+        return self.init_from.format(base_run=base, run_name=self.run_name) if self.init_from else ""
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
 

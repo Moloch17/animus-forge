@@ -21,6 +21,7 @@ import numpy as np
 import torch
 import yaml
 
+from .bootstrap import seed_trainer
 from .config import TrainConfig
 from .env import ForgeEnv
 from .export import model_dirs_from_env, publish_model
@@ -145,6 +146,12 @@ def main() -> None:
         update = checkpoint["update"]
         env_steps = checkpoint["env_steps"]
         print(f"Resumed from {resume} at update {update}, {env_steps} env steps", flush=True)
+    elif init_from := config.resolved_init_from():
+        if Path(init_from).exists():
+            seed_trainer(trainer, torch.load(init_from, map_location="cpu", weights_only=False), spec)
+            print(f"Seeded the networks from {init_from}", flush=True)
+        else:
+            print(f"No {init_from} to seed from; starting from scratch", flush=True)
 
     envs, agents = spec.num_envs, spec.agents_per_env
     buffer = RolloutBuffer(config.rollout_length, envs, agents, spec.obs_dim, spec.state_dim, spec.num_actions)

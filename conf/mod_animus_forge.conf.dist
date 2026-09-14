@@ -42,6 +42,14 @@ AnimusForge.Enable = 0
 #                       "shaman_heal"      (Restoration)         "mage_dps"         (all three)
 #                       "warlock_dps"      (all three)           "druid_dps"        (Balance, Feral)
 #                       "druid_tank"       (Feral bear)          "druid_heal"       (Restoration)
+#                     Class/role duel stage, "<class>_<role>_duel" for each of the above (e.g.
+#                     "warrior_dps_duel"): the same random characters against a same-level hostile
+#                     creature spawned out of aggro range, facing a random way. The bot moves to it
+#                     and kills it; pets are summoned by the policy (hunters pick from 4 beasts).
+#                     Rewarded for damage, a fast kill, little damage taken and stealth openers.
+#                     Episodes end on the kill or death. Its observations and actions extend the
+#                     dummy stage's, and configs/class_role_duel.yaml seeds a new run from the
+#                     class/role's dummy model.
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
