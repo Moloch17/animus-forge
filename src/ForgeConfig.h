@@ -38,6 +38,10 @@ namespace AnimusForge
         /// Empty = run Scenario only.
         std::vector<std::string> Queue;
 
+        /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per queued scenario (0 = run the
+        /// first one forever).
+        uint32 QueueLocalEpisodes = 0;
+
         uint32 Envs = 64;
         uint32 DecisionTicks = 1;
         uint32 EpisodeSeconds = 60;

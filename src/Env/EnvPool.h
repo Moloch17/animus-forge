@@ -65,6 +65,9 @@ namespace AnimusForge
         [[nodiscard]] ScenarioSpec const& Spec() const { return _spec; }
         [[nodiscard]] uint32 NumEnvs() const { return static_cast<uint32>(_envs.size()); }
 
+        /// Episodes finished by every env since Setup.
+        [[nodiscard]] uint64 CompletedEpisodes() const;
+
         std::vector<float> Obs;
         std::vector<float> State;
         std::vector<uint8> Mask;

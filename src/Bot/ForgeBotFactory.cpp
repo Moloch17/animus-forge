@@ -27,9 +27,8 @@
  * What LoadFromDB sets up that Create does not, and how it is handled here:
  *   - bound-instance storage: PlayerCreateBoundInstancesMaps, else PlayerBindToInstance crashes
  *   - stat modification:      SetCanModifyStats(true) + UpdateAllStats, else gear adds nothing
- *   - social list:            left null; only packet handlers (invites, channels) read it, and
- *                             SendInitialPacketsBeforeAddToMap -- the one login step that does --
- *                             is skipped because it only builds packets
+ *   - social list:            an empty one from SocialMgr, as LoadFromDB would attach with no friends:
+ *                             logout announces itself to friends and a far teleport resends the list
  */
 
 #include "ForgeBotFactory.h"
@@ -43,6 +42,7 @@
 #include "ObjectMgr.h"
 #include "Pet.h"
 #include "Player.h"
+#include "SocialMgr.h"
 #include "WorldSession.h"
 
 namespace
@@ -74,6 +74,9 @@ Player* AnimusForge::BotFactory::Create(BotSpec const& spec, WorldSession* sessi
         // Default permissions for the security level, in memory. Must precede new Player, whose
         // constructor checks a permission and would otherwise run a sync login DB query.
         session->InitRBACDataForTest();
+
+        // No account or character rows exist: logout, play time and instance binds write nothing.
+        session->SetSimSession(true);
     }
 
     Player* bot = new Player(session);
@@ -93,6 +96,7 @@ Player* AnimusForge::BotFactory::Create(BotSpec const& spec, WorldSession* sessi
     }
 
     sInstanceSaveMgr->PlayerCreateBoundInstancesMaps(bot->GetGUID());
+    bot->SetSocial(sSocialMgr->LoadFromDB(nullptr, bot->GetGUID()));
     session->SetPlayer(bot);
 
     // Never save: 0 disables the autosave countdown in Player::Update.
@@ -164,6 +168,9 @@ void AnimusForge::BotFactory::DestroyUnplaced(Player* bot)
     if (bot->FindMap())
         bot->ResetMap();
 
+    // LogoutPlayer would have dropped these.
+    sSocialMgr->RemovePlayerSocial(bot->GetGUID());
+
     session->SetPlayer(nullptr);
     delete bot;
     delete session;
@@ -174,32 +181,36 @@ WorldSession* AnimusForge::BotFactory::Destroy(Player* bot, bool keepSession)
     WorldSession* session = bot->GetSession();
     ObjectGuid const guid = bot->GetGUID();
     uint32 const mapId = bot->GetMapId();
-    Difficulty const difficulty = bot->GetMap()->GetDifficulty();
+
+    // A bot in the middle of a far teleport is on no map.
+    Map* map = bot->FindMap();
+    Difficulty const difficulty = map ? map->GetDifficulty() : REGULAR_DIFFICULTY;
 
     // A dead bot would be repopped at a graveyard (a far teleport) by LogoutPlayer.
     if (!bot->IsAlive())
         bot->ResurrectPlayer(1.0f);
 
-    // Totems, guardians and pets (trinket summons, warlock demons, ghouls, ...) find their owner through
-    // ObjectAccessor when they unsummon, to leave its controlled list; do it while the bot is still
-    // registered, or ~Unit finds them still listed.
-    // The pet goes first, unsaved: unsummoning it with the rest would write it to the character database.
-    if (Pet* pet = bot->GetPet())
-        bot->RemovePet(pet, PET_SAVE_AS_DELETED);
+    // The pet goes first, unsaved: LogoutPlayer would save it to the character database. Totems and
+    // guardians (trinket summons, ghouls, water elementals) go with it, while the bot is still in its map.
+    if (map)
+    {
+        if (Pet* pet = bot->GetPet())
+            bot->RemovePet(pet, PET_SAVE_AS_DELETED);
 
-    bot->UnsummonAllTotems();
-    bot->RemoveAllControlled();
+        bot->UnsummonAllTotems();
+        bot->RemoveAllControlled();
+    }
 
-    // LogoutPlayer announces the logout to the player's friends, which looks the player up as a
-    // connected player and reads its social list -- null for a bot (see the top of this file).
-    // Unregistered first, the lookup finds nobody. Map::DeleteFromWorld unregisters it again, which
-    // is a no-op.
-    ObjectAccessor::RemoveObject(bot);
+    if (bot->IsBeingTeleportedFar())
+        LOG_WARN("module.animus", "Bot {} is being teleported to map {} ({}, {}, {}); logout completes the teleport "
+            "first", bot->GetName(), bot->GetTeleportDest().GetMapId(), bot->GetTeleportDest().GetPositionX(),
+            bot->GetTeleportDest().GetPositionY(), bot->GetTeleportDest().GetPositionZ());
 
     // Removes the player from its map and deletes it; false = no SaveToDB.
     session->LogoutPlayer(false);
 
-    sInstanceSaveMgr->PlayerUnbindInstance(guid, mapId, difficulty, true);
+    // In memory only: the bind was never written (WorldSession::IsSimSession).
+    sInstanceSaveMgr->PlayerUnbindInstance(guid, mapId, difficulty, false);
 
     if (keepSession)
         return session;

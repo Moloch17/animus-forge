@@ -84,6 +84,15 @@ void AnimusForge::EnvPool::Teardown()
         _scenario.Teardown(env);
 }
 
+uint64 AnimusForge::EnvPool::CompletedEpisodes() const
+{
+    uint64 episodes = 0;
+    for (Env const& env : _envs)
+        episodes += env.EpisodesCompleted;
+
+    return episodes;
+}
+
 void AnimusForge::EnvPool::AdvanceClock(uint32 diff)
 {
     for (Env& env : _envs)

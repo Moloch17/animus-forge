@@ -246,7 +246,11 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
 bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
 {
     EnvData& data = _data[env.Index];
-    Player* oldBot = env.FindBot(0);
+
+    // Through the session rather than ObjectAccessor::FindPlayer: a bot that is out of the world (a far
+    // teleport in progress) is still the env's bot and still has to be destroyed.
+    WorldSession* activeSession = data.Sessions[data.ActiveSession];
+    Player* oldBot = activeSession ? activeSession->GetPlayer() : nullptr;
     Creature* oldDummy = env.FindTarget(0);
 
     data.Race = _races[urand(0, uint32(_races.size()) - 1)];
@@ -276,7 +280,7 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
     data.Sessions[session] = bot->GetSession();
     data.Guids[session] = bot->GetGUID().GetCounter();
 
-    Map* map = oldBot ? oldBot->GetMap() : nullptr;
+    Map* map = oldBot ? env.FindMap() : nullptr;
     if (map ? !BotFactory::PlaceInMap(bot, map, _arenaPosition)
         : !(map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, _arenaPosition)))
     {
@@ -725,7 +729,8 @@ void AnimusForge::ClassRoleScenario::Teardown(Env& env)
     if (Creature* dummy = env.FindTarget(0))
         dummy->DespawnOrUnsummon();
 
-    if (Player* bot = env.FindBot(0))
+    WorldSession* activeSession = data.Sessions[data.ActiveSession];
+    if (Player* bot = activeSession ? activeSession->GetPlayer() : nullptr)
     {
         BotFactory::Destroy(bot);
         data.Sessions[data.ActiveSession] = nullptr;

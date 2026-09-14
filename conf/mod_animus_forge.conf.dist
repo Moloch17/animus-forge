@@ -73,6 +73,15 @@ AnimusForge.Scenario = "warrior_dummy"
 AnimusForge.Queue = ""
 
 #
+#    AnimusForge.Queue.LocalEpisodes
+#        Description: With a local AnimusForge.Policy ("random", a scripted baseline), run this many
+#                     episodes (over all envs) per queued scenario, then move to the next. Use it to
+#                     smoke-test or baseline every scenario in one server run.
+#        Default:     0 - (a local policy runs the first queued scenario forever)
+
+AnimusForge.Queue.LocalEpisodes = 0
+
+#
 #    AnimusForge.Envs
 #        Description: Number of parallel environments. Each env gets its own instance map, so envs
 #                     are spread across MapUpdate.Threads.

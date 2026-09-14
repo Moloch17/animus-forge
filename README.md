@@ -349,6 +349,21 @@ little-endian: `HELLO` → `SPEC` → (`STEP` → `ACT`)* → `CLOSE`. A `STEP` 
 The protocol and learner are shape-generic. A multi-agent scenario sets `AgentsPerEnv > 1` and
 provides a real global `State`, and MAPPO's shared actor and centralized critic handle it.
 
+## Core requirements
+
+The class/role scenarios rebuild every bot each episode, hundreds of times a second in a fast sim.
+That relies on two small Forge core APIs:
+
+- `WorldSession::SetSimSession(true)` (set by `BotFactory::Create`): the session's account and
+  characters exist only in memory, so logout, play time and instance binds write nothing to the
+  database. Without it every rebuild queued character-database writes faster than MySQL applied
+  them, and the async queue grew without bound.
+- `Player::SetSocial` (set by `BotFactory::Create` to an empty `SocialMgr` list): logout and far
+  teleports read the social list, which `LoadFromDB` normally attaches.
+
+Bots also reuse a fixed pair of player GUIDs per env, because the core keeps some per-GUID state
+(instance bind storage) for the life of the server.
+
 ## Known limits
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick

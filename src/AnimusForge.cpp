@@ -174,6 +174,15 @@ void AnimusForge::Forge::OnShutdown()
 void AnimusForge::Forge::LocalDecision()
 {
     _pool->Collect();
+
+    // A queue under a local policy (smoke tests, baselines) moves on after a fixed number of episodes.
+    if (!_config.Queue.empty() && _config.QueueLocalEpisodes
+        && _pool->CompletedEpisodes() >= _config.QueueLocalEpisodes)
+    {
+        AdvanceQueue();
+        return;
+    }
+
     _pool->ChooseLocalActions(_config.Policy);
     _pool->ApplyActions();
 }

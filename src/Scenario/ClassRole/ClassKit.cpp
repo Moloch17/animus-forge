@@ -156,8 +156,19 @@ void AnimusForge::ClassKit::Learn(Player* bot) const
 void AnimusForge::ClassKit::StoreReagents(Player* bot) const
 {
     for (Reagent const& reagent : _reagents)
-        if (reagent.ReqLevel <= bot->GetLevel() && !bot->StoreNewItemInBestSlots(reagent.ItemId, reagent.Count))
-            LOG_WARN("module.animus", "Could not give {} x{} to {}", reagent.ItemId, reagent.Count, bot->GetName());
+    {
+        if (reagent.ReqLevel > bot->GetLevel())
+            continue;
+
+        // Some reagents do not stack (Soul Shard), and a store is all-or-nothing: add one at a time
+        // until the bags are full.
+        uint32 stored = 0;
+        while (stored < reagent.Count && bot->StoreNewItemInBestSlots(reagent.ItemId, 1))
+            ++stored;
+
+        if (!stored)
+            LOG_WARN("module.animus", "Could not give reagent {} to {}", reagent.ItemId, bot->GetName());
+    }
 }
 
 uint32 AnimusForge::ClassKit::ArmorSubclass(uint8 level) const
