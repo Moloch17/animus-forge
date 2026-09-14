@@ -25,11 +25,6 @@ class TrainConfig:
     train_device: str = "cpu"
     rollout_device: str = "cpu"
 
-    # Directories the trained actor is exported to (as <scenario>.amdl) whenever latest.pt is written,
-    # relative to the learner's working directory. The default is mod-animus beside this module;
-    # $ANIMUS_MODEL_DIRS adds more. An empty list (and no env var) turns publishing off.
-    model_dirs: list[str] = field(default_factory=lambda: ["../../mod-animus/models"])
-
     mappo: MappoConfig = field(default_factory=MappoConfig)
 
     @classmethod

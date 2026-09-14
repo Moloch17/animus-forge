@@ -23,7 +23,8 @@ Every layer but the last is followed by tanh (mappo.networks._mlp). The policy i
 final logits over allowed actions.
 
 Training also publishes the model on its own: every time it writes latest.pt it exports the actor to
-<dir>/<scenario>.amdl in each of TrainConfig.model_dirs and $ANIMUS_MODEL_DIRS (see publish_model).
+<dir>/<scenario>.amdl in each dir of $ANIMUS_MODEL_DIRS -- the Animus.ModelDir of the worldserver that
+runs mod-animus, mounted where the learner runs (see publish_model). Unset, nothing is published.
 """
 
 from __future__ import annotations

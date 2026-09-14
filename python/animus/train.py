@@ -79,10 +79,9 @@ def save_checkpoint(path: Path, trainer: MappoTrainer, config: TrainConfig, spec
     )
 
 
-def publish(trainer: MappoTrainer, config: TrainConfig, spec, update: int) -> None:
-    """Export the current actor to every model dir, so mod-animus picks it up on its next config reload."""
-    model_dirs = [*config.model_dirs, *model_dirs_from_env()]
-    for path in publish_model(trainer.actor.state_dict(),asdict(spec), model_dirs):
+def publish(trainer: MappoTrainer, spec, update: int) -> None:
+    """Export the current actor to every $ANIMUS_MODEL_DIRS dir; mod-animus loads it on its next config reload."""
+    for path in publish_model(trainer.actor.state_dict(), asdict(spec), model_dirs_from_env()):
         print(f"Published update {update} model to {path}", flush=True)
 
 
@@ -208,10 +207,10 @@ def main() -> None:
             if update % config.checkpoint_every == 0:
                 save_checkpoint(run_dir / f"checkpoint_{update:06d}.pt", trainer, config, spec, update, env_steps)
                 save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps)
-                publish(trainer, config, spec, update)
+                publish(trainer, spec, update)
     finally:
         save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps)
-        publish(trainer, config, spec, update)
+        publish(trainer, spec, update)
         logger.close()
         env.close()
 
