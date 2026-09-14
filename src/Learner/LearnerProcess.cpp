@@ -77,6 +77,13 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
         "--resume-latest",
     };
 
+    // A clean run: the learner archives runs/<scenario>/ the first time it starts under this id.
+    if (!config.LearnerCleanRun.empty())
+    {
+        args.push_back("--clean-run");
+        args.push_back(config.LearnerCleanRun);
+    }
+
     std::vector<char*> argv;
     for (std::string& arg : args)
         argv.push_back(arg.data());

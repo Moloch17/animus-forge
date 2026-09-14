@@ -385,6 +385,10 @@ worldserver starts the learner itself once the envs are built, for the scenario 
 - **An exit** is logged in the worldserver log, with the exit code.
 - **Restarts:** `--resume-latest` continues from `runs/<run_name>/latest.pt`, so a server restart
   resumes training and appends to `metrics.csv` instead of starting over.
+- **Clean runs:** set `AnimusForge.Learner.CleanRun` to an id (e.g. a date) to train from scratch. The
+  first time each scenario starts under a new id, its `runs/<scenario>/` is moved to
+  `runs/_archive/<scenario>-<time>/` (`--clean-run <id>`); the new directory records the id, so restarts
+  under the same id resume the clean run. A new id starts another one.
 - **Shutdown:** closing the socket makes the learner save a checkpoint and exit; it is interrupted
   after 10 s if it has not.
 

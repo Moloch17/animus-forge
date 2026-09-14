@@ -199,6 +199,20 @@ AnimusForge.Learner.Python = ""
 AnimusForge.Learner.Config = ""
 
 #
+#    AnimusForge.Learner.CleanRun
+#        Description: Train from scratch instead of resuming. Set an id (any name, e.g. a date); the first
+#                     time each scenario's learner starts under a new id, its runs/<scenario>/ directory
+#                     is moved to runs/_archive/<scenario>-<time>/ (nothing is deleted) and training
+#                     starts over; stages that seed from an earlier stage (init_from) then seed from this
+#                     run's models, since the queue trains them in order. The fresh directory remembers
+#                     the id, so a server restart under the same id resumes the clean run, and the queue
+#                     still skips scenarios it already finished. Set a new id for another clean run.
+#        Example:     "2026-09-14"
+#        Default:     "" - (resume every run from runs/<scenario>/latest.pt)
+
+AnimusForge.Learner.CleanRun = ""
+
+#
 #    AnimusForge.Learner.LogFile
 #        Description: File the learner's stdout and stderr are appended to.
 #        Default:     "" - animus-learner.log in LogsDir

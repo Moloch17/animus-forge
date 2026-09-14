@@ -82,6 +82,8 @@ void AnimusForge::ForgeConfig::Load()
 
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
 
+    LearnerCleanRun = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.CleanRun", "");
+
     LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
     if (LearnerLogFile.empty())
     {

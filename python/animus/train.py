@@ -27,6 +27,7 @@ from .env import ForgeEnv
 from .export import model_dirs_from_env, publish_model
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer
+from .runs import start_clean_run
 
 
 class RunLogger:
@@ -93,6 +94,10 @@ def main() -> None:
     parser.add_argument(
         "--resume-latest", action="store_true", help="continue from runs/<run_name>/latest.pt when it exists"
     )
+    parser.add_argument(
+        "--clean-run",
+        help="clean run id: the first start under a new id archives runs/<run_name>/ and trains from scratch",
+    )
     parser.add_argument("--socket", help="sim socket path, overriding the config")
     parser.add_argument(
         "--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario"
@@ -109,6 +114,9 @@ def main() -> None:
     torch.manual_seed(config.seed)
 
     run_dir = Path(config.runs_dir) / config.run_name
+    if args.clean_run:
+        if archived := start_clean_run(run_dir, args.clean_run):
+            print(f"Clean run {args.clean_run}: archived the earlier run to {archived}", flush=True)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     resume = args.resume
