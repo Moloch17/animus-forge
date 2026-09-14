@@ -195,7 +195,8 @@ void AnimusForge::ClassRoleScenario::Reset(Env& env)
     }
 
     if (!Rebuild(env))
-        LOG_ERROR("module.animus", "{}: env {} could not build a new character; it keeps the old one", Name(), env.Index);
+        LOG_ERROR("module.animus", "{}: env {} could not build a new character; it keeps the old one", Name(),
+            env.Index);
 }
 
 bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
@@ -465,7 +466,8 @@ void AnimusForge::ClassRoleScenario::Observe(Env& env, float* obs, float* state,
 
         if (bot->getClass() == CLASS_DEATH_KNIGHT)
             for (uint8 rune = 0; rune < MAX_RUNES; ++rune)
-                obs[OBS_RUNE_FIRST + rune] = 1.0f - std::min(1.0f, float(bot->GetRuneCooldown(rune)) / RUNE_COOLDOWN_MS);
+                obs[OBS_RUNE_FIRST + rune] = 1.0f
+                    - std::min(1.0f, float(bot->GetRuneCooldown(rune)) / RUNE_COOLDOWN_MS);
 
         obs[OBS_COMBO_POINTS] = float(bot->GetComboPoints(dummy)) / 5.0f;
 

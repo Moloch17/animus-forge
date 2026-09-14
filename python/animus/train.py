@@ -93,7 +93,9 @@ def main() -> None:
         "--resume-latest", action="store_true", help="continue from runs/<run_name>/latest.pt when it exists"
     )
     parser.add_argument("--socket", help="sim socket path, overriding the config")
-    parser.add_argument("--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario")
+    parser.add_argument(
+        "--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario"
+    )
     args = parser.parse_args()
 
     config = TrainConfig.load(args.config)

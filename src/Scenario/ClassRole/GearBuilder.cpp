@@ -113,7 +113,8 @@ namespace
         [[nodiscard]] bool Suits() const { return Wanted && !Forbidden; }
     };
 
-    StatVerdict EnchantmentVerdict(StatProfile profile, std::array<uint32, MAX_ITEM_ENCHANTMENT_EFFECTS> const& enchantments)
+    StatVerdict EnchantmentVerdict(StatProfile profile,
+        std::array<uint32, MAX_ITEM_ENCHANTMENT_EFFECTS> const& enchantments)
     {
         StatVerdict verdict;
         for (uint32 enchantmentId : enchantments)
@@ -149,11 +150,12 @@ namespace
                 "SELECT CAST(RewardItem1 AS SIGNED) FROM quest_template UNION SELECT CAST(RewardItem2 AS SIGNED) FROM "
                     "quest_template UNION SELECT CAST(RewardItem3 AS SIGNED) FROM quest_template UNION SELECT "
                     "CAST(RewardItem4 AS SIGNED) FROM quest_template",
-                "SELECT CAST(RewardChoiceItemID1 AS SIGNED) FROM quest_template UNION SELECT CAST(RewardChoiceItemID2 "
-                    "AS SIGNED) FROM quest_template UNION SELECT CAST(RewardChoiceItemID3 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID4 AS SIGNED) FROM quest_template UNION SELECT "
-                    "CAST(RewardChoiceItemID5 AS SIGNED) FROM quest_template UNION SELECT CAST(RewardChoiceItemID6 AS "
-                    "SIGNED) FROM quest_template",
+                "SELECT CAST(RewardChoiceItemID1 AS SIGNED) FROM quest_template "
+                    "UNION SELECT CAST(RewardChoiceItemID2 AS SIGNED) FROM quest_template "
+                    "UNION SELECT CAST(RewardChoiceItemID3 AS SIGNED) FROM quest_template "
+                    "UNION SELECT CAST(RewardChoiceItemID4 AS SIGNED) FROM quest_template "
+                    "UNION SELECT CAST(RewardChoiceItemID5 AS SIGNED) FROM quest_template "
+                    "UNION SELECT CAST(RewardChoiceItemID6 AS SIGNED) FROM quest_template",
             })
             {
                 if (QueryResult query = WorldDatabase.Query(sql))
@@ -245,7 +247,8 @@ AnimusForge::GearBuilder::GearBuilder(ClassRoleProfile const& profile, ClassKit 
         std::unordered_set<uint32> const& obtainable = ObtainableItems();
         for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
         {
-            if (proto.Class != ITEM_CLASS_PROJECTILE || !obtainable.contains(itemId) || proto.Quality > ITEM_QUALITY_EPIC)
+            if (proto.Class != ITEM_CLASS_PROJECTILE || !obtainable.contains(itemId)
+                || proto.Quality > ITEM_QUALITY_EPIC)
                 continue;
 
             if (proto.SubClass == ITEM_SUBCLASS_ARROW)
@@ -283,7 +286,8 @@ void AnimusForge::GearBuilder::BuildPools(StatProfile stats)
         std::vector<Pool> targets;
         bool const armor = proto.Class == ITEM_CLASS_ARMOR;
         bool const weapon = proto.Class == ITEM_CLASS_WEAPON;
-        bool const bodyArmor = armor && proto.SubClass >= ITEM_SUBCLASS_ARMOR_CLOTH && proto.SubClass <= ITEM_SUBCLASS_ARMOR_PLATE;
+        bool const bodyArmor = armor && proto.SubClass >= ITEM_SUBCLASS_ARMOR_CLOTH
+            && proto.SubClass <= ITEM_SUBCLASS_ARMOR_PLATE;
 
         switch (proto.InventoryType)
         {
@@ -300,7 +304,10 @@ void AnimusForge::GearBuilder::BuildPools(StatProfile stats)
             case INVTYPE_FINGER:    if (armor) targets = { POOL_FINGER }; break;
             case INVTYPE_TRINKET:   if (armor) targets = { POOL_TRINKET }; break;
             case INVTYPE_CLOAK:     if (armor) targets = { POOL_BACK }; break;
-            case INVTYPE_SHIELD:    if (armor && proto.SubClass == ITEM_SUBCLASS_ARMOR_SHIELD) targets = { POOL_SHIELD }; break;
+            case INVTYPE_SHIELD:
+                if (armor && proto.SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
+                    targets = { POOL_SHIELD };
+                break;
             case INVTYPE_HOLDABLE:  targets = { POOL_HELD }; break;
             case INVTYPE_2HWEAPON:
                 if (weapon && proto.SubClass != ITEM_SUBCLASS_WEAPON_FISHING_POLE)
@@ -376,9 +383,9 @@ void AnimusForge::GearBuilder::BuildPools(StatProfile stats)
             pools[pool].push_back(candidate);
     }
 
-    LOG_INFO("module.animus", "Gear pools for class {} profile {}: {} two-handers, {} one-handers, {} chests, {} trinkets",
-        _class, uint32(stats), pools[POOL_TWO_HAND].size(), pools[POOL_MAIN_HAND].size(), pools[POOL_CHEST].size(),
-        pools[POOL_TRINKET].size());
+    LOG_INFO("module.animus", "Gear pools for class {} profile {}: {} two-handers, {} one-handers, {} chests, "
+        "{} trinkets", _class, uint32(stats), pools[POOL_TWO_HAND].size(), pools[POOL_MAIN_HAND].size(),
+        pools[POOL_CHEST].size(), pools[POOL_TRINKET].size());
 }
 
 std::vector<AnimusForge::GearBuilder::Candidate const*> AnimusForge::GearBuilder::Window(Pool pool, uint8 level,
