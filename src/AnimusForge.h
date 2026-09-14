@@ -16,16 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_FORGE_H
-#define ANIMUS_FORGE_H
+#ifndef MOD_ANIMUS_FORGE_H
+#define MOD_ANIMUS_FORGE_H
 
-#include "AnimusConfig.h"
+#include "ForgeConfig.h"
 #include "EnvPool.h"
+#include "LearnerProcess.h"
 #include "LockstepServer.h"
 #include "Scenario.h"
 #include <memory>
 
-namespace Animus
+namespace AnimusForge
 {
     /// Module root: owns the scenario, the env pool and the learner connection, and runs one
     /// decision step every AnimusForge.DecisionTicks world ticks.
@@ -58,6 +59,7 @@ namespace Animus
         std::unique_ptr<Scenario> _scenario;
         std::unique_ptr<EnvPool> _pool;
         LockstepServer _server;
+        LearnerProcess _learner;
 
         bool _running = false;
         uint64 _ticks = 0;
@@ -66,6 +68,6 @@ namespace Animus
     };
 }
 
-#define sAnimusForge Animus::Forge::Instance()
+#define sAnimusForge AnimusForge::Forge::Instance()
 
 #endif

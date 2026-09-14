@@ -16,14 +16,14 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_CONFIG_H
-#define ANIMUS_CONFIG_H
+#ifndef MOD_ANIMUS_FORGE_CONFIG_H
+#define MOD_ANIMUS_FORGE_CONFIG_H
 
 #include "Define.h"
 #include "Position.h"
 #include <string>
 
-namespace Animus
+namespace AnimusForge
 {
     /// Module settings, read once at startup (mod_animus_forge.conf.dist documents every key).
     struct ForgeConfig
@@ -41,6 +41,13 @@ namespace Animus
         uint32 HsRageThreshold = 15;
         uint32 ReportEpisodes = 256;
         std::string SocketPath;
+
+        /// Remote policy only: start the Python learner as a child process once the socket is up.
+        bool LearnerAutoStart = true;
+        std::string LearnerPython;      // resolved: never empty after Load
+        std::string LearnerWorkDir;     // resolved: never empty after Load
+        std::string LearnerConfig;      // resolved: never empty after Load
+        std::string LearnerLogFile;     // resolved: never empty after Load
 
         uint32 ArenaMapId = 560;
         Position ArenaPosition;

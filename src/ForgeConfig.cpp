@@ -16,11 +16,23 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AnimusConfig.h"
+#include "ForgeConfig.h"
 #include "Config.h"
 #include <algorithm>
+#include <filesystem>
 
-void Animus::ForgeConfig::Load()
+namespace
+{
+    /// This module's python/ directory, from the path the compiler saw for this source file
+    /// (<module>/src/ForgeConfig.cpp). Valid wherever the module source tree still exists at the
+    /// path it was built from: native builds and the dev-server container, not the runtime images.
+    std::filesystem::path DefaultLearnerWorkDir()
+    {
+        return std::filesystem::path(__FILE__).parent_path().parent_path() / "python";
+    }
+}
+
+void AnimusForge::ForgeConfig::Load()
 {
     Enable = sConfigMgr->GetOption<bool>("AnimusForge.Enable", true);
 
@@ -34,6 +46,31 @@ void Animus::ForgeConfig::Load()
     HsRageThreshold = sConfigMgr->GetOption<uint32>("AnimusForge.HsRageThreshold", 15);
     ReportEpisodes = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.ReportEpisodes", 256));
     SocketPath = sConfigMgr->GetOption<std::string>("AnimusForge.Socket", "/tmp/animus-forge.sock");
+
+    LearnerAutoStart = sConfigMgr->GetOption<bool>("AnimusForge.Learner.AutoStart", true);
+
+    std::filesystem::path workDir = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.WorkDir", "");
+    if (workDir.empty())
+        workDir = DefaultLearnerWorkDir();
+    LearnerWorkDir = workDir.string();
+
+    LearnerPython = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Python", "");
+    if (LearnerPython.empty())
+    {
+        std::filesystem::path const venvPython = workDir / ".venv" / "bin" / "python";
+        LearnerPython = std::filesystem::exists(venvPython) ? venvPython.string() : "python3";
+    }
+
+    LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
+    if (LearnerConfig.empty())
+        LearnerConfig = "configs/" + Scenario + ".yaml";
+
+    LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
+    if (LearnerLogFile.empty())
+    {
+        std::filesystem::path logsDir = sConfigMgr->GetOption<std::string>("LogsDir", "");
+        LearnerLogFile = (logsDir / "animus-learner.log").string();
+    }
 
     ArenaMapId = sConfigMgr->GetOption<uint32>("AnimusForge.Arena.MapId", 560);
     ArenaPosition.Relocate(

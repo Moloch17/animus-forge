@@ -23,12 +23,12 @@
 #include "ObjectAccessor.h"
 #include "Player.h"
 
-Map* Animus::Env::FindMap() const
+Map* AnimusForge::Env::FindMap() const
 {
     return sMapMgr->FindMap(MapId, InstanceId);
 }
 
-Player* Animus::Env::FindBot(uint32 agent) const
+Player* AnimusForge::Env::FindBot(uint32 agent) const
 {
     if (agent >= Bots.size())
         return nullptr;
@@ -36,7 +36,7 @@ Player* Animus::Env::FindBot(uint32 agent) const
     return ObjectAccessor::FindPlayer(Bots[agent]);
 }
 
-Creature* Animus::Env::FindTarget(uint32 target) const
+Creature* AnimusForge::Env::FindTarget(uint32 target) const
 {
     if (target >= Targets.size())
         return nullptr;

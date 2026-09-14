@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_ENV_POOL_H
-#define ANIMUS_ENV_POOL_H
+#ifndef MOD_ANIMUS_FORGE_ENV_POOL_H
+#define MOD_ANIMUS_FORGE_ENV_POOL_H
 
 #include "Env.h"
 #include "Scenario.h"
@@ -28,7 +28,7 @@
 class Unit;
 enum DamageEffectType : uint8;
 
-namespace Animus
+namespace AnimusForge
 {
     struct ForgeConfig;
 

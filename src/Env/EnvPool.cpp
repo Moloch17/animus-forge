@@ -17,7 +17,7 @@
  */
 
 #include "EnvPool.h"
-#include "AnimusConfig.h"
+#include "ForgeConfig.h"
 #include "Common.h"
 #include "Log.h"
 #include "Random.h"
@@ -25,7 +25,7 @@
 #include "Unit.h"
 #include <algorithm>
 
-Animus::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
+AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     : _scenario(scenario), _spec(scenario.Spec()), _episodeLengthMs(config.EpisodeSeconds * IN_MILLISECONDS),
     _reportEpisodes(config.ReportEpisodes)
 {
@@ -56,7 +56,7 @@ Animus::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     _reportInfoSum.assign(_spec.EpisodeInfoDim, 0.0);
 }
 
-bool Animus::EnvPool::Setup()
+bool AnimusForge::EnvPool::Setup()
 {
     for (Env& env : _envs)
     {
@@ -76,7 +76,7 @@ bool Animus::EnvPool::Setup()
     return true;
 }
 
-void Animus::EnvPool::Teardown()
+void AnimusForge::EnvPool::Teardown()
 {
     _agents.clear();
 
@@ -84,13 +84,13 @@ void Animus::EnvPool::Teardown()
         _scenario.Teardown(env);
 }
 
-void Animus::EnvPool::AdvanceClock(uint32 diff)
+void AnimusForge::EnvPool::AdvanceClock(uint32 diff)
 {
     for (Env& env : _envs)
         env.EpisodeElapsedMs += diff;
 }
 
-void Animus::EnvPool::ResetAll()
+void AnimusForge::EnvPool::ResetAll()
 {
     for (Env& env : _envs)
     {
@@ -106,7 +106,7 @@ void Animus::EnvPool::ResetAll()
     std::fill(Terminated.begin(), Terminated.end(), 0);
 }
 
-void Animus::EnvPool::Collect()
+void AnimusForge::EnvPool::Collect()
 {
     uint32 const agentsPerEnv = _spec.AgentsPerEnv;
 
@@ -143,7 +143,7 @@ void Animus::EnvPool::Collect()
     }
 }
 
-bool Animus::EnvPool::ChooseLocalActions(std::string const& policy)
+bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
 {
     uint32 const agents = NumEnvs() * _spec.AgentsPerEnv;
     uint32 const numActions = _spec.NumActions;
@@ -186,13 +186,13 @@ bool Animus::EnvPool::ChooseLocalActions(std::string const& policy)
     return true;
 }
 
-void Animus::EnvPool::ApplyActions()
+void AnimusForge::EnvPool::ApplyActions()
 {
     for (Env& env : _envs)
         _scenario.ApplyActions(env, &Actions[env.Index * _spec.AgentsPerEnv]);
 }
 
-void Animus::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim, uint32 damage, DamageEffectType type)
+void AnimusForge::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim, uint32 damage, DamageEffectType type)
 {
     if (!attacker || !victim || !damage || (type != DIRECT_DAMAGE && type != SPELL_DIRECT_DAMAGE && type != DOT))
         return;
@@ -220,7 +220,7 @@ void Animus::EnvPool::RecordDamage(Unit const* attacker, Unit const* victim, uin
     }
 }
 
-void Animus::EnvPool::ResetEnv(Env& env)
+void AnimusForge::EnvPool::ResetEnv(Env& env)
 {
     env.EpisodeElapsedMs = 0;
 
@@ -233,7 +233,7 @@ void Animus::EnvPool::ResetEnv(Env& env)
     _scenario.Reset(env);
 }
 
-void Animus::EnvPool::ReportEpisode(uint32 envIndex)
+void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)
 {
     float const* info = &EpisodeInfo[envIndex * _spec.EpisodeInfoDim];
     for (uint32 i = 0; i < _spec.EpisodeInfoDim; ++i)

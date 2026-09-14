@@ -16,18 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_WARRIOR_DUMMY_SCENARIO_H
-#define ANIMUS_WARRIOR_DUMMY_SCENARIO_H
+#ifndef MOD_ANIMUS_FORGE_WARRIOR_DUMMY_SCENARIO_H
+#define MOD_ANIMUS_FORGE_WARRIOR_DUMMY_SCENARIO_H
 
 #include "Position.h"
 #include "Scenario.h"
 #include <vector>
 
-class Creature;
-class Map;
 class Player;
 
-namespace Animus
+namespace AnimusForge
 {
     /// One level 1 human warrior auto-attacking a training dummy. The only decision is when to
     /// spend rage on Heroic Strike (on next swing, no cooldown, no GCD) versus letting white swings
@@ -93,9 +91,6 @@ namespace Animus
             float LastStepDamage = 0.0f;
             float LastStepRageDelta = 0.0f;
         };
-
-        void ClearArena(Player* bot) const;
-        bool SpawnDummy(Env& env, Player* bot, Map* map);
 
         [[nodiscard]] static bool IsHeroicStrikeQueued(Player const* bot);
         [[nodiscard]] static uint32 HeroicStrikeCost(Player* bot);

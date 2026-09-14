@@ -16,20 +16,27 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef MOD_ANIMUS_FORGE_SUMMON_LEVEL_H
-#define MOD_ANIMUS_FORGE_SUMMON_LEVEL_H
+#ifndef MOD_ANIMUS_FORGE_TRAINING_DUMMY_ARENA_H
+#define MOD_ANIMUS_FORGE_TRAINING_DUMMY_ARENA_H
 
 #include "Define.h"
 
-namespace AnimusForge
+class Creature;
+class Map;
+class Player;
+
+namespace AnimusForge::TrainingDummyArena
 {
-    /// Level forced onto the next creature whose level is selected on this thread; 0 = no override.
-    ///
-    /// Set it immediately around a Map::SummonCreature call: summoning runs Creature::SelectLevel
-    /// synchronously, where the OnBeforeCreatureSelectLevel hook applies it. Level drives the
-    /// creature's base stats (health, armor) as well as the attack tables, which is why this is
-    /// done at selection time rather than with SetLevel afterwards.
-    inline thread_local uint8 PendingSummonLevel = 0;
+    /// Bot accounts live far above anything a real realm allocates.
+    constexpr uint32 BOT_ACCOUNT_BASE = 0x7F000000;
+
+    /// Remove every creature near the bot that a scenario did not spawn.
+    void ClearArena(Player* bot);
+
+    /// Summon a Grandmaster's Training Dummy in front of the bot at the bot's level and turn the
+    /// bot to face it. The dummy is rooted, never attacks, and its script zeroes all damage, so
+    /// damage has to be measured before that (UnitScript::DealDamage). Returns nullptr on failure.
+    Creature* SpawnDummy(Player* bot, Map* map);
 }
 
 #endif

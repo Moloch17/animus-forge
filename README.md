@@ -28,13 +28,57 @@ worldserver (forge)                                   python -m animus.train
 - **Envs are instance maps.** Each env's bots get their own `InstanceMap`, so envs update in
   parallel on `MapUpdate.Threads`. Envs are created once at startup and reset in place; maps and
   players are never recreated, so nothing touches the database while the run is going.
-- **Bots are sessionless players.** See `src/Bot/BotFactory.cpp`. They are deliberately kept out
+- **Bots are sessionless players.** See `src/Bot/ForgeBotFactory.cpp`. They are deliberately kept out
   of `WorldSessionMgr`: a socketless session registered there is deleted, and its player saved,
   on the next update.
 - **Damage is measured in `UnitScript::DealDamage`**, before the victim's AI runs.
   `npc_training_dummy` zeroes damage in `DamageTaken`, so `OnDamage` would only ever see 0.
 - **The learner drives time.** In `remote` mode the world thread blocks on the learner each
   decision, and while no learner is connected. Scripted policies run without Python.
+
+## Scenarios
+
+Select one with `AnimusForge.Scenario`. The learner auto-starts with `configs/<scenario>.yaml`.
+
+### `warrior_dummy`
+
+A level 1 human warrior on a training dummy. The only decision is when to spend rage on Heroic
+Strike.
+- **Actions (3):** no-op, queue Heroic Strike, cancel it.
+- **Observation:** 9 features.
+
+### `warrior_dummy_20`
+
+A level 20 human Arms warrior on a level 20 training dummy.
+
+- **Kit:** every spell the warrior trainers teach by level 20 (from `trainer_spell`, ranks resolved
+  from `Spell.dbc`). Weapon and defense skills are maxed for the level.
+- **Gear:** a strength/stamina mail kit of level 16-20 greens and dungeon blues, with Haunting Blade
+  (two-handed sword). No helm or trinkets. Listed in `GEAR` in `WarriorDummy20Scenario.cpp`.
+- **Talents:** reset every episode, then one build is drawn uniformly from all **1371** valid ways
+  to spend the 11 points in the Arms tree. Validity follows `Player::LearnTalent`: a point in row r
+  needs 5r points spent, and Deep Wounds needs 2/2 Impale. The build's ranks (10 talents) are part
+  of the observation, so one policy learns to play every build.
+- **Talent abilities:** active talent spells in reachable rows are appended to the action space
+  automatically and masked when the build lacks them. At level 20 every reachable Arms talent is
+  passive; the first active one, Sweeping Strikes, needs 20 points (level 29).
+- **Actions (11):** no-op, Heroic Strike, Cleave, cancel queued, Rend, Thunder Clap, Battle Shout,
+  Bloodrage, Overpower, Hamstring, Mocking Blow. Charge, Victory Rush, Revenge and the shield or
+  defensive abilities are learned but left out, because they can't be used or deal no damage
+  against a dummy.
+- **Masks:** each action is checked with the core's own `Spell::CheckCast`, run without casting.
+  That covers cooldowns, the GCD, rage, stance, range and facing, and Overpower's dodge window.
+- **Observation (29):**
+  - rage, swing timer and weapon speed
+  - which on-next-swing ability is queued
+  - GCD and each cooldown
+  - the Overpower window
+  - Rend, Thunder Clap and Hamstring remaining on the target
+  - Battle Shout and Bloodrage remaining on the bot
+  - last-step damage and rage change
+  - the 10 talent ranks
+- **Episode info:** damage and DPS, hit counts, the talent build index, and casts per ability.
+- **Baselines:** `white_only`, `hs_at_threshold`, and `rotation`, a conventional levelling priority.
 
 ## Enabling
 
@@ -62,27 +106,44 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.HsRageThreshold` | `15` | Rage threshold for `hs_at_threshold` |
 | `AnimusForge.ReportEpisodes` | `256` | Log mean episode stats every N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
+| `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
+| `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
 | `AnimusForge.Arena.*` | Old Hillsbrad entrance | Dungeon map and position for the arena |
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_SCENARIO=warrior_dummy`.
 
 For best throughput set `MapUpdate.Threads` to the number of physical cores.
 
-### Docker
+### Docker: use the dev server
 
-The learner runs on the host, so the socket has to be on a bind mount. Put this in a
-`docker-compose.override.yml` rather than editing `docker-compose.yml`:
+The auto-started learner needs Python, torch and the GPU wherever the worldserver runs. The stock
+`ac-worldserver` image has none of them, so train in `ac-dev-server`: it bind-mounts this
+repository, and the local `docker-compose.override.yml` gives it `/dev/kfd` and `/dev/dri` and
+removes its host ports. Those ports would clash with `ac-authserver` and `ac-worldserver`, and the
+sim does not listen on them anyway.
 
-```yaml
-services:
-  ac-worldserver:
-    environment:
-      AC_ANIMUS_FORGE_SOCKET: "/azerothcore/var/animus/animus-forge.sock"
-    volumes:
-      - ./var/animus:/azerothcore/var/animus
+```
+docker compose --profile dev up -d ac-dev-server        # dev server + database only
+docker compose exec ac-dev-server bash
 ```
 
-Then point the learner at `var/animus/animus-forge.sock`.
+One-time Python setup, inside the container. The venv lives on the bind mount, so it survives
+container rebuilds. It must be created inside the container, not on the host: it points at the
+container's Python.
+
+```
+sudo apt-get update && sudo apt-get install -y python3-venv
+cd /azerothcore/modules/mod-animus-forge/python
+python3 -m venv .venv
+.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/rocm6.4
+.venv/bin/pip install -e '.[dev,tensorboard]'
+.venv/bin/python -c "import torch; print(torch.cuda.is_available(), [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])"
+```
+
+Only the discrete RX 7900 XTX is passed into the container (by PCI path, so it survives device
+renumbering between boots), and `configs/warrior_dummy.yaml` trains on it (`train_device: cuda`).
+The torch check above should list a single device. Then build and run the worldserver in the
+container as usual; the learner starts by itself.
 
 ## Baselines (no Python)
 
@@ -100,23 +161,52 @@ misses and dodges), and `special_hits` should be 0.
 
 ## Training
 
-```
-cd python
-python -m venv .venv && . .venv/bin/activate
-pip install torch --index-url https://download.pytorch.org/whl/rocm6.4   # AMD GPU; or .../whl/cpu
-pip install -e '.[dev,tensorboard]'
+With `AnimusForge.Policy = "remote"` and `AnimusForge.Learner.AutoStart = 1` (the defaults), the
+worldserver starts the learner itself once the envs are built, for the scenario in
+`AnimusForge.Scenario`:
 
+```
+<WorkDir>/.venv/bin/python -u -m animus.train --config configs/<scenario>.yaml \
+    --socket <AnimusForge.Socket> --resume-latest
+```
+
+- **WorkDir** defaults to this module's `python/` directory; each `AnimusForge.Learner.*` key
+  overrides one part.
+- **Output** is appended to `animus-learner.log` in `LogsDir`.
+- **An exit** is logged in the worldserver log, with the exit code.
+- **Restarts:** `--resume-latest` continues from `runs/<run_name>/latest.pt`, so a server restart
+  resumes training and appends to `metrics.csv` instead of starting over.
+- **Shutdown:** closing the socket makes the learner save a checkpoint and exit; it is interrupted
+  after 10 s if it has not.
+
+To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from `python/`:
+
+```
 pytest                                                    # protocol, GAE and trainer tests
 python -m animus.train --config configs/warrior_dummy.yaml
 python -m animus.evaluate --checkpoint runs/warrior_dummy/latest.pt --episodes 256
 ```
 
-The learner can start before or after the worldserver; it retries until the socket exists.
-Disconnecting (Ctrl+C) is safe. The sim waits for the next learner and resets every env when one
-connects.
+A hand-started learner can start before or after the worldserver; it retries until the socket
+exists. Disconnecting (Ctrl+C) is safe: the sim waits for the next learner and resets every env when
+one connects.
 
 Each run writes `config.yaml`, `spec.json`, `metrics.csv`, TensorBoard logs (if installed) and
 checkpoints to `runs/<run_name>/`.
+
+## Export for mod-animus
+
+`mod-animus` runs trained actors in a normal worldserver. Export a checkpoint's actor to its `.amdl`
+format:
+
+```
+python -m animus.export --checkpoint runs/warrior_dummy/latest.pt --out ../../mod-animus/models/warrior_dummy.amdl
+```
+
+The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
+the exported network reproduces the torch actor's greedy actions. If a scenario's observations or
+actions change, update mod-animus's copy of the encoding (for `warrior_dummy`,
+`mod-animus/src/Companion/WarriorDummyPolicyIO.*`).
 
 ## Wire protocol
 

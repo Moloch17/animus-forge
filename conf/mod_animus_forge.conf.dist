@@ -22,7 +22,11 @@ AnimusForge.Enable = 0
 #                     in the pool runs the same scenario. An unknown name stops the server at
 #                     startup and logs the list of available scenarios. Like any config key it can
 #                     also be set from the environment: AC_ANIMUS_FORGE_SCENARIO.
-#        Values:      "warrior_dummy" - level 1 human warrior maximising DPS on a training dummy
+#        Values:      "warrior_dummy"    - level 1 human warrior maximising DPS on a training dummy
+#                     "warrior_dummy_20" - level 20 Arms human warrior in level 16-20 gear with the
+#                                          full level 20 trainer kit on a training dummy; a new
+#                                          random Arms talent build (one of all valid 11-point
+#                                          builds) every episode
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
@@ -57,8 +61,12 @@ AnimusForge.EpisodeSeconds = 60
 #        Values:      "remote"          - lock-step with the Python learner over AnimusForge.Socket
 #                     "random"          - uniform over unmasked actions
 #                     "never_hs"        - (warrior_dummy) white swings only
-#                     "hs_at_threshold" - (warrior_dummy) queue Heroic Strike at
-#                                         AnimusForge.HsRageThreshold rage or more
+#                     "white_only"      - (warrior_dummy_20) white swings only
+#                     "hs_at_threshold" - (both) queue Heroic Strike at AnimusForge.HsRageThreshold
+#                                         rage or more
+#                     "rotation"        - (warrior_dummy_20) levelling priority: Battle Shout,
+#                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
+#                                         then Heroic Strike at the rage threshold
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"
@@ -84,6 +92,52 @@ AnimusForge.ReportEpisodes = 256
 #        Default:     "/tmp/animus-forge.sock"
 
 AnimusForge.Socket = "/tmp/animus-forge.sock"
+
+###################################################################################################
+# LEARNER
+#
+#    AnimusForge.Learner.AutoStart
+#        Description: With AnimusForge.Policy = "remote", start the Python learner automatically
+#                     once the sim is ready, for the selected scenario:
+#                         <Python> -u -m animus.train --config <Config> --socket <AnimusForge.Socket>
+#                                  --resume-latest
+#                     run in <WorkDir>. --resume-latest continues from the run's latest.pt, so a
+#                     server restart resumes training instead of starting over. The learner is
+#                     stopped (and saves a checkpoint) when the server shuts down.
+#                     Requires Python and the learner's packages where the worldserver runs: a
+#                     native build or the dev-server container, not the ac-worldserver image.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled, start the learner yourself)
+
+AnimusForge.Learner.AutoStart = 1
+
+#
+#    AnimusForge.Learner.WorkDir
+#        Description: Directory the learner runs in (the module's python/ directory).
+#        Default:     "" - the python/ directory of the module source this server was built from
+
+AnimusForge.Learner.WorkDir = ""
+
+#
+#    AnimusForge.Learner.Python
+#        Description: Python interpreter for the learner.
+#        Default:     "" - <WorkDir>/.venv/bin/python if it exists, otherwise python3 from PATH
+
+AnimusForge.Learner.Python = ""
+
+#
+#    AnimusForge.Learner.Config
+#        Description: Learner config, relative to WorkDir or absolute.
+#        Default:     "" - configs/<AnimusForge.Scenario>.yaml
+
+AnimusForge.Learner.Config = ""
+
+#
+#    AnimusForge.Learner.LogFile
+#        Description: File the learner's stdout and stderr are appended to.
+#        Default:     "" - animus-learner.log in LogsDir
+
+AnimusForge.Learner.LogFile = ""
 
 ###################################################################################################
 # ARENA

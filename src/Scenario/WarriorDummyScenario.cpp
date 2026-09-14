@@ -17,8 +17,8 @@
  */
 
 #include "WarriorDummyScenario.h"
-#include "AnimusConfig.h"
-#include "BotFactory.h"
+#include "ForgeConfig.h"
+#include "ForgeBotFactory.h"
 #include "Creature.h"
 #include "Env.h"
 #include "Log.h"
@@ -29,12 +29,10 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "StringFormat.h"
-#include "SummonLevel.h"
-#include "TemporarySummon.h"
+#include "TrainingDummyArena.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <list>
 
 namespace
 {
@@ -43,35 +41,16 @@ namespace
         SPELL_HEROIC_STRIKE_RANK_1  = 78,
         SPELL_BATTLE_STANCE         = 2457,
     };
-
-    enum WarriorDummyCreatures : uint32
-    {
-        // Grandmaster's Training Dummy: rooted, attackable, npc_training_dummy zeroes all damage.
-        NPC_TRAINING_DUMMY          = 31144,
-    };
-
-    /// Distance from the bot to the dummy, well inside melee range for both models.
-    constexpr float DUMMY_DISTANCE = 2.0f;
-
-    /// Creatures within this radius of the bot that the scenario did not spawn are removed.
-    constexpr float ARENA_CLEAR_RADIUS = 60.0f;
-
-    /// The template's HealthModifier is sized for level 80; at level 1 it rounds to 0 HP.
-    /// The dummy cannot take damage, so any positive value works.
-    constexpr uint32 DUMMY_HEALTH = 1000000;
-
-    /// Bot accounts live far above anything a real realm allocates.
-    constexpr uint32 BOT_ACCOUNT_BASE = 0x7F000000;
 }
 
-Animus::WarriorDummyScenario::WarriorDummyScenario(ForgeConfig const& config)
+AnimusForge::WarriorDummyScenario::WarriorDummyScenario(ForgeConfig const& config)
     : _arenaMapId(config.ArenaMapId), _arenaPosition(config.ArenaPosition), _hsRageThreshold(config.HsRageThreshold),
-    _agentAccountBase(BOT_ACCOUNT_BASE)
+    _agentAccountBase(TrainingDummyArena::BOT_ACCOUNT_BASE)
 {
     _data.resize(config.Envs);
 }
 
-Animus::ScenarioSpec Animus::WarriorDummyScenario::Spec() const
+AnimusForge::ScenarioSpec AnimusForge::WarriorDummyScenario::Spec() const
 {
     ScenarioSpec spec;
     spec.AgentsPerEnv = 1;
@@ -82,7 +61,7 @@ Animus::ScenarioSpec Animus::WarriorDummyScenario::Spec() const
     return spec;
 }
 
-bool Animus::WarriorDummyScenario::Setup(Env& env)
+bool AnimusForge::WarriorDummyScenario::Setup(Env& env)
 {
     BotFactory::BotSpec spec;
     spec.Name = Acore::StringFormat("Forgewarrior{}", env.Index);
@@ -107,10 +86,13 @@ bool Animus::WarriorDummyScenario::Setup(Env& env)
     // A first login casts the class's start spells (playercreateinfo_cast_spell); Create does not.
     bot->CastSpell(bot, SPELL_BATTLE_STANCE, true);
 
-    ClearArena(bot);
+    TrainingDummyArena::ClearArena(bot);
 
-    if (!SpawnDummy(env, bot, map))
+    Creature* dummy = TrainingDummyArena::SpawnDummy(bot, map);
+    if (!dummy)
         return false;
+
+    env.Targets = { dummy->GetGUID() };
 
     EnvData& data = _data[env.Index];
     data.Home = _arenaPosition;
@@ -119,62 +101,7 @@ bool Animus::WarriorDummyScenario::Setup(Env& env)
     return true;
 }
 
-void Animus::WarriorDummyScenario::ClearArena(Player* bot) const
-{
-    // alive = false: every creature in range, dead or alive.
-    std::list<Creature*> creatures;
-    bot->GetDeadCreatureListInGrid(creatures, ARENA_CLEAR_RADIUS, false);
-
-    for (Creature* creature : creatures)
-        creature->DespawnOrUnsummon(0ms, Seconds(WEEK));
-
-    if (!creatures.empty())
-        LOG_WARN("module.animus", "Removed {} creatures from the arena around {}", creatures.size(), bot->GetName());
-}
-
-bool Animus::WarriorDummyScenario::SpawnDummy(Env& env, Player* bot, Map* map)
-{
-    float const facing = bot->GetOrientation();
-
-    Position pos;
-    pos.m_positionX = bot->GetPositionX() + DUMMY_DISTANCE * std::cos(facing);
-    pos.m_positionY = bot->GetPositionY() + DUMMY_DISTANCE * std::sin(facing);
-    pos.m_positionZ = bot->GetPositionZ();
-
-    float const ground = map->GetHeight(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ() + 2.0f);
-    if (ground > INVALID_HEIGHT)
-        pos.m_positionZ = ground;
-
-    pos.SetOrientation(Position::NormalizeOrientation(facing + float(M_PI)));
-
-    // Summon the dummy at the bot's level so hit, dodge, glancing and armor tables are those of an
-    // even-level fight rather than a level 80 target.
-    PendingSummonLevel = bot->GetLevel();
-    TempSummon* dummy = map->SummonCreature(NPC_TRAINING_DUMMY, pos);
-    PendingSummonLevel = 0;
-
-    if (!dummy)
-    {
-        LOG_ERROR("module.animus", "Could not summon training dummy {} for env {}", uint32(NPC_TRAINING_DUMMY),
-            env.Index);
-        return false;
-    }
-
-    dummy->SetCreateHealth(DUMMY_HEALTH);
-    dummy->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(DUMMY_HEALTH));
-    dummy->UpdateMaxHealth();
-    dummy->SetFullHealth();
-    dummy->SetRegeneratingHealth(false);
-
-    env.Targets = { dummy->GetGUID() };
-
-    // Face the dummy exactly: the player melee check needs the target inside the frontal arc.
-    bot->SetOrientation(bot->GetAngle(dummy));
-
-    return true;
-}
-
-void Animus::WarriorDummyScenario::Reset(Env& env)
+void AnimusForge::WarriorDummyScenario::Reset(Env& env)
 {
     EnvData& data = _data[env.Index];
     data.LastRage = 0;
@@ -212,7 +139,7 @@ void Animus::WarriorDummyScenario::Reset(Env& env)
     bot->setAttackTimer(BASE_ATTACK, int32(urand(0, bot->GetAttackTime(BASE_ATTACK))));
 }
 
-void Animus::WarriorDummyScenario::ApplyActions(Env& env, int32 const* actions)
+void AnimusForge::WarriorDummyScenario::ApplyActions(Env& env, int32 const* actions)
 {
     Player* bot = env.FindBot(0);
     Creature* dummy = env.FindTarget(0);
@@ -244,7 +171,7 @@ void Animus::WarriorDummyScenario::ApplyActions(Env& env, int32 const* actions)
     }
 }
 
-void Animus::WarriorDummyScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
+void AnimusForge::WarriorDummyScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
 {
     std::fill(obs, obs + OBS_COUNT, 0.0f);
     std::fill(mask, mask + ACTION_COUNT, 0);
@@ -278,7 +205,7 @@ void Animus::WarriorDummyScenario::Observe(Env& env, float* obs, float* state, u
     std::memcpy(state, obs, OBS_COUNT * sizeof(float));
 }
 
-void Animus::WarriorDummyScenario::Reward(Env& env, float* reward)
+void AnimusForge::WarriorDummyScenario::Reward(Env& env, float* reward)
 {
     EnvData& data = _data[env.Index];
 
@@ -295,7 +222,7 @@ void Animus::WarriorDummyScenario::Reward(Env& env, float* reward)
     }
 }
 
-void Animus::WarriorDummyScenario::EpisodeInfo(Env const& env, float* info) const
+void AnimusForge::WarriorDummyScenario::EpisodeInfo(Env const& env, float* info) const
 {
     AgentStats const& stats = env.EpisodeStats[0];
     float const seconds = std::max(0.001f, float(env.EpisodeElapsedMs) / 1000.0f);
@@ -308,12 +235,12 @@ void Animus::WarriorDummyScenario::EpisodeInfo(Env const& env, float* info) cons
     info[INFO_SPECIAL_DAMAGE] = float(stats.SpecialDamage);
 }
 
-std::vector<std::string> Animus::WarriorDummyScenario::EpisodeInfoNames() const
+std::vector<std::string> AnimusForge::WarriorDummyScenario::EpisodeInfoNames() const
 {
     return { "damage", "dps", "white_hits", "special_hits", "white_damage", "special_damage" };
 }
 
-bool Animus::WarriorDummyScenario::ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
+bool AnimusForge::WarriorDummyScenario::ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
     int32& action) const
 {
     if (policy == "never_hs")
@@ -334,7 +261,7 @@ bool Animus::WarriorDummyScenario::ScriptedAction(std::string const& policy, flo
     return false;
 }
 
-void Animus::WarriorDummyScenario::Teardown(Env& env)
+void AnimusForge::WarriorDummyScenario::Teardown(Env& env)
 {
     if (Creature* dummy = env.FindTarget(0))
         dummy->DespawnOrUnsummon();
@@ -346,19 +273,19 @@ void Animus::WarriorDummyScenario::Teardown(Env& env)
     env.Targets.clear();
 }
 
-bool Animus::WarriorDummyScenario::IsHeroicStrikeQueued(Player const* bot)
+bool AnimusForge::WarriorDummyScenario::IsHeroicStrikeQueued(Player const* bot)
 {
     Spell const* spell = bot->GetCurrentSpell(CURRENT_MELEE_SPELL);
     return spell && spell->m_spellInfo->Id == SPELL_HEROIC_STRIKE_RANK_1;
 }
 
-uint32 Animus::WarriorDummyScenario::HeroicStrikeCost(Player* bot)
+uint32 AnimusForge::WarriorDummyScenario::HeroicStrikeCost(Player* bot)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_HEROIC_STRIKE_RANK_1);
     return info ? uint32(std::max(0, info->CalcPowerCost(bot, info->GetSchoolMask()))) : 0;
 }
 
-bool Animus::WarriorDummyScenario::CanQueueHeroicStrike(Player* bot)
+bool AnimusForge::WarriorDummyScenario::CanQueueHeroicStrike(Player* bot)
 {
     return bot->HasActiveSpell(SPELL_HEROIC_STRIKE_RANK_1) && !bot->GetCurrentSpell(CURRENT_MELEE_SPELL)
         && bot->GetPower(POWER_RAGE) >= HeroicStrikeCost(bot);

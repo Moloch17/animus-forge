@@ -17,26 +17,34 @@
  */
 
 #include "Scenario.h"
-#include "AnimusConfig.h"
+#include "ForgeConfig.h"
+#include "WarriorDummy20Scenario.h"
 #include "WarriorDummyScenario.h"
 #include <functional>
 #include <utility>
 
 namespace
 {
-    using ScenarioFactory = std::function<std::unique_ptr<Animus::Scenario>(Animus::ForgeConfig const&)>;
+    using ScenarioFactory = std::function<std::unique_ptr<AnimusForge::Scenario>(AnimusForge::ForgeConfig const&)>;
 
     /// Every scenario the module can run, by the name used in AnimusForge.Scenario.
-    /// Adding a scenario = implementing Animus::Scenario and adding one row here.
+    /// Adding a scenario = implementing AnimusForge::Scenario and adding one row here.
     std::vector<std::pair<std::string, ScenarioFactory>> const& Registry()
     {
         static std::vector<std::pair<std::string, ScenarioFactory>> const registry =
         {
             {
                 "warrior_dummy",
-                [](Animus::ForgeConfig const& config)
+                [](AnimusForge::ForgeConfig const& config)
                 {
-                    return std::make_unique<Animus::WarriorDummyScenario>(config);
+                    return std::make_unique<AnimusForge::WarriorDummyScenario>(config);
+                }
+            },
+            {
+                "warrior_dummy_20",
+                [](AnimusForge::ForgeConfig const& config)
+                {
+                    return std::make_unique<AnimusForge::WarriorDummy20Scenario>(config);
                 }
             },
         };
@@ -45,7 +53,7 @@ namespace
     }
 }
 
-std::unique_ptr<Animus::Scenario> Animus::CreateScenario(ForgeConfig const& config)
+std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(ForgeConfig const& config)
 {
     for (auto const& [name, factory] : Registry())
         if (name == config.Scenario)
@@ -54,7 +62,7 @@ std::unique_ptr<Animus::Scenario> Animus::CreateScenario(ForgeConfig const& conf
     return nullptr;
 }
 
-std::vector<std::string> Animus::ScenarioNames()
+std::vector<std::string> AnimusForge::ScenarioNames()
 {
     std::vector<std::string> names;
     for (auto const& entry : Registry())

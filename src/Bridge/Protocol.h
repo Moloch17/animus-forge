@@ -47,13 +47,13 @@
  * final_state; a terminated one does not.
  */
 
-#ifndef ANIMUS_PROTOCOL_H
-#define ANIMUS_PROTOCOL_H
+#ifndef MOD_ANIMUS_FORGE_PROTOCOL_H
+#define MOD_ANIMUS_FORGE_PROTOCOL_H
 
 #include "Define.h"
 #include <bit>
 
-namespace Animus
+namespace AnimusForge
 {
     constexpr uint32 PROTOCOL_VERSION = 1;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;

@@ -16,15 +16,16 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_LOCKSTEP_SERVER_H
-#define ANIMUS_LOCKSTEP_SERVER_H
+#ifndef MOD_ANIMUS_FORGE_LOCKSTEP_SERVER_H
+#define MOD_ANIMUS_FORGE_LOCKSTEP_SERVER_H
 
 #include "Protocol.h"
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <vector>
 
-namespace Animus
+namespace AnimusForge
 {
     /// One outgoing buffer of a message payload.
     struct Chunk
@@ -50,8 +51,9 @@ namespace Animus
         bool Listen(std::string const& path);
         void Shutdown();
 
-        /// Block until a client connects and sends a valid HELLO, or the world stops.
-        bool AcceptClient();
+        /// Block until a client connects and sends a valid HELLO, or the world stops. `onIdle` runs
+        /// every poll interval while nobody is connecting.
+        bool AcceptClient(std::function<void()> const& onIdle = {});
         void DropClient();
         [[nodiscard]] bool HasClient() const { return _client >= 0; }
 
@@ -64,7 +66,7 @@ namespace Animus
         bool Receive(MsgType& type, void* dst, std::size_t size);
 
     private:
-        bool WaitReadable(int fd);
+        bool WaitReadable(int fd, std::function<void()> const& onIdle = {});
         bool ReadExact(void* dst, std::size_t size);
 
         std::string _path;

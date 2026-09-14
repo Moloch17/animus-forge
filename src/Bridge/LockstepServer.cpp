@@ -33,12 +33,12 @@ namespace
     constexpr int POLL_INTERVAL_MS = 200;
 }
 
-Animus::LockstepServer::~LockstepServer()
+AnimusForge::LockstepServer::~LockstepServer()
 {
     Shutdown();
 }
 
-bool Animus::LockstepServer::Listen(std::string const& path)
+bool AnimusForge::LockstepServer::Listen(std::string const& path)
 {
     sockaddr_un addr{};
     if (path.size() >= sizeof(addr.sun_path))
@@ -73,7 +73,7 @@ bool Animus::LockstepServer::Listen(std::string const& path)
     return true;
 }
 
-void Animus::LockstepServer::Shutdown()
+void AnimusForge::LockstepServer::Shutdown()
 {
     DropClient();
 
@@ -85,13 +85,13 @@ void Animus::LockstepServer::Shutdown()
     }
 }
 
-bool Animus::LockstepServer::AcceptClient()
+bool AnimusForge::LockstepServer::AcceptClient(std::function<void()> const& onIdle)
 {
     DropClient();
 
     LOG_INFO("module.animus", "Waiting for the learner to connect...");
 
-    while (WaitReadable(_listener))
+    while (WaitReadable(_listener, onIdle))
     {
         int const fd = ::accept4(_listener, nullptr, nullptr, SOCK_CLOEXEC);
         if (fd < 0)
@@ -122,7 +122,7 @@ bool Animus::LockstepServer::AcceptClient()
     return false;
 }
 
-void Animus::LockstepServer::DropClient()
+void AnimusForge::LockstepServer::DropClient()
 {
     if (_client >= 0)
     {
@@ -131,7 +131,7 @@ void Animus::LockstepServer::DropClient()
     }
 }
 
-bool Animus::LockstepServer::Send(MsgType type, std::vector<Chunk> const& chunks)
+bool AnimusForge::LockstepServer::Send(MsgType type, std::vector<Chunk> const& chunks)
 {
     if (_client < 0)
         return false;
@@ -184,7 +184,7 @@ bool Animus::LockstepServer::Send(MsgType type, std::vector<Chunk> const& chunks
     return true;
 }
 
-bool Animus::LockstepServer::Receive(MsgType& type, void* dst, std::size_t size)
+bool AnimusForge::LockstepServer::Receive(MsgType& type, void* dst, std::size_t size)
 {
     MsgHeader header{};
     if (!ReadExact(&header, sizeof(header)))
@@ -211,7 +211,7 @@ bool Animus::LockstepServer::Receive(MsgType& type, void* dst, std::size_t size)
     return ReadExact(dst, size);
 }
 
-bool Animus::LockstepServer::WaitReadable(int fd)
+bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<void()> const& onIdle)
 {
     pollfd pfd{ fd, POLLIN, 0 };
 
@@ -220,6 +220,9 @@ bool Animus::LockstepServer::WaitReadable(int fd)
         int const ready = ::poll(&pfd, 1, POLL_INTERVAL_MS);
         if (ready > 0)
             return true;
+
+        if (ready == 0 && onIdle)
+            onIdle();
 
         if (ready < 0 && errno != EINTR)
         {
@@ -231,7 +234,7 @@ bool Animus::LockstepServer::WaitReadable(int fd)
     return false;
 }
 
-bool Animus::LockstepServer::ReadExact(void* dst, std::size_t size)
+bool AnimusForge::LockstepServer::ReadExact(void* dst, std::size_t size)
 {
     char* out = static_cast<char*>(dst);
 

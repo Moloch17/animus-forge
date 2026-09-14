@@ -32,7 +32,7 @@
  *                             is skipped because it only builds packets
  */
 
-#include "BotFactory.h"
+#include "ForgeBotFactory.h"
 #include "GameTime.h"
 #include "InstanceSaveMgr.h"
 #include "Log.h"
@@ -51,7 +51,7 @@ namespace
     class BotCreateInfo : public CharacterCreateInfo
     {
     public:
-        explicit BotCreateInfo(Animus::BotFactory::BotSpec const& spec)
+        explicit BotCreateInfo(AnimusForge::BotFactory::BotSpec const& spec)
         {
             Name = spec.Name;
             Race = spec.Race;
@@ -61,7 +61,7 @@ namespace
     };
 }
 
-Player* Animus::BotFactory::Create(BotSpec const& spec)
+Player* AnimusForge::BotFactory::Create(BotSpec const& spec)
 {
     // accountFlags 0: no collector's edition voucher mail (Player::Create's only DB write).
     WorldSession* session = new WorldSession(spec.AccountId, std::string(spec.Name), 0, nullptr, SEC_PLAYER,
@@ -95,6 +95,13 @@ Player* Animus::BotFactory::Create(BotSpec const& spec)
     {
         bot->SetLevel(spec.Level, false);
         bot->InitStatsForLevel(true);
+        bot->InitTalentForLevel();
+
+        // Raise weapon and defense skill caps to the new level (5 per level), then fill them, as
+        // a character who levelled normally would have. Left at level 1 values, every swing would
+        // roll against a skill of 5 and mostly miss.
+        bot->UpdateSkillsForLevel();
+        bot->UpdateSkillsToMaxSkillsForLevel();
     }
 
     bot->SetCanModifyStats(true);
@@ -104,7 +111,7 @@ Player* Animus::BotFactory::Create(BotSpec const& spec)
     return bot;
 }
 
-Map* Animus::BotFactory::PlaceInNewInstance(Player* bot, uint32 mapId, Position const& pos)
+Map* AnimusForge::BotFactory::PlaceInNewInstance(Player* bot, uint32 mapId, Position const& pos)
 {
     // A groupless player with no bind for this map always gets a brand new instance.
     Map* map = sMapMgr->CreateMap(mapId, bot);
@@ -134,7 +141,7 @@ Map* Animus::BotFactory::PlaceInNewInstance(Player* bot, uint32 mapId, Position 
     return map;
 }
 
-void Animus::BotFactory::Destroy(Player* bot)
+void AnimusForge::BotFactory::Destroy(Player* bot)
 {
     WorldSession* session = bot->GetSession();
     ObjectGuid const guid = bot->GetGUID();

@@ -22,13 +22,13 @@
 #include <algorithm>
 #include <cstring>
 
-Animus::Forge* Animus::Forge::Instance()
+AnimusForge::Forge* AnimusForge::Forge::Instance()
 {
     static Forge instance;
     return &instance;
 }
 
-void Animus::Forge::OnStartup()
+void AnimusForge::Forge::OnStartup()
 {
     _config.Load();
 
@@ -44,7 +44,7 @@ void Animus::Forge::OnStartup()
     _running = true;
 }
 
-bool Animus::Forge::Start()
+bool AnimusForge::Forge::Start()
 {
     _scenario = CreateScenario(_config);
     if (!_scenario)
@@ -84,24 +84,34 @@ bool Animus::Forge::Start()
         return false;
     }
 
-    if (_config.IsRemote() && !_server.Listen(_config.SocketPath))
+    if (_config.IsRemote())
     {
-        Fail("cannot open the learner socket");
-        return false;
+        if (!_server.Listen(_config.SocketPath))
+        {
+            Fail("cannot open the learner socket");
+            return false;
+        }
+
+        // A learner that cannot be started is not fatal: the sim keeps waiting on the socket, so
+        // one started by hand still works.
+        if (_config.LearnerAutoStart && !_learner.Start(_config))
+            LOG_ERROR("module.animus", "Learner auto-start failed; start it manually: cd {} && {} -m animus.train "
+                "--config {} --socket {}", _config.LearnerWorkDir, _config.LearnerPython, _config.LearnerConfig,
+                _config.SocketPath);
     }
 
     _pool->ResetAll();
     return true;
 }
 
-void Animus::Forge::Fail(char const* reason)
+void AnimusForge::Forge::Fail(char const* reason)
 {
     // The sim host exists to run the scenario; carrying on without it would only burn CPU.
     LOG_FATAL("module.animus", "Animus Forge cannot start: {}. Stopping the server.", reason);
     World::StopNow(ERROR_EXIT_CODE);
 }
 
-void Animus::Forge::OnUpdate(uint32 diff)
+void AnimusForge::Forge::OnUpdate(uint32 diff)
 {
     if (!_running)
         return;
@@ -118,10 +128,13 @@ void Animus::Forge::OnUpdate(uint32 diff)
         LocalDecision();
 }
 
-void Animus::Forge::OnShutdown()
+void AnimusForge::Forge::OnShutdown()
 {
     _running = false;
+
+    // Closing the socket is what tells the learner to save and exit; give it time to do so.
     _server.Shutdown();
+    _learner.Stop(std::chrono::seconds(10));
 
     if (_pool)
         _pool->Teardown();
@@ -130,19 +143,20 @@ void Animus::Forge::OnShutdown()
     _scenario.reset();
 }
 
-void Animus::Forge::LocalDecision()
+void AnimusForge::Forge::LocalDecision()
 {
     _pool->Collect();
     _pool->ChooseLocalActions(_config.Policy);
     _pool->ApplyActions();
 }
 
-void Animus::Forge::RemoteDecision()
+void AnimusForge::Forge::RemoteDecision()
 {
     if (!_server.HasClient())
     {
         // Blocks the world thread until the learner connects; returns false only on shutdown.
-        if (!_server.AcceptClient() || !SendSpec())
+        // Polls the auto-started learner meanwhile, so an early exit is logged instead of silent.
+        if (!_server.AcceptClient([this]() { _learner.Poll(); }) || !SendSpec())
             return;
 
         // A new learner starts from fresh episodes; whatever ran unobserved is discarded.
@@ -166,7 +180,7 @@ void Animus::Forge::RemoteDecision()
     _pool->ApplyActions();
 }
 
-bool Animus::Forge::SendSpec()
+bool AnimusForge::Forge::SendSpec()
 {
     ScenarioSpec const spec = _pool->Spec();
 
@@ -190,7 +204,7 @@ bool Animus::Forge::SendSpec()
     return _server.Send(MsgType::Spec, { { &msg, sizeof(msg) }, { names.data(), names.size() } });
 }
 
-bool Animus::Forge::SendStep()
+bool AnimusForge::Forge::SendStep()
 {
     StepHeader header{ _decisions++ };
 

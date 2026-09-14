@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_ENV_H
-#define ANIMUS_ENV_H
+#ifndef MOD_ANIMUS_FORGE_ENV_H
+#define MOD_ANIMUS_FORGE_ENV_H
 
 #include "Define.h"
 #include "ObjectGuid.h"
@@ -27,7 +27,7 @@ class Map;
 class Player;
 class Creature;
 
-namespace Animus
+namespace AnimusForge
 {
     /// Combat totals for one agent. Written only by the map thread that updates the agent's
     /// instance (damage hooks), read by the world thread after MapMgr::Update has joined.

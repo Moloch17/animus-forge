@@ -14,10 +14,11 @@ rollout_length: 128
 log_every: 1
 checkpoint_every: 25
 
-# Tiny MLPs: CPU rollouts avoid a GPU round trip every 50 ms of game time. Set train_device to
-# "cuda" to update on the GPU (PyTorch ROCm exposes AMD GPUs under the cuda device name).
+# Updates run on the GPU: "cuda" is the name PyTorch ROCm uses for AMD GPUs, and the dev server
+# container only exposes the discrete RX 7900 XTX, so cuda:0 is that card. Rollouts stay on the CPU:
+# one tiny forward pass per decision is faster there than a GPU round trip.
 rollout_device: cpu
-train_device: cpu
+train_device: cuda
 
 mappo:
   hidden: [128, 128]

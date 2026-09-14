@@ -16,15 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_SCENARIO_H
-#define ANIMUS_SCENARIO_H
+#ifndef MOD_ANIMUS_FORGE_SCENARIO_H
+#define MOD_ANIMUS_FORGE_SCENARIO_H
 
 #include "Define.h"
 #include <memory>
 #include <string>
 #include <vector>
 
-namespace Animus
+namespace AnimusForge
 {
     struct Env;
     struct ForgeConfig;

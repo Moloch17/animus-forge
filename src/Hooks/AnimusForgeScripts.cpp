@@ -44,7 +44,7 @@ namespace
         /// amount -- npc_training_dummy zeroes it in DamageTaken, so OnDamage would only see 0.
         uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, DamageEffectType type) override
         {
-            if (Animus::EnvPool* pool = sAnimusForge->ActivePool())
+            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
                 pool->RecordDamage(attacker, victim, damage, type);
 
             return damage;
@@ -59,8 +59,8 @@ namespace
         void OnBeforeCreatureSelectLevel(CreatureTemplate const* /*cinfo*/, Creature* /*creature*/,
             uint8& level) override
         {
-            if (Animus::PendingSummonLevel)
-                level = Animus::PendingSummonLevel;
+            if (AnimusForge::PendingSummonLevel)
+                level = AnimusForge::PendingSummonLevel;
         }
     };
 }

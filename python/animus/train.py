@@ -2,8 +2,9 @@
 
     python -m animus.train --config configs/warrior_dummy.yaml [--resume runs/<name>/latest.pt]
 
-Start the worldserver first (AnimusForge.Policy = "remote"); the client retries until the sim's
-socket appears.
+The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1 (with
+--resume-latest, so training continues across server restarts). Run by hand, the client retries
+until the sim's socket appears.
 """
 
 from __future__ import annotations
@@ -27,12 +28,22 @@ from .mappo.trainer import MappoTrainer
 
 
 class RunLogger:
-    """CSV always; TensorBoard when it is installed."""
+    """CSV always; TensorBoard when it is installed.
 
-    def __init__(self, run_dir: Path):
+    Columns are fixed up front so metrics that only exist some updates (episode stats) are never
+    dropped. When resuming, rows are appended to the existing file.
+    """
+
+    def __init__(self, run_dir: Path, columns: list[str], append: bool):
         self.csv_path = run_dir / "metrics.csv"
-        self._csv_file = None
-        self._csv_writer = None
+        resume_file = append and self.csv_path.exists() and self.csv_path.stat().st_size > 0
+        if resume_file:
+            with self.csv_path.open(newline="") as existing:
+                columns = next(csv.reader(existing))
+        self._csv_file = self.csv_path.open("a" if resume_file else "w", newline="")
+        self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=columns, restval="", extrasaction="ignore")
+        if not resume_file:
+            self._csv_writer.writeheader()
         try:
             from torch.utils.tensorboard import SummaryWriter
 
@@ -41,11 +52,7 @@ class RunLogger:
             self.tb = None
 
     def log(self, step: int, row: dict[str, float]) -> None:
-        if self._csv_writer is None:
-            self._csv_file = self.csv_path.open("w", newline="")
-            self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=list(row))
-            self._csv_writer.writeheader()
-        self._csv_writer.writerow({k: row.get(k, "") for k in self._csv_writer.fieldnames})
+        self._csv_writer.writerow(row)
         self._csv_file.flush()
 
         if self.tb is not None:
@@ -53,8 +60,7 @@ class RunLogger:
                 self.tb.add_scalar(key, value, step)
 
     def close(self) -> None:
-        if self._csv_file:
-            self._csv_file.close()
+        self._csv_file.close()
         if self.tb is not None:
             self.tb.close()
 
@@ -76,15 +82,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", required=True)
     parser.add_argument("--resume", help="checkpoint to continue from")
+    parser.add_argument(
+        "--resume-latest", action="store_true", help="continue from runs/<run_name>/latest.pt when it exists"
+    )
+    parser.add_argument("--socket", help="sim socket path, overriding the config")
     args = parser.parse_args()
 
     config = TrainConfig.load(args.config)
+    if args.socket:
+        config.socket = args.socket
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
 
     run_dir = Path(config.runs_dir) / config.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    resume = args.resume
+    if not resume and args.resume_latest and (run_dir / "latest.pt").exists():
+        resume = str(run_dir / "latest.pt")
     (run_dir / "config.yaml").write_text(yaml.safe_dump(config.to_dict(), sort_keys=False))
 
     print(f"Connecting to {config.socket} ...", flush=True)
@@ -109,16 +125,24 @@ def main() -> None:
 
     update = 0
     env_steps = 0
-    if args.resume:
-        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
+    if resume:
+        checkpoint = torch.load(resume, map_location="cpu", weights_only=False)
+        if checkpoint["spec"]["scenario"] != spec.scenario:
+            raise SystemExit(f"{resume} was trained on {checkpoint['spec']['scenario']}, the sim runs {spec.scenario}")
         trainer.load_state_dict(checkpoint["trainer"])
         update = checkpoint["update"]
         env_steps = checkpoint["env_steps"]
-        print(f"Resumed from {args.resume} at update {update}", flush=True)
+        print(f"Resumed from {resume} at update {update}, {env_steps} env steps", flush=True)
 
     envs, agents = spec.num_envs, spec.agents_per_env
     buffer = RolloutBuffer(config.rollout_length, envs, agents, spec.obs_dim, spec.state_dim, spec.num_actions)
-    logger = RunLogger(run_dir)
+    columns = [
+        "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
+        *(f"action_{a}_rate" for a in range(spec.num_actions)),
+        *(f"episode_{name}" for name in spec.episode_info_names),
+        "policy_loss", "value_loss", "entropy", "clip_frac", "approx_kl",
+    ]
+    logger = RunLogger(run_dir, columns, append=bool(resume))
 
     step = env.reset()
     finished_episodes: list[np.ndarray] = []

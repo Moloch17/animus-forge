@@ -16,8 +16,8 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef ANIMUS_BOT_FACTORY_H
-#define ANIMUS_BOT_FACTORY_H
+#ifndef MOD_ANIMUS_FORGE_BOT_FACTORY_H
+#define MOD_ANIMUS_FORGE_BOT_FACTORY_H
 
 #include "Define.h"
 #include <string>
@@ -26,7 +26,7 @@ class Map;
 class Player;
 struct Position;
 
-namespace Animus::BotFactory
+namespace AnimusForge::BotFactory
 {
     struct BotSpec
     {
