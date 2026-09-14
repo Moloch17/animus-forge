@@ -1,0 +1,37 @@
+# Level 1 human warrior vs training dummy (AnimusForge.Scenario = "warrior_dummy").
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf);
+# everything here is learner-side.
+
+run_name: warrior_dummy
+runs_dir: runs
+socket: /tmp/animus-forge.sock
+seed: 1
+
+# Env steps = decisions x envs x agents. At 64 envs one update is 128 x 64 = 8192 env steps.
+total_env_steps: 5000000
+rollout_length: 128
+log_every: 1
+checkpoint_every: 25
+
+# Tiny MLPs: CPU rollouts avoid a GPU round trip every 50 ms of game time. Set train_device to
+# "cuda" to update on the GPU (PyTorch ROCm exposes AMD GPUs under the cuda device name).
+rollout_device: cpu
+train_device: cpu
+
+mappo:
+  hidden: [128, 128]
+  # One decision per 50 ms of game time: gamma 0.99 looks ~100 decisions (5 s) ahead, about two
+  # swings of the starting weapon -- enough to connect banked rage to the next Heroic Strike.
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip: 0.2
+  value_clip: 0.2
+  entropy_coef: 0.01
+  value_coef: 1.0
+  actor_lr: 0.0005
+  critic_lr: 0.0005
+  epochs: 5
+  minibatches: 4
+  max_grad_norm: 0.5
+  use_value_norm: true

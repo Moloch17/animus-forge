@@ -1,0 +1,104 @@
+#
+# mod-animus-forge -- in-process training scenarios for the Animus Forge sim host.
+#
+[worldserver]
+
+###################################################################################################
+# GENERAL
+#
+#    AnimusForge.Enable
+#        Description: Enable the module. When disabled it creates no bots, opens no socket and
+#                     every hook returns immediately.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+AnimusForge.Enable = 0
+
+###################################################################################################
+# SCENARIO
+#
+#    AnimusForge.Scenario
+#        Description: Training scenario started automatically when the server starts. Every env
+#                     in the pool runs the same scenario. An unknown name stops the server at
+#                     startup and logs the list of available scenarios. Like any config key it can
+#                     also be set from the environment: AC_ANIMUS_FORGE_SCENARIO.
+#        Values:      "warrior_dummy" - level 1 human warrior maximising DPS on a training dummy
+#        Default:     "warrior_dummy"
+
+AnimusForge.Scenario = "warrior_dummy"
+
+#
+#    AnimusForge.Envs
+#        Description: Number of parallel environments. Each env gets its own instance map, so envs
+#                     are spread across MapUpdate.Threads.
+#        Default:     64
+
+AnimusForge.Envs = 64
+
+#
+#    AnimusForge.DecisionTicks
+#        Description: World ticks per agent decision. 1 = decide every tick (50 ms of game time).
+#        Default:     1
+
+AnimusForge.DecisionTicks = 1
+
+#
+#    AnimusForge.EpisodeSeconds
+#        Description: Game-time length of an episode, in seconds. Episodes end by truncation.
+#        Default:     60
+
+AnimusForge.EpisodeSeconds = 60
+
+###################################################################################################
+# POLICY
+#
+#    AnimusForge.Policy
+#        Description: Who chooses actions.
+#        Values:      "remote"          - lock-step with the Python learner over AnimusForge.Socket
+#                     "random"          - uniform over unmasked actions
+#                     "never_hs"        - (warrior_dummy) white swings only
+#                     "hs_at_threshold" - (warrior_dummy) queue Heroic Strike at
+#                                         AnimusForge.HsRageThreshold rage or more
+#        Default:     "remote"
+
+AnimusForge.Policy = "remote"
+
+#
+#    AnimusForge.HsRageThreshold
+#        Description: Rage at which the hs_at_threshold policy queues Heroic Strike.
+#        Default:     15
+
+AnimusForge.HsRageThreshold = 15
+
+#
+#    AnimusForge.ReportEpisodes
+#        Description: Log mean episode statistics every this many completed episodes (all
+#                     policies, including remote).
+#        Default:     256
+
+AnimusForge.ReportEpisodes = 256
+
+#
+#    AnimusForge.Socket
+#        Description: Unix domain socket path the remote policy listens on.
+#        Default:     "/tmp/animus-forge.sock"
+
+AnimusForge.Socket = "/tmp/animus-forge.sock"
+
+###################################################################################################
+# ARENA
+#
+#    AnimusForge.Arena.MapId
+#    AnimusForge.Arena.X / Y / Z / O
+#        Description: Instanceable (dungeon) map and position where each env's bots stand. The map
+#                     must have an instance_template row. The default is the Old Hillsbrad Foothills
+#                     entrance: its nearest creature spawn is 352 yd away, well outside visibility.
+#        Default:     560, 2741.9, 1315.2, 14.0, 2.96
+
+AnimusForge.Arena.MapId = 560
+AnimusForge.Arena.X     = 2741.9
+AnimusForge.Arena.Y     = 1315.2
+AnimusForge.Arena.Z     = 14.0
+AnimusForge.Arena.O     = 2.96
+
+###################################################################################################

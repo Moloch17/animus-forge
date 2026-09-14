@@ -1,0 +1,97 @@
+/*
+ * This file is part of the Animus Forge project, based on AzerothCore.
+ * See AUTHORS file for Copyright information.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef ANIMUS_SCENARIO_H
+#define ANIMUS_SCENARIO_H
+
+#include "Define.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace Animus
+{
+    struct Env;
+    struct ForgeConfig;
+
+    /// Fixed tensor shapes a scenario exposes to the learner.
+    struct ScenarioSpec
+    {
+        uint32 AgentsPerEnv = 1;
+        uint32 ObsDim = 0;
+        uint32 StateDim = 0;
+        uint32 NumActions = 0;
+        uint32 EpisodeInfoDim = 0;
+    };
+
+    /// A training scenario: how an env is built, reset, observed, acted on and scored.
+    ///
+    /// All calls happen on the world thread, outside MapMgr::Update. Buffers are pre-sized by
+    /// EnvPool: per-agent arrays hold AgentsPerEnv rows in agent order.
+    class Scenario
+    {
+    public:
+        virtual ~Scenario() = default;
+
+        [[nodiscard]] virtual char const* Name() const = 0;
+        [[nodiscard]] virtual ScenarioSpec Spec() const = 0;
+
+        /// Once at startup: create bots and targets and place them. env.MapId/InstanceId, Bots and
+        /// Targets must be filled in. Returns false if the env cannot be built.
+        virtual bool Setup(Env& env) = 0;
+
+        /// Start a new episode in place. EnvPool has already cleared the episode clock and stats.
+        virtual void Reset(Env& env) = 0;
+
+        /// actions: [AgentsPerEnv] chosen action per agent. Masked actions may still arrive from a
+        /// misbehaving client and must be ignored safely.
+        virtual void ApplyActions(Env& env, int32 const* actions) = 0;
+
+        /// obs: [AgentsPerEnv * ObsDim], state: [StateDim], mask: [AgentsPerEnv * NumActions].
+        virtual void Observe(Env& env, float* obs, float* state, uint8* mask) = 0;
+
+        /// reward: [AgentsPerEnv], from env.StepStats (cleared by EnvPool afterwards).
+        virtual void Reward(Env& env, float* reward) = 0;
+
+        /// True if the episode reached a terminal state (e.g. every agent died). Checked at each
+        /// decision; the episode time limit ends it as a truncation otherwise.
+        [[nodiscard]] virtual bool IsTerminal(Env const& /*env*/) const { return false; }
+
+        /// info: [EpisodeInfoDim] totals for the episode that just ended.
+        virtual void EpisodeInfo(Env const& env, float* info) const = 0;
+
+        /// One name per EpisodeInfo column; sent to the learner in SPEC and used in local reports.
+        [[nodiscard]] virtual std::vector<std::string> EpisodeInfoNames() const = 0;
+
+        /// Scripted baseline for AnimusForge.Policy values other than "remote" and "random".
+        /// Returns false if the scenario does not know the policy.
+        virtual bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask,
+            int32& action) const = 0;
+
+        /// Once at shutdown: remove bots (without saving) and targets.
+        virtual void Teardown(Env& env) = 0;
+    };
+
+    /// Build the scenario named by config.Scenario, or nullptr if no such scenario exists.
+    std::unique_ptr<Scenario> CreateScenario(ForgeConfig const& config);
+
+    /// Names of every registered scenario.
+    std::vector<std::string> ScenarioNames();
+}
+
+#endif
