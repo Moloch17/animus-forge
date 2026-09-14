@@ -17,7 +17,7 @@
  */
 
 #include "Scenario.h"
-#include "ClassRoleProfile.h"
+#include "ClassRoleCommon.h"
 #include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
 #include "WarriorDummy20Scenario.h"

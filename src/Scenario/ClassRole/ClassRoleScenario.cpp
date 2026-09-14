@@ -39,6 +39,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 
 namespace
 {
@@ -180,19 +182,7 @@ void AnimusForge::ClassRoleScenario::Seat::ResetEpisode()
 
 std::string AnimusForge::ClassRoleScenario::ScenarioName(ArenaMode mode)
 {
-    switch (mode)
-    {
-        case ArenaMode::Duel:      return "class_role_duel";
-        case ArenaMode::Pack:      return "class_role_pack";
-        case ArenaMode::Gauntlet:  return "class_role_gauntlet";
-        case ArenaMode::Companion: return "class_role_companion";
-        case ArenaMode::Party:     return "class_role_party";
-        case ArenaMode::Pvp:       return "class_role_pvp";
-        case ArenaMode::Arena:     return "class_role_arena";
-        case ArenaMode::Dummy:     break;
-    }
-
-    return "class_role";
+    return Animus::ClassRole::StageScenarioName(mode);
 }
 
 AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, ArenaMode mode)
@@ -208,14 +198,11 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, Are
                 == config.ClassRoles.end())
             continue;
 
-        Layout layout;
-        layout.Index = uint16(_layouts.size());
-        layout.Profile = &profile;
-        layout.Assets = &ClassRoleAssets::For(profile);
-        if (layout.Assets->Races.empty())
+        if (ClassRoleAssets::For(profile).Races.empty())
             continue;
 
-        BuildLayout(layout);
+        Layout layout = Layout::Build(profile, _mode);
+        layout.Index = uint16(_layouts.size());
         _layouts.push_back(std::move(layout));
     }
 
@@ -265,83 +252,21 @@ AnimusForge::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, Are
 
     _data.resize(config.Envs);
 
+    // Each layout's manifest, for the learner to publish beside the model (see Layout::Manifest).
+    std::filesystem::path const manifests = std::filesystem::path(config.LearnerWorkDir) / "layouts" / _name;
+    std::error_code error;
+    std::filesystem::create_directories(manifests, error);
+    for (Layout const& layout : _layouts)
+    {
+        std::ofstream file(manifests / (layout.ModelName() + ".json"), std::ios::trunc);
+        file << layout.Manifest() << '\n';
+        if (!file)
+            LOG_WARN("module.animus", "{}: could not write the {} layout manifest to {}", Name(), layout.ModelName(),
+                manifests.string());
+    }
+
     LOG_INFO("module.animus", "{}: {} seats per env, {} class/role layouts (obs up to {}, actions up to {}), state {}",
         Name(), _seatCount, _layouts.size(), _spec.ObsDim, _spec.NumActions, _spec.StateDim);
-}
-
-void AnimusForge::ClassRoleScenario::BuildLayout(Layout& layout) const
-{
-    // Every stage keeps the previous stage's layout unchanged and appends its own (see ArenaMode).
-    ActionCatalog const& catalog = layout.Catalog();
-    uint32 const actions = uint32(catalog.Actions().size());
-    uint32 const talents = uint32(layout.Assets->Talents->Talents().size());
-
-    layout.ActionObsFirst = OBS_GLOBAL_COUNT;
-    layout.TalentObsFirst = layout.ActionObsFirst + actions * ACTION_FEATURES;
-    layout.TreeObsFirst = layout.TalentObsFirst + talents;
-    layout.ObsDim = layout.TreeObsFirst + TalentBuilder::TREE_COUNT;
-    layout.NumActions = actions;
-
-    if (HasDuel())
-    {
-        uint32 const stable = layout.Profile->Class == CLASS_HUNTER ? STABLE_SLOTS : 0;
-        layout.DuelObsFirst = layout.ObsDim;
-        layout.ObsDim += DUEL_OBS_COUNT_WITHOUT_STABLE + stable * STABLE_FEATURES;
-        layout.DuelActionFirst = layout.NumActions;
-        layout.DuelActionCount = DUEL_ACTION_COUNT_WITHOUT_STABLE + stable;
-        layout.NumActions += layout.DuelActionCount;
-    }
-
-    if (HasPack())
-    {
-        uint32 const tactical = uint32(catalog.Tactical().size());
-        layout.PackObsFirst = layout.ObsDim;
-        layout.ObsDim += PACK_OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES + tactical * 2;
-        layout.PackActionFirst = layout.NumActions;
-        layout.PackActionCount = PACK_SLOTS + tactical;
-        layout.NumActions += layout.PackActionCount;
-    }
-
-    if (HasGauntlet())
-    {
-        uint32 const sustain = uint32(catalog.Sustain().size());
-        layout.GauntletObsFirst = layout.ObsDim;
-        layout.ObsDim += GAUNTLET_OBS_GLOBAL_COUNT + sustain * 2;
-        layout.GauntletActionFirst = layout.NumActions;
-        layout.GauntletActionCount = GAUNTLET_ACTION_SUSTAIN_FIRST + sustain;
-        layout.NumActions += layout.GauntletActionCount;
-    }
-
-    if (HasCompanion())
-    {
-        // Heals that take a friendly unit target can be cast on an ally.
-        for (ActionCatalog::Action const& heal : catalog.Sustain())
-            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(heal.FirstRank);
-                info && info->IsPositive() && info->NeedsExplicitUnitTarget())
-                layout.AllyHeals.push_back(heal);
-
-        uint32 const heals = uint32(layout.AllyHeals.size());
-        layout.CompanionObsFirst = layout.ObsDim;
-        layout.ObsDim += COMPANION_OBS_GLOBAL_COUNT + heals * 2;
-        layout.CompanionActionFirst = layout.NumActions;
-        layout.CompanionActionCount = COMPANION_ACTION_HEAL_FIRST + heals;
-        layout.NumActions += layout.CompanionActionCount;
-    }
-
-    if (HasParty())
-    {
-        layout.PartyObsFirst = layout.ObsDim;
-        layout.ObsDim += PARTY_OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES;
-        layout.PartyActionFirst = layout.NumActions;
-        layout.PartyActionCount = PARTY_ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size());
-        layout.NumActions += layout.PartyActionCount;
-    }
-
-    if (HasPvp())
-    {
-        layout.PvpObsFirst = layout.ObsDim;
-        layout.ObsDim += PVP_OBS_COUNT;
-    }
 }
 
 AnimusForge::ClassRoleScenario::Layout const& AnimusForge::ClassRoleScenario::PickLayout(Role role,

@@ -105,9 +105,16 @@ def write_amdl(
             out.write(np.ascontiguousarray(bias, dtype="<f4").tobytes())
 
 
-def export_layouts(actor_state: dict[str, torch.Tensor], spec: dict, out_dir: str | Path) -> list[Path]:
-    """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written."""
+def export_layouts(
+    actor_state: dict[str, torch.Tensor], spec: dict, out_dir: str | Path, manifest_dir: str | Path | None = None
+) -> list[Path]:
+    """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written.
+
+    When manifest_dir (the sim writes layouts/<scenario>/ in the learner's directory) holds <model name>.json, the
+    layout manifest is copied beside the model: mod-animus refuses a model whose manifest differs from its own.
+    """
     out_dir = Path(out_dir)
+    manifests = Path(manifest_dir) if manifest_dir is not None else Path("layouts") / spec["scenario"]
     layouts = spec["layouts"]
     written = []
     for index, layout in enumerate(layouts):
@@ -122,6 +129,12 @@ def export_layouts(actor_state: dict[str, torch.Tensor], spec: dict, out_dir: st
             partial.unlink(missing_ok=True)
             raise
         written.append(target)
+
+        manifest = manifests / f"{name}.json"
+        if manifest.is_file():
+            partial_manifest = out_dir / f".{name}.json.partial"
+            partial_manifest.write_bytes(manifest.read_bytes())
+            os.replace(partial_manifest, out_dir / f"{name}.json")
     return written
 
 

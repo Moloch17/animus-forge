@@ -19,7 +19,7 @@
 #ifndef MOD_ANIMUS_FORGE_COMPANION_OWNER_H
 #define MOD_ANIMUS_FORGE_COMPANION_OWNER_H
 
-#include "ClassRoleAssets.h"
+#include "ClassRoleCommon.h"
 #include "Position.h"
 #include <vector>
 

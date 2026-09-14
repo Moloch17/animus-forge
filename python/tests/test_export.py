@@ -112,3 +112,16 @@ def test_model_dirs_from_env(monkeypatch):
     assert model_dirs_from_env() == ["/x", "/y"]
     monkeypatch.delenv("ANIMUS_MODEL_DIRS")
     assert model_dirs_from_env() == []
+
+
+def test_layout_manifests_are_published_beside_their_models(tmp_path):
+    manifests = tmp_path / "layouts"
+    manifests.mkdir()
+    (manifests / "warrior_dps_duel.json").write_text('{"model":"warrior_dps_duel"}\n')
+    out = tmp_path / "models"
+    out.mkdir()
+
+    export_layouts(wide_actor().state_dict(), spec_for("class_role_duel"), out, manifest_dir=manifests)
+
+    assert (out / "warrior_dps_duel.json").read_text() == '{"model":"warrior_dps_duel"}\n'
+    assert not (out / "priest_heal_duel.json").exists()  # no manifest written for it

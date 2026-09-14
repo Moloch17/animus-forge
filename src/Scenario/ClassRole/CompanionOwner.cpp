@@ -17,7 +17,7 @@
  */
 
 #include "CompanionOwner.h"
-#include "ActionCatalog.h"
+#include "ClassRoleCommon.h"
 #include "Creature.h"
 #include "Log.h"
 #include "MotionMaster.h"
