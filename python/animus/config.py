@@ -133,9 +133,6 @@ class TrainConfig:
         raw = load_yaml(path)
         for override in overrides or ():
             apply_override(raw, override)
-        if "plateau" in raw:
-            raise ValueError("config section 'plateau' was replaced by 'convergence' (same keys, plus window and z); "
-                             "see 'target' and 'restarts' for moving on to the next stage")
         return from_dict(cls, raw)
 
     def to_dict(self) -> dict:

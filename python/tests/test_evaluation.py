@@ -215,8 +215,6 @@ def test_config_overrides(tmp_path):
 
     with pytest.raises(ValueError):
         TrainConfig.load(path, ["eval.nope=1"])
-    with pytest.raises(ValueError, match="replaced by 'convergence'"):
-        TrainConfig.load(path, ["plateau.patience=3"])
 
 
 def test_config_extends_merges_sections(tmp_path):
