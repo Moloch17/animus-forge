@@ -1,11 +1,11 @@
-# Learner config for class_role_pack, stage 3 of the class/role curriculum: the duel's random characters against a
-# pack of 2-4 same-level creatures, casters included, usually linked. The policy picks targets, interrupts,
-# crowd-controls and clears the pack fast while losing little health. Episodes end when the pack is cleared or the
-# bot dies.
+# Learner config for stage3_gauntlet, stage 3 of the class/role curriculum: pull after pull (1-4 creatures,
+# sometimes an elite or a higher-level pack) with 8-20 s breaks, until the bot dies or the episode ends. Heals, food
+# and drink are available for recovering between pulls. Each cleared pull pays for speed and health kept.
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Give the gauntlet
+# long episodes (AnimusForge.EpisodeSeconds of several minutes) so there are many pulls.
 
-run_name: class_role_pack
+run_name: stage3_gauntlet
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
@@ -13,12 +13,12 @@ seed: 1
 # Seed from the closest earlier stage that has been trained (the first candidate that exists): each
 # layout extends the earlier stage's, and the trunk carries over.
 init_from:
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
+  - runs/stage2_pack/best.pt
+  - runs/stage1_duel/best.pt
 
-# Budget sized from throughput: 150M env steps is ~6 h at ~7k env steps/s (one seat, like the duel).
+# Budget sized from throughput: 200M env steps is ~8 h at ~7k env steps/s.
 # The plateau stop usually ends the stage sooner.
-total_env_steps: 150000000
+total_env_steps: 200000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -29,7 +29,8 @@ train_device: cuda
 mappo:
   # Must match the earlier stages for the seeding to apply.
   hidden: [512, 512]
-  gamma: 0.997
+  # Pulls and recovery span minutes: the longest horizon of the curriculum (~1000 decisions, 50 s).
+  gamma: 0.999
   gae_lambda: 0.95
   clip: 0.2
   value_clip: 0.2
@@ -56,9 +57,9 @@ eval:
   baseline: fight
 
 # Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
-# 30M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+# 40M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
   patience: 5
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 30000000
+  min_env_steps: 40000000

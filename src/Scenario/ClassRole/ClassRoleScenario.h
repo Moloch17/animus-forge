@@ -206,7 +206,7 @@ namespace AnimusForge
         ClassRoleScenario(ForgeConfig const& config, ArenaMode mode);
         ~ClassRoleScenario() override;
 
-        /// `class_role` for the dummy, `class_role_duel` for the duel, ...
+        /// `stage1_duel` for the duel, `stage2_pack` for the pack, ...
         [[nodiscard]] static std::string ScenarioName(ArenaMode mode);
 
         [[nodiscard]] char const* Name() const override { return _name.c_str(); }
@@ -243,8 +243,6 @@ namespace AnimusForge
             uint32 UnspentTalentPoints = 0;
             uint32 EquippedItems = 0;
             float DamageScale = 1.0f;
-            float StartHealth = 1.0f;                   // dummy health fraction at episode start
-            float EndHealth = 0.0f;                     // ... and at the episode time limit
 
             uint32 LastPower = 0;
             float LastStepDamage = 0.0f;
@@ -358,7 +356,7 @@ namespace AnimusForge
         [[nodiscard]] bool HasCompanion() const { return _mode >= ArenaMode::Companion; }
         [[nodiscard]] bool HasParty() const { return _mode >= ArenaMode::Party; }
         [[nodiscard]] bool HasPvp() const { return _mode >= ArenaMode::Pvp; }
-        /// Stages 1-6 fight creatures; 7 and 8 keep their layouts but fight a player, without pulls or allies.
+        /// Stages 1-5 fight creatures; 6 and 7 keep their layouts but fight a player, without pulls or allies.
         [[nodiscard]] bool IsPve() const { return _mode < ArenaMode::Pvp; }
         [[nodiscard]] bool IsArena() const { return _mode == ArenaMode::Arena; }
         [[nodiscard]] bool IsParty() const { return _mode == ArenaMode::Party; }
@@ -370,9 +368,7 @@ namespace AnimusForge
         /// Create, place and dress seat `seat`'s next character on its idle session (`newSession`).
         bool BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start, uint8& newSession);
         void Configure(Player* bot, Seat& seat) const;
-        void StartFight(Player* bot, Unit* dummy, Seat const& seat) const;
-        void UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const;
-        /// What the seat's actions aim at: the dummy or opponent, the selected pack enemy (the nearest living one
+        /// What the seat's actions aim at: the opponent, the selected pack enemy (the nearest living one
         /// when the selection is dead), the enemy player. Null between gauntlet pulls.
         [[nodiscard]] Unit* CurrentTarget(Env const& env, uint32 seat);
         /// What the encoder needs to know about seat `seat` that only the env knows (see SeatView).
@@ -434,7 +430,7 @@ namespace AnimusForge
         void PartyEpisodeInfo(Env const& env, uint32 seat, float* info) const;
 
         // PvP stages (ClassRolePvp.cpp).
-        /// The seat's enemy player: the scripted opponent (stage 7) or the other seat's bot (stage 8).
+        /// The seat's enemy player: the scripted opponent (stage 6) or the other seat's bot (stage 7).
         [[nodiscard]] Player* FindOpponent(Env const& env, uint32 seat) const;
         bool StartPvp(Env& env, Map* map);
         bool RebuildOpponent(Env& env, Player* bot, Map* map);

@@ -36,19 +36,18 @@ AnimusForge.Enable = 0
 #                     trinkets for the spec. Each class/role is a layout of the policy (its own
 #                     observations and actions around a shared trunk) and exports as its own model.
 #                     Each stage's layouts extend the previous stage's, which seeds it:
-#                       "class_role"           - a training dummy: maximise damage
-#                       "class_role_duel"      - a same-level creature out of aggro range: move to it
-#                                                and kill it fast, taking little damage; pets are the
-#                                                policy's to summon, stealth openers rewarded
-#                       "class_role_pack"      - a pack of 2-4 (casters, usually linked): targets,
-#                                                interrupts, crowd control
-#                       "class_role_gauntlet"  - pull after pull with short breaks: heals, food, drink
-#                       "class_role_companion" - the gauntlet beside a scripted owner of a random class:
-#                                                follow, assist, guard and heal it
-#                       "class_role_party"     - four learned seats (tank, healer, two damage dealers)
-#                                                and the scripted owner against elite-heavy pulls
-#                       "class_role_pvp"       - one-on-one against a scripted enemy player
-#                       "class_role_arena"     - self-play one-on-one: two learned seats of any classes
+#                       "stage1_duel"      - a same-level creature out of aggro range: move to it
+#                                            and kill it fast, taking little damage; pets are the
+#                                            policy's to summon, stealth openers rewarded
+#                       "stage2_pack"      - a pack of 2-4 (casters, usually linked): targets,
+#                                            interrupts, crowd control
+#                       "stage3_gauntlet"  - pull after pull with short breaks: heals, food, drink
+#                       "stage4_companion" - the gauntlet beside a scripted owner of a random class:
+#                                            follow, assist, guard and heal it
+#                       "stage5_party"     - four learned seats (tank, healer, two damage dealers)
+#                                            and the scripted owner against elite-heavy pulls
+#                       "stage6_pvp"       - one-on-one against a scripted enemy player
+#                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
 #        Default:     "warrior_dummy"
 
 AnimusForge.Scenario = "warrior_dummy"
@@ -63,8 +62,8 @@ AnimusForge.Scenario = "warrior_dummy"
 #                     and AnimusForge.Learner.AutoStart = 1. Each scenario trains in runs/<scenario>/
 #                     and publishes <scenario>.amdl. Can be set from the environment:
 #                     AC_ANIMUS_FORGE_QUEUE.
-#        Example:     "class_role, class_role_duel, class_role_pack, class_role_gauntlet,
-#                      class_role_companion, class_role_party, class_role_pvp, class_role_arena"
+#        Example:     "stage1_duel, stage2_pack, stage3_gauntlet, stage4_companion, stage5_party,
+#                      stage6_pvp, stage7_arena"
 #        Default:     "" - (run AnimusForge.Scenario only)
 
 AnimusForge.Queue = ""
@@ -194,7 +193,7 @@ AnimusForge.Learner.Python = ""
 #    AnimusForge.Learner.Config
 #        Description: Learner config for every scenario, relative to WorkDir or absolute. The run is
 #                     always named after the scenario (--run-name).
-#        Default:     "" - configs/<scenario>.yaml if it exists, else configs/class_role.yaml
+#        Default:     "" - configs/<scenario>.yaml
 
 AnimusForge.Learner.Config = ""
 

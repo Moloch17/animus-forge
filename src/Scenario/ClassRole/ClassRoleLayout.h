@@ -33,32 +33,33 @@
  */
 namespace AnimusForge::ClassRole
 {
-    /// A curriculum stage. Each stage is its own scenario (`class_role`, `class_role_duel`, ...), so every earlier
+    /// A curriculum stage. Each stage is its own scenario (`stage1_duel`, `stage2_pack`, ...), so every earlier
     /// stage stays repeatable, and each stage's observations and actions extend the previous stage's per layout,
-    /// so a stage's model seeds the next.
+    /// so a stage's model seeds the next. The stage number is the enum value.
     enum class Stage : uint8
     {
-        /// Stage 1 (`class_role`): a training dummy in range that takes no damage; maximise damage.
-        Dummy,
-        /// Stage 2 (`class_role_duel`): a same-level hostile creature spawned out of aggro range that fights back;
+        /// The base block every stage starts with (the character, its spells, trinkets and talents). Not a
+        /// scenario of its own.
+        Base,
+        /// Stage 1 (`stage1_duel`): a same-level hostile creature spawned out of aggro range that fights back;
         /// move to it and kill it quickly while taking little damage.
         Duel,
-        /// Stage 3 (`class_role_pack`): a pack of 2-4 same-level creatures (casters included), often linked; pick
+        /// Stage 2 (`stage2_pack`): a pack of 2-4 same-level creatures (casters included), often linked; pick
         /// targets, interrupt, crowd-control and clear it fast with little damage taken.
         Pack,
-        /// Stage 4 (`class_role_gauntlet`): pull after pull (1-4 creatures, sometimes elite or higher level) with a
+        /// Stage 3 (`stage3_gauntlet`): pull after pull (1-4 creatures, sometimes elite or higher level) with a
         /// short break between, until death or the episode ends; recover with heals, food and drink.
         Gauntlet,
-        /// Stage 5 (`class_role_companion`): the gauntlet beside a scripted owner (a player of a random class near
+        /// Stage 4 (`stage4_companion`): the gauntlet beside a scripted owner (a player of a random class near
         /// the bot's level); follow, assist, guard and heal it.
         Companion,
-        /// Stage 6 (`class_role_party`): four learned agents -- a tank, a healer and two damage dealers of random
+        /// Stage 5 (`stage5_party`): four learned agents -- a tank, a healer and two damage dealers of random
         /// classes -- and the scripted owner as the fifth player, against elite-heavy pulls. Every agent sees and
         /// can assist, guard and heal the other three.
         Party,
-        /// Stage 7 (`class_role_pvp`): one-on-one against a scripted enemy player of a random class and role.
+        /// Stage 6 (`stage6_pvp`): one-on-one against a scripted enemy player of a random class and role.
         Pvp,
-        /// Stage 8 (`class_role_arena`): self-play one-on-one: two learned agents of random classes and roles, in
+        /// Stage 7 (`stage7_arena`): self-play one-on-one: two learned agents of random classes and roles, in
         /// one env, played by the same policy.
         Arena,
     };
@@ -66,12 +67,12 @@ namespace AnimusForge::ClassRole
     /// Whether `stage` includes `block`'s features and actions (every stage keeps the previous stages' blocks).
     [[nodiscard]] inline bool HasBlock(Stage stage, Stage block) { return stage >= block; }
 
-    /// Per-decision damage scale of a level (the dummy block's last-step damage is damage / this): roughly how a
+    /// Per-decision damage scale of a level (the base block's last-step damage is damage / this): roughly how a
     /// well-geared character's damage grows with level, so values have a similar size at every level (about 16 at
     /// level 1, 230 at 40, 3500 at 80).
     [[nodiscard]] float DamageScale(uint8 level);
 
-    /// Stage scenario names: class_role, class_role_duel, ...; and the suffix a stage adds to model names.
+    /// Stage scenario names: stage1_duel, stage2_pack, ...; and the suffix a stage adds to model names (_duel).
     [[nodiscard]] char const* StageScenarioName(Stage stage);
     [[nodiscard]] char const* StageSuffix(Stage stage);
 
@@ -89,7 +90,7 @@ namespace AnimusForge::ClassRole
             OBS_ENERGY                  = 17,   // fraction of max
             OBS_RUNIC_POWER             = 18,   // / 100
             OBS_RUNE_FIRST              = 19,   // 6 runes: 1 ready, else 1 - cooldown / 10 s
-            OBS_COMBO_POINTS            = 25,   // on the dummy, / 5
+            OBS_COMBO_POINTS            = 25,   // on the target, / 5
             OBS_FORM_FIRST              = 26,   // one-hot over TRACKED_FORMS
             OBS_GCD                     = 39,   // remaining / 1.5 s
             OBS_CASTING                 = 40,   // casting or channeling
@@ -122,7 +123,7 @@ namespace AnimusForge::ClassRole
         static constexpr uint32 ACTION_FEATURES = 5;
         static constexpr uint32 MAX_SPECS = 3;
 
-        /// Duel observation features, after all of stage 1's.
+        /// Duel observation features, after the base block's.
         enum DuelObs : uint32
         {
             DUEL_OBS_DISTANCE           = 0,    // yards / 60
@@ -154,7 +155,7 @@ namespace AnimusForge::ClassRole
         static constexpr uint32 STABLE_SLOTS = 4;
         static constexpr uint32 STABLE_FEATURES = 5;
 
-        /// Duel actions, after all of stage 1's.
+        /// Duel actions, after the base block's.
         enum DuelAction : uint32
         {
             DUEL_ACTION_MOVE_TO_TARGET  = 0,    // run to melee reach, on the side the bot is on
@@ -193,7 +194,7 @@ namespace AnimusForge::ClassRole
             SLOT_FEATURES
         };
 
-        /// Pack observation features, after all of stage 2's: PACK_OBS_GLOBAL_COUNT globals, the enemy slots,
+        /// Pack observation features, after all of stage 1's: PACK_OBS_GLOBAL_COUNT globals, the enemy slots,
         /// then per tactical action: known, cooldown.
         enum PackObs : uint32
         {
@@ -202,10 +203,10 @@ namespace AnimusForge::ClassRole
             PACK_OBS_GLOBAL_COUNT       = 2
         };
 
-        /// Pack actions, after all of stage 2's: target slot 0..PACK_SLOTS-1, then the tactical spells.
+        /// Pack actions, after all of stage 1's: target slot 0..PACK_SLOTS-1, then the tactical spells.
         static constexpr uint32 PACK_ACTION_TARGET_FIRST = 0;
 
-        /// Gauntlet observation features, after all of stage 3's, then per sustain action: known, cooldown.
+        /// Gauntlet observation features, after all of stage 2's, then per sustain action: known, cooldown.
         enum GauntletObs : uint32
         {
             GAUNTLET_OBS_PULLS_CLEARED  = 0,    // / 10
@@ -220,7 +221,7 @@ namespace AnimusForge::ClassRole
             GAUNTLET_OBS_GLOBAL_COUNT   = 9
         };
 
-        /// Gauntlet actions, after all of stage 3's: eat, drink, then the sustain spells.
+        /// Gauntlet actions, after all of stage 2's: eat, drink, then the sustain spells.
         enum GauntletAction : uint32
         {
             GAUNTLET_ACTION_EAT         = 0,
@@ -230,7 +231,7 @@ namespace AnimusForge::ClassRole
 
         static constexpr uint32 CONSUMABLE_COUNT = 5;
 
-        /// Companion observation features, after all of stage 4's, then per owner-heal action: known,
+        /// Companion observation features, after all of stage 3's, then per owner-heal action: known,
         /// cooldown.
         enum CompanionObs : uint32
         {
@@ -252,7 +253,7 @@ namespace AnimusForge::ClassRole
             COMPANION_OBS_GLOBAL_COUNT      = 30
         };
 
-        /// Companion actions, after all of stage 4's: follow, assist, guard, then one "cast on the owner"
+        /// Companion actions, after all of stage 3's: follow, assist, guard, then one "cast on the owner"
         /// action per single-target heal.
         enum CompanionAction : uint32
         {
@@ -285,7 +286,7 @@ namespace AnimusForge::ClassRole
             MEMBER_FEATURES             = 31
         };
 
-        /// Party observation features, after all of stage 5's: globals, then PARTY_MEMBERS teammate slots.
+        /// Party observation features, after all of stage 4's: globals, then PARTY_MEMBERS teammate slots.
         enum PartyObs : uint32
         {
             PARTY_OBS_ALIVE             = 0,    // living party players (bot and owner included) / 5
@@ -295,7 +296,7 @@ namespace AnimusForge::ClassRole
             PARTY_OBS_GLOBAL_COUNT      = 4
         };
 
-        /// Party actions, after all of stage 5's: follow the tank, then per teammate assist and guard, then per
+        /// Party actions, after all of stage 4's: follow the tank, then per teammate assist and guard, then per
         /// teammate one "cast on it" action per ally heal.
         enum PartyAction : uint32
         {
@@ -305,7 +306,7 @@ namespace AnimusForge::ClassRole
             PARTY_ACTION_HEAL_FIRST     = 1 + 2 * PARTY_MEMBERS  // + teammate * ally heals + heal
         };
 
-        /// PvP observation features (stages 7 and 8), after all of stage 6's.
+        /// PvP observation features (stages 6 and 7), after all of stage 5's.
         enum PvpObs : uint32
         {
             PVP_OBS_OPPONENT_CLASS_FIRST = 0,   // one-hot over the 10 classes
@@ -320,7 +321,7 @@ namespace AnimusForge::ClassRole
             PVP_OBS_BOT_STUNNED         = 20,   // stunned, feared or confused: no actions land
             PVP_OBS_BOT_ROOTED          = 21,
             PVP_OBS_BOT_SILENCED        = 22,
-            PVP_OBS_MIRROR              = 23,   // stage 8: the opponent is a learned agent too
+            PVP_OBS_MIRROR              = 23,   // stage 7: the opponent is a learned agent too
             PVP_OBS_COUNT               = 24
         };
     };
@@ -329,7 +330,7 @@ namespace AnimusForge::ClassRole
     struct Layout : LayoutConstants
     {
         uint16 Index = 0;                           // position among the layouts of a run (the learner's id)
-        Stage StageId = Stage::Dummy;
+        Stage StageId = Stage::Base;
         ClassRoleProfile const* Profile = nullptr;
         ClassRoleAssets const* Assets = nullptr;
         uint32 ObsDim = 0;

@@ -41,7 +41,7 @@ namespace AnimusForge::ClassRole
     {
         Layout const* L = nullptr;
         Player* Bot = nullptr;
-        /// What the actions aim at: the dummy, the opponent, the selected enemy. May be null (between pulls).
+        /// What the actions aim at: the opponent, the selected enemy. May be null (between pulls).
         Unit* Target = nullptr;
 
         // The character, as built.

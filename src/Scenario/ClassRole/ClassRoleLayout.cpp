@@ -22,6 +22,7 @@
 #include "SpellMgr.h"
 #include "StringFormat.h"
 #include <cmath>
+#include <cstring>
 
 namespace
 {
@@ -63,22 +64,25 @@ char const* AnimusForge::ClassRole::StageScenarioName(Stage stage)
 {
     switch (stage)
     {
-        case Stage::Duel:      return "class_role_duel";
-        case Stage::Pack:      return "class_role_pack";
-        case Stage::Gauntlet:  return "class_role_gauntlet";
-        case Stage::Companion: return "class_role_companion";
-        case Stage::Party:     return "class_role_party";
-        case Stage::Pvp:       return "class_role_pvp";
-        case Stage::Arena:     return "class_role_arena";
-        case Stage::Dummy:     break;
+        case Stage::Duel:      return "stage1_duel";
+        case Stage::Pack:      return "stage2_pack";
+        case Stage::Gauntlet:  return "stage3_gauntlet";
+        case Stage::Companion: return "stage4_companion";
+        case Stage::Party:     return "stage5_party";
+        case Stage::Pvp:       return "stage6_pvp";
+        case Stage::Arena:     return "stage7_arena";
+        case Stage::Base:      break;
     }
 
-    return "class_role";
+    return "";
 }
 
 char const* AnimusForge::ClassRole::StageSuffix(Stage stage)
 {
-    return StageScenarioName(stage) + std::char_traits<char>::length("class_role");
+    // stage1_duel -> _duel; the base block has no suffix.
+    char const* name = StageScenarioName(stage);
+    char const* underscore = std::strchr(name, '_');
+    return underscore ? underscore : name;
 }
 
 AnimusForge::ClassRole::Layout AnimusForge::ClassRole::Layout::Build(ClassRoleProfile const& profile, Stage stage)

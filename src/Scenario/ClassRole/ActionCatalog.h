@@ -72,7 +72,7 @@ namespace AnimusForge::ClassRole
         /// Highest rank of a spell action the bot knows, or nullptr.
         [[nodiscard]] static SpellInfo const* KnownRank(Player const* bot, uint32 firstRank);
 
-        /// Whether a spell is worth an action slot for damage on a target dummy.
+        /// Whether a spell is worth an action slot for damage on a target.
         [[nodiscard]] static bool IsCombatSpell(SpellInfo const* info);
         [[nodiscard]] static bool IsTacticalSpell(SpellInfo const* info);
         [[nodiscard]] static bool IsSustainSpell(SpellInfo const* info);

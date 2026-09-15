@@ -66,7 +66,7 @@ namespace AnimusForge
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
         /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else
-        /// configs/<scenario>.yaml if it exists, else configs/class_role.yaml.
+        /// configs/<scenario>.yaml.
         [[nodiscard]] std::string LearnerConfigFor(std::string const& scenario) const;
 
         void Load();

@@ -35,7 +35,7 @@ def wide_actor(layouts=LAYOUTS) -> LayoutActor:
 
 def test_each_layout_exports_as_the_same_mlp(tmp_path):
     actor = wide_actor()
-    written = export_layouts(actor.state_dict(), spec_for("class_role_duel"), tmp_path)
+    written = export_layouts(actor.state_dict(), spec_for("stage1_duel"), tmp_path)
     assert [path.name for path in written] == ["warrior_dps_duel.amdl", "priest_heal_duel.amdl"]
 
     rng = np.random.default_rng(1)
@@ -67,8 +67,8 @@ def test_each_layout_exports_as_the_same_mlp(tmp_path):
 
 
 def test_model_names():
-    assert model_name("class_role", "warrior_dps", 18) == "warrior_dps"
-    assert model_name("class_role_party", "druid_heal", 18) == "druid_heal_party"
+    assert model_name("stage1_duel", "warrior_dps", 18) == "warrior_dps_duel"
+    assert model_name("stage5_party", "druid_heal", 18) == "druid_heal_party"
     assert model_name("warrior_dummy", "warrior_dummy", 1) == "warrior_dummy"
 
 
@@ -93,7 +93,7 @@ def test_layout_manifests_are_exported_beside_their_models(tmp_path):
     out = tmp_path / "models"
     out.mkdir()
 
-    export_layouts(wide_actor().state_dict(), spec_for("class_role_duel"), out, manifest_dir=manifests)
+    export_layouts(wide_actor().state_dict(), spec_for("stage1_duel"), out, manifest_dir=manifests)
 
     assert (out / "warrior_dps_duel.json").read_text() == '{"model":"warrior_dps_duel"}\n'
     assert not (out / "priest_heal_duel.json").exists()  # no manifest written for it

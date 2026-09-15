@@ -1,12 +1,11 @@
-# Learner config for class_role_duel, stage 2 of the class/role curriculum: the same random characters as stage 1,
-# now against a same-level creature that fights back, spawned out of aggro range. The bot has to move to it, pick
-# its pet, open from stealth where it can, and kill it fast while losing little health. Episodes end on the kill or
-# the bot's death. Publishes warrior_dps_duel.amdl, ...
+# Learner config for stage2_pack, stage 2 of the class/role curriculum: the duel's random characters against a
+# pack of 2-4 same-level creatures, casters included, usually linked. The policy picks targets, interrupts,
+# crowd-controls and clears the pack fast while losing little health. Episodes end when the pack is cleared or the
+# bot dies.
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf); everything here is
-# learner-side.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
 
-run_name: class_role_duel
+run_name: stage2_pack
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
@@ -14,9 +13,9 @@ seed: 1
 # Seed from the closest earlier stage that has been trained (the first candidate that exists): each
 # layout extends the earlier stage's, and the trunk carries over.
 init_from:
-  - runs/{base_run}/best.pt
+  - runs/stage1_duel/best.pt
 
-# Budget sized from throughput: 150M env steps is ~6 h at the pilot's ~7k env steps/s.
+# Budget sized from throughput: 150M env steps is ~6 h at ~7k env steps/s (one seat, like the duel).
 # The plateau stop usually ends the stage sooner.
 total_env_steps: 150000000
 rollout_length: 128
@@ -27,9 +26,8 @@ rollout_device: cpu
 train_device: cuda
 
 mappo:
-  # Must match configs/class_role.yaml for the seeding to apply.
+  # Must match the earlier stages for the seeding to apply.
   hidden: [512, 512]
-  # Kills take tens of seconds of 50 ms decisions including the approach; look further ahead.
   gamma: 0.997
   gae_lambda: 0.95
   clip: 0.2

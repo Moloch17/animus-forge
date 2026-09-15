@@ -9,9 +9,6 @@ import yaml
 
 from .mappo.trainer import MappoConfig
 
-# Curriculum stage suffixes of class/role scenario names, latest stage first.
-STAGE_SUFFIXES = ("_arena", "_pvp", "_party", "_companion", "_gauntlet", "_pack", "_duel")
-
 REPORT_COLUMNS = (
     "dps", "killed", "died", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
     "owner_deaths", "owner_healing", "casts_completed", "casts_cancelled", "cancelled_stopped", "cancelled_moved",
@@ -59,18 +56,13 @@ class TrainConfig:
 
     # A run seeds its networks from an earlier-stage checkpoint (see animus.bootstrap): the first of these
     # candidates that exists, so a stage still seeds from the closest earlier stage when the ones in between were
-    # skipped. "{base_run}" is the run name without a stage suffix such as "_duel": runs/{base_run}/best.pt seeds
-    # warrior_dps_duel from warrior_dps. A best.pt that does not exist falls back to the latest.pt beside it.
+    # skipped. "{run_name}" is replaced by this run's name. A best.pt that does not exist falls back to the latest.pt
+    # beside it.
     init_from: str | list[str] = ""
 
     def resolved_init_from(self) -> list[str]:
-        base = self.run_name
-        for suffix in STAGE_SUFFIXES:
-            if base.endswith(suffix):
-                base = base[: -len(suffix)]
-                break
         candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
-        return [c.format(base_run=base, run_name=self.run_name) for c in candidates if c]
+        return [c.format(run_name=self.run_name) for c in candidates if c]
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)

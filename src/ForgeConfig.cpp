@@ -126,17 +126,5 @@ std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenar
     if (!LearnerConfig.empty())
         return absolute(LearnerConfig).string();
 
-    fs::path const own = absolute(fs::path("configs") / (scenario + ".yaml"));
-    if (fs::exists(own))
-        return own.string();
-
-    // Class/role stages share a config per stage.
-    for (char const* stage : { "duel", "pack", "gauntlet", "companion", "party", "pvp", "arena" })
-    {
-        std::string const suffix = std::string("_") + stage;
-        if (scenario.size() > suffix.size() && scenario.ends_with(suffix))
-            return absolute(fs::path("configs") / (std::string("class_role_") + stage + ".yaml")).string();
-    }
-
-    return absolute("configs/class_role.yaml").string();
+    return absolute(fs::path("configs") / (scenario + ".yaml")).string();
 }

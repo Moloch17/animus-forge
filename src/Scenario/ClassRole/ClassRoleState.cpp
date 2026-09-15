@@ -18,7 +18,7 @@
 
 /*
  * The centralized critic state of ClassRoleScenario: a class-agnostic picture of the whole env -- every seat, every
- * enemy slot (the PvP stages' enemy player is slot 0 in stage 7; in stage 8 each seat is the other's enemy), the
+ * enemy slot (the PvP stages' enemy player is slot 0 in stage 6; in stage 7 each seat is the other's enemy), the
  * owner, and the pull timing. The critic sees it together with each agent's own observation (see the learner's
  * LayoutCritic), so values can account for teammates and enemies the agent's observation only partly shows.
  */
@@ -116,7 +116,7 @@ void AnimusForge::ClassRoleScenario::BuildState(Env const& env, float* state) co
         features[STATE_SEAT_Y] = Relative(bot->GetPositionY(), originY);
     }
 
-    // The enemies: the env's targets (creatures, or stage 7's enemy player); in stage 8 each seat's opponent is the
+    // The enemies: the env's targets (creatures, or stage 6's enemy player); in stage 7 each seat's opponent is the
     // other seat, already in the seat block.
     float const leadLevel = float(data.Seats[0].Level);
     for (uint32 slot = 0; slot < env.Targets.size() && slot < PACK_SLOTS; ++slot)

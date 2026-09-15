@@ -47,14 +47,6 @@ namespace
 {
     using AnimusForge::ActionCatalog;
 
-    enum ClassRoleSpells : uint32
-    {
-        SPELL_BATTLE_STANCE     = 2457,
-        SPELL_DEFENSIVE_STANCE  = 71,
-    };
-
-    constexpr float MELEE_DISTANCE = 2.0f;
-    constexpr float RANGED_DISTANCE = 20.0f;
     constexpr float PARTY_SPACING = 3.0f;
     constexpr uint32 WORLD_TICK_MS = 50;            // the sim's fixed world tick
     constexpr uint32 MAX_COMBAT_TIME_MS = 60000;
@@ -257,7 +249,7 @@ bool AnimusForge::ClassRoleScenario::IsTerminal(Env const& env) const
             return data.Seats[0].Died || data.Seats[0].Killed;
         case ArenaMode::Arena:
             return data.Seats[0].Died || data.Seats[1].Died;
-        case ArenaMode::Dummy:
+        case ArenaMode::Base:
             break;
     }
 
@@ -464,28 +456,15 @@ bool AnimusForge::ClassRoleScenario::Rebuild(Env& env)
         return SpawnPull(env, map);
     }
 
+    // The duel.
     Seat& seat = data.Seats[0];
-    if (_mode == ArenaMode::Duel)
-    {
-        data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(seat.Level);
-        Creature* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(lead, map, data.OpponentEntry) : nullptr;
-        if (!opponent)
-            return false;
-
-        env.Targets = { opponent->GetGUID() };
-        StartDuel(lead, seat);
-        return true;
-    }
-
-    SpecProfile const& specProfile = seat.L->Profile->Specs[seat.Spec];
-    float const distance = specProfile.Range == RangeBand::Melee ? MELEE_DISTANCE : RANGED_DISTANCE;
-
-    Creature* dummy = TrainingDummyArena::SpawnDummy(lead, map, distance);
-    if (!dummy)
+    data.OpponentEntry = DuelArena::OpponentPool::Instance().Random(seat.Level);
+    Creature* opponent = data.OpponentEntry ? DuelArena::SpawnOpponent(lead, map, data.OpponentEntry) : nullptr;
+    if (!opponent)
         return false;
 
-    env.Targets = { dummy->GetGUID() };
-    StartFight(lead, dummy, seat);
+    env.Targets = { opponent->GetGUID() };
+    StartDuel(lead, seat);
     return true;
 }
 
@@ -500,8 +479,6 @@ bool AnimusForge::ClassRoleScenario::BuildSeat(Env& env, uint32 seatIndex, Map*&
     seat.Race = layout.Assets->Races[urand(0, uint32(layout.Assets->Races.size()) - 1)];
     seat.Level = level;
     seat.Spec = uint8(urand(0, uint32(layout.Profile->Specs.size()) - 1));
-    seat.StartHealth = frand(0.2f, 1.0f);
-    seat.EndHealth = frand(0.0f, seat.StartHealth);
     seat.DamageScale = AnimusForge::ClassRole::DamageScale(level);
 
     newSession = old ? uint8(1 - seat.ActiveSession) : seat.ActiveSession;
@@ -562,39 +539,6 @@ void AnimusForge::ClassRoleScenario::Configure(Player* bot, Seat& seat) const
     bot->SetPower(POWER_ENERGY, bot->GetMaxPower(POWER_ENERGY));
     bot->SetPower(POWER_RAGE, 0);
     bot->SetPower(POWER_RUNIC_POWER, 0);
-}
-
-void AnimusForge::ClassRoleScenario::StartFight(Player* bot, Unit* dummy, Seat const& seat) const
-{
-    SpecProfile const& spec = seat.L->Profile->Specs[seat.Spec];
-
-    bot->SetOrientation(bot->GetAngle(dummy));
-
-    // A warrior has no stance until one is cast (a first login casts it), and nothing works without one.
-    if (seat.L->Profile->Class == CLASS_WARRIOR)
-    {
-        uint32 const stance = seat.L->PlayRole() == Role::Tank && bot->HasSpell(SPELL_DEFENSIVE_STANCE)
-            ? SPELL_DEFENSIVE_STANCE : SPELL_BATTLE_STANCE;
-        bot->CastSpell(bot, stance, true);
-    }
-
-    bool const melee = spec.Range == RangeBand::Melee;
-    bot->Attack(dummy, melee);
-
-    // Random swing phase so episodes do not all start on the same swing boundary.
-    if (melee)
-        bot->setAttackTimer(BASE_ATTACK, int32(urand(0, bot->GetAttackTime(BASE_ATTACK))));
-
-    dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * seat.StartHealth)));
-}
-
-void AnimusForge::ClassRoleScenario::UpdateDummyHealth(Env const& env, Seat const& seat, Unit* dummy) const
-{
-    float const progress = env.EpisodeLengthMs
-        ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
-    float const fraction = seat.StartHealth + (seat.EndHealth - seat.StartHealth) * progress;
-
-    dummy->SetHealth(std::max<uint32>(1, uint32(float(dummy->GetMaxHealth()) * fraction)));
 }
 
 void AnimusForge::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions)
@@ -687,9 +631,6 @@ void AnimusForge::ClassRoleScenario::ApplySeatAction(Env& env, uint32 seatIndex,
     // Only the gauntlet has moments without a target (between pulls).
     if (!target && !HasGauntlet())
         return;
-
-    if (_mode == ArenaMode::Dummy)
-        UpdateDummyHealth(env, seat, target);
 
     SeatView view = ViewSeat(env, seatIndex, bot, target);
     SeatActionResult result;
@@ -785,7 +726,7 @@ float AnimusForge::ClassRoleScenario::SeatReward(Env& env, uint32 seatIndex)
         case ArenaMode::Party:     reward = PartyReward(env, seatIndex, bot); break;
         case ArenaMode::Pvp:
         case ArenaMode::Arena:     reward = PvpReward(env, seatIndex, bot); break;
-        case ArenaMode::Dummy:     break;
+        case ArenaMode::Base:      break;
     }
 
     if (bot)
@@ -905,9 +846,9 @@ Unit* AnimusForge::ClassRoleScenario::CurrentTarget(Env const& env, uint32 seatI
 bool AnimusForge::ClassRoleScenario::ScriptedAction(std::string const& policy, float const* obs,
     uint8 const* mask, uint16 layoutIndex, int32& action) const
 {
-    // Smoke-test baselines. "greedy": the first usable spell or trinket in catalog order. "fight" (duel stage on):
-    // also start attacking, run to the target, eat or drink between gauntlet pulls, and heal hurt allies.
-    if (policy != "greedy" && !(policy == "fight" && HasDuel()))
+    // Smoke-test baselines. "greedy": the first usable spell or trinket in catalog order. "fight": also start
+    // attacking, run to the target, eat or drink between gauntlet pulls, and heal hurt allies.
+    if (policy != "greedy" && policy != "fight")
         return false;
 
     action = 0;

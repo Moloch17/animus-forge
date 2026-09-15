@@ -1,12 +1,10 @@
-# Learner config for class_role_companion, stage 5 of the class/role curriculum: the gauntlet fought beside a
-# scripted owner, a player of a random class near the bot's level that wanders, engages each pull and takes real
-# damage. The bot follows, assists and guards it; tanks keep enemies on themselves, healers keep the owner alive
-# with effective healing, damage dealers avoid pulling threat. Episodes end when the bot or the owner dies.
+# Learner config for stage6_pvp, stage 6 of the class/role curriculum: one-on-one against a scripted enemy
+# player of a random class and role at the bot's level. Episodes end when either dies; the duel's reward (damage, a
+# fast kill, little damage taken, casts).
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the gauntlet,
-# give it episodes of several minutes.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
 
-run_name: class_role_companion
+run_name: stage6_pvp
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
@@ -14,14 +12,15 @@ seed: 1
 # Seed from the closest earlier stage that has been trained (the first candidate that exists): each
 # layout extends the earlier stage's, and the trunk carries over.
 init_from:
-  - runs/{base_run}_gauntlet/best.pt
-  - runs/{base_run}_pack/best.pt
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
+  - runs/stage5_party/best.pt
+  - runs/stage4_companion/best.pt
+  - runs/stage3_gauntlet/best.pt
+  - runs/stage2_pack/best.pt
+  - runs/stage1_duel/best.pt
 
-# Budget sized from throughput: 200M env steps is ~8 h at ~7k env steps/s.
+# Budget sized from throughput: 150M env steps is ~6 h at ~7k env steps/s.
 # The plateau stop usually ends the stage sooner.
-total_env_steps: 200000000
+total_env_steps: 150000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -57,11 +56,12 @@ eval:
   seed: 1000
   deterministic: true
   baseline: fight
+  report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
 
 # Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
-# 40M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+# 30M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
   patience: 5
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 40000000
+  min_env_steps: 30000000

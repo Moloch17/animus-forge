@@ -280,7 +280,7 @@ namespace
         bot->GetMotionMaster()->MovePoint(pointId, x, y, z);
     }
 
-    // Stage 1: the class's spells and trinkets.
+    // The base block: the class's spells and trinkets.
 
     bool IsSpellActionAllowed(SeatView const& view, Unit* target, ActionCatalog::Action const& def)
     {
@@ -365,7 +365,7 @@ namespace
         return true;
     }
 
-    // Stage 2: the duel.
+    // Stage 1: the duel.
 
     bool IsDuelActionAllowed(SeatView const& view, uint32 duelAction)
     {
@@ -693,7 +693,7 @@ namespace
             ++(eat ? result.FoodUsed : result.DrinkUsed);
     }
 
-    // Stage 5: the owner.
+    // Stage 4: the owner.
 
     void ObserveCompanion(SeatView const& view, float* obs)
     {
@@ -817,7 +817,7 @@ namespace
         Heal(bot, view.L->AllyHeals[companionAction - LayoutConstants::COMPANION_ACTION_HEAL_FIRST], owner, result);
     }
 
-    // Stage 6: the party.
+    // Stage 5: the party.
 
     void ObserveParty(SeatView const& view, float* obs)
     {

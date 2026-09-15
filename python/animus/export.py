@@ -1,6 +1,6 @@
 """Export a checkpoint's actor as plain MLP models (.amdl) for in-game inference.
 
-    python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
+    python -m animus.export --checkpoint runs/stage1_duel/best.pt --out exported/stage1_duel
 
 Exporting is always run by hand, and the exported files are copied to a server by hand: training never writes
 models anywhere but its own run directory.
@@ -25,7 +25,7 @@ Every layer but the last is followed by tanh. The policy is the argmax of the fi
 The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
 its own model, <model name>.amdl: the layout's name (the class/role, e.g. warrior_dps) with the scenario's stage
-suffix (class_role_duel -> warrior_dps_duel); a single-layout scenario keeps its own name. num_agents is 1, with a
+suffix (stage1_duel -> warrior_dps_duel); a single-layout scenario keeps its own name. num_agents is 1, with a
 zero-weight agent column (the format has at least one).
 """
 
@@ -42,7 +42,9 @@ import torch
 
 AMDL_MAGIC = b"AMDL"
 AMDL_VERSION = 1
-CLASS_ROLE_SCENARIO = "class_role"
+
+# Class/role curriculum stages: stage<number>_<name>, e.g. stage1_duel; their models take the _<name> suffix.
+_STAGE_SCENARIO = re.compile(r"^stage\d+(_[a-z]+)$")
 
 _TRUNK_KEY = re.compile(r"^trunk\.layers\.(\d+)\.(weight|bias)$")
 
@@ -72,9 +74,9 @@ def with_agent_column(layers: list[tuple[np.ndarray, np.ndarray]]) -> list[tuple
 
 
 def model_name(scenario: str, layout: str, layout_count: int) -> str:
-    """warrior_dps + class_role_duel -> warrior_dps_duel; a single-layout scenario keeps its own name."""
-    if scenario.startswith(CLASS_ROLE_SCENARIO):
-        return layout + scenario[len(CLASS_ROLE_SCENARIO):]
+    """warrior_dps + stage1_duel -> warrior_dps_duel; a single-layout scenario keeps its own name."""
+    if stage := _STAGE_SCENARIO.match(scenario):
+        return layout + stage.group(1)
     return scenario if layout_count == 1 else f"{scenario}_{layout}"
 
 

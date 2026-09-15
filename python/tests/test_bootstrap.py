@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import torch
@@ -56,14 +57,21 @@ def test_critic_state_encoder_and_head_are_not_copied():
     torch.testing.assert_close(critic["adapters.0.weight"], old.critic.state_dict()["adapters.0.weight"])
 
 
-def test_init_from_resolves_the_base_run():
-    config = TrainConfig(run_name="class_role_duel", init_from="runs/{base_run}/best.pt")
-    assert config.resolved_init_from() == ["runs/class_role/best.pt"]
-    assert TrainConfig(run_name="class_role").resolved_init_from() == []
-    assert TrainConfig(run_name="class_role", init_from=None).resolved_init_from() == []
+def test_init_from_resolves_candidates():
+    config = TrainConfig(run_name="stage2_pack", init_from="runs/stage1_duel/best.pt")
+    assert config.resolved_init_from() == ["runs/stage1_duel/best.pt"]
+    assert TrainConfig(run_name="stage1_duel").resolved_init_from() == []
+    assert TrainConfig(run_name="stage1_duel", init_from=None).resolved_init_from() == []
 
-    for stage, previous in (("pack", "_duel"), ("gauntlet", "_pack"), ("companion", "_gauntlet"),
-                            ("party", "_companion"), ("pvp", "_party"), ("arena", "_pvp")):
-        run = TrainConfig(run_name=f"class_role_{stage}", init_from=[f"runs/{{base_run}}{previous}/best.pt",
-                                                                       "runs/{base_run}/best.pt"])
-        assert run.resolved_init_from() == [f"runs/class_role{previous}/best.pt", "runs/class_role/best.pt"]
+    run = TrainConfig(run_name="stage3_gauntlet", init_from=["runs/stage2_pack/best.pt", "", "runs/{run_name}/old.pt"])
+    assert run.resolved_init_from() == ["runs/stage2_pack/best.pt", "runs/stage3_gauntlet/old.pt"]
+
+
+def test_stage_configs_seed_from_every_earlier_stage_closest_first():
+    stages = ["stage1_duel", "stage2_pack", "stage3_gauntlet", "stage4_companion", "stage5_party", "stage6_pvp",
+              "stage7_arena"]
+    configs = Path(__file__).resolve().parents[1] / "configs"
+    for index, stage in enumerate(stages):
+        config = TrainConfig.load(configs / f"{stage}.yaml")
+        assert config.run_name == stage
+        assert config.resolved_init_from() == [f"runs/{earlier}/best.pt" for earlier in reversed(stages[:index])]

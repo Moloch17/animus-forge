@@ -59,8 +59,8 @@ namespace
             using AnimusForge::ClassRoleScenario;
 
             // Every class/role of AnimusForge.ClassRoles plays in each, as layouts of one policy.
-            for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet,
-                ArenaMode::Companion, ArenaMode::Party, ArenaMode::Pvp, ArenaMode::Arena })
+            for (ArenaMode mode : { ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet, ArenaMode::Companion,
+                ArenaMode::Party, ArenaMode::Pvp, ArenaMode::Arena })
             {
                 scenarios.emplace_back(ClassRoleScenario::ScenarioName(mode),
                     [mode](AnimusForge::ForgeConfig const& config)

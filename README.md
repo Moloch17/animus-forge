@@ -39,7 +39,7 @@ worldserver (forge)                                   python -m animus.train
 ## Scenarios
 
 Select one with `AnimusForge.Scenario` (or several with `AnimusForge.Queue`). The learner auto-starts
-with `configs/<scenario>.yaml`, or `configs/class_role.yaml` when the scenario has none, and trains in
+with `configs/<scenario>.yaml` (or `AnimusForge.Learner.Config`) and trains in
 `runs/<scenario>/`.
 
 ### `warrior_dummy`
@@ -84,10 +84,9 @@ A level 20 human Arms warrior on a level 20 training dummy.
 
 ### Class/role curriculum: one policy for every class and role
 
-Eight stage scenarios -- `class_role`, `class_role_duel`, `class_role_pack`, `class_role_gauntlet`,
-`class_role_companion`, `class_role_party`, `class_role_pvp`, `class_role_arena` -- each train **one policy for
-every class/role** of `AnimusForge.ClassRoles` (all 18 by default). Each stage is its own scenario, so every
-earlier stage stays repeatable.
+Seven stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
+`stage6_pvp`, `stage7_arena` -- each train **one policy for every class/role** of `AnimusForge.ClassRoles` (all 18
+by default). Each stage is its own scenario, so every earlier stage stays repeatable.
 
 - **Seats:** each learned agent of an env is a seat. Every episode each seat becomes a new character of a
   class/role drawn from the run's list (the party draws a tank, a healer and two damage dealers). Most stages
@@ -105,10 +104,10 @@ earlier stage stays repeatable.
 - **`AnimusForge.ClassRoles`:** a comma-separated subset (e.g. `"warrior_dps, priest_heal"`) trains only those.
   Changing it changes the layouts, so models of the earlier list do not fit the new one.
 
-#### Stage 1 (`class_role`): the training dummy
+#### Characters and the base block
 
-Every class and role maximises damage on a training dummy (tank and healer roles too: they learn their spec's
-damage play in role gear):
+Every stage plays every class and role (tank and healer roles fight with their own spec's damage play in role
+gear until the companion and party stages give them their jobs):
 
 | Class | Class/roles (specs) |
 |---|---|
@@ -128,7 +127,6 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
 
 - **Race and level:** a random race the class allows (`playercreateinfo`), random gender; half the characters
   are level 61-80 and the rest any level 1-80 (55-80 for death knights), since most players are high level.
-  The dummy is summoned at the bot's level, 2 yd away for melee specs and 20 yd for casters and hunters.
 - **Talents:** one of the role's specs, then a random build spent one point at a time on a uniformly
   chosen learnable talent: the spec's tree first until it holds 51 points (the capstone row) or the
   points run out, then the other two trees. Row and prerequisite rules follow `Player::LearnTalent`.
@@ -145,7 +143,7 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   items, when nothing closer exists. Armor is plate/mail/leather/cloth by class and level; weapons
   follow the spec's layouts (two-hander, dual wield when the bot can, one-hander with shield or
   off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or relics.
-- **Actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
+- **Base actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
   chain of every combat spell a level 80 character of any of the class's races knows (trainer,
   starting and racial spells, active talents of all three trees), casting the highest rank the bot
   knows, and one action per trinket slot. A spell counts as combat if it deals damage, applies a
@@ -154,24 +152,21 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   core's `Spell::CheckCast` each decision (race, level, talent, cooldown, GCD, power, stance, range,
   reagents). As on a client, no spell or trinket can be started while a cast is in its cast time (the
   core only checks that for client casts, so a bot's new cast would otherwise silently replace it).
-- **Observation:** level, race and spec one-hots, health and every power type, runes, combo points,
+- **Base observation:** level, race and spec one-hots, health and every power type, runes, combo points,
   shapeshift form, GCD, casting, swing timers, target health and distance, attack power, spell power,
-  crit, haste, hit, expertise and armor penetration; per action: known, cooldown, its aura on the
-  target and on the bot, stacks; every talent's rank; points per tree.
-- **Reward:** damage per decision divided by a level scale (`15 * e^(0.068 * level)`), so early
-  and late levels weigh alike. Pet, guardian and totem damage counts for the owner.
-- **Dummy health:** the dummy takes no damage, so its health follows a random line over the episode
-  (start 20-100%, end anywhere below): execute-range abilities come up without killing it.
-- **Episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
+  crit, haste, hit, expertise and armor penetration, damage done last step divided by a level scale
+  (`15 * e^(0.068 * level)`, so early and late levels weigh alike; pet, guardian and totem damage counts for
+  the owner); per action: known, cooldown, its aura on the target and on the bot, stacks; every talent's rank;
+  points per tree.
+- **Base episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
   equipped items, spell casts, trinket uses.
-- **Baseline:** `greedy`, the first usable spell or trinket.
 
-Learner settings come from `configs/<scenario>.yaml` (`configs/class_role.yaml` for stage 1).
+The base block is not a scenario of its own. Learner settings come from `configs/<scenario>.yaml`.
 
-#### Stage 2 (`class_role_duel`): the duel
+#### Stage 1 (`stage1_duel`): the duel
 
-Characters are built exactly as in stage 1 (race, level, spec, talents, kit, gear); the target is now a real
-opponent:
+Characters are built as above (race, level, spec, talents, kit, gear), against a real opponent. Nothing seeds
+this stage: its networks start from scratch.
 
 - **Opponent:** a random creature whose natural levels cover the bot's (normal rank, attackable,
   default AI with no script, no NPC services, not civilian, guard or trigger, spawned somewhere in
@@ -183,14 +178,14 @@ opponent:
   needs a pet saved in the database, are offered 4 tameable beasts of different random families
   each episode through 4 `call_beast` actions; the observation shows each beast's family and pet
   type (ferocity, tenacity, cunning), so the policy can find the one it prefers.
-- **Actions:** stage 1's actions, then: move to the opponent, move behind it, move to casting range
+- **Actions:** the base actions, then: move to the opponent, move behind it, move to casting range
   (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, stop casting (the current cast
   or channel, as the client's cancel-cast), cancel form (a shapeshift the client could cancel: druid
   forms, Shadowform, Ghost Wolf, Stealth; not stances or presences), and (hunters) the 4 `call_beast`
   actions. The bot turns to face the opponent whenever it is not running. Movement is masked while
   casting, and cast-time or channeled spells while running. Stop casting and cancel form need no
   target, so they stay available between pulls in later stages.
-- **Observation:** stage 1's, then: distance, bearing to the opponent, whether the bot is behind it
+- **Observation:** the base observation, then: distance, bearing to the opponent, whether the bot is behind it
   and whether it faces the bot, the opponent's combat, target and casting state, the bot's movement,
   combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
   episode time, the current cast's progress and time left (casts and channels), whether the bot is in
@@ -205,22 +200,22 @@ opponent:
   On the kill: +2, plus
   up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health it did
   not lose. Death: -3. The episode ends on the kill or the bot's death.
-- **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
+- **Episode info:** the base columns, then killed, died, time to kill, damage taken, health left,
   stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled,
   seconds of cast time wasted, and why casts were cancelled: stopped by the bot, while moving, target died or
   gone, or anything else (interrupts, silences, stuns, form changes, death).
 
-**Bootstrapping:** every stage after the first lists the earlier stages in `init_from`, closest first
-(`class_role_party`: companion, gauntlet, pack, duel, stage 1), and seeds from the first that has been trained, so
+**Bootstrapping:** every stage after the first lists the earlier stages' runs in `init_from`, closest first
+(`stage5_party`: companion, gauntlet, pack, duel), and seeds from the first that has been trained, so
 skipping a stage still seeds from the nearest one. A run seeds its networks from that stage's
 (`animus/bootstrap.py`), layout by layout (class/roles are matched by name): each layout's
 earlier features keep their places in its wider adapter (new inputs start at zero) and its earlier actions keep
 their logits (new actions start near zero); the trunk is copied; the critic's state encoder and value head start
 fresh because the global state and reward differ. Queue the stages in order.
 
-#### Stage 3 (`class_role_pack`): packs
+#### Stage 2 (`stage2_pack`): packs
 
-Stage 3. The duel's characters against a pack instead of a single opponent:
+Stage 2. The duel's characters against a pack instead of a single opponent:
 
 - **Pack:** 2-4 creatures at the bot's level, clustered 40-50 yd away, each facing its own way. The
   pool adds creatures whose SmartAI only casts spells or talks (casters and ability users, ~3500) to
@@ -241,9 +236,9 @@ Stage 3. The duel's characters against a pack instead of a single opponent:
   The episode ends when the pack is cleared or the bot dies.
 - **Episode info:** the duel's (killed = cleared), then kills, interrupts, pack size, linked.
 
-#### Stage 4 (`class_role_gauntlet`): the gauntlet
+#### Stage 3 (`stage3_gauntlet`): the gauntlet
 
-Stage 4: sustained combat.
+Stage 3: sustained combat.
 
 - **Pulls:** pull after pull until the bot dies or the episode ends: 1-4 creatures from the pack
   pool, or (15%) a single elite, or (25%) a pack 1-3 levels above the bot. After a clear the field is
@@ -263,9 +258,9 @@ Stage 4: sustained combat.
 
 Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
 
-#### Stage 5 (`class_role_companion`): the companion
+#### Stage 4 (`stage4_companion`): the companion
 
-Stage 5: the gauntlet fought beside an owner, as a companion fights beside a player.
+Stage 4: the gauntlet fought beside an owner, as a companion fights beside a player.
 
 - **Owner:** a scripted player bot within 2 levels of the companion, of any role -- a tank a quarter of the
   time, a healer a quarter, else a damage dealer -- and a random class that can fill it, dressed like the
@@ -299,7 +294,7 @@ Stage 5: the gauntlet fought beside an owner, as a companion fights beside a pla
   damage taken, the companion's healing on it, enemy-decisions spent on the companion and on the owner, the
   owner's role, its deaths and the wipes.
 
-#### Stage 6 (`class_role_party`): the party
+#### Stage 5 (`stage5_party`): the party
 
 Up to four learned seats, all at one level, and the companion stage's scripted owner, against dungeon-like
 pulls. Every seat plays with the same policy and sees the others.
@@ -330,29 +325,29 @@ pulls. Every seat plays with the same policy and sees the others.
 - **Episode info:** per seat, the companion stage's, then teammates died, teammate damage taken, its healing
   on teammates, enemy-decisions spent on non-tank teammates, and the seat.
 
-#### Stages 7 and 8 (`class_role_pvp`, `class_role_arena`): PvP
+#### Stages 6 and 7 (`stage6_pvp`, `stage7_arena`): PvP
 
-One-on-one against a player. They keep stage 6's layouts (so they seed from it), but there are no pulls, owner
+One-on-one against a player. They keep stage 5's layouts (so they seed from it), but there are no pulls, owner
 or teammates: those observations stay zero and those actions masked. Both players get opposing player factions
 and the PvP flag, which players need to attack each other.
 
-- **`class_role_pvp` (stage 7):** a scripted enemy player at the bot's level (within 1), of a random class and
+- **`stage6_pvp` (stage 6):** a scripted enemy player at the bot's level (within 1), of a random class and
   role (damage 60%, tank 20%, healer 20%) with that role's spec, talents, kit and gear, spawned 40-50 yd away
   facing a random way. It closes in after up to 3 s: melee specs fight in melee, ranged specs hold 10-30 yd and
   cast, healers heal themselves below 60%.
-- **`class_role_arena` (stage 8), self-play:** two learned seats of random classes and roles at one level in the
+- **`stage7_arena` (stage 7), self-play:** two learned seats of random classes and roles at one level in the
   same env, the second spawned 40-50 yd from the first. Both are played by the same policy, so every fight is
   training data for both sides, across class matchups.
-- **Observation:** stage 6's, then the opponent's class, role, level difference, mana, rage/energy/runic
+- **Observation:** stage 5's, then the opponent's class, role, level difference, mana, rage/energy/runic
   power, whether it is crowd-controlled, stealthed, has a pet out or is casting a heal, whether the bot is
   stunned/feared, rooted or silenced, and whether the opponent is a learned agent.
 - **Reward:** the duel's (damage dealt and taken, closing in, stealth openers, casts, a fast kill with health
   kept, death). The episode ends when either player dies.
-- **Episode info:** stage 6's, then won, opponent class and opponent role.
+- **Episode info:** stage 5's, then won, opponent class and opponent role.
 
-`configs/class_role_pvp.yaml` scores against the `fight` baseline. `configs/class_role_arena.yaml` has no
+`configs/stage6_pvp.yaml` scores against the `fight` baseline. `configs/stage7_arena.yaml` has no
 baseline or plateau stop: against itself a policy's score does not track progress -- judge an arena model with
-`animus.evaluate` on a `class_role_pvp` sim.
+`animus.evaluate` on a `stage6_pvp` sim.
 
 ### Training every model: `AnimusForge.Queue`
 
@@ -360,7 +355,7 @@ baseline or plateau stop: against itself a policy's score does not track progres
 `AnimusForge.Scenario`):
 
 ```
-AnimusForge.Queue = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, class_role_companion, class_role_party, class_role_pvp, class_role_arena"
+AnimusForge.Queue = "stage1_duel, stage2_pack, stage3_gauntlet, stage4_companion, stage5_party, stage6_pvp, stage7_arena"
 ```
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
@@ -498,7 +493,8 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   Afterwards the learner switches back and training resumes from fresh episodes.
 - **Policy:** argmax actions (`eval.deterministic`). The score is the mean episode return -- the scenario's
   own reward -- so it measures what training optimises and compares checkpoints of one scenario.
-- **Baseline:** `eval.baseline` (`greedy` for stage 1, `fight` for later stages) is played by the sim on the
+- **Baseline:** `eval.baseline` (`fight` for the class/role stages; `greedy`, the first usable spell or trinket,
+  also exists) is played by the sim on the
   same seeds once per run and cached in `eval_baseline.json`.
 - **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
   `eval.every_env_steps` (10M, 20M for the party), and at `total_env_steps`.
@@ -511,7 +507,7 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
 - **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
   the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,
   whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations, 2%,
-  and 30-60M; `total_env_steps` stays the upper bound, sized from measured throughput (stage 1 60M, duel, pack
+  and 30-60M; `total_env_steps` stays the upper bound, sized from measured throughput (duel, pack
   and PvP 150M, gauntlet, companion and arena 200M, party 300M: roughly 4-8 hours each at the most). `finished.json` records why a
   run stopped.
 
@@ -520,7 +516,7 @@ To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from 
 ```
 pytest                                                    # protocol, GAE and trainer tests
 python -m animus.train --config configs/warrior_dummy.yaml
-python -m animus.evaluate --checkpoint runs/class_role/best.pt --episodes 128 --seed 1000 --baseline greedy
+python -m animus.evaluate --checkpoint runs/stage1_duel/best.pt --episodes 128 --seed 1000 --baseline fight
 ```
 
 A hand-started learner can start before or after the worldserver; it retries until the socket
@@ -537,7 +533,7 @@ Training writes checkpoints to its run directory and nothing else: models are ne
 automatically. Export a checkpoint's actor to `.amdl` models by hand:
 
 ```
-python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
+python -m animus.export --checkpoint runs/stage1_duel/best.pt --out exported/stage1_duel
 ```
 
 Copying exported models to a server that plays them is also done by hand.
@@ -605,7 +601,7 @@ Bots also reuse a fixed pair of player GUIDs per env, because the core keeps som
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick
   (separate work). `warrior_dummy` does not depend on it: Heroic Strike has no cooldown and no GCD.
-- **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 7's enemy player are
-  scripts; the party's other members and stage 8's opponent are learned.
+- **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 6's enemy player are
+  scripts; the party's other members and stage 7's opponent are learned.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.
   Raise `Envs` until the learner, not the world thread, is the bottleneck.

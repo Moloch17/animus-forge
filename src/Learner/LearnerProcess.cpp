@@ -66,7 +66,7 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
     _logFile = config.LearnerLogFile;
     _exitedCleanly = false;
 
-    // The run is named after the scenario, so a shared config (configs/class_role.yaml) still gives
+    // The run is named after the scenario, so a shared config (AnimusForge.Learner.Config) still gives
     // every queued scenario its own runs/<scenario>/ and <scenario>.amdl.
     std::vector<std::string> args =
     {

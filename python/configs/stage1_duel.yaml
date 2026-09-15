@@ -1,25 +1,21 @@
-# Learner config for class_role_pvp, stage 7 of the class/role curriculum: one-on-one against a scripted enemy
-# player of a random class and role at the bot's level. Episodes end when either dies; the duel's reward (damage, a
-# fast kill, little damage taken, casts).
+# Learner config for stage1_duel, stage 1 of the class/role curriculum: one policy for every class/role of
+# AnimusForge.ClassRoles (all 18 by default), each a layout with its own input adapter and action head around a
+# shared trunk. Every episode is a new random character (race, gender, level 1-80, spec, talents, gear) against a
+# same-level creature that fights back, spawned out of aggro range. The bot has to move to it, pick its pet, open
+# from stealth where it can, and kill it fast while losing little health. Episodes end on the kill or the bot's
+# death. Exports warrior_dps_duel.amdl, ...
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
+# The first stage: nothing seeds it, so its networks start from scratch.
+#
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf); everything here is
+# learner-side.
 
-run_name: class_role_pvp
+run_name: stage1_duel
 runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed from the closest earlier stage that has been trained (the first candidate that exists): each
-# layout extends the earlier stage's, and the trunk carries over.
-init_from:
-  - runs/{base_run}_party/best.pt
-  - runs/{base_run}_companion/best.pt
-  - runs/{base_run}_gauntlet/best.pt
-  - runs/{base_run}_pack/best.pt
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
-
-# Budget sized from throughput: 150M env steps is ~6 h at ~7k env steps/s.
+# Budget sized from throughput: 150M env steps is ~6 h at the pilot's ~7k env steps/s.
 # The plateau stop usually ends the stage sooner.
 total_env_steps: 150000000
 rollout_length: 128
@@ -30,9 +26,10 @@ rollout_device: cpu
 train_device: cuda
 
 mappo:
-  # Must match the earlier stages for the seeding to apply.
+  # Every later stage must match this for the seeding to apply.
   hidden: [512, 512]
-  gamma: 0.999
+  # Kills take tens of seconds of 50 ms decisions including the approach; look further ahead.
+  gamma: 0.997
   gae_lambda: 0.95
   clip: 0.2
   value_clip: 0.2
@@ -57,7 +54,6 @@ eval:
   seed: 1000
   deterministic: true
   baseline: fight
-  report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
 
 # Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
 # 30M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
