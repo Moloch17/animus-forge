@@ -124,7 +124,8 @@ namespace
             case ITEM_MOD_STAMINA:
                 return profile == StatProfile::Tank ? 1 : 0;
             case ITEM_MOD_INTELLECT:
-                return spell ? 1 : (profile == StatProfile::Ranged ? 0 : -1);
+                // Enhancement mail is agility and intellect (154 of the 157 level 80 agility mail pieces).
+                return spell ? 1 : (profile == StatProfile::Ranged || profile == StatProfile::AgilityMelee ? 0 : -1);
             case ITEM_MOD_SPIRIT:
                 return profile == StatProfile::Healer ? 1 : (profile == StatProfile::Caster ? 0 : -1);
             case ITEM_MOD_ATTACK_POWER:
