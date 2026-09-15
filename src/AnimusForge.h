@@ -58,6 +58,7 @@ namespace AnimusForge
         void CommandStatus(LineSink const& out);
         void CommandScenarios(LineSink const& out);
         bool CommandStart(std::vector<std::string> scenarios, LineSink const& out);
+        bool CommandFast(std::vector<std::string> scenarios, LineSink const& out);
         bool CommandResume(std::vector<std::string> scenarios, LineSink const& out);
         bool CommandPause(LineSink const& out);
         bool CommandCancel(LineSink const& out);
@@ -98,6 +99,7 @@ namespace AnimusForge
             uint32 Index = 0;
             std::string Policy;             // "remote" trains; anything else runs locally
             uint64 LocalEpisodes = 0;       // local policy: episodes per scenario (0 = until cancelled)
+            bool Fast = false;              // `forge fast`: trained with ForgeConfig::FastProfile
 
             [[nodiscard]] bool Remote() const { return Policy == "remote"; }
         };
@@ -132,10 +134,17 @@ namespace AnimusForge
 
         /// The run of `scenario` finished and moved on (<RunsDir>/<scenario>/finished.json with "advanced": true, or
         /// a finished.json from before stage targets).
-        [[nodiscard]] bool RunAdvanced(std::string const& scenario) const;
+        [[nodiscard]] bool RunAdvanced(ForgeConfig const& config, std::string const& scenario) const;
 
         /// Warn about stages listed before the stage they extend and seed from (unless that one already advanced).
-        void WarnSeedOrder(std::vector<std::string> const& scenarios, LineSink const& out) const;
+        void WarnSeedOrder(ForgeConfig const& config, std::vector<std::string> const& scenarios,
+            LineSink const& out) const;
+
+        /// The settings a plan runs with: the configured ones, or the fast profile for `forge fast`.
+        [[nodiscard]] ForgeConfig const& ConfigFor(Plan const& plan) const { return plan.Fast ? _fastConfig : _config; }
+
+        /// The settings of the running (or last started) plan.
+        [[nodiscard]] ForgeConfig const& RunConfig() const { return ConfigFor(_plan); }
 
         /// Console commands, the export process and the periodic report, while the world thread waits.
         void Pump();
@@ -155,6 +164,7 @@ namespace AnimusForge
         [[nodiscard]] bool ValidScenario(std::string const& scenario, LineSink const& out) const;
 
         ForgeConfig _config;
+        ForgeConfig _fastConfig;            // _config.FastProfile()
         std::unique_ptr<Scenario> _scenario;
         std::unique_ptr<EnvPool> _pool;
         LockstepServer _server;
@@ -191,6 +201,7 @@ namespace AnimusForge
         double _episodesPerSecond = 0.0;
 
         std::string _exportScenario;
+        std::string _exportModelDir;
 
         /// The scenario running, or the last one started.
         std::string _current;

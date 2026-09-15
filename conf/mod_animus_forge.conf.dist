@@ -240,6 +240,66 @@ AnimusForge.Learner.Args = ""
 AnimusForge.Learner.LogFile = ""
 
 ###################################################################################################
+# FAST TEST RUN
+#
+#    `forge fast [scenario ...]` trains the scenarios (default: AnimusForge.Queue) at low resolution,
+#    to check quickly that training works end to end before a long run: fewer envs, coarser
+#    decisions, shorter episodes, a few class/roles, and small learner budgets. It always uses the
+#    remote policy and trains from scratch, in its own output directory, so it never archives,
+#    seeds from or overwrites a real run. Every other setting is the one above.
+#
+#    AnimusForge.Fast.Envs
+#        Description: Parallel envs of a fast run.
+#        Default:     16
+#
+#    AnimusForge.Fast.DecisionTicks
+#        Description: World ticks per decision of a fast run.
+#        Default:     4 - (a decision every 200 ms)
+#
+#    AnimusForge.Fast.EpisodeSeconds
+#        Description: Game-time episode length of a fast run, in seconds.
+#        Default:     30
+
+AnimusForge.Fast.Envs = 16
+AnimusForge.Fast.DecisionTicks = 4
+AnimusForge.Fast.EpisodeSeconds = 30
+
+#
+#    AnimusForge.Fast.ClassRoles
+#        Description: Comma-separated class/roles a fast run plays (see AnimusForge.ClassRoles). The
+#                     default covers a tank, a healer (so stage 5 can form its party), melee with
+#                     stealth and energy, and a ranged class with a pet.
+#        Default:     "warrior_tank, priest_heal, rogue_dps, hunter_dps"
+#                     ""  - (AnimusForge.ClassRoles)
+
+AnimusForge.Fast.ClassRoles = "warrior_tank, priest_heal, rogue_dps, hunter_dps"
+
+#
+#    AnimusForge.Fast.OutputDir
+#        Description: Where a fast run's runs/, layouts/ and exported models/ go; relative to
+#                     AnimusForge.OutputDir. `forge clean fast` deletes it.
+#        Default:     "fast"
+
+AnimusForge.Fast.OutputDir = "fast"
+
+#
+#    AnimusForge.Fast.Learner.Overlay
+#        Description: Learner config merged over every stage's config in a fast run (--overlay),
+#                     relative to AnimusForge.Learner.WorkDir or absolute. The default shrinks step,
+#                     evaluation and checkpoint budgets and turns the stage targets off.
+#        Default:     "" - configs/fast.yaml
+
+AnimusForge.Fast.Learner.Overlay = ""
+
+#
+#    AnimusForge.Fast.Learner.Args
+#        Description: Extra learner arguments for fast runs only, after AnimusForge.Learner.Args.
+#        Example:     "--set target.min_over_baseline=0.0" - (also test the stage target and restarts)
+#        Default:     ""
+
+AnimusForge.Fast.Learner.Args = ""
+
+###################################################################################################
 # CONSOLE
 #
 #    AnimusForge.ModelDir

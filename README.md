@@ -482,6 +482,7 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.WarriorDummy20.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
 | `AnimusForge.ModelDir` | `models/` in the module | Where `forge export` writes models |
 | `AnimusForge.Progress.Interval` | `60` | Seconds between progress reports while a scenario runs; `0` = off |
+| `AnimusForge.Fast.*` | see the `.dist` | The low-resolution profile of `forge fast` (see [Fast test run](#fast-test-run-forge-fast)) |
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
@@ -538,6 +539,7 @@ and prints its settings; nothing trains until you say so.
 | `forge status` | The progress report below, or the idle settings and the last plan's outcome |
 | `forge scenarios` | Every scenario with its run: finished (and why: converged, below_target, ...), resumable checkpoint, steps, best score |
 | `forge start [scenario ...]` | Train these from scratch, in order. Without names: `AnimusForge.Queue` (every stage when empty), minus the stages that already advanced (`Queue.SkipFinished`). Earlier runs are archived; a stage listed before the stage it extends is warned about |
+| `forge fast [scenario ...]` | A quick low-resolution training run of these (default: `AnimusForge.Queue`, finished or not) in the fast output directory, to check training works before a long run (see [Fast test run](#fast-test-run-forge-fast)) |
 | `forge resume [scenario ...]` | Unpause; or continue the first scenario from its `latest.pt`, then train the rest. Without names: where the last plan stopped. With a crashed learner: restart it from its checkpoint |
 | `forge pause` | Freeze after the current decision: maps, episode clocks and the learner all wait |
 | `forge cancel` | Stop the plan; the learner saves `latest.pt` first, so `forge resume` can continue it |
@@ -547,6 +549,7 @@ and prints its settings; nothing trains until you say so.
 | `forge clean archive` | Delete `runs/_archive/` |
 | `forge clean scenario <scenario>` | Delete `runs/<scenario>/` (refused while it runs) |
 | `forge clean exports` | Delete the exported models and manifests |
+| `forge clean fast` | Delete the fast test runs, layouts and models (refused while a fast run runs) |
 | `forge clean logs` | Delete the learner and export logs (refused while they are written) |
 | `forge clean all` | All of the above, every run included (idle only) |
 | `forge progress [seconds\|off]` | Show or change the progress report interval |
@@ -595,6 +598,36 @@ Forge: stage2_pack (2 of 4) | training | update 412 | 3h 12m
 - **A stage below its target:** when the learner exits with code 3 the plan halts at that stage (outcome
   `below target`) instead of moving on; `finished.json` and `stage.jsonl` in its run say which gates failed.
 - **Local runs** (`forge run`) report episodes done, the ETA to the episode limit and the episode means.
+
+### Fast test run (`forge fast`)
+
+A real stage trains for hours before its first stage decision. `forge fast` runs the same pipeline at low resolution
+in minutes, to check that a change to a scenario, the learner or the configs still trains before starting a long
+run:
+
+```
+forge fast                       # every queued stage, one after another
+forge fast stage1_duel stage2_pack
+```
+
+- **Sim (`AnimusForge.Fast.*`):** 16 envs, a decision every 200 ms, 30 s episodes, and four class/roles
+  (`warrior_tank, priest_heal, rogue_dps, hunter_dps`: a tank and a healer for the party, energy, rage, mana and a
+  pet). Per-decision rewards are scaled to the decision interval as usual.
+- **Learner (`configs/fast.yaml`):** merged over each stage's config with `--overlay`. It shrinks the budgets --
+  600k env steps, an evaluation of 32 seeded episodes every 100k, `min_env_steps` 200k, small checkpoints -- and
+  turns the stage targets off, so the plan moves on to the next stage when a stage converges or reaches its budget.
+  Networks, gamma, entropy, patience, the baseline and restarts stay each stage's own, so the run goes through the same
+  code as a real one: spec and layouts, rollouts and updates, evaluation with the baseline, convergence, checkpoints,
+  `finished.json`, the next stage seeding from this one, and `forge export`. To test the target gates and restarts
+  too: `AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0"`.
+- **Output:** runs, layouts and models go to `<OutputDir>/fast/` (`AnimusForge.Fast.OutputDir`), never into the real
+  `runs/`: a fast run never archives, seeds from or overwrites a real one. Each `forge fast` trains from scratch
+  there. The progress report says `(fast)`; `forge pause`, `cancel`, `skip`, `resume` (without names) and `export`
+  (without a scenario) work on the fast run; `forge clean fast` deletes it all.
+- **What to look at:** in `fast/runs/<stage>/`, `eval.csv` (the `at_start` evaluation against the later ones, and the
+  baseline in `eval_baseline.json`), `metrics.csv` (losses, entropy, approx KL) and `finished.json`; in the console,
+  the progress report's warnings (NaN metrics, collapsing entropy, a learner that stopped answering). A few hundred
+  thousand steps show whether the score, loss and entropy move -- not whether the stage can be learned.
 
 ## Baselines (no Python)
 

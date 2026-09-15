@@ -135,7 +135,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
     if (_state != State::Idle)
     {
         _learner.Poll();
-        _monitor.Report(_config, Snapshot(false), PlanRows(_plan, true), out, out, false);
+        _monitor.Report(RunConfig(), Snapshot(false), PlanRows(_plan, true), out, out, false);
     }
     else
     {
@@ -156,6 +156,10 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
 
         table.AddRow({ "runs", _config.RunsDir().string() });
         table.AddRow({ "models", _config.ModelDir });
+        table.AddRow({ "fast test run (forge fast)", Acore::StringFormat("{} envs, a decision every {} ms, {} s "
+            "episodes, {}; in {}", _fastConfig.Envs, 50 * _fastConfig.DecisionTicks, _fastConfig.EpisodeSeconds,
+            _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles),
+            _fastConfig.OutputDir) });
         table.AddRow({ "progress report", _progressInterval ? Acore::StringFormat("every {}",
             Format::Duration(_progressInterval)) : "off" });
 
@@ -165,7 +169,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
             for (PlanEntry const& entry : _lastPlan->Entries)
                 outcomes.push_back(entry.Scenario + " " + (entry.Outcome.empty() ? "not started" : entry.Outcome));
 
-            table.AddRow({ "last plan", Join(outcomes) });
+            table.AddRow({ _lastPlan->Fast ? "last plan (fast)" : "last plan", Join(outcomes) });
         }
 
         table.Write(out, "  ");
@@ -252,7 +256,7 @@ bool AnimusForge::Forge::CommandStart(std::vector<std::string> scenarios, LineSi
     {
         for (std::string const& scenario : DefaultQueue())
         {
-            if (_config.QueueSkipFinished && _config.IsRemote() && RunAdvanced(scenario))
+            if (_config.QueueSkipFinished && _config.IsRemote() && RunAdvanced(_config, scenario))
                 out(Acore::StringFormat("  Skipping {}: its run already finished and moved on (runs/{}/finished.json;"
                     " move the run away or set AnimusForge.Queue.SkipFinished = 0 to train it again).", scenario,
                     scenario));
@@ -283,10 +287,50 @@ bool AnimusForge::Forge::CommandStart(std::vector<std::string> scenarios, LineSi
     _request = Request::Start;
 
     out(Acore::StringFormat("Starting {} with policy {}.", Join(scenarios), _config.Policy));
-    WarnSeedOrder(scenarios, out);
+    WarnSeedOrder(_config, scenarios, out);
     if (_config.IsRemote())
         out("  Each scenario trains from scratch: an earlier run in runs/<scenario>/ is moved to runs/_archive/.");
 
+    return true;
+}
+
+bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSink const& out)
+{
+    if (!Enabled(out))
+        return false;
+
+    if (_state != State::Idle || _request == Request::Start)
+    {
+        out(Acore::StringFormat("{} is {}: `forge cancel` it first.", _current, StateName()));
+        return false;
+    }
+
+    // A test run checks the whole pipeline, so without names it trains every queued scenario, finished or not.
+    if (scenarios.empty())
+        scenarios = DefaultQueue();
+
+    Plan plan;
+    plan.Policy = _fastConfig.Policy;
+    plan.Fast = true;
+    for (std::string const& scenario : scenarios)
+    {
+        if (!ValidScenario(scenario, out))
+            return false;
+
+        plan.Entries.push_back({ scenario, false, "" });
+    }
+
+    _requested = std::move(plan);
+    _request = Request::Start;
+
+    out(Acore::StringFormat("Fast test run of {}: {} envs, a decision every {} ms, {} s episodes, {}.", Join(scenarios),
+        _fastConfig.Envs, 50 * _fastConfig.DecisionTicks, _fastConfig.EpisodeSeconds,
+        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles)));
+    out(Acore::StringFormat("  Learner budgets from {} over each stage's config.", _fastConfig.FastLearnerOverlay));
+    out(Acore::StringFormat("  Runs, layouts and models go to {}: each scenario trains from scratch there, seeding "
+        "from the fast runs before it. The runs in {} are not touched.", _fastConfig.OutputDir,
+        _config.RunsDir().string()));
+    WarnSeedOrder(_fastConfig, scenarios, out);
     return true;
 }
 
@@ -320,9 +364,9 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
         }
 
         std::error_code error;
-        bool const resume = fs::exists(_config.RunsDir() / _current / "latest.pt", error);
+        bool const resume = fs::exists(RunConfig().RunsDir() / _current / "latest.pt", error);
         _plan.Entries[_plan.Index].Resume = resume;
-        _learnerStarted = _learner.Start(_config, _current, resume);
+        _learnerStarted = _learner.Start(RunConfig(), _current, resume);
         if (!_learnerStarted)
         {
             out(Acore::StringFormat("Could not restart the learner for {}; see the server log.", _current));
@@ -341,12 +385,6 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
         return false;
     }
 
-    if (!_config.IsRemote())
-    {
-        out(Acore::StringFormat("Resume continues a training run, but AnimusForge.Policy is '{}'.", _config.Policy));
-        return false;
-    }
-
     Plan plan;
     plan.Policy = _config.Policy;
 
@@ -357,6 +395,10 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
             out("Nothing to resume since the server started: name it (`forge resume <scenario> [scenario ...]`).");
             return false;
         }
+
+        // A fast test run resumes as one, in its own output directory.
+        plan.Policy = _lastPlan->Policy;
+        plan.Fast = _lastPlan->Fast;
 
         // The first scenario of the last plan that did not end on its own resumes; the ones after it follow.
         std::size_t first = _lastPlan->Entries.size();
@@ -381,6 +423,13 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
     }
     else
     {
+        if (!_config.IsRemote())
+        {
+            out(Acore::StringFormat("Resume continues a training run, but AnimusForge.Policy is '{}'.",
+                _config.Policy));
+            return false;
+        }
+
         for (std::string const& scenario : scenarios)
         {
             if (!ValidScenario(scenario, out))
@@ -392,7 +441,7 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
 
     std::string const& resumed = plan.Entries.front().Scenario;
     std::error_code error;
-    if (!fs::exists(_config.RunsDir() / resumed / "latest.pt", error))
+    if (!fs::exists(ConfigFor(plan).RunsDir() / resumed / "latest.pt", error))
     {
         out(Acore::StringFormat("{} has no runs/{}/latest.pt to resume; `forge start {}` trains it from scratch.",
             resumed, resumed, resumed));
@@ -403,10 +452,13 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
     for (PlanEntry const& entry : plan.Entries)
         names.push_back(entry.Scenario);
 
+    bool const fast = plan.Fast;
+
     _requested = std::move(plan);
     _request = Request::Start;
 
-    out(Acore::StringFormat("Resuming {} from its latest checkpoint{}.", resumed, names.size() > 1
+    out(Acore::StringFormat("Resuming {}{} from its latest checkpoint{}.", fast ? "the fast test run of " : "",
+        names.front(), names.size() > 1
         ? Acore::StringFormat(", then {} from scratch", Join(std::vector<std::string>(names.begin() + 1, names.end())))
         : ""));
     return true;
@@ -525,12 +577,20 @@ bool AnimusForge::Forge::CommandExport(std::string scenario, std::string const& 
         return false;
     }
 
+    // Without a name: the current or last scenario, from the fast output directory when that plan was a fast one.
+    ForgeConfig const* config = &_config;
     if (scenario.empty())
     {
         if (_state != State::Idle)
+        {
             scenario = _current;
+            config = &RunConfig();
+        }
         else if (_lastPlan)
+        {
             scenario = _lastPlan->Entries[_lastPlan->Index].Scenario;
+            config = &ConfigFor(*_lastPlan);
+        }
     }
 
     if (scenario.empty())
@@ -551,7 +611,7 @@ bool AnimusForge::Forge::CommandExport(std::string scenario, std::string const& 
         return false;
     }
 
-    fs::path const run = _config.RunsDir() / scenario;
+    fs::path const run = config->RunsDir() / scenario;
     std::error_code error;
     fs::path file = run / ((checkpoint.empty() ? "best" : checkpoint) + ".pt");
     if (checkpoint.empty() && !fs::exists(file, error))
@@ -564,19 +624,19 @@ bool AnimusForge::Forge::CommandExport(std::string scenario, std::string const& 
         return false;
     }
 
-    fs::create_directories(_config.ModelDir, error);
+    fs::create_directories(config->ModelDir, error);
     if (error)
     {
-        out(Acore::StringFormat("Cannot create {}: {}", _config.ModelDir, error.message()));
+        out(Acore::StringFormat("Cannot create {}: {}", config->ModelDir, error.message()));
         return false;
     }
 
     fs::path const log = fs::path(_config.LearnerLogFile).parent_path() / EXPORT_LOG;
     std::vector<std::string> args =
     {
-        _config.LearnerPython, "-u", "-m", "animus.export", "--checkpoint", file.string(), "--out", _config.ModelDir,
+        _config.LearnerPython, "-u", "-m", "animus.export", "--checkpoint", file.string(), "--out", config->ModelDir,
         // stage.json there names the models, and each model's layout manifest is copied beside it.
-        "--layouts-dir", _config.LayoutsDir().string(),
+        "--layouts-dir", config->LayoutsDir().string(),
     };
 
     if (!_export.Start(std::move(args), _config.LearnerWorkDir, log.string()))
@@ -586,8 +646,9 @@ bool AnimusForge::Forge::CommandExport(std::string scenario, std::string const& 
     }
 
     _exportScenario = scenario;
+    _exportModelDir = config->ModelDir;
     out(Acore::StringFormat("Exporting {} ({}) to {}; output in {}.", scenario, file.filename().string(),
-        _config.ModelDir, log.string()));
+        config->ModelDir, log.string()));
     out("  Models stay in the forge's folder: copy them to a game server by hand.");
     return true;
 }
@@ -634,6 +695,23 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
         return ok;
     };
 
+    auto const cleanFast = [&]()
+    {
+        if ((_state != State::Idle && _plan.Fast) || (_request == Request::Start && _requested.Fast))
+        {
+            out("A fast test run is running or about to: `forge cancel` it first.");
+            return false;
+        }
+
+        if (_export.IsRunning() && _exportModelDir == _fastConfig.ModelDir)
+        {
+            out("An export of a fast run is running: try again when it has finished.");
+            return false;
+        }
+
+        return RemovePath(_fastConfig.OutputDir, out);
+    };
+
     auto const cleanLogs = [&]()
     {
         if (_learner.IsRunning() || _export.IsRunning())
@@ -669,6 +747,8 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
     }
     else if (target == "exports")
         ok = cleanExports();
+    else if (target == "fast")
+        ok = cleanFast();
     else if (target == "logs")
         ok = cleanLogs();
     else if (target == "all")
@@ -689,11 +769,12 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
             ok = RemovePath(dir, out) && ok;
 
         ok = cleanExports() && ok;
+        ok = cleanFast() && ok;
         ok = cleanLogs() && ok;
     }
     else
     {
-        out("Usage: forge clean archive | scenario <scenario> | exports | logs | all");
+        out("Usage: forge clean archive | scenario <scenario> | exports | fast | logs | all");
         return false;
     }
 

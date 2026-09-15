@@ -18,6 +18,7 @@
 
 #include "ForgeConfig.h"
 #include "Config.h"
+#include "Log.h"
 #include "Tokenize.h"
 #include <algorithm>
 #include <cctype>
@@ -42,10 +43,10 @@ namespace
     }
 
     /// A comma-separated config list, whitespace removed, empty entries dropped.
-    std::vector<std::string> GetList(std::string const& key)
+    std::vector<std::string> GetList(std::string const& key, std::string const& fallback = "")
     {
         std::vector<std::string> entries;
-        std::string const value = sConfigMgr->GetOption<std::string>(key, "");
+        std::string const value = sConfigMgr->GetOption<std::string>(key, fallback);
         for (std::string_view name : Acore::Tokenize(value, ',', false))
         {
             std::string entry(name);
@@ -122,6 +123,40 @@ void AnimusForge::ForgeConfig::Load()
 
     ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 60);
 
+    FastEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Envs", 16));
+    FastDecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.DecisionTicks", 4));
+    FastEpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.EpisodeSeconds", 30));
+    FastClassRoles = GetList("AnimusForge.Fast.ClassRoles", "warrior_tank, priest_heal, rogue_dps, hunter_dps");
+
+    fs::path fastOutputDir = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.OutputDir", "fast");
+    if (fastOutputDir.empty())
+        fastOutputDir = "fast";
+    if (fastOutputDir.is_relative())
+        fastOutputDir = outputDir / fastOutputDir;
+    fastOutputDir = fastOutputDir.lexically_normal();
+
+    // Fast runs must stay out of the real runs: they archive what they replace, and `forge clean fast` deletes it all.
+    fs::path const inside = fs::path(OutputDir).lexically_relative(fastOutputDir);
+    if (!inside.empty() && *inside.begin() != "..")
+    {
+        LOG_ERROR("module.animus", "AnimusForge.Fast.OutputDir '{}' is or contains AnimusForge.OutputDir; fast runs go "
+            "to {}/fast instead", fastOutputDir.string(), OutputDir);
+        fastOutputDir = fs::path(OutputDir) / "fast";
+    }
+    FastOutputDir = fastOutputDir.string();
+
+    fs::path fastOverlay = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.Learner.Overlay", "");
+    if (fastOverlay.empty())
+        fastOverlay = fs::path("configs") / "fast.yaml";
+    if (fastOverlay.is_relative())
+        fastOverlay = workDir / fastOverlay;
+    FastLearnerOverlay = fastOverlay.lexically_normal().string();
+
+    FastLearnerArgs.clear();
+    std::istringstream fastArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Fast.Learner.Args", ""));
+    for (std::string arg; fastArgs >> arg;)
+        FastLearnerArgs.push_back(arg);
+
     SpawnMapId = sConfigMgr->GetOption<uint32>("AnimusForge.SpawnPoint.MapId", 560);
     SpawnPosition.Relocate(
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.X", 2741.9f),
@@ -141,6 +176,27 @@ fs::path AnimusForge::ForgeConfig::RunsDir() const
 fs::path AnimusForge::ForgeConfig::LayoutsDir() const
 {
     return fs::path(OutputDir) / "layouts";
+}
+
+AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile() const
+{
+    ForgeConfig fast = *this;
+    fast.Policy = "remote";
+    fast.Envs = FastEnvs;
+    fast.DecisionTicks = FastDecisionTicks;
+    fast.EpisodeSeconds = FastEpisodeSeconds;
+    fast.ReportEpisodes = std::min<uint32>(ReportEpisodes, 64);
+    if (!FastClassRoles.empty())
+        fast.ClassRoles = FastClassRoles;
+
+    fast.OutputDir = FastOutputDir;
+    fast.ModelDir = (fs::path(FastOutputDir) / "models").string();
+
+    // The overlay goes first: AnimusForge.Learner.Args and AnimusForge.Fast.Learner.Args (--set) still win over it.
+    fast.LearnerArgs = { "--overlay", FastLearnerOverlay };
+    fast.LearnerArgs.insert(fast.LearnerArgs.end(), LearnerArgs.begin(), LearnerArgs.end());
+    fast.LearnerArgs.insert(fast.LearnerArgs.end(), FastLearnerArgs.begin(), FastLearnerArgs.end());
+    return fast;
 }
 
 std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenario) const

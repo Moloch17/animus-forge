@@ -278,18 +278,28 @@ std::optional<uint64> AnimusForge::ConfiguredTotalEnvSteps(ForgeConfig const& co
 {
     std::optional<uint64> total;
 
-    std::ifstream file(config.LearnerConfigFor(scenario));
     std::regex const key(R"(^total_env_steps:\s*([0-9_]+))");
-    for (std::string line; std::getline(file, line);)
+    auto const scan = [&total, &key](std::string const& path)
     {
-        std::smatch match;
-        if (std::regex_search(line, match, key))
+        std::ifstream file(path);
+        for (std::string line; std::getline(file, line);)
         {
-            std::string digits = match[1].str();
-            digits.erase(std::remove(digits.begin(), digits.end(), '_'), digits.end());
-            total = std::strtoull(digits.c_str(), nullptr, 10);
+            std::smatch match;
+            if (std::regex_search(line, match, key))
+            {
+                std::string digits = match[1].str();
+                digits.erase(std::remove(digits.begin(), digits.end(), '_'), digits.end());
+                total = std::strtoull(digits.c_str(), nullptr, 10);
+            }
         }
-    }
+    };
+
+    scan(config.LearnerConfigFor(scenario));
+
+    // An `--overlay` file (the fast profile's) is merged over the config, as it is in the learner.
+    for (std::size_t i = 0; i + 1 < config.LearnerArgs.size(); ++i)
+        if (config.LearnerArgs[i] == "--overlay")
+            scan(config.LearnerArgs[i + 1]);
 
     // `--set total_env_steps=N` in AnimusForge.Learner.Args wins, as it does in the learner.
     for (std::size_t i = 0; i + 1 < config.LearnerArgs.size(); ++i)

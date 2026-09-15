@@ -78,7 +78,21 @@ namespace AnimusForge
         /// AnimusForge.Progress.Interval, seconds; 0 = no periodic report.
         uint32 ProgressInterval = 60;
 
+        /// AnimusForge.Fast.*: the low-resolution profile `forge fast` trains with (see FastProfile).
+        uint32 FastEnvs = 16;
+        uint32 FastDecisionTicks = 4;
+        uint32 FastEpisodeSeconds = 30;
+        std::vector<std::string> FastClassRoles;    // empty = AnimusForge.ClassRoles
+        std::string FastOutputDir;                  // resolved: never empty after Load
+        std::string FastLearnerOverlay;             // resolved: never empty after Load
+        std::vector<std::string> FastLearnerArgs;
+
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
+
+        /// These settings with the fast profile applied: fewer envs, coarser decisions, shorter episodes, fewer
+        /// class/roles, and the learner's small budgets (FastLearnerOverlay). Everything goes to FastOutputDir (runs,
+        /// layouts and models), so a test run never archives, seeds from or overwrites a real run.
+        [[nodiscard]] ForgeConfig FastProfile() const;
 
         /// Where learners train: <OutputDir>/runs, runs/<scenario>/ per scenario.
         [[nodiscard]] std::filesystem::path RunsDir() const;
