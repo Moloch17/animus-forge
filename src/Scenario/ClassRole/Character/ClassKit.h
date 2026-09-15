@@ -50,7 +50,10 @@ namespace AnimusForge::ClassRole
         explicit ClassKit(uint8 playerClass);
 
         [[nodiscard]] uint8 Class() const { return _class; }
-        [[nodiscard]] uint8 MinLevel() const;
+        [[nodiscard]] uint8 MinLevel() const { return MinLevelOf(_class); }
+
+        /// The lowest level a character of `playerClass` can be (death knights start at 55).
+        [[nodiscard]] static uint8 MinLevelOf(uint8 playerClass);
         [[nodiscard]] std::vector<KitSpell> const& Spells() const { return _spells; }
 
         /// Learns every kit spell available at the bot's level whose required abilities it knows.

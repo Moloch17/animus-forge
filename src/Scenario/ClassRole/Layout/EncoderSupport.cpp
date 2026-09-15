@@ -21,6 +21,7 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "GearStats.h"
+#include "SpellChecks.h"
 #include "Item.h"
 #include "Layout.h"
 #include "MotionMaster.h"
@@ -43,23 +44,19 @@ namespace
     };
 
     constexpr uint32 CALL_BEAST_GCD_MS = 1500;
-
-    bool CheckCast(Player* bot, SpellInfo const* info, SpellCastTargets const& targets, Item* castItem)
-    {
-        // Same pattern as PetAI: build the spell, validate it, throw it away.
-        Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-        spell->m_CastItem = castItem;
-        spell->LoadScripts();
-        spell->InitExplicitTargets(targets);
-
-        SpellCastResult const result = spell->CheckCast(true);
-        delete spell;
-        return result == SPELL_CAST_OK;
-    }
+    constexpr float POSITION_SCALE = 40.0f;
 }
 
 namespace AnimusForge::ClassRole::Encoding
 {
+    using SpellChecks::CheckCast;
+    using SpellChecks::CooldownFraction;
+
+    float RelativePosition(float coordinate, float origin)
+    {
+        return std::clamp((coordinate - origin) / POSITION_SCALE, -2.0f, 2.0f);
+    }
+
     SpellCastTargets TargetsFor(SpellInfo const* info, Player* bot, Unit* target)
     {
         SpellCastTargets targets;
@@ -74,25 +71,6 @@ namespace AnimusForge::ClassRole::Encoding
             targets.SetUnitTarget(bot);
 
         return targets;
-    }
-
-    float CooldownFraction(Player const* bot, SpellInfo const* info)
-    {
-        uint32 const full = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
-        return full ? std::min(1.0f, float(bot->GetSpellCooldownDelay(info->Id)) / float(full)) : 0.0f;
-    }
-
-    float AuraFraction(Unit const* unit, uint32 spellId, ObjectGuid caster, float& stacks)
-    {
-        Aura const* aura = unit->GetAura(spellId, caster);
-        if (!aura)
-            return 0.0f;
-
-        stacks = std::max(stacks, std::min(1.0f, float(std::max(aura->GetStackAmount(), aura->GetCharges())) / 5.0f));
-        if (aura->GetMaxDuration() <= 0)
-            return 1.0f;    // permanent (stances, forms, presences, auras)
-
-        return std::clamp(float(aura->GetDuration()) / float(aura->GetMaxDuration()), 0.0f, 1.0f);
     }
 
     void WriteKnownCooldowns(Player const* bot, std::vector<ActionCatalog::Action> const& actions, float* out)

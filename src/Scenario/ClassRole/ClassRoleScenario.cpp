@@ -32,6 +32,7 @@
 #include "Player.h"
 #include "Random.h"
 #include "SeatEncoder.h"
+#include "SpellChecks.h"
 #include "StageDefinition.h"
 #include "StringFormat.h"
 #include "Supplies.h"
@@ -45,17 +46,12 @@
 namespace
 {
     using namespace AnimusForge::ClassRole;
-
-    enum ClassRoleSpells : uint32
-    {
-        SPELL_BATTLE_STANCE     = 2457,
-        SPELL_DEFENSIVE_STANCE  = 71,
-    };
+    using namespace AnimusForge::SpellChecks;
+    using Encoding::RelativePosition;
 
     constexpr float PARTY_SPACING = 3.0f;
     constexpr float REWARD_TUNING_MS = 50.0f;       // per-decision reward terms are tuned for this decision interval
     constexpr float MAX_COMBAT_TIME_MS = 60000.0f;
-    constexpr float POSITION_SCALE = 40.0f;
 
     /// Version of stage.json.
     constexpr uint32 STAGE_FILE_FORMAT = 1;
@@ -96,11 +92,6 @@ namespace
         }
 
         return MAX_SEATS;
-    }
-
-    float Relative(float coordinate, float origin)
-    {
-        return std::clamp((coordinate - origin) / POSITION_SCALE, -2.0f, 2.0f);
     }
 
     float OtherPower(Unit const* unit)
@@ -158,6 +149,12 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
         layout.Index = uint16(_layouts.size());
         _layouts.push_back(std::move(layout));
     }
+
+    // A scripted owner or enemy player can be any class/role, whatever AnimusForge.ClassRoles says: build every
+    // profile's assets now (seconds each) rather than on the world thread in the middle of an episode reset.
+    if (_stage.Owner || _stage.Against == Opposition::ScriptedPlayer)
+        for (ClassRoleProfile const& profile : ClassRoleProfiles())
+            ClassRoleAssets::For(profile);
 
     _spec.AgentsPerEnv = _seatCount;
     for (Layout const& layout : _layouts)
@@ -1006,8 +1003,8 @@ void AnimusForge::ClassRole::ClassRoleScenario::WriteState(Env const& env, float
         WriteOneHot(PLAYABLE_CLASSES, slot.L->Profile->Class, features + STATE_SEAT_CLASS_FIRST);
         features[STATE_SEAT_IN_COMBAT] = bot->IsInCombat() ? 1.0f : 0.0f;
         features[STATE_SEAT_CASTING] = bot->IsNonMeleeSpellCast(false, false, true) ? 1.0f : 0.0f;
-        features[STATE_SEAT_X] = Relative(bot->GetPositionX(), originX);
-        features[STATE_SEAT_Y] = Relative(bot->GetPositionY(), originY);
+        features[STATE_SEAT_X] = RelativePosition(bot->GetPositionX(), originX);
+        features[STATE_SEAT_Y] = RelativePosition(bot->GetPositionY(), originY);
     }
 
     // The enemies: the env's targets (creatures, or the scripted enemy player); in self-play each seat's opponent is
@@ -1026,8 +1023,8 @@ void AnimusForge::ClassRole::ClassRoleScenario::WriteState(Env const& env, float
         features[STATE_ENEMY_PRESENT] = 1.0f;
         features[STATE_ENEMY_ALIVE] = enemy->IsAlive() ? 1.0f : 0.0f;
         features[STATE_ENEMY_HEALTH] = enemy->GetHealthPct() / 100.0f;
-        features[STATE_ENEMY_X] = Relative(enemy->GetPositionX(), originX);
-        features[STATE_ENEMY_Y] = Relative(enemy->GetPositionY(), originY);
+        features[STATE_ENEMY_X] = RelativePosition(enemy->GetPositionX(), originX);
+        features[STATE_ENEMY_Y] = RelativePosition(enemy->GetPositionY(), originY);
         features[STATE_ENEMY_CASTING] = enemy->IsNonMeleeSpellCast(false) ? 1.0f : 0.0f;
         features[STATE_ENEMY_ELITE] = enemy->ToCreature() && enemy->ToCreature()->isElite() ? 1.0f : 0.0f;
         features[STATE_ENEMY_LEVEL_DIFF] = (float(enemy->GetLevel()) - leadLevel) / 5.0f;

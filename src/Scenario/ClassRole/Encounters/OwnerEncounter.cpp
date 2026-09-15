@@ -18,6 +18,7 @@
 
 #include "Encounters.h"
 #include "BotAccounts.h"
+#include "EncoderSupport.h"
 #include "Env.h"
 #include "Map.h"
 #include "Player.h"
@@ -29,12 +30,6 @@
 namespace
 {
     constexpr float OWNER_START_OFFSET = 3.0f;
-    constexpr float POSITION_SCALE = 40.0f;
-
-    float Relative(float coordinate, float origin)
-    {
-        return std::clamp((coordinate - origin) / POSITION_SCALE, -2.0f, 2.0f);
-    }
 }
 
 AnimusForge::ClassRole::OwnerEncounter::OwnerEncounter(ClassRoleScenario& scenario, uint32 envs)
@@ -288,8 +283,8 @@ void AnimusForge::ClassRole::OwnerEncounter::WriteState(Env const& env, float* s
     state[ClassRoleScenario::STATE_OWNER_HEALTH] = owner->GetHealthPct() / 100.0f;
     if (uint32 const maxMana = owner->GetMaxPower(POWER_MANA))
         state[ClassRoleScenario::STATE_OWNER_MANA] = float(owner->GetPower(POWER_MANA)) / float(maxMana);
-    state[ClassRoleScenario::STATE_OWNER_X] = Relative(owner->GetPositionX(), origin.GetPositionX());
-    state[ClassRoleScenario::STATE_OWNER_Y] = Relative(owner->GetPositionY(), origin.GetPositionY());
+    state[ClassRoleScenario::STATE_OWNER_X] = Encoding::RelativePosition(owner->GetPositionX(), origin.GetPositionX());
+    state[ClassRoleScenario::STATE_OWNER_Y] = Encoding::RelativePosition(owner->GetPositionY(), origin.GetPositionY());
     state[ClassRoleScenario::STATE_OWNER_IN_COMBAT] = owner->IsInCombat() ? 1.0f : 0.0f;
 }
 

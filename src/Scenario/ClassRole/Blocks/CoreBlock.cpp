@@ -22,12 +22,14 @@
 #include "JsonWriter.h"
 #include "Layout.h"
 #include "Player.h"
+#include "SpellChecks.h"
 #include "SpellInfo.h"
 #include <algorithm>
 
 namespace
 {
     using namespace AnimusForge::ClassRole;
+    using AnimusForge::SpellChecks::GCD_MS;
 
     constexpr std::array<ShapeshiftForm, 13> TRACKED_FORMS =
     {
@@ -35,7 +37,6 @@ namespace
         FORM_BATTLESTANCE, FORM_DEFENSIVESTANCE, FORM_BERSERKERSTANCE, FORM_METAMORPHOSIS, FORM_GHOSTWOLF
     };
 
-    constexpr float GCD_MS = 1500.0f;
     constexpr float RUNE_COOLDOWN_MS = 10000.0f;
     constexpr float TALENT_POINTS_AT_MAX_LEVEL = 71.0f;
 
@@ -220,9 +221,9 @@ void AnimusForge::ClassRole::CoreBlock::Observe(SeatView const& view, float* obs
             float* features = obs + OBS_GLOBAL_COUNT + action * ACTION_FEATURES;
             float stacks = 0.0f;
             features[0] = 1.0f;
-            features[1] = Encoding::CooldownFraction(bot, info);
-            features[2] = target ? Encoding::AuraFraction(target, info->Id, botGuid, stacks) : 0.0f;
-            features[3] = Encoding::AuraFraction(bot, info->Id, botGuid, stacks);
+            features[1] = AnimusForge::SpellChecks::CooldownFraction(bot, info);
+            features[2] = target ? AnimusForge::SpellChecks::AuraFraction(target, info->Id, botGuid, &stacks) : 0.0f;
+            features[3] = AnimusForge::SpellChecks::AuraFraction(bot, info->Id, botGuid, &stacks);
             features[4] = stacks;
 
             if (!obs[OBS_GCD] && info->StartRecoveryTime)

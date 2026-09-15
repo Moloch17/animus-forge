@@ -127,9 +127,9 @@ AnimusForge::ClassRole::ClassKit::ClassKit(uint8 playerClass) : _class(playerCla
             playerClass);
 }
 
-uint8 AnimusForge::ClassRole::ClassKit::MinLevel() const
+uint8 AnimusForge::ClassRole::ClassKit::MinLevelOf(uint8 playerClass)
 {
-    return _class == CLASS_DEATH_KNIGHT ? DEATH_KNIGHT_START_LEVEL : 1;
+    return playerClass == CLASS_DEATH_KNIGHT ? DEATH_KNIGHT_START_LEVEL : 1;
 }
 
 void AnimusForge::ClassRole::ClassKit::Learn(Player* bot) const

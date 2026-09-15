@@ -39,12 +39,8 @@ namespace AnimusForge::ClassRole::Encoding
     constexpr uint32 STUN_STATES = UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
     constexpr uint32 CROWD_CONTROL_STATES = STUN_STATES | UNIT_STATE_ROOT;
 
-    /// Remaining cooldown of a spell as a fraction of its full cooldown.
-    [[nodiscard]] float CooldownFraction(Player const* bot, SpellInfo const* info);
-
-    /// Remaining duration fraction of `caster`'s aura `spellId` on `unit` (1 for permanent auras); raises `stacks` to
-    /// its stacks or charges / 5.
-    [[nodiscard]] float AuraFraction(Unit const* unit, uint32 spellId, ObjectGuid caster, float& stacks);
+    /// A position relative to `origin` (the spawn point) for the critic state: / 40 yd, clamped to [-2, 2].
+    [[nodiscard]] float RelativePosition(float coordinate, float origin);
 
     /// Features for a known/cooldown pair list: 1 and the cooldown fraction for each spell the bot knows.
     void WriteKnownCooldowns(Player const* bot, std::vector<ActionCatalog::Action> const& actions, float* out);

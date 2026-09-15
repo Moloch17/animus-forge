@@ -31,6 +31,7 @@
 #include "SpellMgr.h"
 #include "SummonLevel.h"
 #include "TemporarySummon.h"
+#include "WorldCreatures.h"
 #include <cmath>
 #include <map>
 #include <unordered_set>
@@ -72,27 +73,8 @@ AnimusForge::ClassRole::Opponents::OpponentPool const& AnimusForge::ClassRole::O
 
 AnimusForge::ClassRole::Opponents::OpponentPool::OpponentPool()
 {
-    std::unordered_set<uint32> spawned;
-    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT id FROM creature"))
-    {
-        do
-        {
-            spawned.insert(result->Fetch()[0].Get<uint32>());
-        } while (result->NextRow());
-    }
-
-    // Creatures that walk waypoint paths are scripted set pieces (rares on patrol, escorts): not fair opponents or
-    // pets.
-    std::unordered_set<uint32> walkers;
-    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT c.id FROM creature c "
-        "LEFT JOIN creature_addon a ON a.guid = c.guid WHERE c.MovementType = 2 OR IFNULL(a.path_id, 0) <> 0 "
-        "UNION SELECT entry FROM creature_template_addon WHERE path_id <> 0"))
-    {
-        do
-        {
-            walkers.insert(result->Fetch()[0].Get<uint32>());
-        } while (result->NextRow());
-    }
+    std::unordered_set<uint32> const& spawned = WorldCreatures::SpawnedIds();
+    std::unordered_set<uint32> const& walkers = WorldCreatures::WaypointWalkerIds();
 
     // SmartAI creatures whose scripts only cast spells or talk, on combat events: casters and ability users
     // without scripts that flee, summon, despawn or change phases. Pack and gauntlet stages only.

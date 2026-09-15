@@ -28,7 +28,7 @@
 #include "Player.h"
 #include "Random.h"
 #include "Spell.h"
-#include "SpellAuras.h"
+#include "SpellChecks.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "StringFormat.h"
@@ -38,6 +38,8 @@
 
 namespace
 {
+    using namespace AnimusForge::SpellChecks;
+
     constexpr uint8 BOT_LEVEL = 20;
 
     /// Talent points at BOT_LEVEL: one per level from 10.
@@ -48,7 +50,6 @@ namespace
 
     enum WarriorDummy20Spells : uint32
     {
-        SPELL_BATTLE_STANCE             = 2457,
         SPELL_HEROIC_STRIKE_RANK_3      = 285,
         SPELL_CLEAVE_RANK_1             = 845,
         SPELL_REND_RANK_3               = 6547,
@@ -117,24 +118,10 @@ namespace
         { EQUIPMENT_SLOT_MAINHAND,  6641 },     // Haunting Blade (two-handed sword)
     }};
 
-    constexpr float GCD_MS = 1500.0f;
-
     /// Remaining cooldown of a spell as a fraction of its full cooldown.
-    float CooldownFraction(Player const* bot, uint32 spellId)
+    float SpellCooldownFraction(Player const* bot, uint32 spellId)
     {
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        uint32 const full = info ? std::max(info->RecoveryTime, info->CategoryRecoveryTime) : 0;
-        return full ? std::min(1.0f, float(bot->GetSpellCooldownDelay(spellId)) / float(full)) : 0.0f;
-    }
-
-    /// Remaining duration of an aura as a fraction of its full duration; 0 if absent.
-    float AuraFraction(Unit const* unit, uint32 spellId, ObjectGuid caster)
-    {
-        Aura const* aura = unit->GetAura(spellId, caster);
-        if (!aura || aura->GetMaxDuration() <= 0)
-            return 0.0f;
-
-        return std::clamp(float(aura->GetDuration()) / float(aura->GetMaxDuration()), 0.0f, 1.0f);
+        return CooldownFraction(bot, sSpellMgr->GetSpellInfo(spellId));
     }
 }
 
@@ -507,18 +494,10 @@ bool AnimusForge::WarriorDummy20Scenario::CanCast(Player* bot, SpellInfo const* 
         return false;
 
     // The core's own cast validation, without casting: cooldown, GCD, rage, stance, range, facing,
-    // and reactive requirements such as Overpower's dodge window. Same pattern as PetAI.
-    Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
-    spell->LoadScripts();
-
+    // and reactive requirements such as Overpower's dodge window.
     SpellCastTargets targets;
     targets.SetUnitTarget(info->NeedsExplicitUnitTarget() ? target : bot);
-    spell->InitExplicitTargets(targets);
-
-    SpellCastResult const result = spell->CheckCast(true);
-    delete spell;
-
-    return result == SPELL_CAST_OK;
+    return CheckCast(bot, info, targets);
 }
 
 bool AnimusForge::WarriorDummy20Scenario::IsActionAllowed(Player* bot, Unit* target, int32 action) const
@@ -602,10 +581,10 @@ void AnimusForge::WarriorDummy20Scenario::Observe(Env& env, float* obs, float* s
             obs[OBS_GCD_REMAINING] = std::min(1.0f, float(bot->GetGlobalCooldownMgr().GetGlobalCooldown(gcdSpell))
                 / GCD_MS);
 
-        obs[OBS_THUNDER_CLAP_COOLDOWN] = CooldownFraction(bot, SPELL_THUNDER_CLAP_RANK_2);
-        obs[OBS_BLOODRAGE_COOLDOWN] = CooldownFraction(bot, SPELL_BLOODRAGE);
-        obs[OBS_OVERPOWER_COOLDOWN] = CooldownFraction(bot, SPELL_OVERPOWER);
-        obs[OBS_MOCKING_BLOW_COOLDOWN] = CooldownFraction(bot, SPELL_MOCKING_BLOW);
+        obs[OBS_THUNDER_CLAP_COOLDOWN] = SpellCooldownFraction(bot, SPELL_THUNDER_CLAP_RANK_2);
+        obs[OBS_BLOODRAGE_COOLDOWN] = SpellCooldownFraction(bot, SPELL_BLOODRAGE);
+        obs[OBS_OVERPOWER_COOLDOWN] = SpellCooldownFraction(bot, SPELL_OVERPOWER);
+        obs[OBS_MOCKING_BLOW_COOLDOWN] = SpellCooldownFraction(bot, SPELL_MOCKING_BLOW);
 
         // A dodge gives the warrior a combo point on the target for the Overpower window
         // (Unit::StartReactiveTimer(REACTIVE_OVERPOWER)); it is cleared when the window closes.

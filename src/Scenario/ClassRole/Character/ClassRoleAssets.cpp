@@ -18,6 +18,7 @@
 
 #include "ClassRoleAssets.h"
 #include "ObjectMgr.h"
+#include <algorithm>
 #include <array>
 
 namespace
@@ -73,10 +74,17 @@ AnimusForge::ClassRole::ClassRoleProfile const* AnimusForge::ClassRole::ClassRol
 
 std::vector<uint8> AnimusForge::ClassRole::ClassRoleAssets::ClassesForRole(uint8 level, Role role)
 {
+    // Cheap checks only: building a profile's assets takes seconds (see ClassRoleScenario, which warms them).
     std::vector<uint8> classes;
     for (ClassRoleProfile const& profile : ClassRoleProfiles())
-        if (profile.PlayRole == role && For(profile).Kit->MinLevel() <= level && !For(profile).Races.empty())
+    {
+        if (profile.PlayRole != role || ClassKit::MinLevelOf(profile.Class) > level)
+            continue;
+
+        if (std::any_of(PLAYABLE_RACES.begin(), PLAYABLE_RACES.end(),
+            [&profile](uint8 race) { return sObjectMgr->GetPlayerInfo(race, profile.Class) != nullptr; }))
             classes.push_back(profile.Class);
+    }
 
     return classes;
 }

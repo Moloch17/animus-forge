@@ -24,6 +24,7 @@
 #include "Player.h"
 #include "Random.h"
 #include "Spell.h"
+#include "SpellChecks.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include <algorithm>
@@ -32,14 +33,9 @@
 namespace
 {
     using namespace AnimusForge::ClassRole;
+    using namespace AnimusForge::SpellChecks;
     using ScriptedPlayer::State;
     using ScriptedPlayer::Tuning;
-
-    enum ScriptedPlayerSpells : uint32
-    {
-        SPELL_BATTLE_STANCE     = 2457,
-        SPELL_DEFENSIVE_STANCE  = 71,
-    };
 
     constexpr uint32 MOVE_POINT_ID = 2;
     constexpr uint32 CHASE_REPATH_MS = 1000;
