@@ -36,28 +36,6 @@ class Group;
  */
 namespace AnimusForge::ClassRole
 {
-    /// Stage 1: a training dummy in range that takes no damage. Its health follows a random curve over the episode, so
-    /// execute-range abilities are sometimes usable. Reward: damage dealt / the level's damage scale.
-    class DummyEncounter final : public Encounter
-    {
-    public:
-        DummyEncounter(ClassRoleScenario& scenario, uint32 envs);
-
-        [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override { return { RewardTerm::DamageDealt }; }
-        bool Build(Env& env, Map* map, uint8 level) override;
-        void BeforeSeatAction(Env& env, uint32 seat, Unit* target) override;
-        void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
-
-    private:
-        struct HealthCurve
-        {
-            float Start = 1.0f;         // dummy health fraction at episode start
-            float End = 0.0f;           // ... and at the episode time limit
-        };
-
-        std::vector<HealthCurve> _curves;
-    };
-
     /// A same-level creature spawned out of aggro range, which fights back. Reward: CombatReward::OneOnOne.
     class CreatureEncounter final : public Encounter
     {

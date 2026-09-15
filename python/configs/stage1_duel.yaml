@@ -1,28 +1,28 @@
-# Learner config for class_role, stage 1 of the class/role curriculum, and the base every later stage extends: one
-# policy for every class/role of AnimusForge.ClassRoles (all 18 by default) on a training dummy, maximising damage.
-# Each class/role is a layout: its own input adapter and action head around a shared trunk. The run trains in
-# <runs_dir>/class_role/; export writes one model per class/role (warrior_dps.amdl, ...).
+# Learner config for stage1_duel, stage 1 of the class/role curriculum, and the root every later stage extends: one
+# policy for every class/role of AnimusForge.ClassRoles (all 18 by default). Each class/role is a layout: its own input
+# adapter and action head around a shared trunk. The run trains in <runs_dir>/stage1_duel/; export writes one model
+# per class/role (warrior_dps_duel.amdl, ...).
 #
 # Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random, and the policy
-# sees them in its observation. Observations are a few hundred features (61 global, 5 per action, one per talent)
-# and a class has roughly 50-120 actions.
+# sees them in its observation. It faces a same-level creature that fights back, spawned out of aggro range: the bot
+# has to move to it, pick its pet, open from stealth where it can, and kill it fast while losing little health.
+# Episodes end on the kill or the bot's death.
 #
 # The sim decides the env count, decision interval and episode length (mod_animus_forge.conf), where runs go and what
 # a stage seeds from (its stage.json); everything here is learner-side. Later stages list only what they change.
 
-run_name: class_role
+run_name: stage1_duel
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# Seed from the closest earlier stage that has been trained (the stage's seed chain in stage.json): each layout
-# extends the earlier stage's, and the trunk carries over. Stage 1 has nothing to seed from.
+# Seed from the closest earlier stage that has been trained (the stage's seed chain in stage.json). The duel is the
+# first stage: its chain is empty, so its networks start from scratch.
 init_from: auto
 
 # One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so it needs far
-# more experience than a single-character scenario. At 64 envs one update is 128 x 64 = 8192 env steps. Stage 1 is a
-# warm start: every role only practises damage on a dummy here (tanks and healers included), so it gets a short budget
-# rather than pulling the shared trunk towards pure damage play.
-total_env_steps: 60000000
+# more experience than a single-character scenario. At 64 envs one update is 128 x 64 = 8192 env steps.
+# ~6 h at ~7k env steps/s; the plateau stop usually ends the stage sooner.
+total_env_steps: 150000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -37,8 +37,8 @@ mappo:
   # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space. Every stage
   # keeps these sizes, or seeding from the earlier stage cannot copy the trunk.
   hidden: [512, 512]
-  # Decisions are 100 ms apart by default; DoTs, buffs and cooldowns pay off over many seconds.
-  gamma: 0.995
+  # Kills take tens of seconds of decisions including the approach: look further ahead.
+  gamma: 0.997
   gae_lambda: 0.95
   clip: 0.2
   value_clip: 0.2
@@ -57,17 +57,17 @@ mappo:
 # stats next to the baseline, scored once per run on the same seeds. The best networks go to best.pt and are the ones
 # the next stage seeds from.
 eval:
-  every_env_steps: 20000000
+  every_env_steps: 10000000
   at_start: true
   episodes: 128
   seed: 1000
   deterministic: true
-  baseline: greedy
+  baseline: fight
 
 # Stop once `patience` evaluations in a row fail to beat the best score by 2%, but not before min_env_steps;
 # total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
-  patience: 3
+  patience: 5
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 20000000
+  min_env_steps: 30000000

@@ -1,0 +1,18 @@
+# Stage 7 of the class/role curriculum: self-play one-on-one. Two learned agents of random classes and roles fight in
+# each env, both played by this policy, so both sides of every fight are training data, across class matchups.
+#
+# Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides improve
+# together), so there is no baseline and no plateau stop: the run trains to total_env_steps. Judge it by stage 6's
+# evaluation: run the arena checkpoint on a stage6_pvp sim with animus.evaluate.
+
+extends: stage6_pvp.yaml
+run_name: stage7_arena
+
+# ~4 h at ~14k env steps/s (two seats).
+total_env_steps: 200000000
+
+eval:
+  baseline: ""
+
+plateau:
+  patience: 0

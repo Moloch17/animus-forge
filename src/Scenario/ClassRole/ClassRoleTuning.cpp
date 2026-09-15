@@ -44,7 +44,6 @@ AnimusForge::ClassRole::ClassRoleTuning AnimusForge::ClassRole::ClassRoleTuning:
     order(tuning.ScriptedPlayers.HealMinMs, tuning.ScriptedPlayers.HealMaxMs);
     order(tuning.ScriptedPlayers.WanderMinMs, tuning.ScriptedPlayers.WanderMaxMs);
 
-    tuning.Dummy.StartHealthMin = std::clamp(tuning.Dummy.StartHealthMin, 0.0f, 1.0f);
     tuning.Party.SizeWeight1 = std::max(0, tuning.Party.SizeWeight1);
     tuning.Party.SizeWeight2 = std::max(0, tuning.Party.SizeWeight2);
     tuning.Party.SizeWeight3 = std::max(0, tuning.Party.SizeWeight3);

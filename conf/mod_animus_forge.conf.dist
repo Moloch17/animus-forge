@@ -44,22 +44,22 @@ AnimusForge.OutputDir = ""
 #                     of the level, and random level-appropriate gear and trinkets for the spec. Each
 #                     class/role is a layout of the policy and exports as its own model. Each stage's
 #                     layouts extend the stage it builds on, which seeds it:
-#                       "class_role"           - a training dummy: maximise damage
-#                       "class_role_duel"      - a same-level creature out of aggro range: close in and
-#                                                kill it fast, taking little damage
-#                       "class_role_pack"      - a pack of 2-4 (casters, usually linked): targets,
-#                                                interrupts, crowd control
-#                       "class_role_gauntlet"  - pull after pull with short breaks: heals, food, drink
-#                       "class_role_companion" - the gauntlet beside a scripted owner: follow, assist,
-#                                                guard and heal it
-#                       "class_role_party"     - up to four learned seats and the scripted owner against
-#                                                elite-heavy pulls
-#                       "class_role_pvp"       - one-on-one against a scripted enemy player
-#                       "class_role_arena"     - self-play one-on-one: two learned seats of any classes
+#                       "stage1_duel"      - a same-level creature out of aggro range: close in and kill
+#                                            it fast, taking little damage (the first stage, from scratch)
+#                       "stage2_pack"      - a pack of 2-4 (casters, usually linked): targets,
+#                                            interrupts, crowd control
+#                       "stage3_gauntlet"  - pull after pull with short breaks: heals, food, drink
+#                       "stage4_companion" - the gauntlet beside a scripted owner: follow, assist,
+#                                            guard and heal it
+#                       "stage5_party"     - up to four learned seats and the scripted owner against
+#                                            elite-heavy pulls
+#                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
+#                                            the duel)
+#                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
 #                     Standalone:
 #                       "warrior_dummy_20"     - level 20 Arms human warrior on a training dummy, a new
 #                                                random Arms talent build every episode
-#        Example:     "class_role_duel" - (train a single scenario)
+#        Example:     "stage1_duel" - (train a single scenario)
 #        Default:     "" - (the whole class/role curriculum, first stage to last)
 
 AnimusForge.Queue = ""
@@ -281,14 +281,6 @@ AnimusForge.ClassRole.Party.TeammateHealing = 2.0
 #   tanks: per enemy on a non-tank teammate, per decision
 AnimusForge.ClassRole.Party.TankLoseTeammate = 0.02
 AnimusForge.ClassRole.Party.TeammateDeath = 3.0
-
-#
-#    AnimusForge.ClassRole.Dummy.*
-#        The training dummy's health curve (it cannot die: execute-range features need a
-#        health that moves).
-
-#   start in [min, 1], end in [0, start]
-AnimusForge.ClassRole.Dummy.StartHealthMin = 0.2
 
 #
 #    AnimusForge.ClassRole.Duel.*

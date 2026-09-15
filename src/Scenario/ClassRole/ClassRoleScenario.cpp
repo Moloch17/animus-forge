@@ -175,7 +175,6 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
     OpponentEncounter* opponent = nullptr;
     PullsEncounter* pulls = nullptr;
     CreatureEncounter* creature = nullptr;
-    DummyEncounter* dummy = nullptr;
 
     auto const add = [this](auto encounter)
     {
@@ -194,11 +193,9 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
     if (_stage.Against == Opposition::Creature)
         creature = add(std::make_unique<CreatureEncounter>(*this));
-    if (_stage.Against == Opposition::Dummy)
-        dummy = add(std::make_unique<DummyEncounter>(*this, envs));
 
     // Pulls record the step's damage taken before the owner's tank refund reads it.
-    for (Encounter* encounter : std::initializer_list<Encounter*>{ dummy, creature, pulls, _owner, _party, opponent })
+    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, _owner, _party, opponent })
         if (encounter)
             _rewardOrder.push_back(encounter);
 
@@ -277,9 +274,6 @@ void AnimusForge::ClassRole::ClassRoleScenario::AddCoreEpisodeInfo()
     });
     // A party seat left empty this episode reports 0: ignore its row.
     _info.Add("present", [seat](Env const& env, uint32 index) { return seat(env, index).L ? 1.0f : 0.0f; });
-
-    if (_stage.Against == Opposition::Dummy)
-        return;
 
     // Fights against something that fights back.
     auto const tally = [this](Env const& env, uint32 index) -> CombatTally const&

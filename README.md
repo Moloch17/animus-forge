@@ -10,7 +10,7 @@ a training run:
 - a lock-step bridge to a Python MAPPO learner
 
 Its main work is the class/role curriculum: eight stages that train one policy for every class and role,
-from a training dummy up to parties and self-play arenas.
+from a one-on-one duel up to parties and self-play arenas.
 
 ## How it fits together
 
@@ -77,9 +77,9 @@ A level 20 human Arms warrior on a level 20 training dummy.
 
 ### Class/role curriculum: one policy for every class and role
 
-Eight stage scenarios -- `class_role`, `class_role_duel`, `class_role_pack`, `class_role_gauntlet`,
-`class_role_companion`, `class_role_party`, `class_role_pvp`, `class_role_arena` -- each train **one policy for
-every class/role** of `AnimusForge.ClassRoles` (all 18 by default). Each stage is its own scenario, so every
+Seven stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
+`stage6_pvp`, `stage7_arena` -- each train **one policy for every class/role** of `AnimusForge.ClassRoles` (all 18
+by default). Each stage is its own scenario, so every
 earlier stage stays repeatable.
 
 - **Seats:** each learned agent of an env is a seat. Every episode each seat becomes a new character of a
@@ -112,13 +112,13 @@ A stage is one entry in `src/Scenario/ClassRole/Stages/Stages.cpp` (`StageDefini
   adds its own; several stages can extend the same base, so the curriculum is a tree:
 
   ```
-  class_role ─ duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
-                     └─ pvp ─ arena                               (PvP: core, duel, pvp)
+  duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
+        └─ pvp ─ arena                               (PvP: core, duel, pvp)
   ```
 
   The sim checks each definition at startup (the base exists and comes earlier, no block twice, every part has the
   blocks it needs) and leaves out a stage that breaks a rule.
-- **Encounters** (`Encounters/`): what its envs contain besides the seats -- a training dummy, a creature, pulls
+- **Encounters** (`Encounters/`): what its envs contain besides the seats -- a creature, pulls
   (one pack or the gauntlet's schedule), a scripted owner, a party group, an enemy player (scripted or the other
   seat). Each encounter builds and updates its part of the world, keeps its own episode state, and adds its reward
   terms, episode info columns and critic state. `ClassRoleScenario` builds the seats and calls every encounter's
@@ -131,10 +131,10 @@ A stage is one entry in `src/Scenario/ClassRole/Stages/Stages.cpp` (`StageDefini
   writes the effective values into `<OutputDir>/layouts/<stage>/stage.json` beside the layout manifests, and the
   learner copies it into the run directory.
 
-#### Stage 1 (`class_role`): the training dummy
+#### Characters and the core block
 
-Every class and role maximises damage on a training dummy (tank and healer roles too: they learn their spec's
-damage play in role gear):
+Every stage plays every class and role (tank and healer roles fight with their own spec's damage play in role
+gear until the companion and party stages give them their jobs):
 
 | Class | Class/roles (specs) |
 |---|---|
@@ -153,8 +153,7 @@ The table lives in `src/Scenario/ClassRole/Character/ClassRoleProfile.cpp`, with
 range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
 
 - **Race and level:** a random race the class allows (`playercreateinfo`), random gender, level
-  1-80 (55-80 for death knights). The dummy is summoned at the bot's level, 2 yd away for melee
-  specs and 20 yd for casters and hunters.
+  1-80 (55-80 for death knights).
 - **Talents:** one of the role's specs, then a random build spent one point at a time on a uniformly
   chosen learnable talent: the spec's tree first until it holds 51 points (the capstone row) or the
   points run out, then the other two trees. Row and prerequisite rules follow `Player::LearnTalent`.
@@ -171,7 +170,7 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   items, when nothing closer exists. Armor is plate/mail/leather/cloth by class and level; weapons
   follow the spec's layouts (two-hander, dual wield when the bot can, one-hander with shield or
   off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or relics.
-- **Actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
+- **Core actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
   chain of every combat spell a level 80 character of any of the class's races knows (trainer,
   starting and racial spells, active talents of all three trees), casting the highest rank the bot
   knows, and one action per trinket slot. A spell counts as combat if it deals damage, applies a
@@ -180,26 +179,23 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   core's `Spell::CheckCast` each decision (race, level, talent, cooldown, GCD, power, stance, range,
   reagents). As on a client, no spell or trinket can be started while a cast is in its cast time (the
   core only checks that for client casts, so a bot's new cast would otherwise silently replace it).
-- **Observation:** level, race and spec one-hots, health and every power type, runes, combo points,
+- **Core observation:** level, race and spec one-hots, health and every power type, runes, combo points,
   shapeshift form, GCD, casting, swing timers, target health and distance, attack power, spell power,
   crit, haste, hit, expertise and armor penetration; per action: known, cooldown, its aura on the
   target and on the bot, stacks; every talent's rank; points per tree.
-- **Reward:** damage per decision divided by a level scale (`15 * e^(0.068 * level)`), so early
-  and late levels weigh alike. Pet, guardian and totem damage counts for the owner.
-- **Dummy health:** the dummy takes no damage, so its health follows a random line over the episode
-  (start 20-100% by default, `Dummy.StartHealthMin`; end anywhere below): execute-range abilities come up
-  without killing it.
-- **Episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
+- **Damage scale:** stages weigh damage by a level scale (`15 * e^(0.068 * level)`), so early and late levels
+  weigh alike. Pet, guardian and totem damage counts for the owner.
+- **Core episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
   equipped items, spell casts, trinket uses.
-- **Baseline:** `greedy`, the first usable spell or trinket.
 
-Learner settings come from `configs/<scenario>.yaml`. `configs/class_role.yaml` is stage 1's and the base of every
-later stage's (`extends: class_role.yaml`), which lists only what it changes.
+The core block is not a scenario of its own. Learner settings come from `configs/<scenario>.yaml`.
+`configs/stage1_duel.yaml` is stage 1's and the root every later stage's config extends (directly or through an
+earlier stage), listing only what it changes.
 
-#### Stage 2 (`class_role_duel`): the duel
+#### Stage 1 (`stage1_duel`): the duel
 
-Characters are built exactly as in stage 1 (race, level, spec, talents, kit, gear); the target is now a real
-opponent:
+Characters are built as above (race, level, spec, talents, kit, gear), against a real opponent. Nothing seeds this
+stage: its networks start from scratch.
 
 - **Opponent:** a random creature whose natural levels cover the bot's (normal rank, attackable,
   default AI with no script, no NPC services, not civilian, guard or trigger, spawned somewhere in
@@ -211,14 +207,14 @@ opponent:
   needs a pet saved in the database, are offered 4 tameable beasts of different random families
   each episode through 4 `call_beast` actions; the observation shows each beast's family and pet
   type (ferocity, tenacity, cunning), so the policy can find the one it prefers.
-- **Actions:** stage 1's actions, then: move to the opponent, move behind it, move to casting range
+- **Actions:** the core actions, then: move to the opponent, move behind it, move to casting range
   (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, stop casting (the current cast
   or channel, as the client's cancel-cast), cancel form (a shapeshift the client could cancel: druid
   forms, Shadowform, Ghost Wolf, Stealth; not stances or presences), and (hunters) the 4 `call_beast`
   actions. The bot turns to face the opponent whenever it is not running. Movement is masked while
   casting, and cast-time or channeled spells while running. Stop casting and cancel form need no
   target, so they stay available between pulls in later stages.
-- **Observation:** stage 1's, then: distance, bearing to the opponent, whether the bot is behind it
+- **Observation:** the core observation, then: distance, bearing to the opponent, whether the bot is behind it
   and whether it faces the bot, the opponent's combat, target and casting state, the bot's movement,
   combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
   episode time, the current cast's progress and time left (casts and channels), whether the bot is in
@@ -232,7 +228,7 @@ opponent:
   policy's call when something else is worth more. Channels are paid by their ticks. Later stages keep this term.
   On the kill: +2, plus up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health
   it did not lose. Death: -3. The episode ends on the kill or the bot's death.
-- **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
+- **Episode info:** the core columns, then killed, died, time to kill, damage taken, health left,
   stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled and
   seconds of cast time wasted, and the reward terms.
 
@@ -246,9 +242,9 @@ left behind; the trunk is copied; the critic's state encoder and value head star
 reward differ. A checkpoint without block positions (from before this) is seeded as a prefix. Queue every stage after
 the stage it extends (the sim warns otherwise); the two branches can go in either order, or on two machines.
 
-#### Stage 3 (`class_role_pack`): packs
+#### Stage 2 (`stage2_pack`): packs
 
-Stage 3. The duel's characters against a pack instead of a single opponent:
+Stage 2. The duel's characters against a pack instead of a single opponent:
 
 - **Pack:** 2-4 creatures at the bot's level, clustered 40-50 yd away, each facing its own way. The
   pool adds creatures whose SmartAI only casts spells or talks (casters and ability users, ~3500) to
@@ -269,9 +265,9 @@ Stage 3. The duel's characters against a pack instead of a single opponent:
   The episode ends when the pack is cleared or the bot dies.
 - **Episode info:** the duel's (killed = cleared), then kills, interrupts, pack size, linked.
 
-#### Stage 4 (`class_role_gauntlet`): the gauntlet
+#### Stage 3 (`stage3_gauntlet`): the gauntlet
 
-Stage 4: sustained combat.
+Stage 3: sustained combat.
 
 - **Pulls:** pull after pull until the bot dies or the episode ends: 1-4 creatures from the pack
   pool, or (15%) a single elite, or (25%) a pack 1-3 levels above the bot. After a clear the field is
@@ -291,9 +287,9 @@ Stage 4: sustained combat.
 
 Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
 
-#### Stage 5 (`class_role_companion`): the companion
+#### Stage 4 (`stage4_companion`): the companion
 
-Stage 5: the gauntlet fought beside an owner, as a companion fights beside a player.
+Stage 4: the gauntlet fought beside an owner, as a companion fights beside a player.
 
 - **Owner:** a scripted player bot within 2 levels of the companion, of a random role (tank 25%, healer 25%,
   damage dealer 50%) and a class that can fill it, dressed like the companion: one of the role's specs with a
@@ -324,7 +320,7 @@ Stage 5: the gauntlet fought beside an owner, as a companion fights beside a pla
 - **Episode info:** the gauntlet's, then wipes, the owner's class and role, whether and how often it died, its
   damage taken, the companion's healing on it, and enemy-decisions spent on the companion and on the owner.
 
-#### Stage 6 (`class_role_party`): the party
+#### Stage 5 (`stage5_party`): the party
 
 Up to four learned seats -- 1-4 each episode, as a player brings 1-4 companions (`Party.SizeWeight1-4`); half the
 time the classic tank, healer and damage dealers, otherwise roles drawn one by one -- of random classes that can fill
@@ -352,18 +348,18 @@ no-op.
 - **Episode info:** per seat, the companion stage's, then the seat, teammates died, teammate damage taken, its
   healing on teammates, and enemy-decisions spent on non-tank teammates.
 
-#### Stages 7 and 8 (`class_role_pvp`, `class_role_arena`): PvP
+#### Stages 6 and 7 (`stage6_pvp`, `stage7_arena`): PvP
 
-One-on-one against a player: the PvP branch of the curriculum. `class_role_pvp` extends the duel (and seeds from
+One-on-one against a player: the PvP branch of the curriculum. `stage6_pvp` extends the duel (and seeds from
 it), keeping its core and duel blocks and adding the pvp block; the pack, gauntlet, companion and party blocks are not
 in its layouts at all, so the PvP line trains right after the duel, without the PvE stages. Both players get opposing
 player factions and the PvP flag, which players need to attack each other.
 
-- **`class_role_pvp` (stage 7):** a scripted enemy player at the bot's level (within 1), of a random class and
+- **`stage6_pvp` (stage 6):** a scripted enemy player at the bot's level (within 1), of a random class and
   role (damage 60%, tank 20%, healer 20%) with that role's spec, talents, kit and gear, spawned 40-50 yd away
   facing a random way. It closes in after up to 3 s: melee specs fight in melee, ranged specs hold 10-30 yd and
   cast, healers heal themselves below 60%.
-- **`class_role_arena` (stage 8), self-play:** two learned seats of random classes and roles at one level in the
+- **`stage7_arena` (stage 7), self-play:** two learned seats of random classes and roles at one level in the
   same env, the second spawned 40-50 yd from the first. Both are played by the same policy, so every fight is
   training data for both sides, across class matchups.
 - **Observation:** the duel's, then the opponent's class, role, level difference, mana, rage/energy/runic
@@ -371,18 +367,18 @@ player factions and the PvP flag, which players need to attack each other.
   stunned/feared, rooted or silenced, and whether the opponent is a learned agent. Actions: the duel's.
 - **Reward:** the duel's (damage dealt and taken, closing in, stealth openers, casts, a fast kill with health
   kept, death). The episode ends when either player dies.
-- **Episode info:** stage 1's and the duel's columns, then won, opponent class and opponent role (the pulls, owner
+- **Episode info:** the core and duel columns, then won, opponent class and opponent role (the pulls, owner
   and party columns are left out: nothing fills them in PvP).
 
-`configs/class_role_pvp.yaml` scores against the `fight` baseline. `configs/class_role_arena.yaml` has no
+`configs/stage6_pvp.yaml` scores against the `fight` baseline. `configs/stage7_arena.yaml` has no
 baseline or plateau stop: against itself a policy's score does not track progress -- judge an arena model with
-`animus.evaluate` on a `class_role_pvp` sim.
+`animus.evaluate` on a `stage6_pvp` sim.
 
 ### Training every model: `AnimusForge.Queue`
 
 `AnimusForge.Queue` lists the scenarios to train, one after another. It is the only way to pick what runs. Empty
 (the default) is the whole class/role curriculum, first stage to last; to train a single scenario, list only that
-one (`AnimusForge.Queue = "class_role_duel"`).
+one (`AnimusForge.Queue = "stage1_duel"`).
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
 plateaus or it reaches `total_env_steps` (see
@@ -442,7 +438,7 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.WarriorDummy20.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
-Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=class_role_duel`.
+Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
 
 For best throughput set `MapUpdate.Threads` to the number of physical cores.
 
@@ -515,7 +511,7 @@ worldserver starts the learner itself once the envs are built, for the current s
 - **Output** is appended to `animus-learner.log` in `LogsDir`.
 - **An exit** is logged in the worldserver log, with the exit code.
 - **Configs** may start with `extends: <other>.yaml`: the file is merged over that one, section by section. Every
-  class/role stage extends `class_role.yaml` (directly or through an earlier stage).
+  class/role stage extends `stage1_duel.yaml` (directly or through an earlier stage).
 - **Devices:** `train_device: auto` updates on the GPU when torch sees one (CUDA or ROCm), else the CPU.
 - **Checkpoints:** `checkpoint_<update>.pt` every `checkpoint_every` updates, keeping the newest `keep_checkpoints`
   (5); `latest.pt` and `best.pt` are always kept.
@@ -541,7 +537,7 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   Afterwards the learner switches back and training resumes from fresh episodes.
 - **Policy:** argmax actions (`eval.deterministic`). The score is the mean episode return -- the scenario's
   own reward -- so it measures what training optimises and compares checkpoints of one scenario.
-- **Baseline:** `eval.baseline` (`greedy` for stage 1, `fight` for later stages) is played by the sim on the
+- **Baseline:** `eval.baseline` (`fight` for the class/role stages; `greedy`, the first usable spell or trinket, also exists) is played by the sim on the
   same seeds once per run and cached in `eval_baseline.json`.
 - **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
   `eval.every_env_steps` (20M), and at `total_env_steps`.
@@ -561,8 +557,8 @@ To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from 
 
 ```
 pytest                                                    # protocol, GAE and trainer tests
-python -m animus.train --config configs/class_role.yaml --run-name class_role
-python -m animus.evaluate --checkpoint runs/class_role/best.pt --episodes 128 --seed 1000 --baseline greedy
+python -m animus.train --config configs/stage1_duel.yaml --run-name stage1_duel
+python -m animus.evaluate --checkpoint runs/stage1_duel/best.pt --episodes 128 --seed 1000 --baseline fight
 ```
 
 A hand-started learner can start before or after the worldserver; it retries until the socket
@@ -582,7 +578,7 @@ Training writes checkpoints to its run directory and nothing else: models are ne
 automatically. Export a checkpoint's actor to `.amdl` models by hand:
 
 ```
-python -m animus.export --checkpoint <OutputDir>/runs/class_role_duel/best.pt --out exported/class_role_duel \
+python -m animus.export --checkpoint <OutputDir>/runs/stage1_duel/best.pt --out exported/stage1_duel \
     --layouts-dir <OutputDir>/layouts
 ```
 
@@ -669,7 +665,7 @@ one range per kind of bot.
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick
   (separate work).
-- **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 7's enemy player are
-  scripts; the party's other members and stage 8's opponent are learned.
+- **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 6's enemy player are
+  scripts; the party's other members and stage 7's opponent are learned.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.
   Raise `Envs` until the learner, not the world thread, is the bottleneck.

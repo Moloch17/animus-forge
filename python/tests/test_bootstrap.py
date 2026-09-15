@@ -126,9 +126,9 @@ def test_without_spans_the_layout_is_seeded_as_a_prefix():
 
 
 def test_init_from_follows_the_stage_seed_chain():
-    stage = {"stage": "class_role_pack", "seed_chain": ["class_role_duel", "class_role"]}
-    config = TrainConfig(run_name="class_role_pack", runs_dir="/out/runs")
-    assert config.resolved_init_from(stage) == ["/out/runs/class_role_duel/best.pt", "/out/runs/class_role/best.pt"]
+    stage = {"stage": "stage3_gauntlet", "seed_chain": ["stage2_pack", "stage1_duel"]}
+    config = TrainConfig(run_name="stage3_gauntlet", runs_dir="/out/runs")
+    assert config.resolved_init_from(stage) == ["/out/runs/stage2_pack/best.pt", "/out/runs/stage1_duel/best.pt"]
 
     # The first stage, and a scenario the sim wrote no stage.json for, train from scratch.
     assert config.resolved_init_from({"seed_chain": []}) == []

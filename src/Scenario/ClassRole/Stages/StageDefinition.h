@@ -37,7 +37,6 @@ namespace AnimusForge::ClassRole
     /// What the seats fight.
     enum class Opposition : uint8
     {
-        Dummy,          // a training dummy in range that takes no damage
         Creature,       // one same-level creature spawned out of aggro range
         Pulls,          // packs of creatures (see PullSchedule)
         ScriptedPlayer, // an enemy player played by a script
@@ -51,7 +50,7 @@ namespace AnimusForge::ClassRole
         Gauntlet,       // pull after pull with a break between, until the episode ends
     };
 
-    /// One curriculum stage: its own scenario (`class_role_duel`, ...), its blocks and what its envs contain.
+    /// One curriculum stage: its own scenario (`stage1_duel`, ...), its blocks and what its envs contain.
     ///
     /// A stage extends one earlier stage, whose best model seeds it: the base's blocks this stage keeps are seeded
     /// block by block (their features and actions may move), dropped ones are left behind and new ones start fresh.
@@ -64,7 +63,7 @@ namespace AnimusForge::ClassRole
         std::string Summary;
         std::vector<BlockId> Blocks;    // in layout order
         SeatPlan Seats = SeatPlan::Solo;
-        Opposition Against = Opposition::Dummy;
+        Opposition Against = Opposition::Creature;
         PullSchedule Schedule = PullSchedule::None;
         bool Owner = false;             // a scripted owner the seats fight for
         bool PartyGroup = false;        // the owner and seats form a core group

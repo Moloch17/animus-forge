@@ -1,6 +1,6 @@
 """Export a checkpoint's actor as plain MLP models (.amdl) for in-game inference.
 
-    python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
+    python -m animus.export --checkpoint runs/stage1_duel/best.pt --out exported/stage1_duel
 
 Exporting is always run by hand, and the exported files are copied to a server by hand: training never writes
 models anywhere but its own run directory.
@@ -25,7 +25,7 @@ Every layer but the last is followed by tanh. The policy is the argmax of the fi
 The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
 its own model, <model name>.amdl. A class/role stage's stage.json names each layout's model (warrior_dps at
-class_role_duel -> warrior_dps_duel); a scenario without one keeps its own name (one layout) or appends the layout's.
+stage1_duel -> warrior_dps_duel); a scenario without one keeps its own name (one layout) or appends the layout's.
 num_agents is 1, with a zero-weight agent column (the format has at least one).
 """
 

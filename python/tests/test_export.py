@@ -37,10 +37,10 @@ def wide_actor(layouts=LAYOUTS) -> LayoutActor:
 
 def duel_stage_dir(tmp_path):
     """A stage directory as the sim writes it: stage.json naming the duel stage's models."""
-    stage = tmp_path / "layouts" / "class_role_duel"
+    stage = tmp_path / "layouts" / "stage1_duel"
     stage.mkdir(parents=True)
     models = {"warrior_dps": "warrior_dps_duel", "priest_heal": "priest_heal_duel"}
-    (stage / "stage.json").write_text(json.dumps({"stage": "class_role_duel", "models": models}))
+    (stage / "stage.json").write_text(json.dumps({"stage": "stage1_duel", "models": models}))
     return stage
 
 
@@ -48,7 +48,7 @@ def test_each_layout_exports_as_the_same_mlp(tmp_path):
     actor = wide_actor()
     out = tmp_path / "models"
     out.mkdir()
-    written = export_layouts(actor.state_dict(), spec_for("class_role_duel"), out, duel_stage_dir(tmp_path))
+    written = export_layouts(actor.state_dict(), spec_for("stage1_duel"), out, duel_stage_dir(tmp_path))
     assert [path.name for path in written] == ["warrior_dps_duel.amdl", "priest_heal_duel.amdl"]
 
     rng = np.random.default_rng(1)
@@ -81,8 +81,8 @@ def test_each_layout_exports_as_the_same_mlp(tmp_path):
 
 def test_model_names():
     duel = {"warrior_dps": "warrior_dps_duel", "druid_heal": "druid_heal_duel"}
-    assert model_name("class_role_duel", "warrior_dps", 18, duel) == "warrior_dps_duel"
-    assert model_name("class_role", "warrior_dps", 18, {"warrior_dps": "warrior_dps"}) == "warrior_dps"
+    assert model_name("stage1_duel", "warrior_dps", 18, duel) == "warrior_dps_duel"
+    assert model_name("stage5_party", "druid_heal", 18, {"druid_heal": "druid_heal_party"}) == "druid_heal_party"
     # Without stage.json: a single-layout scenario keeps its name, others append the layout's.
     assert model_name("warrior_dummy_20", "warrior_dummy_20", 1) == "warrior_dummy_20"
     assert model_name("custom", "mage_dps", 2) == "custom_mage_dps"
@@ -108,7 +108,7 @@ def test_layout_manifests_are_exported_beside_their_models(tmp_path):
     out = tmp_path / "models"
     out.mkdir()
 
-    export_layouts(wide_actor().state_dict(), spec_for("class_role_duel"), out, manifest_dir=manifests)
+    export_layouts(wide_actor().state_dict(), spec_for("stage1_duel"), out, manifest_dir=manifests)
 
     assert (out / "warrior_dps_duel.json").read_text() == '{"model":"warrior_dps_duel"}\n'
     assert not (out / "priest_heal_duel.json").exists()  # no manifest written for it

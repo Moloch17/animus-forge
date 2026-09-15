@@ -59,12 +59,6 @@ namespace AnimusForge::ClassRole
             float TeammateDeath = 3.0f;
         } Party;
 
-        /// The training dummy's health curve (it cannot die: execute-range features need a health that moves).
-        struct DummyTuning
-        {
-            float StartHealthMin = 0.2f;        // start in [min, 1], end in [0, start]
-        } Dummy;
-
         /// One-on-one fights against a creature (the duel) or a player (PvP).
         struct DuelTuning
         {
@@ -192,8 +186,6 @@ namespace AnimusForge::ClassRole
             f("Party.TeammateHealing", tuning.Party.TeammateHealing);
             f("Party.TankLoseTeammate", tuning.Party.TankLoseTeammate);
             f("Party.TeammateDeath", tuning.Party.TeammateDeath);
-
-            f("Dummy.StartHealthMin", tuning.Dummy.StartHealthMin);
 
             f("Duel.DamageDealt", tuning.Duel.DamageDealt);
             f("Duel.DamageTaken", tuning.Duel.DamageTaken);

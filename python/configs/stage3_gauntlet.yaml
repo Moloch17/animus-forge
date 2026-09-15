@@ -1,10 +1,10 @@
-# Stage 4 of the class/role curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with
+# Stage 3 of the class/role curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with
 # breaks between, until the bot dies or the episode ends. Heals, food and drink are there for recovering between pulls.
 # Each cleared pull pays for speed and health kept. Give it long episodes (AnimusForge.EpisodeSeconds of several
 # minutes) so there are many pulls.
 
-extends: class_role_duel.yaml
-run_name: class_role_gauntlet
+extends: stage1_duel.yaml
+run_name: stage3_gauntlet
 
 # ~8 h at ~7k env steps/s; the plateau stop usually ends the stage sooner.
 total_env_steps: 200000000

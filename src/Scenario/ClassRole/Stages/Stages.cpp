@@ -20,8 +20,11 @@
  * The class/role curriculum, a tree: every stage extends one earlier stage (and seeds from it), keeping the base's
  * blocks it needs and adding its own.
  *
- *   class_role ─ duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
- *                      └─ pvp ─ arena                               (PvP)
+ *   duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
+ *         └─ pvp ─ arena                               (PvP)
+ *
+ * Scenario names carry the stage's number (stage1_duel ... stage7_arena), model names only its suffix (_duel). The
+ * duel is the first stage: nothing seeds it.
  *
  * Adding a stage is one entry here (plus new blocks or encounters only if it needs new features) and a learner
  * config, configs/<name>.yaml.
@@ -42,27 +45,18 @@ namespace
         std::vector<StageDefinition> stages;
 
         stages.push_back({
-            .Name = "class_role",
-            .Suffix = "",
-            .Extends = "",
-            .Summary = "a training dummy: maximise damage",
-            .Blocks = { Core },
-            .Against = Opposition::Dummy,
-        });
-
-        stages.push_back({
-            .Name = "class_role_duel",
+            .Name = "stage1_duel",
             .Suffix = "_duel",
-            .Extends = "class_role",
+            .Extends = "",
             .Summary = "a same-level creature out of aggro range: close in and kill it fast, taking little damage",
             .Blocks = { Core, Duel },
             .Against = Opposition::Creature,
         });
 
         stages.push_back({
-            .Name = "class_role_pack",
+            .Name = "stage2_pack",
             .Suffix = "_pack",
-            .Extends = "class_role_duel",
+            .Extends = "stage1_duel",
             .Summary = "a pack of 2-4, casters included, usually linked: targets, interrupts, crowd control",
             .Blocks = { Core, Duel, Pack },
             .Against = Opposition::Pulls,
@@ -70,9 +64,9 @@ namespace
         });
 
         stages.push_back({
-            .Name = "class_role_gauntlet",
+            .Name = "stage3_gauntlet",
             .Suffix = "_gauntlet",
-            .Extends = "class_role_pack",
+            .Extends = "stage2_pack",
             .Summary = "pull after pull with short breaks: heals, food and drink",
             .Blocks = { Core, Duel, Pack, Gauntlet },
             .Against = Opposition::Pulls,
@@ -80,9 +74,9 @@ namespace
         });
 
         stages.push_back({
-            .Name = "class_role_companion",
+            .Name = "stage4_companion",
             .Suffix = "_companion",
-            .Extends = "class_role_gauntlet",
+            .Extends = "stage3_gauntlet",
             .Summary = "the gauntlet beside a scripted owner: follow, assist, guard and heal it",
             .Blocks = { Core, Duel, Pack, Gauntlet, Companion },
             .Against = Opposition::Pulls,
@@ -91,9 +85,9 @@ namespace
         });
 
         stages.push_back({
-            .Name = "class_role_party",
+            .Name = "stage5_party",
             .Suffix = "_party",
-            .Extends = "class_role_companion",
+            .Extends = "stage4_companion",
             .Summary = "four learned seats and the scripted owner against elite-heavy pulls",
             .Blocks = { Core, Duel, Pack, Gauntlet, Companion, Party },
             .Seats = SeatPlan::Party,
@@ -105,18 +99,18 @@ namespace
 
         // The PvP branch: off the duel, without the PvE blocks it would never fill.
         stages.push_back({
-            .Name = "class_role_pvp",
+            .Name = "stage6_pvp",
             .Suffix = "_pvp",
-            .Extends = "class_role_duel",
+            .Extends = "stage1_duel",
             .Summary = "one-on-one against a scripted enemy player",
             .Blocks = { Core, Duel, Pvp },
             .Against = Opposition::ScriptedPlayer,
         });
 
         stages.push_back({
-            .Name = "class_role_arena",
+            .Name = "stage7_arena",
             .Suffix = "_arena",
-            .Extends = "class_role_pvp",
+            .Extends = "stage6_pvp",
             .Summary = "self-play one-on-one: two learned seats of any classes",
             .Blocks = { Core, Duel, Pvp },
             .Seats = SeatPlan::Mirror,
@@ -146,8 +140,8 @@ namespace
         bool const pulls = stage.Against == Opposition::Pulls;
         if (pulls != (stage.Schedule != PullSchedule::None))
             return "a pull schedule goes with pulls, and only with pulls";
-        if (stage.Against != Opposition::Dummy && !stage.Has(BlockId::Duel))
-            return "fighting anything but a dummy needs the duel block";
+        if (!stage.Has(BlockId::Duel))
+            return "every stage fights something that fights back, which needs the duel block";
         if (pulls && !stage.Has(BlockId::Pack))
             return "pulls need the pack block";
         if (stage.Schedule == PullSchedule::Gauntlet && !stage.Has(BlockId::Gauntlet))

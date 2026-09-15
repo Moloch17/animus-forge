@@ -1,6 +1,6 @@
-# Stage 3 of the class/role curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
+# Stage 2 of the class/role curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
 # casters included, usually linked. The policy picks targets, interrupts, crowd-controls and clears the pack fast while
 # losing little health. Episodes end when the pack is cleared or the bot dies.
 
-extends: class_role_duel.yaml
-run_name: class_role_pack
+extends: stage1_duel.yaml
+run_name: stage2_pack
