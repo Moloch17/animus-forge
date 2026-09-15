@@ -145,10 +145,12 @@ class EvalLog:
             if isinstance(value, float):
                 self.tb.add_scalar(f"eval/{name}", value, env_steps)
         self.tb.add_scalar("eval/margin", tracker.last_margin, env_steps)
-        for band, values in summary.get("bands", {}).items():
+        groups = [*summary.get("bands", {}).items(), *((f"arena_{arena}", values)
+                                                       for arena, values in summary.get("arenas", {}).items())]
+        for group, values in groups:
             for name, value in values.items():
                 if isinstance(value, float):
-                    self.tb.add_scalar(f"eval_{band}/{name}", value, env_steps)
+                    self.tb.add_scalar(f"eval_{group}/{name}", value, env_steps)
 
     def write_outcome(self, update: int, env_steps: int, outcome: Outcome, restarts: int) -> None:
         with self.stage_path.open("a") as f:
@@ -220,7 +222,9 @@ class TrainingRun:
             f"every {spec.decision_ms} ms",
             flush=True,
         )
-        validate_target(config, spec.episode_info_names)
+        self.arena_names = tuple(arena["name"] for arena in (self.stage or {}).get("arenas", ()))
+        validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
+                        else None)
 
         self.trainer = MappoTrainer(
             [(layout.obs_dim, layout.num_actions) for layout in spec.layouts],
@@ -249,7 +253,12 @@ class TrainingRun:
         self.eval_log = EvalLog(self.run_dir, self.logger.tb)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
         report = tuple(config.eval.report)
-        self.report = report + tuple(name for name in config.target.metrics if name not in report)
+        report += tuple(name for name in config.target.metrics if name not in report)
+        for gates in config.target.arenas.values():
+            report += tuple(name for name in gates.get("metrics", {}) if name not in report)
+        self.report = report
+        # Self-play arenas scored against the baseline as their opponent (eval.opponent_baseline).
+        self.opponents = config.eval.baseline if config.eval.opponent_baseline else ""
         self.baselines: dict[tuple[int, int], dict] = {}
         self.best_path = self.run_dir / "best.pt"
 
@@ -337,13 +346,15 @@ class TrainingRun:
         is_eval_seeds = (seed, episodes) == (config.eval.seed, config.eval.episodes)
         baseline_path = self.run_dir / ("eval_baseline.json" if is_eval_seeds
                                         else f"eval_baseline_{seed}_{episodes}.json")
-        key = {"policy": config.eval.baseline, "seed": seed, "episodes": episodes}
+        key = {"policy": config.eval.baseline, "seed": seed, "episodes": episodes, "opponents": self.opponents,
+               "arenas": list(self.arena_names)}
         cached = json.loads(baseline_path.read_text()) if baseline_path.exists() else None
         if cached and cached.get("key") == key:
             summary = cached["summary"]
         else:
             result, _ = run_evaluation(self.env, self.spec, self.learner_actions, episodes, seed,
-                                       baseline=config.eval.baseline)
+                                       baseline=config.eval.baseline, opponents=self.opponents,
+                                       arenas=self.arena_names)
             summary = result.summary(self.report)
             baseline_path.write_text(json.dumps({"key": key, "summary": summary}, indent=2))
             self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
@@ -360,7 +371,7 @@ class TrainingRun:
 
         self.progress.write("evaluating", self.update, self.env_steps)
         result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, config.eval.episodes,
-                                           config.eval.seed)
+                                           config.eval.seed, opponents=self.opponents, arenas=self.arena_names)
         summary = result.summary(self.report)
         improved = controller.observe(summary, self.env_steps)
         self.eval_log.write(self.update, self.env_steps, result, summary, tracker, controller.restarts)
@@ -388,7 +399,8 @@ class TrainingRun:
         try:
             baseline = self.baseline_for(target.confirm_seed, target.confirm_episodes)
             result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, target.confirm_episodes,
-                                               target.confirm_seed)
+                                               target.confirm_seed, opponents=self.opponents,
+                                               arenas=self.arena_names)
         finally:
             trainer.load_state_dict(training_state)
         result.policy = "confirm"

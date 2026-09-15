@@ -63,9 +63,12 @@ def test_spec_matches_cpp_layout():
 
 
 def test_mode_matches_cpp_layout():
-    # ModeMsg in Protocol.h: three uint32 fields and a 32-byte policy name, packed.
-    assert p.MODE.size == 3 * 4 + 32
-    assert p.decode_mode(p.encode_mode(True, 1000, 128, "fight")) == (True, 1000, 128, "fight")
+    # ModeMsg in Protocol.h: four uint32 fields (mode, seed base, episodes, flags) and a 32-byte policy name, packed.
+    assert p.MODE.size == 4 * 4 + 32
+    assert p.decode_mode(p.encode_mode(True, 1000, 128, "fight")) == (True, 1000, 128, "fight", False)
+    assert p.decode_mode(p.encode_mode(True, 1000, 128, "fight", opponents_only=True)) == (
+        True, 1000, 128, "fight", True)
+    assert p.MODE.unpack(p.encode_mode(True, 1, 2, "fight", opponents_only=True))[3] == p.MODE_FLAG_SCRIPTED_OPPONENTS
 
 
 def test_step_round_trip_and_size():

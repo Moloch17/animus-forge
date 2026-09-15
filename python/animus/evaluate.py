@@ -28,6 +28,8 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=128)
     parser.add_argument("--seed", type=int, default=1000)
     parser.add_argument("--baseline", default="", help="also score this scripted sim policy on the same seeds")
+    parser.add_argument("--opponent-baseline", action="store_true",
+                        help="self-play arenas: the baseline plays the other side (needs --baseline)")
     parser.add_argument("--socket", help="override the socket stored in the checkpoint config")
     parser.add_argument("--stochastic", action="store_true", help="sample actions instead of taking the argmax")
     args = parser.parse_args()
@@ -53,13 +55,20 @@ def main() -> None:
     def actions(step):
         return trainer.act(step.obs, step.mask, step.layout, deterministic=not args.stochastic)[0]
 
+    if args.opponent_baseline and not args.baseline:
+        raise SystemExit("--opponent-baseline needs --baseline")
+    opponents = args.baseline if args.opponent_baseline else ""
+    stage = checkpoint.get("stage") or {}
+    arenas = tuple(arena["name"] for arena in stage.get("arenas", ()))
+
     try:
         env.reset()
         baseline = None
         if args.baseline:
-            result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline)
+            result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline,
+                                       opponents=opponents, arenas=arenas)
             baseline = result.summary(REPORT_COLUMNS)
-        result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed)
+        result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, opponents=opponents, arenas=arenas)
     finally:
         env.close()
 

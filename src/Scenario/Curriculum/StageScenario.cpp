@@ -380,6 +380,11 @@ void AnimusForge::Curriculum::StageScenario::AddCoreEpisodeInfo()
         uint32 const arena = Data(env).Arena;
         return arena == NO_ARENA ? 0.0f : float(arena);
     });
+    // The other side of a self-play episode: an evaluation against a scripted opponent leaves its row out.
+    _info.Add("opponent_seat", [this](Env const& env, uint32 index)
+    {
+        return IsOpponentSeat(env, index) ? 1.0f : 0.0f;
+    });
 
     // Fights against something that fights back.
     auto const tally = [this](Env const& env, uint32 index) -> CombatTally const&
@@ -565,6 +570,11 @@ bool AnimusForge::Curriculum::StageScenario::IsTerminal(Env const& env) const
     std::vector<Encounter*> const& active = ActiveEncounters(env);
     return std::any_of(active.begin(), active.end(),
         [&env](Encounter const* encounter) { return encounter->IsTerminal(env); });
+}
+
+bool AnimusForge::Curriculum::StageScenario::IsOpponentSeat(Env const& env, uint32 agent) const
+{
+    return agent == 1 && Arena(env).Against == Opposition::MirrorSeat;
 }
 
 bool AnimusForge::Curriculum::StageScenario::Setup(Env& env)

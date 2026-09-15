@@ -53,6 +53,54 @@ def test_metric_gates():
     assert not check_gates(None, None, target).passed
 
 
+def test_arena_gates():
+    target = TargetConfig(arenas={"duel": {"min_over_baseline": 0.1}, "pvp": {"metrics": {"won": {"min": 0.5}}}},
+                          min_arena_episodes=16)
+    learner = summary(5.0, arenas={"duel": {"score": 12.0, "episodes": 40}, "pvp": {"score": 1.0, "episodes": 40,
+                                                                                    "won": 0.6}})
+    base = summary(4.0, arenas={"duel": {"score": 10.0, "episodes": 40}, "pvp": {"score": 0.5, "episodes": 40}})
+    assert check_gates(learner, base, target).passed
+
+    learner["arenas"]["duel"]["score"] = 10.5
+    learner["arenas"]["pvp"]["won"] = 0.4
+    report = check_gates(learner, base, target)
+    assert report.failures == ["arena duel score 10.5 (needs 11)", "arena pvp won (min) 0.4 (needs 0.5)"]
+
+    learner["arenas"]["duel"]["episodes"] = 8
+    report = check_gates(learner, base, target)
+    assert report.skipped == ["arena duel: 8 episodes"]
+
+    del learner["arenas"]["pvp"]
+    assert "arena pvp: not in the evaluation summary" in check_gates(learner, base, target).failures
+    assert "arena duel: no baseline score to compare with" not in check_gates(learner, None, target).failures
+
+
+def test_validate_arena_targets():
+    config = TrainConfig()
+    config.eval.every_env_steps = 10
+    config.target.arenas = {"duel": {"min_over_baseline": 0.1}}
+    with pytest.raises(ValueError, match="need eval.baseline"):
+        validate_target(config, ("won",), ("duel", "pvp"))
+    config.eval.baseline = "fight"
+    validate_target(config, ("won",), ("duel", "pvp"))
+    validate_target(config, ("won",))  # no stage.json: arena names are not checked
+    with pytest.raises(ValueError, match="no such arena"):
+        validate_target(config, ("won",), ("pvp",))
+
+    config.target.arenas = {"pvp": {"metrics": {"lost": {"min": 0.1}}}}
+    with pytest.raises(ValueError, match="no such episode info"):
+        validate_target(config, ("won",), ("pvp",))
+    config.target.arenas = {"pvp": {"min_over": 0.1}}
+    with pytest.raises(ValueError, match="expected min_over_baseline"):
+        validate_target(config, ("won",), ("pvp",))
+
+    config.target.arenas = {}
+    config.eval.baseline = ""
+    config.eval.opponent_baseline = True
+    with pytest.raises(ValueError, match="opponent_baseline needs eval.baseline"):
+        validate_target(config, ("won",))
+
+
 def test_validate_target():
     config = TrainConfig()
     validate_target(config, ("dps",))  # no target: nothing to check

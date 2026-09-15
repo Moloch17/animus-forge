@@ -107,6 +107,8 @@ namespace AnimusForge::Curriculum
 
         [[nodiscard]] char const* Name() const override;
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        /// The second seat of a mirror arena.
+        [[nodiscard]] bool IsOpponentSeat(Env const& env, uint32 agent) const override;
         [[nodiscard]] ScenarioSpec Spec() const override { return _spec; }
 
         bool Setup(Env& env) override;

@@ -97,7 +97,7 @@ def test_run_evaluation_collects_each_seed_once(tmp_path):
                 decision += 1
                 step = blank_step(decision)
                 if msg_type == p.MsgType.MODE:
-                    evaluating, seed, episodes, baseline = p.decode_mode(body)
+                    evaluating, seed, episodes, baseline, _ = p.decode_mode(body)
                     modes.append((evaluating, seed, episodes, baseline))
                     next_seed = 0
                     for e in range(SPEC.num_envs):
@@ -137,6 +137,74 @@ def test_run_evaluation_collects_each_seed_once(tmp_path):
     assert summary["bands"]["1-20"]["episodes"] == 6 and summary["bands"]["41-60"]["episodes"] == 4
     assert summary["layouts"]["mage_dps"]["score"] == pytest.approx(6.0)
     assert not training_step.done.any()
+
+
+class ScriptedOpponentEnv:
+    """In-process fake sim for opponent seats: one env, two agents, 1-decision episodes. Seat 1 is the opponent seat
+    (episode info opponent_seat = 1); agent a earns 1 + a per decision. Records every set_mode call."""
+
+    SPEC = p.Spec(
+        version=p.PROTOCOL_VERSION, num_envs=1, agents_per_env=2, obs_dim=1, state_dim=1, num_actions=1,
+        episode_info_dim=3, tick_ms=50, decision_ticks=1, episode_seconds=1, scenario="fake",
+        layouts=(p.Layout("warrior_dps", 1, 1),), episode_info_names=("level", "arena", "opponent_seat"),
+    )
+
+    def __init__(self):
+        self.modes = []
+        self.next_seed = 0
+
+    def _step(self, done: bool, seed: int) -> p.Step:
+        return p.Step(
+            decision=0,
+            obs=np.zeros((1, 2, 1), np.float32),
+            state=np.zeros((1, 1), np.float32),
+            mask=np.ones((1, 2, 1), bool),
+            layout=np.zeros((1, 2), np.uint16),
+            present=np.ones((1, 2), bool),
+            reward=np.array([[1.0, 2.0]], np.float32),
+            done=np.array([done]),
+            terminated=np.array([done]),
+            final_obs=np.zeros((1, 2, 1), np.float32),
+            final_state=np.zeros((1, 1), np.float32),
+            episode_info=np.array([[[10.0, float(seed % 2), 0.0], [10.0, float(seed % 2), 1.0]]], np.float32),
+            episode_seed=np.array([seed if done else p.NO_EPISODE_SEED], np.uint32),
+        )
+
+    def set_mode(self, evaluate, seed_base=0, episodes=0, baseline="", opponents_only=False):
+        self.modes.append((evaluate, baseline, opponents_only))
+        self.next_seed = 0
+        return self._step(False, p.NO_EPISODE_SEED)
+
+    def step(self, actions):
+        seed = self.next_seed
+        self.next_seed += 1
+        return self._step(True, seed)
+
+
+def test_opponent_seats_are_scripted_and_left_out():
+    env = ScriptedOpponentEnv()
+    spec = ScriptedOpponentEnv.SPEC
+    result, _ = run_evaluation(env, spec, lambda step: np.zeros((1, 2), np.int32), episodes=4, seed=1,
+                               opponents="fight", arenas=("duel", "arena_1v1"))
+    assert env.modes == [(True, "fight", True), (False, "", False)]
+    assert result.episodes == 4 and np.all(result.returns == 1.0)  # only seat 0's rows
+
+    baseline, _ = run_evaluation(env, spec, None, episodes=4, seed=1, baseline="fight", opponents="fight")
+    assert env.modes[2] == (True, "fight", False)  # the baseline plays every seat
+    assert baseline.episodes == 4
+
+    everyone, _ = run_evaluation(env, spec, lambda step: np.zeros((1, 2), np.int32), episodes=4, seed=1)
+    assert everyone.episodes == 8  # without opponents every seat counts
+
+    summary = result.summary(())
+    assert set(summary["arenas"]) == {"duel", "arena_1v1"}
+    assert summary["arenas"]["duel"]["episodes"] == 2 and summary["arenas"]["arena_1v1"]["episodes"] == 2
+
+
+def test_arena_summary_needs_several_arenas():
+    infos = np.array([[0.0, 0.0], [0.0, 0.0]], np.float32)
+    single = EvalResult("learner", np.array([1.0, 2.0]), infos, ("level", "arena"), arenas=("duel",))
+    assert single.summary(())["arenas"] == {}
 
 
 def test_stderr_in_summary():

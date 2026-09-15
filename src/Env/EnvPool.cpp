@@ -175,7 +175,7 @@ void AnimusForge::EnvPool::DescribeAgents(Env const& env)
     _scenario.AgentPresence(env, &Present[first]);
 }
 
-bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
+bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy, bool opponentsOnly)
 {
     uint32 const agents = NumEnvs() * _spec.AgentsPerEnv;
     uint32 const numActions = _spec.NumActions;
@@ -183,6 +183,9 @@ bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
 
     for (uint32 i = 0; i < agents; ++i)
     {
+        if (opponentsOnly && !_scenario.IsOpponentSeat(_envs[i / _spec.AgentsPerEnv], i % _spec.AgentsPerEnv))
+            continue;
+
         float const* obs = &Obs[i * _spec.ObsDim];
         uint8 const* mask = &Mask[i * numActions];
 
@@ -219,13 +222,15 @@ bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
     return true;
 }
 
-void AnimusForge::EnvPool::SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline)
+void AnimusForge::EnvPool::SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline,
+    bool opponentsOnly)
 {
     _evaluating = enabled;
     _evalSeedBase = seedBase;
     _evalEpisodes = enabled ? episodes : 0;
     _evalNextSeed = 0;
     _evalBaseline = enabled ? baseline : std::string();
+    _evalOpponentsOnly = enabled && !_evalBaseline.empty() && opponentsOnly;
 }
 
 void AnimusForge::EnvPool::ApplyActions()

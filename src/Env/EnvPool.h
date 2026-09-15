@@ -53,18 +53,22 @@ namespace AnimusForge
         /// Decision step: score the transition that just ended, auto-reset finished envs, observe.
         void Collect();
 
-        /// Fill Actions from a local policy ("random" or a scenario scripted policy).
-        bool ChooseLocalActions(std::string const& policy);
+        /// Fill Actions from a local policy ("random" or a scenario scripted policy): every agent's, or only the
+        /// opponent seats' (Scenario::IsOpponentSeat), keeping the other actions.
+        bool ChooseLocalActions(std::string const& policy, bool opponentsOnly = false);
 
         void ApplyActions();
 
         /// Evaluation (see ModeMsg in Protocol.h): hand seed indexes 0..episodes-1 to envs as they reset, each
         /// env rebuilt right after reseeding the world thread's random numbers from (seedBase, index). With a
-        /// baseline policy name, EvalBaseline() tells the caller to run it instead of the learner's actions.
-        /// Takes effect at the next reset; call ResetAll to start every env on it.
-        void SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline);
+        /// baseline policy name, EvalBaseline() tells the caller to run it instead of the learner's actions -- only
+        /// on the opponent seats when EvalOpponentsOnly(). Takes effect at the next reset; call ResetAll to start
+        /// every env on it.
+        void SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline,
+            bool opponentsOnly = false);
         [[nodiscard]] bool IsEvaluating() const { return _evaluating; }
         [[nodiscard]] std::string const& EvalBaseline() const { return _evalBaseline; }
+        [[nodiscard]] bool EvalOpponentsOnly() const { return _evalOpponentsOnly; }
 
         /// Damage hook, called from map worker threads. Only touches the stats of the env whose
         /// instance the calling thread is updating.
@@ -148,6 +152,7 @@ namespace AnimusForge
         uint32 _evalEpisodes = 0;
         uint32 _evalNextSeed = 0;
         std::string _evalBaseline;
+        bool _evalOpponentsOnly = false;
         std::vector<uint32> _envSeed;           // per env: seed index of the running episode
 
         std::vector<double> _reportInfoSum;

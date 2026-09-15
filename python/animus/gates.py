@@ -4,7 +4,8 @@ Scores are only comparable within one scenario, so the score gates are relative 
 the same seeds: "score >= baseline + ratio x |baseline|" reads as "ratio better than the baseline" whatever the sign
 of the scenario's reward. The overall gate keeps the average up; the per-layout floor keeps a class/role from
 hiding behind it, because the next stage seeds every layout from these networks. Metric gates check episode info
-means directly (killed, died, ...), which reward shaping cannot game.
+means directly (killed, died, ...), which reward shaping cannot game. A stage that mixes arenas can gate each arena
+on its own episodes (target.arenas), so one situation cannot hide behind the others either.
 """
 
 from __future__ import annotations
@@ -66,34 +67,82 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
                 required = required_score(base["score"], target.min_layout_over_baseline)
                 report.check(f"{name} score", row["score"], required, row["score"] >= required)
 
-    for name, bounds in target.metrics.items():
-        value = summary.get(name)
-        if value is None:
-            report.fail(f"{name}: not in the evaluation summary")
+    _check_metrics(report, summary, target.metrics, "")
+
+    for arena, gates in target.arenas.items():
+        row = summary.get("arenas", {}).get(arena)
+        if row is None or row.get("score") is None:
+            report.fail(f"arena {arena}: not in the evaluation summary")
             continue
-        if "min" in bounds:
-            report.check(f"{name} (min)", value, bounds["min"], value >= bounds["min"])
-        if "max" in bounds:
-            report.check(f"{name} (max)", value, bounds["max"], value <= bounds["max"])
+        if row["episodes"] < target.min_arena_episodes:
+            report.skipped.append(f"arena {arena}: {row['episodes']} episodes")
+            continue
+
+        ratio = gates.get("min_over_baseline")
+        if ratio is not None:
+            base = (baseline or {}).get("arenas", {}).get(arena)
+            if base is None or base.get("score") is None:
+                report.fail(f"arena {arena}: no baseline score to compare with")
+            else:
+                required = required_score(base["score"], ratio)
+                report.check(f"arena {arena} score", row["score"], required, row["score"] >= required)
+
+        _check_metrics(report, row, gates.get("metrics", {}), f"arena {arena} ")
 
     return report
 
 
-def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]) -> None:
-    """Fail at startup, not hours later at the end of the stage, when the target cannot be checked."""
+def _check_metrics(report: GateReport, row: dict, metrics: dict, prefix: str) -> None:
+    for name, bounds in metrics.items():
+        value = row.get(name)
+        if value is None:
+            report.fail(f"{prefix}{name}: not in the evaluation summary")
+            continue
+        if "min" in bounds:
+            report.check(f"{prefix}{name} (min)", value, bounds["min"], value >= bounds["min"])
+        if "max" in bounds:
+            report.check(f"{prefix}{name} (max)", value, bounds["max"], value <= bounds["max"])
+
+
+def _metric_errors(prefix: str, metrics, info_names) -> list[str]:
+    if not isinstance(metrics, dict):
+        return [f"{prefix}: expected {{name: {{min/max: number}}}}, got {metrics!r}"]
+    errors = []
+    for name, bounds in metrics.items():
+        if name not in info_names:
+            errors.append(f"{prefix}.{name}: the scenario has no such episode info ({', '.join(info_names)})")
+        if not isinstance(bounds, dict) or not bounds or set(bounds) - {"min", "max"} \
+                or not all(isinstance(v, (int, float)) for v in bounds.values()):
+            errors.append(f"{prefix}.{name}: expected {{min: number}} and/or {{max: number}}, got {bounds!r}")
+    return errors
+
+
+def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str],
+                    arena_names: tuple[str, ...] | list[str] | None = None) -> None:
+    """Fail at startup, not hours later at the end of the stage, when the target cannot be checked. `arena_names`
+    are the stage's arenas (stage.json); None skips checking arena names."""
     target = config.target
     errors = []
     if target.enabled and config.eval.every_env_steps <= 0:
         errors.append("target gates need eval.every_env_steps")
-    if (target.min_over_baseline is not None or target.min_layout_over_baseline is not None) \
-            and not config.eval.baseline:
+    if (target.min_over_baseline is not None or target.min_layout_over_baseline is not None
+            or target.arena_needs_baseline()) and not config.eval.baseline:
         errors.append("target.min_over_baseline / min_layout_over_baseline need eval.baseline")
-    for name, bounds in target.metrics.items():
-        if name not in info_names:
-            errors.append(f"target.metrics.{name}: the scenario has no such episode info ({', '.join(info_names)})")
-        if not isinstance(bounds, dict) or not bounds or set(bounds) - {"min", "max"} \
-                or not all(isinstance(v, (int, float)) for v in bounds.values()):
-            errors.append(f"target.metrics.{name}: expected {{min: number}} and/or {{max: number}}, got {bounds!r}")
+    if config.eval.opponent_baseline and not config.eval.baseline:
+        errors.append("eval.opponent_baseline needs eval.baseline")
+    errors += _metric_errors("target.metrics", target.metrics, info_names)
+    for arena, gates in target.arenas.items():
+        prefix = f"target.arenas.{arena}"
+        if arena_names is not None and arena not in arena_names:
+            errors.append(f"{prefix}: the stage has no such arena ({', '.join(arena_names) or 'none listed'})")
+        if not isinstance(gates, dict) or set(gates) - {"min_over_baseline", "metrics"}:
+            errors.append(f"{prefix}: expected min_over_baseline and/or metrics, got {gates!r}")
+            continue
+        if gates.get("min_over_baseline") is not None and not isinstance(gates["min_over_baseline"], (int, float)):
+            errors.append(f"{prefix}.min_over_baseline: expected a number")
+        errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), info_names)
+    if target.min_arena_episodes < 0:
+        errors.append("target.min_arena_episodes must be >= 0")
     if target.confirm_episodes < 0:
         errors.append("target.confirm_episodes must be >= 0")
     if config.restarts.max_restarts < 0:

@@ -57,8 +57,10 @@
  * (SeedBase, index) -- the same characters and opponents every evaluation, whatever the env count. Envs that
  * reset once every index is handed out run unseeded episodes (NO_EPISODE_SEED). With a Baseline policy name
  * the sim ignores the ACT actions and runs that scripted policy instead, so the learner can score it on the
- * same seeds. MODE with Mode = 0 returns to unseeded training episodes. Every new session (HELLO) starts in
- * training mode, whatever mode the previous learner left the sim in.
+ * same seeds; with MODE_FLAG_SCRIPTED_OPPONENTS as well, the policy plays only the opponent seats of self-play
+ * episodes and the learner's actions the rest (learner against a scripted opponent). MODE with Mode = 0 returns to
+ * unseeded training episodes. Every new session (HELLO) starts in training mode, whatever mode the previous learner
+ * left the sim in.
  *
  * The first STEP after SPEC carries freshly reset envs: its reward and done arrays are zero and
  * must not be recorded as a transition. A truncated episode (done, not terminated) bootstraps from
@@ -73,7 +75,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 4;
+    constexpr uint32 PROTOCOL_VERSION = 5;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -125,11 +127,16 @@ namespace AnimusForge
         char Name[LAYOUT_NAME_SIZE];
     };
 
+    /// ModeMsg::Flags. SCRIPTED_OPPONENTS: the Baseline policy plays only the scenario's opponent seats (the other
+    /// side of a self-play episode, see Scenario::IsOpponentSeat) and the learner's ACT actions play the rest.
+    constexpr uint32 MODE_FLAG_SCRIPTED_OPPONENTS = 1;
+
     struct ModeMsg
     {
         uint32 Mode;                        // 0 = training, 1 = evaluation
         uint32 SeedBase;
         uint32 Episodes;                    // seeded evaluation episodes
+        uint32 Flags;                       // MODE_FLAG_*
         char Baseline[POLICY_NAME_SIZE];    // scripted policy to run instead of the learner's; empty = learner
     };
 

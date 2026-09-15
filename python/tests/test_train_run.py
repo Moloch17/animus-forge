@@ -100,7 +100,7 @@ def fake_sim(listener: socket.socket, modes: list) -> None:
             decision += 1
             step = blank()
             if msg_type == p.MsgType.MODE:
-                evaluating, _, episodes, baseline = p.decode_mode(body)
+                evaluating, _, episodes, baseline, _ = p.decode_mode(body)
                 modes.append((evaluating, episodes, baseline))
                 next_seed = 0
                 for e in range(e_count):

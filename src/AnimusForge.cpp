@@ -660,8 +660,10 @@ void AnimusForge::Forge::RemoteDecision()
         return;
     }
 
-    // Scoring a scripted baseline on the evaluation seeds: its actions replace the learner's.
-    if (!_pool->EvalBaseline().empty() && !_pool->ChooseLocalActions(_pool->EvalBaseline()))
+    // Scoring a scripted baseline on the evaluation seeds: its actions replace the learner's (only the opponent
+    // seats' when the learner plays against it).
+    if (!_pool->EvalBaseline().empty()
+        && !_pool->ChooseLocalActions(_pool->EvalBaseline(), _pool->EvalOpponentsOnly()))
     {
         LOG_ERROR("module.animus", "Scenario {} could not run baseline '{}'; dropping the learner", _current,
             _pool->EvalBaseline());
@@ -702,11 +704,12 @@ bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
         return false;
     }
 
-    _pool->SetEvaluation(mode.Mode == 1, mode.SeedBase, mode.Episodes, baseline);
+    bool const opponentsOnly = (mode.Flags & MODE_FLAG_SCRIPTED_OPPONENTS) != 0;
+    _pool->SetEvaluation(mode.Mode == 1, mode.SeedBase, mode.Episodes, baseline, opponentsOnly);
 
     if (mode.Mode == 1)
         LOG_INFO("module.animus", "Evaluation: {} seeded episodes from seed {}, policy {}", mode.Episodes,
-            mode.SeedBase, baseline.empty() ? "learner" : baseline);
+            mode.SeedBase, baseline.empty() ? "learner" : opponentsOnly ? "learner against " + baseline : baseline);
     else
         LOG_INFO("module.animus", "Evaluation finished; training");
 

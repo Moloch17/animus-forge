@@ -37,6 +37,9 @@ class EvalConfig:
     seed: int = 1000  # seed base: which characters and opponents
     deterministic: bool = True  # argmax actions instead of sampling
     baseline: str = ""  # sim scripted policy scored once per run on the same seeds ("greedy", "fight")
+    # Self-play arenas: the baseline also plays the other side of every self-play episode when the learner is scored
+    # (and against itself when the baseline is), so the score is the learner against a fixed opponent.
+    opponent_baseline: bool = False
     report: tuple[str, ...] = REPORT_COLUMNS  # episode info columns printed per level band, when present
 
 
@@ -66,6 +69,10 @@ class TargetConfig:
     min_layout_episodes: int = 16
     # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
     metrics: dict = field(default_factory=dict)
+    # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
+    # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
+    arenas: dict = field(default_factory=dict)
+    min_arena_episodes: int = 16  # arenas with fewer eval episodes than this are too noisy to gate
     # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
     # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
     confirm_episodes: int = 512
@@ -73,7 +80,12 @@ class TargetConfig:
 
     @property
     def enabled(self) -> bool:
-        return self.min_over_baseline is not None or self.min_layout_over_baseline is not None or bool(self.metrics)
+        return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
+                or bool(self.metrics) or bool(self.arenas))
+
+    def arena_needs_baseline(self) -> bool:
+        return any(isinstance(gates, dict) and gates.get("min_over_baseline") is not None
+                   for gates in self.arenas.values())
 
 
 @dataclass

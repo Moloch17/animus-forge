@@ -7,9 +7,14 @@ random, so the scores are averages over the seeds, not replays.
 
 The score is the mean episode return over every agent of every seeded episode: the scenario's own reward summed
 over each episode, so it measures what training optimises and is comparable between checkpoints of one scenario
-(not between scenarios). Summaries also break it down by level band and by layout (class/role), each with the
-standard error of its score: combat rolls make two evaluations of the same networks differ, and the convergence
-test only counts an improvement that stands out from that noise.
+(not between scenarios). Summaries also break it down by level band, by layout (class/role) and, for a stage that
+mixes arenas, by arena, each with the standard error of its score: combat rolls make two evaluations of the same
+networks differ, and the convergence test only counts an improvement that stands out from that noise.
+
+Self-play arenas can be scored against a scripted opponent: with `opponents` the sim plays the other side of each
+self-play episode with that policy (protocol MODE_FLAG_SCRIPTED_OPPONENTS), and the opponent seats' rows (episode
+info opponent_seat) are left out of the result -- of the learner's evaluation and of the baseline's, which then is the
+baseline against itself.
 """
 
 from __future__ import annotations
@@ -32,6 +37,7 @@ class EvalResult:
     infos: np.ndarray  # [n, K] episode info, same order
     info_names: tuple[str, ...]
     layouts: tuple[str, ...] = ()  # [n] each agent's layout name
+    arenas: tuple[str, ...] = ()  # the stage's arena names, indexed by the episode info column "arena"
     seconds: float = 0.0
     decisions: int = 0
 
@@ -51,7 +57,7 @@ class EvalResult:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
 
     def summary(self, columns: tuple[str, ...]) -> dict:
-        """Score and means of `columns` (those the scenario has): overall, per level band, per layout."""
+        """Score and means of `columns` (those the scenario has): overall, per level band, per layout, per arena."""
         present = [c for c in columns if c in self.info_names]
 
         def means(rows: np.ndarray) -> dict:
@@ -66,7 +72,7 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -77,6 +83,12 @@ class EvalResult:
             names = np.array(self.layouts)
             for layout in sorted(set(self.layouts)):
                 result["layouts"][layout] = means(names == layout)
+        arenas = self.column("arena")
+        if len(self.arenas) > 1 and arenas is not None:
+            for index, arena in enumerate(self.arenas):
+                rows = arenas == index
+                if rows.any():
+                    result["arenas"][arena] = means(rows)
         return result
 
 
@@ -86,10 +98,13 @@ def standard_error(values: np.ndarray) -> float:
 
 
 def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline: str = "",
-                   max_decisions: int | None = None) -> tuple[EvalResult, p.Step]:
+                   max_decisions: int | None = None, opponents: str = "",
+                   arenas: tuple[str, ...] = ()) -> tuple[EvalResult, p.Step]:
     """Run seeded episodes 0..episodes-1 and return their results and the fresh training STEP after them.
 
-    choose_actions(step) -> [E, A] actions; ignored by the sim when `baseline` names a scripted policy.
+    choose_actions(step) -> [E, A] actions; ignored by the sim when `baseline` names a scripted policy. `opponents`
+    names a scripted policy for the opponent seats of self-play episodes (the learner plays the rest, or `baseline`
+    everything); their rows are left out. `arenas` are the stage's arena names, for the per-arena summary.
     """
     started = time.perf_counter()
     envs, agents = spec.num_envs, spec.agents_per_env
@@ -100,11 +115,17 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         # Seeds go out as envs reset, so the last one can start up to one episode after the others.
         max_decisions = per_episode * (-(-episodes // envs) + 2)
 
-    step = env.set_mode(True, seed, episodes, baseline)
+    if baseline:
+        step = env.set_mode(True, seed, episodes, baseline)
+    else:
+        step = env.set_mode(True, seed, episodes, opponents, opponents_only=bool(opponents))
     running = np.zeros((envs, agents), dtype=np.float64)
     finished: dict[int, list[tuple[float, np.ndarray, str]]] = {}
+    info_names = list(spec.episode_info_names)
     # A party seat left empty for an episode reports present = 0: it is not an episode of any class/role.
-    present = spec.episode_info_names.index("present") if "present" in spec.episode_info_names else None
+    present = info_names.index("present") if "present" in info_names else None
+    # Against a scripted opponent its seats are not the learner's (nor, for the baseline, the seat being scored).
+    opponent_seat = info_names.index("opponent_seat") if opponents and "opponent_seat" in info_names else None
     decisions = 0
 
     while len(finished) < episodes and decisions < max_decisions:
@@ -121,7 +142,8 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
                 finished[index] = [
                     (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])])
                     for a in range(agents)
-                    if present is None or step.episode_info[e, a, present] > 0.0
+                    if (present is None or step.episode_info[e, a, present] > 0.0)
+                    and (opponent_seat is None or step.episode_info[e, a, opponent_seat] <= 0.0)
                 ]
             running[e] = 0.0
 
@@ -135,6 +157,7 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         infos=np.array([row[1] for row in rows], dtype=np.float32).reshape(len(rows), spec.episode_info_dim),
         info_names=tuple(spec.episode_info_names),
         layouts=tuple(row[2] for row in rows),
+        arenas=tuple(arenas),
         seconds=time.perf_counter() - started,
         decisions=decisions,
     )
@@ -244,7 +267,7 @@ class ConvergenceTracker:
 
 
 def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...]) -> str:
-    """Multi-line table: overall, per level band and per layout, learner next to baseline."""
+    """Multi-line table: overall, per level band, per layout and per arena, learner next to baseline."""
 
     def cell(row: dict | None, name: str) -> str:
         value = None if row is None else row.get(name)
@@ -252,7 +275,7 @@ def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...
 
     names = ["score", *[c for c in columns if c in summary]]
     rows = [("all", summary, baseline)]
-    for group in ("bands", "layouts"):
+    for group in ("bands", "layouts", "arenas"):
         for key, row in summary.get(group, {}).items():
             rows.append((key, row, (baseline or {}).get(group, {}).get(key)))
 

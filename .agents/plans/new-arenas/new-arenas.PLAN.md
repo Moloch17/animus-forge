@@ -1,7 +1,8 @@
 # new-arenas: PvE and PvP in one branching curriculum, up to raids and battlegrounds
 
-Branch: `new-arenas` (from `master` at f33267c). Status: the renames below and **P1 (arenas in stages)** are done,
-with the pilot stage `mix_duel_pvp` (duel + scripted enemy player) to try it; P2 onward is still plan.
+Branch: `new-arenas` (from `master` at f33267c). Status: the renames below, **P1 (arenas in stages)** with the pilot
+stage `mix_duel_pvp` (duel + scripted enemy player), and **P2 (per-arena evaluation and gates, self-play scored
+against a scripted opponent, protocol 4)** are done; P3 onward is still plan.
 
 ## Naming (done on this branch)
 

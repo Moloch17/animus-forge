@@ -387,9 +387,10 @@ player factions and the PvP flag, which players need to attack each other.
 - **Episode info:** the core and duel columns, then won, opponent class and opponent role (the pulls, owner
   and party columns are left out: nothing fills them in PvP).
 
-`configs/stage6_pvp.yaml` scores against the `fight` baseline. `configs/stage7_arena.yaml` has no
-baseline, convergence stop or target: against itself a policy's score does not track progress -- judge an arena
-model with `animus.evaluate` on a `stage6_pvp` sim.
+`configs/stage6_pvp.yaml` scores against the `fight` baseline. Against itself a policy's score does not track
+progress, so `configs/stage7_arena.yaml` evaluates with `eval.opponent_baseline`: the `fight` baseline plays the
+second seat, the score is the learner's seat against it, and the baseline score is `fight` against `fight` on the
+same seeds. Convergence and the target then work as in any stage.
 
 #### Arena mix pilot (`mix_duel_pvp`)
 
@@ -680,10 +681,13 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   same seeds once per run and cached in `eval_baseline.json`.
 - **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
   `eval.every_env_steps` (20M), and at `total_env_steps`.
+- **Self-play:** with `eval.opponent_baseline` the baseline plays the opponent seats of self-play episodes
+  (protocol `MODE_FLAG_SCRIPTED_OPPONENTS`) while the learner plays the rest, and those seats' rows (episode info
+  `opponent_seat`) are left out -- also of the baseline's own evaluation, which is then the baseline against itself.
 - **Output:** the log prints the score with its standard error, the best so far and a table of score and key
-  episode stats (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to
-  baseline. `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
-  `eval_<band>/*`.
+  episode stats (`eval.report`) overall, per level band (1-20, 21-40, 41-60, 61-80), per class/role and, for a stage
+  that mixes arenas, per arena, learner next to baseline. `eval.csv` has one row per evaluation, `eval.jsonl` the
+  full tables, TensorBoard `eval/*`, `eval_<band>/*` and `eval_arena_<arena>/*`.
 - **Best model:** each new best score saves `best.pt`; the stages that extend this one seed from it (see
   Bootstrapping; its `latest.pt` if there is no best).
 
@@ -698,7 +702,9 @@ A stage ends on two questions (`animus/stage.py`), not on a fixed episode count:
 - **Good enough? (`target:`)** The best networks must beat the baseline by `min_over_baseline` overall (0.1 =
   10% better, sign-safe for negative rewards), reach `min_layout_over_baseline` for every class/role with at
   least `min_layout_episodes` evaluation episodes (a looser floor, so no layout is carried by the average into
-  the next stage), and pass any `metrics` gates on episode info (`{killed: {min: 0.8}}`). They are checked on
+  the next stage), and pass any `metrics` gates on episode info (`{killed: {min: 0.8}}`). A stage that mixes
+  arenas can gate each arena on its own episodes: `arenas: {duel: {min_over_baseline: 0.1}, pvp_scripted:
+  {metrics: {won: {min: 0.5}}}}`, skipping an arena with fewer than `min_arena_episodes`. They are checked on
   the evaluation that set the best, then again on `confirm_episodes` held-out episodes (`confirm_seed`),
   because a best picked out of many evaluations is partly luck. With no gates set, a converged stage moves on.
 - **Stuck below the target? (`restarts:`)** Converging below the target is treated as a local optimum: the
@@ -723,6 +729,7 @@ To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from 
 pytest                                                    # protocol, GAE and trainer tests
 python -m animus.train --config configs/stage1_duel.yaml --run-name stage1_duel
 python -m animus.evaluate --checkpoint runs/stage1_duel/best.pt --episodes 128 --seed 1000 --baseline fight
+python -m animus.evaluate --checkpoint runs/stage7_arena/best.pt --baseline fight --opponent-baseline
 ```
 
 A hand-started learner can start before or after the worldserver; it retries until the socket
@@ -777,8 +784,8 @@ as something else. The sim writes a manifest only when its content changed.
 
 `src/Bridge/Protocol.h` is the reference; `python/animus/protocol.py` mirrors it. Messages are
 little-endian: `HELLO` → `SPEC` → (`STEP` → `ACT` or `MODE`)* → `CLOSE`. `MODE` switches between
-training and seeded evaluation (optionally running a scripted baseline instead of the learner's actions)
-and is answered with a fresh `STEP`. `SPEC` lists the agent layouts (name, observation size, action count);
+training and seeded evaluation (optionally running a scripted baseline instead of the learner's actions, or only
+on the opponent seats of self-play episodes) and is answered with a fresh `STEP`. `SPEC` lists the agent layouts (name, observation size, action count);
 observation and mask rows are padded to the largest. A `STEP` carries, for every env:
 - each agent's observation, layout id and action mask, and the env's critic state
 - each agent's reward

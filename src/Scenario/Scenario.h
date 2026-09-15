@@ -95,6 +95,10 @@ namespace AnimusForge
         /// reward: [AgentsPerEnv], from env.StepStats (cleared by EnvPool afterwards).
         virtual void Reward(Env& env, float* reward) = 0;
 
+        /// Whether `agent` is the other side of a self-play episode: evaluation can have a scripted policy play it
+        /// (MODE_FLAG_SCRIPTED_OPPONENTS) to score the learner against a fixed opponent.
+        [[nodiscard]] virtual bool IsOpponentSeat(Env const& /*env*/, uint32 /*agent*/) const { return false; }
+
         /// True if the episode reached a terminal state (e.g. every agent died). Checked at each
         /// decision; the episode time limit ends it as a truncation otherwise.
         [[nodiscard]] virtual bool IsTerminal(Env const& /*env*/) const { return false; }

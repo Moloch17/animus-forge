@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -33,7 +33,8 @@ SPEC = struct.Struct(f"<10I{SCENARIO_NAME_SIZE}s")
 LAYOUT_COUNT = struct.Struct("<I")
 LAYOUT = struct.Struct(f"<II{LAYOUT_NAME_SIZE}s")  # obs dim, actions, name
 STEP_HEADER = struct.Struct("<Q")  # decision counter
-MODE = struct.Struct(f"<III{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, baseline policy
+MODE = struct.Struct(f"<IIII{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, flags, baseline policy
+MODE_FLAG_SCRIPTED_OPPONENTS = 1  # the baseline plays only the opponent seats; the learner the rest
 
 
 @dataclass(frozen=True)
@@ -176,16 +177,19 @@ def decode_step(spec: Spec, payload: bytes | bytearray | memoryview) -> Step:
     return Step(decision=decision, **arrays)
 
 
-def encode_mode(evaluate: bool, seed_base: int = 0, episodes: int = 0, baseline: str = "") -> bytes:
+def encode_mode(evaluate: bool, seed_base: int = 0, episodes: int = 0, baseline: str = "",
+                opponents_only: bool = False) -> bytes:
     name = baseline.encode("ascii")
     if len(name) >= POLICY_NAME_SIZE:
         raise ValueError(f"baseline policy name '{baseline}' is too long")
-    return MODE.pack(int(evaluate), seed_base, episodes, name)
+    flags = MODE_FLAG_SCRIPTED_OPPONENTS if opponents_only else 0
+    return MODE.pack(int(evaluate), seed_base, episodes, flags, name)
 
 
-def decode_mode(payload: bytes) -> tuple[bool, int, int, str]:
-    mode, seed_base, episodes, name = MODE.unpack(payload)
-    return bool(mode), seed_base, episodes, name.split(b"\0", 1)[0].decode("ascii")
+def decode_mode(payload: bytes) -> tuple[bool, int, int, str, bool]:
+    mode, seed_base, episodes, flags, name = MODE.unpack(payload)
+    return (bool(mode), seed_base, episodes, name.split(b"\0", 1)[0].decode("ascii"),
+            bool(flags & MODE_FLAG_SCRIPTED_OPPONENTS))
 
 
 def encode_header(msg_type: MsgType, length: int) -> bytes:
