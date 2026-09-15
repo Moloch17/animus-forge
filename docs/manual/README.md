@@ -1,0 +1,54 @@
+# The Animus Manual
+
+This manual explains how the Animus project works, from the modified AzerothCore server at the bottom to the trained
+companions that play in a normal realm at the top. It is meant to be read by someone who has to run, change or debug
+any part of it.
+
+Animus is four pieces of software. Each chapter covers one of them in depth, and the overview shows how they connect.
+
+| Piece | Repository | What it is |
+|---|---|---|
+| **The forge core** | `forge` branch of [azerothcore-wotlk](https://github.com/Moloch17/azerothcore-wotlk) | AzerothCore turned into a headless simulator that runs faster than real time |
+| **animus-lib** | [animus-lib](https://github.com/Moloch17/animus-lib) (`modules/mod-animus-lib`) | The curriculum, env pools, bots and model runtime that both modules share |
+| **Animus Forge** | [animus-forge](https://github.com/Moloch17/animus-forge) (`modules/mod-animus-forge`) | The training module and its Python MAPPO learner |
+| **Animus** | [animus](https://github.com/Moloch17/animus) (`modules/mod-animus`) | The module that plays the trained models on a stock AzerothCore |
+
+## Chapters
+
+1. [Overview](01-overview.md): the goal, the four pieces, and how a model goes from an idea to a companion in someone's
+   party.
+2. [The forge core](02-forge-core.md): what the `forge` branch changes in AzerothCore and why. Covers the fixed-tick
+   loop, the game clock, the stripped packet and database paths, and how the fork stays rebasable.
+3. [animus-lib](03-animus-lib.md): the scenario interface, env pools, sessionless bots, core seams, layouts and
+   manifests, and the `.amdl` model runtime.
+4. [The curriculum](04-curriculum.md): the eight stages, their blocks, arenas, encounters and rewards, and the
+   characters the seats become.
+5. [Animus Forge](05-animus-forge.md): the training module (plans, the lock-step bridge, the learner process, console,
+   progress, export) and the Python learner (MAPPO, seeding, distillation, evaluation, convergence and stage targets).
+6. [Animus](06-animus.md): companions and the stage viewer on a live, stock server.
+7. [Operations](07-operations.md): step-by-step workflows for setup, training, monitoring, exporting, deploying,
+   extending and troubleshooting.
+8. [Reference](08-reference.md): configuration keys, the wire protocol, file formats, run directories, account
+   ranges, exit codes and a glossary.
+
+## Where to start
+
+- **You want to train models.** Read the [overview](01-overview.md), then [Operations](07-operations.md). Go back to
+  [Animus Forge](05-animus-forge.md) when you need to understand a report or a decision the learner made.
+- **You want to change what the bots learn** (a reward, a feature, a new stage). Read [animus-lib](03-animus-lib.md)
+  and [the curriculum](04-curriculum.md), then "Extending the curriculum" in [Operations](07-operations.md).
+- **You want to change the simulator.** Read [the forge core](02-forge-core.md) first. It explains the rules the fork
+  follows, and breaking them makes upstream rebases painful.
+- **You run a realm and want companions.** Read [Animus](06-animus.md).
+
+## Conventions
+
+- Paths such as `src/Env/EnvPool.cpp` are relative to the repository the chapter is about. Paths that start with
+  `animus-lib/`, `animus-forge/`, `animus/` or `core/` name the repository explicitly.
+- Configuration keys are written in full: `AnimusForge.DecisionMs`, `Animus.Stage.Policy`. Every key can also be set
+  through the environment. Upper-case it, replace dots with underscores and add the `AC_` prefix:
+  `AC_ANIMUS_FORGE_DECISION_MS`.
+- "Game time" is simulated time and "wall time" is real time. On the forge core the two are unrelated. That
+  difference is behind most of the core's changes.
+- The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are shorter operational
+  references. Where this manual and a README disagree, the source code is authoritative. Please report the mismatch.

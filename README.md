@@ -18,6 +18,9 @@ stock AzerothCore with mod-animus runs the very same stages for a game master to
 This module adds what only training needs: the plan and console, the learner bridge and process, progress reports
 and export. Paths below starting with `animus-lib/` are in that repository.
 
+**The Animus manual** ([`docs/manual/`](docs/manual/README.md)) explains the whole project in depth: the forge core,
+animus-lib, the curriculum, this module and its learner, mod-animus, operations and a full reference.
+
 ## How it fits together
 
 ```
