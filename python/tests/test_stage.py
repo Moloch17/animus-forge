@@ -34,6 +34,21 @@ def test_no_target_moves_on_once_converged():
     assert (outcome.action, outcome.reason) == (ADVANCE, "converged")
 
 
+def test_a_resumed_controller_judges_its_best_evaluation():
+    controller = StageController(make_config(min_over_baseline=0.2))
+    evaluate(controller, 13.0, 0)
+    controller.record_restart(5)
+
+    resumed = StageController(make_config(min_over_baseline=0.2))
+    resumed.tracker.load_state_dict(controller.tracker.state_dict())
+    resumed.load_state_dict(controller.state_dict())
+    assert (resumed.restarts, resumed.restart_env_steps) == (1, 5)
+    assert resumed.entropy_coef(5) == controller.entropy_coef(5)
+
+    outcome = evaluate(resumed, 12.9, 20)
+    assert (outcome.action, outcome.stage) == (ADVANCE, "best")
+
+
 def test_converged_above_target_moves_on():
     controller = StageController(make_config(min_over_baseline=0.2))
     evaluate(controller, 13.0, 0)

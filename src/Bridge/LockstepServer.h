@@ -69,12 +69,14 @@ namespace AnimusForge
 
         /// Receive one message of any type with a payload of at most `maxSize` bytes into `payload`.
         /// On CLOSE the client is dropped and true is returned with an empty payload. False on error,
-        /// disconnect or world stop.
-        bool ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize);
+        /// disconnect or world stop. `onIdle` runs every poll interval while the learner is thinking; returning
+        /// false abandons the receive (false is returned and the connection is out of step: drop it).
+        bool ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize,
+            std::function<bool()> const& onIdle = {});
 
     private:
         bool WaitReadable(int fd, std::function<bool()> const& onIdle = {});
-        bool ReadExact(void* dst, std::size_t size);
+        bool ReadExact(void* dst, std::size_t size, std::function<bool()> const& onIdle = {});
 
         std::string _path;
         int _listener = -1;

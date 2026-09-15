@@ -416,17 +416,19 @@ void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)
 
     std::vector<std::string> const names = _scenario.EpisodeInfoNames();
 
+    // Kept for the console's progress report (forge status) rather than logged on every batch.
+    _lastEpisodeMeans.clear();
     std::string line;
     for (uint32 i = 0; i < _spec.EpisodeInfoDim; ++i)
     {
-        if (i)
-            line += ", ";
-
         std::string const name = i < names.size() ? names[i] : "info";
-        line += Acore::StringFormat("{} {:.2f}", name, _reportInfoSum[i] / _reportedEpisodes);
+        double const mean = _reportInfoSum[i] / _reportedEpisodes;
+        _lastEpisodeMeans.emplace_back(name, mean);
+        line += Acore::StringFormat("{}{} {:.2f}", i ? ", " : "", name, mean);
     }
 
-    LOG_INFO("module.animus", "Episodes {} (mean): {}", _reportedEpisodes, line);
+    _lastEpisodeMeansCount = _reportedEpisodes;
+    LOG_DEBUG("module.animus", "Episodes {} (mean): {}", _reportedEpisodes, line);
 
     std::fill(_reportInfoSum.begin(), _reportInfoSum.end(), 0.0);
     _reportedEpisodes = 0;

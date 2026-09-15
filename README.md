@@ -33,8 +33,11 @@ worldserver (forge)                                   python -m animus.train
   on the next update.
 - **Damage is measured in `UnitScript::DealDamage`**, before the victim's AI runs.
   `npc_training_dummy` zeroes damage in `DamageTaken`, so `OnDamage` would only ever see 0.
-- **The learner drives time.** In `remote` mode the world thread blocks on the learner each
+- **The learner drives time.** In `remote` mode the world thread waits on the learner each
   decision, and while no learner is connected. Scripted policies run without Python.
+- **The console drives the sim.** The sim starts idle; `forge start`, `forge pause`, `forge cancel` and the other
+  [console commands](#operating-the-sim-console) decide what runs. While the world thread waits on the learner it
+  keeps answering them.
 
 ## Scenarios
 
@@ -414,23 +417,23 @@ model with `animus.evaluate` on a `stage6_pvp` sim.
 
 ### Training every model: `AnimusForge.Queue`
 
-`AnimusForge.Queue` lists the scenarios to train, one after another. It is the only way to pick what runs. Empty
-(the default) is the whole class/role curriculum, first stage to last; to train a single scenario, list only that
-one (`AnimusForge.Queue = "stage1_duel"`).
+`AnimusForge.Queue` lists the scenarios `forge start` trains, one after another, when it is given none. Empty (the
+default) is the whole class/role curriculum, first stage to last; to train a single scenario, name it on the console
+(`forge start stage1_duel`) or list only that one.
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
 converges and its best networks pass the stage target, or it reaches `total_env_steps` (see
 [Evaluation, convergence and stage targets](#evaluation-convergence-and-stage-targets)) -- and exits cleanly;
 the sim then tears the scenario down and starts the next one. A stage that stays below its target after its
-restarts exits with code 3, which halts the queue there like a crash (`finished.json` and `stage.jsonl` say which
-gates failed). Every run trains in `<OutputDir>/runs/<scenario>/`; export its models by hand when you want them
-(see [Export](#export)). When the last scenario finishes the sim idles. A learner that crashes stops the queue at
-that scenario: the sim waits for a learner started by hand.
+restarts exits with code 3, which halts the plan there (`finished.json` and `stage.jsonl` say which gates failed).
+Every run trains in `<OutputDir>/runs/<scenario>/`; export its models when you want them (`forge export`, see
+[Export](#export)). When the last scenario finishes the sim idles. A learner that crashes holds the plan at that
+scenario: `forge resume` restarts it from its last checkpoint, `forge cancel` stops.
 
-A restart continues where the queue stopped: scenarios whose run already finished and moved on (`finished.json`
-with `"advanced": true`) are skipped (`AnimusForge.Queue.SkipFinished`), and the first other one -- unfinished, or
-halted below its target -- trains from scratch. To retrain a finished stage, move its run directory away (or set
-`SkipFinished = 0` to retrain the whole queue).
+`forge start` without names continues where training stopped: scenarios whose run already finished and moved on
+(`finished.json` with `"advanced": true`) are left out (`AnimusForge.Queue.SkipFinished`), and the first other one --
+unfinished, or halted below its target -- trains from scratch. To retrain a finished stage, move its run directory
+away, name it (`forge start stage3_gauntlet`), or set `SkipFinished = 0`.
 
 ## Enabling
 
@@ -462,21 +465,23 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 |---|---|---|
 | `AnimusForge.Enable` | `1` | `0` turns the module off entirely (no bots, no socket, hooks return immediately) |
 | `AnimusForge.OutputDir` | the learner's directory | Where `runs/` and `layouts/` go (Docker: `/azerothcore/var/animus-forge`) |
-| `AnimusForge.Queue` | `""` (the whole curriculum) | Scenarios trained one after another, starting when the server starts |
-| `AnimusForge.Queue.SkipFinished` | `1` | Skip queued scenarios whose run already finished |
-| `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per queued scenario before moving on |
+| `AnimusForge.Queue` | `""` (the whole curriculum) | Scenarios `forge start` trains one after another when given none |
+| `AnimusForge.Queue.SkipFinished` | `1` | `forge start` without names leaves out stages that already advanced |
+| `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per scenario of `forge start` before moving on |
 | `AnimusForge.ClassRoles` | `""` | Class/roles the class/role scenarios play; empty = all 18 |
 | `AnimusForge.Envs` | `64` | Parallel envs (one instance map each) |
 | `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
 | `AnimusForge.SpawnPoint.*` | Old Hillsbrad entrance | Dungeon map and position every env's bots start at |
 | `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`, `rotation`, ...) |
-| `AnimusForge.ReportEpisodes` | `256` | Log mean episode stats every N episodes |
+| `AnimusForge.ReportEpisodes` | `256` | Mean episode stats (`forge status`, local runs) are taken over N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
 | `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
 | `AnimusForge.WarriorDummy20.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
+| `AnimusForge.ModelDir` | `models/` in the module | Where `forge export` writes models |
+| `AnimusForge.Progress.Interval` | `60` | Seconds between progress reports while a scenario runs; `0` = off |
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
@@ -501,8 +506,8 @@ the server; the learner saves a checkpoint first.
 
 - **Training server (`ac-worldserver`):** runs the worldserver built from the bind-mounted source tree, because
   the learner needs this module's `python/` directory. On its first start it builds the worldserver and creates
-  `python/.venv` (torch, the learner and TensorBoard) inside the container, then starts TensorBoard and the sim;
-  the sim starts the learner.
+  `python/.venv` (torch, the learner and TensorBoard) inside the container, then starts TensorBoard and the sim.
+  The sim is idle until `forge start`; it starts the learner itself.
 - **Output:** runs and layouts go to `var/animus-forge/` in the forge checkout (`AC_ANIMUS_FORGE_OUTPUT_DIR`; set
   `ANIMUS_FORGE_OUTPUT_DIR` to put them elsewhere), not into the module's source tree. Runs trained before this
   change are in `modules/mod-animus-forge/python/runs/`: move them to `var/animus-forge/runs/` to keep seeding and
@@ -516,30 +521,103 @@ the server; the learner saves a checkpoint first.
 - **Dev container (`ac-dev-server`, profile `dev`):** the same image and build volumes, no ports, for VS Code
   (`.devcontainer`) or a shell. After changing C++, build there and restart training:
   `docker compose exec ac-dev-server ./acore.sh compiler build`, then `docker compose restart ac-worldserver`
-  (a restart skips the finished stages and retrains the current one from scratch). Don't start a second training
-  worldserver in it: both would train into the same `runs/`.
+  (the restarted sim is idle: `forge start` carries on with the stages that have not advanced yet, `forge resume
+  <scenario>` continues a run from its latest checkpoint). Don't start a second training worldserver in it: both
+  would train into the same `runs/`.
+
+## Operating the sim (console)
+
+The worldserver's console is the control panel: attach to it (`./forge.sh attach`, or run the worldserver in a
+terminal) and type commands without a leading dot. The console only starts when stdin is a terminal, so a server
+started without one keeps running (and can't be controlled until it is restarted with one). The sim starts idle
+and prints its settings; nothing trains until you say so.
+
+| Command | What it does |
+|---|---|
+| `forge help` | List the commands |
+| `forge status` | The progress report below, or the idle settings and the last plan's outcome |
+| `forge scenarios` | Every scenario with its run: finished (and why: converged, below_target, ...), resumable checkpoint, steps, best score |
+| `forge start [scenario ...]` | Train these from scratch, in order. Without names: `AnimusForge.Queue` (every stage when empty), minus the stages that already advanced (`Queue.SkipFinished`). Earlier runs are archived; a stage listed before the stage it extends is warned about |
+| `forge resume [scenario ...]` | Unpause; or continue the first scenario from its `latest.pt`, then train the rest. Without names: where the last plan stopped. With a crashed learner: restart it from its checkpoint |
+| `forge pause` | Freeze after the current decision: maps, episode clocks and the learner all wait |
+| `forge cancel` | Stop the plan; the learner saves `latest.pt` first, so `forge resume` can continue it |
+| `forge skip` | End the current scenario (the learner saves) and start the next one |
+| `forge run <scenario> <policy> [episodes]` | Run a scripted or random policy without a learner, for N episodes or until cancelled |
+| `forge export [scenario] [best\|latest]` | Export `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) to `AnimusForge.ModelDir`, in the background |
+| `forge clean archive` | Delete `runs/_archive/` |
+| `forge clean scenario <scenario>` | Delete `runs/<scenario>/` (refused while it runs) |
+| `forge clean exports` | Delete the exported models and manifests |
+| `forge clean logs` | Delete the learner and export logs (refused while they are written) |
+| `forge clean all` | All of the above, every run included (idle only) |
+| `forge progress [seconds\|off]` | Show or change the progress report interval |
+
+Commands that start or stop scenarios take effect at the next decision; the reply says what will happen. Every
+removal is listed with its size.
+
+### Progress report
+
+While a scenario runs the console prints a report every `AnimusForge.Progress.Interval` seconds (and `forge status`
+prints one at any time). The learner keeps `runs/<scenario>/progress.json` up to date after every update and
+evaluation; the sim combines it with what it measures itself:
+
+```
+Forge: stage2_pack (2 of 4) | training | update 412 | 3h 12m
+  Metric                            Value  Note
+  -----------------------  --------------  -------------------------------------------------
+  learner                       connected  pid 4242, last answer 0s ago
+  sim                       4,210 ticks/s  64 envs x 1 agents, 1,234,567 decisions
+  env steps                 27.0M / 60.0M  45.0%
+  step rate                 2,700 steps/s  -3.0% vs last
+  ETA (step limit)                 3h 23m  ~05:10
+  ETA (converged, earliest)        1h 20m  at 40.0M if 1 more eval brings no new best; then the stage target...
+  eval score                        184.2  2 evals, best 190.1 at 0, 2/3 without improvement
+  best vs baseline                 +67.3%  fight 113.6
+  reward/decision                  0.4121  +4.0% vs last
+  entropy                            1.03  -8.0% vs last, 92.0% of start
+  ...
+  Plan:
+  #  Scenario             Status                 Env steps  Best score      ETA
+  -  -------------------  -----------------  -------------  ----------  -------
+  1  stage1_duel          done               41.0M / 60.0M       212.3
+  2  stage2_pack          training (resume)  27.0M / 60.0M       190.1   3h 23m
+  3  stage3_gauntlet      pending                    40.0M           -  ~4h 06m
+  Plan ETA ~15h 44m ~17:31 (~: full step limit at the current rate; converging ends sooner)
+```
+
+- **Step rate** is measured between reports on the learner's own clock, so evaluations and updates are included;
+  every ETA uses it. The convergence ETA is the earliest the stage can be judged: the evaluations still allowed
+  without a new best, at the configured evaluation interval, and not before `min_env_steps` after the last
+  restart. After a restart the report shows the restarts used.
+- **Warnings** follow the report, one line each, only when they apply: the learner has not answered for 2 minutes,
+  the step rate fell over 30% below the run's average, entropy is under 25% of its first value, approx KL is over
+  0.05 or the clip fraction over 30%, a metric is NaN or infinite, the best score is still below the baseline after
+  2 evaluations, the next evaluation can end the stage by convergence, or the learner exited unexpectedly.
+- **A stage below its target:** when the learner exits with code 3 the plan halts at that stage (outcome
+  `below target`) instead of moving on; `finished.json` and `stage.jsonl` in its run say which gates failed.
+- **Local runs** (`forge run`) report episodes done, the ETA to the episode limit and the episode means.
 
 ## Baselines (no Python)
 
-Set a scripted policy and read the `Episodes N (mean): ...` lines in the worldserver log:
+Run a scripted policy from the console and read the episode means in its progress report (or `forge status`):
 
 ```
-AnimusForge.Policy = "greedy"            # class/role scenarios: first usable spell or trinket
-AnimusForge.Policy = "fight"             # class/role duel stage on: close in, fight, eat, drink, heal
-AnimusForge.Policy = "white_only"        # warrior_dummy_20: white swings only
-AnimusForge.Policy = "rotation"          # warrior_dummy_20: levelling priority
-AnimusForge.Policy = "random"
+forge run stage1_duel greedy 1024        # class/role stages: first usable spell or trinket
+forge run stage1_duel fight 1024         # class/role stages: close in, fight, eat, drink, heal
+forge run warrior_dummy_20 white_only    # warrior_dummy_20: white swings only, until forge cancel
+forge run warrior_dummy_20 rotation 512  # warrior_dummy_20: levelling priority
+forge run stage1_duel random 1024
 ```
 
 These are the numbers the learner has to match or beat. They double as a mechanics check. With
 `white_only`, `white_hits` per episode should be roughly `EpisodeSeconds / weapon speed` (minus
-misses and dodges). Set `AnimusForge.Queue.LocalEpisodes` to baseline every queued scenario in one run.
+misses and dodges). To baseline every queued scenario in one go, set `AnimusForge.Policy` to the scripted policy
+and `AnimusForge.Queue.LocalEpisodes` to the episodes per scenario, then `forge start`.
 
 ## Training
 
 With `AnimusForge.Policy = "remote"` and `AnimusForge.Learner.AutoStart = 1` (the defaults), the
-worldserver starts the learner itself once the envs are built, for the current scenario of
-`AnimusForge.Queue`:
+worldserver starts the learner itself once the envs are built, for the current scenario of `forge start` or
+`forge resume`:
 
 ```
 <WorkDir>/.venv/bin/python -u -m animus.train --config configs/<scenario>.yaml \
@@ -556,15 +634,17 @@ worldserver starts the learner itself once the envs are built, for the current s
 - **Devices:** `train_device: auto` updates on the GPU when torch sees one (CUDA or ROCm), else the CPU.
 - **Checkpoints:** `checkpoint_<update>.pt` every `checkpoint_every` updates, keeping the newest `keep_checkpoints`
   (5); `latest.pt` and `best.pt` are always kept.
-- **No resuming:** every learner start trains from scratch. Whatever `runs/<scenario>/` held is first moved to
-  `runs/_archive/<scenario>-<time>/` (nothing is deleted). The sim never needs a restart -- its game clock and the
-  timestamps compared against it are 64-bit -- so a run goes from start to finish in one server lifetime; after a
-  server restart the queue skips finished runs and retrains the unfinished one.
+- **Fresh or resumed:** `forge start` trains from scratch. Whatever `runs/<scenario>/` held is first moved to
+  `runs/_archive/<scenario>-<time>/` (nothing is deleted). `forge resume` passes `--resume` instead: the learner
+  continues `runs/<scenario>/latest.pt` in place (networks, optimizers, step count, the convergence test, restarts
+  and the best evaluation; `metrics.csv` is appended to) and refuses if the scenario's layouts or dimensions changed
+  since. The env count, decision interval and episode length may change. The server itself never resumes on
+  startup, and its game clock is 64-bit, so a run goes from start to finish in one server lifetime.
 - **Overrides:** `AnimusForge.Learner.Args` appends arguments to every learner, typically
   `--set key=value` (dotted keys for sections: `--set eval.episodes=64`), to change config values for a
   whole queue without editing YAML -- e.g. a short pass over a curriculum before the long run.
-- **Shutdown:** closing the socket makes the learner save a checkpoint and exit; it is interrupted
-  after 10 s if it has not.
+- **Shutdown, cancel and skip:** closing the socket makes the learner save a checkpoint and exit; it is
+  interrupted after 10 s (15 s for a cancel or skip) if it has not.
 
 ### Evaluation, convergence and stage targets
 
@@ -642,10 +722,17 @@ evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`, `best.pt`, `stag
 ## Export
 
 Training writes checkpoints to its run directory and nothing else: models are never published or copied anywhere
-automatically. Export a checkpoint's actor to `.amdl` models by hand:
+automatically. Export a checkpoint's actor to `.amdl` models from the console, even while training goes on:
 
 ```
-python -m animus.export --checkpoint <OutputDir>/runs/stage1_duel/best.pt --out exported/stage1_duel \
+forge export stage1_duel                 # best.pt, else latest.pt, into AnimusForge.ModelDir (models/)
+forge export stage1_duel latest
+```
+
+It runs `python -m animus.export` in the background (output in `animus-export.log`), the same as by hand:
+
+```
+python -m animus.export --checkpoint <OutputDir>/runs/stage1_duel/best.pt --out ../models \
     --layouts-dir <OutputDir>/layouts
 ```
 

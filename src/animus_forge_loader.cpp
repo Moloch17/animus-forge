@@ -17,9 +17,11 @@
  */
 
 void AddSC_animus_forge();
+void AddSC_animus_forge_commands();
 
 // Called by the generated modules loader; the name is Add<module dir with - as _>Scripts.
 void Addmod_animus_forgeScripts()
 {
     AddSC_animus_forge();
+    AddSC_animus_forge_commands();
 }

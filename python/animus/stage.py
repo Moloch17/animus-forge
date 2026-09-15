@@ -90,6 +90,21 @@ class StageController:
         self.restart_env_steps = env_steps
         self.tracker.reset_segment(env_steps)
 
+    def state_dict(self) -> dict:
+        """What a resumed run needs to carry on deciding (the convergence tracker is saved on its own)."""
+        return {
+            "restarts": self.restarts,
+            "restart_env_steps": self.restart_env_steps,
+            "best_summary": self.best_summary,
+        }
+
+    def load_state_dict(self, state: dict | None) -> None:
+        if not state:
+            return
+        self.restarts = state.get("restarts", 0)
+        self.restart_env_steps = state.get("restart_env_steps")
+        self.best_summary = state.get("best_summary")
+
     def _decide(self, outcome: Outcome) -> Outcome:
         self.last_outcome = outcome
         return outcome

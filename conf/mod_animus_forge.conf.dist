@@ -28,22 +28,25 @@ AnimusForge.OutputDir = ""
 # QUEUE
 #
 #    AnimusForge.Queue
-#        Description: Comma-separated scenarios to train one after another, starting when the server
-#                     starts. Every env in the pool runs the current scenario. Each runs until its
-#                     auto-started learner finishes (its evaluation score converges and its best
-#                     networks pass the stage target, or it reaches total_env_steps, and it exits
-#                     cleanly), then the next one starts; when the last one finishes the sim idles. A
-#                     stage still below its target after its restarts exits with code 3 and halts the
-#                     queue there (see runs/<scenario>/finished.json). Moving on needs AnimusForge.Policy = "remote" and
-#                     AnimusForge.Learner.AutoStart = 1 (see AnimusForge.Queue.LocalEpisodes for local
-#                     policies). An unknown name stops the server at startup and logs the list of
-#                     available scenarios. Like any config key it can also be set from the environment:
-#                     AC_ANIMUS_FORGE_QUEUE.
+#        Description: Comma-separated scenarios `forge start` trains one after another when it is given
+#                     none. The sim starts idle: nothing trains until `forge start` is typed on the
+#                     console (`forge help` lists every command). Every env in the pool runs the current
+#                     scenario. Each runs until its auto-started learner finishes (its evaluation score
+#                     converges and its best networks pass the stage target, or it reaches
+#                     total_env_steps, and it exits cleanly), then the next one starts; after the last one
+#                     the sim idles again. A stage still below its target after its restarts exits with
+#                     code 3 and the plan halts there (see runs/<scenario>/finished.json). Moving on needs
+#                     AnimusForge.Policy = "remote" and AnimusForge.Learner.AutoStart = 1 (see
+#                     AnimusForge.Queue.LocalEpisodes for local policies). `forge start` rejects an unknown
+#                     name and lists the available scenarios. Each scenario trains in
+#                     <OutputDir>/runs/<scenario>/. Like any config key it can also be set from the
+#                     environment: AC_ANIMUS_FORGE_QUEUE.
 #        Values:      Class/role curriculum: one policy for every class/role of AnimusForge.ClassRoles,
 #                     one scenario per stage. Every episode each learned seat is a new character of a
 #                     class/role: a random race the class allows, gender, level (1-80; 55-80 for death
-#                     knights), one of the role's specs with a random talent build, the trainer spells
-#                     of the level, and random level-appropriate gear and trinkets for the spec. Each
+#                     knights), one of the role's specs with its standard talent build and glyphs, the
+#                     trainer spells of the level, gear from the item level band of the level with
+#                     enchants and gems, and potions, bandages and stones it learns to use. Each
 #                     class/role is a layout of the policy and exports as its own model. Each stage's
 #                     layouts extend the stage it builds on, which seeds it:
 #                       "stage1_duel"      - a same-level creature out of aggro range: close in and kill
@@ -68,10 +71,12 @@ AnimusForge.Queue = ""
 
 #
 #    AnimusForge.Queue.SkipFinished
-#        Description: Skip queued scenarios whose run already finished (runs/<scenario>/finished.json
-#                     in AnimusForge.OutputDir), so a restart continues the queue where it stopped
-#                     instead of training every stage again. To retrain a finished stage, move its run
-#                     directory away or set this to 0. Only with an auto-started remote learner.
+#        Description: `forge start` without scenarios leaves out queued scenarios whose run already
+#                     finished and moved on (runs/<scenario>/finished.json in AnimusForge.OutputDir with
+#                     "advanced": true), so it continues where training stopped instead of training
+#                     every stage again. A stage that halted below its target trains again. Scenarios
+#                     named on `forge start` always train. To retrain a finished stage, move its run
+#                     directory away or set this to 0. Only with the remote policy.
 #        Default:     1 - (Skip finished runs)
 #                     0 - (Train every queued scenario, archiving earlier runs)
 
@@ -161,8 +166,9 @@ AnimusForge.Policy = "remote"
 
 #
 #    AnimusForge.ReportEpisodes
-#        Description: Log mean episode statistics every this many completed episodes (all
-#                     policies, including remote).
+#        Description: Mean episode statistics are taken over this many completed episodes (all
+#                     policies, including remote). They show in `forge status` and in the progress report
+#                     of local policy runs, and in the log at debug level.
 #        Default:     256
 
 AnimusForge.ReportEpisodes = 256
@@ -179,12 +185,13 @@ AnimusForge.Socket = "/tmp/animus-forge.sock"
 #
 #    AnimusForge.Learner.AutoStart
 #        Description: With AnimusForge.Policy = "remote", start the Python learner automatically
-#                     once the sim is ready, for the current queued scenario:
+#                     whenever a scenario of `forge start` or `forge resume` is ready:
 #                         <Python> -u -m animus.train --config <Config> --socket <AnimusForge.Socket>
 #                             --run-name <scenario> --runs-dir <OutputDir>/runs --layouts-dir <OutputDir>/layouts
-#                     run in <WorkDir>. Every start trains from scratch: whatever runs/<scenario>/ held is
-#                     moved to runs/_archive/<scenario>-<time>/ first (nothing is deleted, and nothing is
-#                     resumed). The learner is stopped (and saves latest.pt) when the server shuts down.
+#                     run in <WorkDir>. `forge start` trains from scratch: whatever runs/<scenario>/ held is
+#                     moved to runs/_archive/<scenario>-<time>/ first (nothing is deleted). `forge resume`
+#                     adds --resume and continues runs/<scenario>/latest.pt instead. The learner is
+#                     stopped (and saves latest.pt) by `forge cancel`, `forge skip` and server shutdown.
 #                     Requires Python and the learner's packages where the worldserver runs, and the
 #                     module source tree: a native build, or the Docker ac-worldserver service, which
 #                     runs the build from the bind-mounted source tree.
@@ -231,6 +238,30 @@ AnimusForge.Learner.Args = ""
 #        Default:     "" - animus-learner.log in LogsDir
 
 AnimusForge.Learner.LogFile = ""
+
+###################################################################################################
+# CONSOLE
+#
+#    AnimusForge.ModelDir
+#        Description: Folder `forge export` writes .amdl models (and their layout manifests) to, relative
+#                     to the module directory or absolute. Models are never copied anywhere else: copy
+#                     them to a game server by hand. `forge clean exports` empties it.
+#        Default:     "" - models/ in the module source this server was built from
+
+AnimusForge.ModelDir = ""
+
+#
+#    AnimusForge.Progress.Interval
+#        Description: While a scenario runs, log a progress report every this many wall-clock seconds:
+#                     env steps, step rate, ETAs (step limit, earliest convergence, the whole plan),
+#                     evaluation scores against the baseline, restarts, losses and warnings (stalled
+#                     learner, falling step rate, entropy collapse, large updates, non-finite values,
+#                     convergence close). `forge status` prints the same report at any time; `forge
+#                     progress <seconds|off>` changes the interval until the server restarts.
+#        Default:     60
+#                     0  - (no periodic report)
+
+AnimusForge.Progress.Interval = 60
 
 ###################################################################################################
 # WARRIOR_DUMMY_20

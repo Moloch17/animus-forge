@@ -31,9 +31,14 @@ namespace
     /// This module's python/ directory, from the path the compiler saw for this source file
     /// (<module>/src/ForgeConfig.cpp). Valid wherever the module source tree still exists at the
     /// path it was built from: native builds and the bind-mounted Docker services, not the runtime images.
+    fs::path ModuleRoot()
+    {
+        return fs::path(__FILE__).parent_path().parent_path();
+    }
+
     fs::path DefaultLearnerWorkDir()
     {
-        return fs::path(__FILE__).parent_path().parent_path() / "python";
+        return ModuleRoot() / "python";
     }
 
     /// A comma-separated config list, whitespace removed, empty entries dropped.
@@ -107,6 +112,16 @@ void AnimusForge::ForgeConfig::Load()
         LearnerLogFile = (logsDir / "animus-learner.log").string();
     }
 
+    // Exported models stay in the forge's own folder; copying them to a game server is done by hand.
+    fs::path modelDir = sConfigMgr->GetOption<std::string>("AnimusForge.ModelDir", "");
+    if (modelDir.empty())
+        modelDir = ModuleRoot() / "models";
+    else if (modelDir.is_relative())
+        modelDir = ModuleRoot() / modelDir;
+    ModelDir = modelDir.lexically_normal().string();
+
+    ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 60);
+
     SpawnMapId = sConfigMgr->GetOption<uint32>("AnimusForge.SpawnPoint.MapId", 560);
     SpawnPosition.Relocate(
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.X", 2741.9f),
@@ -118,14 +133,14 @@ void AnimusForge::ForgeConfig::Load()
         false);
 }
 
-std::string AnimusForge::ForgeConfig::RunsDir() const
+fs::path AnimusForge::ForgeConfig::RunsDir() const
 {
-    return (fs::path(OutputDir) / "runs").string();
+    return fs::path(OutputDir) / "runs";
 }
 
-std::string AnimusForge::ForgeConfig::LayoutsDir() const
+fs::path AnimusForge::ForgeConfig::LayoutsDir() const
 {
-    return (fs::path(OutputDir) / "layouts").string();
+    return fs::path(OutputDir) / "layouts";
 }
 
 std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenario) const

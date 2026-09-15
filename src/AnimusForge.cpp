@@ -19,10 +19,30 @@
 #include "AnimusForge.h"
 #include "Log.h"
 #include "StageDefinition.h"
+#include "StringFormat.h"
 #include "World.h"
 #include <algorithm>
 #include <cstring>
-#include <filesystem>
+#include <thread>
+
+namespace
+{
+    /// How long an idle or paused world thread sleeps per tick: an idle sim would otherwise spin a core.
+    constexpr std::chrono::milliseconds IDLE_SLEEP{ 50 };
+
+    /// How long a cancelled or skipped learner gets to save its checkpoint before it is interrupted.
+    constexpr std::chrono::seconds LEARNER_STOP_GRACE{ 15 };
+
+    void LogInfo(std::string const& line)
+    {
+        LOG_INFO("module.animus", "{}", line);
+    }
+
+    void LogWarn(std::string const& line)
+    {
+        LOG_WARN("module.animus", "{}", line);
+    }
+}
 
 AnimusForge::Forge* AnimusForge::Forge::Instance()
 {
@@ -33,6 +53,7 @@ AnimusForge::Forge* AnimusForge::Forge::Instance()
 void AnimusForge::Forge::OnStartup()
 {
     _config.Load();
+    _progressInterval = _config.ProgressInterval;
 
     if (!_config.Enable)
     {
@@ -40,164 +61,54 @@ void AnimusForge::Forge::OnStartup()
         return;
     }
 
-    _queue = _config.Queue;
-    if (_queue.empty())
-        for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
-            _queue.push_back(stage.Name);
-
-    if (_queue.empty())
-    {
-        Fail("AnimusForge.Queue is empty and there are no class/role stages");
-        return;
-    }
-
-    // A stage seeds from the closest trained stage it extends: queued before its base, it seeds from further up the
-    // tree (or starts from scratch) unless that base already finished in an earlier run.
-    for (std::size_t index = 0; index < _queue.size(); ++index)
-    {
-        ClassRole::StageDefinition const* stage = ClassRole::FindStage(_queue[index]);
-        if (!stage || stage->Extends.empty())
-            continue;
-
-        auto const base = std::find(_queue.begin() + index + 1, _queue.end(), stage->Extends);
-        if (base != _queue.end() && !AlreadyFinished(stage->Extends))
-            LOG_WARN("module.animus", "Queue: {} comes before {}, which it extends and seeds from; it will not seed "
-                "from it. Queue {} first.", stage->Name, stage->Extends, stage->Extends);
-    }
-
-    _queueIndex = 0;
-    StartQueue();
-}
-
-bool AnimusForge::Forge::AlreadyFinished(std::string const& scenario) const
-{
-    // Only an auto-started learner moves the queue on, so only then does skipping mean anything.
-    if (!_config.QueueSkipFinished || !_config.IsRemote() || !_config.LearnerAutoStart)
-        return false;
-
-    std::error_code error;
-    return std::filesystem::exists(std::filesystem::path(_config.RunsDir()) / scenario / "finished.json", error);
-}
-
-bool AnimusForge::Forge::StartQueue()
-{
-    for (; _queueIndex < _queue.size() && AlreadyFinished(CurrentScenario()); ++_queueIndex)
-        LOG_INFO("module.animus", "Queue: {} already finished (runs/{}/finished.json), skipping it. To train it again, "
-            "move that run away or set AnimusForge.Queue.SkipFinished = 0.", CurrentScenario(), CurrentScenario());
-
-    if (_queueIndex >= _queue.size())
-    {
-        LOG_INFO("module.animus", "Queue complete: every scenario in AnimusForge.Queue has finished training. The sim "
-            "idles until the server is stopped.");
-        return false;
-    }
-
-    LOG_INFO("module.animus", "Queue: starting {} ({} of {})", CurrentScenario(), _queueIndex + 1, _queue.size());
-    if (!Start())
-        return false;
-
-    _running = true;
-    return true;
-}
-
-bool AnimusForge::Forge::Start()
-{
-    _scenario = CreateScenario(CurrentScenario(), _config);
-    if (!_scenario)
-    {
-        std::string available;
-        for (std::string const& name : ScenarioNames())
-            available += (available.empty() ? "" : ", ") + name;
-
-        LOG_ERROR("module.animus", "Unknown scenario '{}'. Available: {}", CurrentScenario(), available);
-        Fail("unknown scenario");
-        return false;
-    }
-
-    LOG_INFO("module.animus", "Starting scenario {} with policy {}", _scenario->Name(), _config.Policy);
-
-    ScenarioSpec const spec = _scenario->Spec();
-
-    // Reject a local policy name before building anything, rather than on the first decision.
-    if (!_config.IsRemote() && _config.Policy != "random")
-    {
-        std::vector<float> obs(spec.ObsDim, 0.0f);
-        std::vector<uint8> mask(spec.NumActions, 0);
-        int32 action = 0;
-
-        if (!_scenario->ScriptedAction(_config.Policy, obs.data(), mask.data(), 0, action))
-        {
-            LOG_ERROR("module.animus", "Scenario {} has no policy '{}'", _scenario->Name(), _config.Policy);
-            Fail("unknown policy");
-            return false;
-        }
-    }
-
-    _pool = std::make_unique<EnvPool>(*_scenario, _config);
-    if (!_pool->Setup())
-    {
-        Fail("environment setup failed");
-        return false;
-    }
-
+    // Open the socket now, so a learner started by hand can connect as soon as a plan starts.
     if (_config.IsRemote())
-    {
-        if (!_server.Listen(_config.SocketPath))
-        {
-            Fail("cannot open the learner socket");
-            return false;
-        }
+        _server.Listen(_config.SocketPath);
 
-        // A learner that cannot be started is not fatal: the sim keeps waiting on the socket, so
-        // one started by hand still works.
-        if (_config.LearnerAutoStart && !_learner.Start(_config, CurrentScenario()))
-            LOG_ERROR("module.animus", "Learner auto-start failed; start it manually: cd {} && {} -m animus.train "
-                "--config {} --socket {} --run-name {} --runs-dir {} --layouts-dir {}", _config.LearnerWorkDir,
-                _config.LearnerPython, _config.LearnerConfigFor(CurrentScenario()), _config.SocketPath,
-                CurrentScenario(), _config.RunsDir(), _config.LayoutsDir());
-    }
-
-    _pool->ResetAll();
-    return true;
-}
-
-bool AnimusForge::Forge::QueueScenarioFinished() const
-{
-    return _config.IsRemote() && _config.LearnerAutoStart && _learner.FinishedCleanly();
-}
-
-void AnimusForge::Forge::AdvanceQueue()
-{
-    LOG_INFO("module.animus", "Queue: {} finished ({} of {})", CurrentScenario(), _queueIndex + 1, _queue.size());
-
-    _running = false;
-    _pool->Teardown();
-    _pool.reset();
-    _scenario.reset();
-
-    ++_queueIndex;
-    StartQueue();
-}
-
-void AnimusForge::Forge::Fail(char const* reason)
-{
-    // The sim host exists to run the scenario; carrying on without it would only burn CPU.
-    LOG_FATAL("module.animus", "Animus Forge cannot start: {}. Stopping the server.", reason);
-    World::StopNow(ERROR_EXIT_CODE);
+    LOG_INFO("module.animus", "Animus Forge is idle. Type `forge start` on the console to train AnimusForge.Queue, "
+        "or `forge help` for every command.");
+    CommandStatus(LogInfo);
 }
 
 void AnimusForge::Forge::OnUpdate(uint32 diff)
 {
-    if (!_running)
+    if (!_config.Enable)
         return;
+
+    PollExport();
+    ApplyRequest();
+
+    if (_pauseRequested && (_state == State::Training || _state == State::Running))
+    {
+        _pauseRequested = false;
+        _pausedFrom = _state;
+        _state = State::Paused;
+        LOG_INFO("module.animus", "Paused {}: the sim is frozen{}. `forge resume` continues, `forge cancel` stops.",
+            _current, _plan.Remote() ? " and the learner waits" : "");
+    }
+
+    if (_state == State::Paused)
+    {
+        HoldWhilePaused();
+        return;
+    }
+
+    if (_state == State::Idle)
+    {
+        std::this_thread::sleep_for(IDLE_SLEEP);
+        return;
+    }
 
     _tickMs = diff;
+    ++_ticks;
     _pool->AdvanceClock(diff);
 
-    if (++_ticks % _config.DecisionTicks)
+    MaybeReport();
+
+    if (_ticks % _config.DecisionTicks)
         return;
 
-    if (_config.IsRemote())
+    if (_plan.Remote())
         RemoteDecision();
     else
         LocalDecision();
@@ -205,51 +116,458 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
 
 void AnimusForge::Forge::OnShutdown()
 {
-    _running = false;
+    _poolLive = false;
 
     // Closing the socket is what tells the learner to save and exit; give it time to do so.
+    if (_learner.IsRunning())
+        _learner.ExpectExit();
+
     _server.Shutdown();
     _learner.Stop(std::chrono::seconds(10));
+    _export.Stop(std::chrono::seconds(10));
 
     if (_pool)
         _pool->Teardown();
 
     _pool.reset();
     _scenario.reset();
+    _state = State::Idle;
+}
+
+void AnimusForge::Forge::ApplyRequest()
+{
+    Request const request = _request;
+    _request = Request::None;
+
+    switch (request)
+    {
+        case Request::None:
+            break;
+        case Request::Start:
+            _plan = std::move(_requested);
+            _requested = {};
+            _plan.Index = 0;
+            LOG_INFO("module.animus", "Plan: {} scenario{} with policy {}", _plan.Entries.size(),
+                _plan.Entries.size() == 1 ? "" : "s", _plan.Policy);
+            if (!StartCurrent())
+            {
+                _plan.Entries[_plan.Index].Outcome = "failed";
+                TeardownScenario(true);
+                EndPlan("its first scenario failed to start");
+            }
+            break;
+        case Request::Cancel:
+            if (_state == State::Idle)
+                break;
+            _plan.Entries[_plan.Index].Outcome = "cancelled";
+            TeardownScenario(true);
+            EndPlan(_plan.Remote() ? "cancelled; the learner saved latest.pt, `forge resume` continues it"
+                : "cancelled");
+            break;
+        case Request::Skip:
+            if (_state != State::Idle)
+                FinishCurrent("skipped");
+            break;
+    }
+}
+
+void AnimusForge::Forge::HoldWhilePaused()
+{
+    // Nothing ticks while paused: maps, episode clocks and the learner all wait, so a paused episode resumes
+    // exactly where it stopped. Console commands still run here.
+    while (_state == State::Paused && !World::IsStopped())
+    {
+        if (_resumeRequested)
+        {
+            _resumeRequested = false;
+            _state = _pausedFrom;
+            _lastReport = std::chrono::steady_clock::now();
+            _rateTime = _lastReport;
+            _rateTicks = _ticks;
+            _rateEpisodes = _pool ? _pool->CompletedEpisodes() : 0;
+            if (_lastAct)
+                _lastAct = _lastReport;
+            LOG_INFO("module.animus", "Resumed {}", _current);
+            return;
+        }
+
+        if (_request != Request::None)
+        {
+            ApplyRequest();
+            return;
+        }
+
+        _learner.Poll();
+        Pump();
+        std::this_thread::sleep_for(IDLE_SLEEP);
+    }
+}
+
+bool AnimusForge::Forge::StartCurrent()
+{
+    PlanEntry const& entry = _plan.Entries[_plan.Index];
+    _current = entry.Scenario;
+
+    std::string const position = _plan.Entries.size() > 1
+        ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "";
+
+    _scenario = CreateScenario(entry.Scenario, _config);
+    if (!_scenario)
+    {
+        LOG_ERROR("module.animus", "Unknown scenario '{}'", entry.Scenario);
+        return false;
+    }
+
+    LOG_INFO("module.animus", "Starting {}{}{} with policy {}", entry.Scenario, position,
+        entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy);
+
+    ScenarioSpec const spec = _scenario->Spec();
+
+    // Reject a local policy name before building anything, rather than on the first decision.
+    if (!_plan.Remote() && _plan.Policy != "random")
+    {
+        std::vector<float> obs(spec.ObsDim, 0.0f);
+        std::vector<uint8> mask(spec.NumActions, 0);
+        int32 action = 0;
+
+        if (!_scenario->ScriptedAction(_plan.Policy, obs.data(), mask.data(), 0, action))
+        {
+            LOG_ERROR("module.animus", "Scenario {} has no policy '{}'", _scenario->Name(), _plan.Policy);
+            return false;
+        }
+    }
+
+    _pool = std::make_unique<EnvPool>(*_scenario, _config);
+    if (!_pool->Setup())
+        return false;
+
+    _learnerStarted = false;
+    if (_plan.Remote())
+    {
+        if (!_server.Listen(_config.SocketPath))
+            return false;
+
+        // A learner that cannot be started is not fatal: the sim keeps waiting on the socket, so one started by
+        // hand still works (and `forge cancel` gives up).
+        if (_config.LearnerAutoStart)
+        {
+            _learnerStarted = _learner.Start(_config, entry.Scenario, entry.Resume);
+            if (!_learnerStarted)
+                LOG_ERROR("module.animus", "Learner auto-start failed; start it by hand: {}",
+                    LearnerProcess::ManualCommand(_config, entry.Scenario, entry.Resume));
+        }
+        else
+            LOG_INFO("module.animus", "Waiting for a learner started by hand: {}",
+                LearnerProcess::ManualCommand(_config, entry.Scenario, entry.Resume));
+    }
+
+    _pool->ResetAll();
+
+    auto const now = std::chrono::steady_clock::now();
+    _ticks = 0;
+    _decisions = 0;
+    _scenarioStarted = now;
+    _lastReport = now;
+    _lastAct.reset();
+    _rateTime = now;
+    _rateTicks = 0;
+    _rateEpisodes = 0;
+    _ticksPerSecond = 0.0;
+    _episodesPerSecond = 0.0;
+    _monitor.Begin(entry.Scenario);
+
+    _poolLive = true;
+    _state = _plan.Remote() ? State::Training : State::Running;
+    return true;
+}
+
+void AnimusForge::Forge::TeardownScenario(bool stopLearner)
+{
+    _poolLive = false;
+
+    if (stopLearner && _learner.IsRunning())
+    {
+        _learner.ExpectExit();
+        _server.DropClient();
+        LOG_INFO("module.animus", "Waiting for the learner (pid {}) to save and exit...", _learner.Pid());
+        _learner.Stop(LEARNER_STOP_GRACE);
+    }
+    else
+        _server.DropClient();
+
+    if (_pool)
+        _pool->Teardown();
+
+    _pool.reset();
+    _scenario.reset();
+    _learnerStarted = false;
+    _pauseRequested = false;
+    _resumeRequested = false;
+    _lastAct.reset();
+}
+
+void AnimusForge::Forge::FinishCurrent(std::string const& outcome)
+{
+    PlanEntry& entry = _plan.Entries[_plan.Index];
+    entry.Outcome = outcome;
+
+    LOG_INFO("module.animus", "{} {} after {}{}", entry.Scenario, outcome,
+        Format::Duration(std::chrono::duration<double>(std::chrono::steady_clock::now() - _scenarioStarted).count()),
+        _plan.Entries.size() > 1 ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "");
+
+    TeardownScenario(outcome != "done");
+
+    if (++_plan.Index >= _plan.Entries.size())
+    {
+        _plan.Index = uint32(_plan.Entries.size()) - 1;
+        EndPlan("every scenario has ended");
+        return;
+    }
+
+    if (!StartCurrent())
+    {
+        _plan.Entries[_plan.Index].Outcome = "failed";
+        TeardownScenario(true);
+        EndPlan("the next scenario failed to start");
+    }
+}
+
+void AnimusForge::Forge::EndPlan(char const* reason)
+{
+    _state = State::Idle;
+    _lastPlan = _plan;
+
+    LOG_INFO("module.animus", "Plan ended: {}. The sim is idle.", reason);
+
+    if (_plan.Entries.size() > 1)
+    {
+        TextTable table({ { "#", TextTable::Align::Right }, { "Scenario" }, { "Outcome" } });
+        for (std::size_t i = 0; i < _plan.Entries.size(); ++i)
+            table.AddRow({ std::to_string(i + 1), _plan.Entries[i].Scenario,
+                _plan.Entries[i].Outcome.empty() ? "not started" : _plan.Entries[i].Outcome });
+
+        table.Write(LogInfo, "  ");
+    }
+}
+
+bool AnimusForge::Forge::LearnerFinished() const
+{
+    return _plan.Remote() && _learnerStarted && _learner.FinishedCleanly();
+}
+
+bool AnimusForge::Forge::LearnerHalted() const
+{
+    return _plan.Remote() && _learnerStarted && _learner.HaltedBelowTarget();
+}
+
+std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
+{
+    if (!_config.Queue.empty())
+        return _config.Queue;
+
+    std::vector<std::string> stages;
+    for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
+        stages.push_back(stage.Name);
+
+    return stages;
+}
+
+bool AnimusForge::Forge::RunAdvanced(std::string const& scenario) const
+{
+    ProgressFile finished;
+    if (!finished.Load(_config.RunsDir() / scenario / "finished.json"))
+        return false;
+
+    // A stage below its target writes finished.json too, with "advanced": false: it has not been passed.
+    std::optional<double> const advanced = finished.Number("advanced");
+    return !advanced || *advanced != 0.0;
+}
+
+void AnimusForge::Forge::WarnSeedOrder(std::vector<std::string> const& scenarios, LineSink const& out) const
+{
+    // A stage seeds from the closest trained stage it extends: listed before its base, it seeds from further up the
+    // tree (or starts from scratch) unless that base already advanced in an earlier run.
+    for (std::size_t index = 0; index < scenarios.size(); ++index)
+    {
+        ClassRole::StageDefinition const* stage = ClassRole::FindStage(scenarios[index]);
+        if (!stage || stage->Extends.empty())
+            continue;
+
+        if (std::find(scenarios.begin() + index + 1, scenarios.end(), stage->Extends) != scenarios.end()
+            && !RunAdvanced(stage->Extends))
+            out(Acore::StringFormat("  Warning: {} comes before {}, which it extends and seeds from; it will not seed "
+                "from it. List {} first.", stage->Name, stage->Extends, stage->Extends));
+    }
+}
+
+void AnimusForge::Forge::Pump()
+{
+    if (_pumping)
+        return;
+
+    _pumping = true;
+    sWorld->ProcessCliCommands();
+    PollExport();
+    MaybeReport();
+    _pumping = false;
+}
+
+void AnimusForge::Forge::PollExport()
+{
+    if (!_export.IsRunning())
+        return;
+
+    _export.Poll();
+    if (_export.FinishedCleanly())
+        LOG_INFO("module.animus", "Export of {} finished: models in {}", _exportScenario, _config.ModelDir);
+}
+
+void AnimusForge::Forge::MaybeReport()
+{
+    if (!_progressInterval || (_state != State::Training && _state != State::Running))
+        return;
+
+    auto const now = std::chrono::steady_clock::now();
+    if (now - _lastReport < std::chrono::seconds(_progressInterval))
+        return;
+
+    _lastReport = now;
+    _learner.Poll();
+    _monitor.Report(_config, Snapshot(true), PlanRows(_plan, true), LogInfo, LogWarn, true);
+}
+
+AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
+{
+    SimSnapshot sim;
+    auto const now = std::chrono::steady_clock::now();
+
+    sim.Scenario = _current;
+    sim.State = StateName();
+    sim.PlanPosition = _plan.Index + 1;
+    sim.PlanSize = uint32(_plan.Entries.size());
+    sim.Remote = _plan.Remote();
+    sim.Decisions = _decisions;
+    sim.EpisodeLimit = _plan.Remote() ? 0 : _plan.LocalEpisodes;
+    sim.ScenarioSeconds = std::chrono::duration<double>(now - _scenarioStarted).count();
+
+    if (_pool)
+    {
+        sim.Envs = _pool->NumEnvs();
+        sim.AgentsPerEnv = _pool->Spec().AgentsPerEnv;
+        sim.Episodes = _pool->CompletedEpisodes();
+        sim.EpisodeMeans = _pool->LastEpisodeMeans();
+        sim.EpisodeMeansCount = _pool->LastEpisodeMeansCount();
+    }
+
+    // Rates over the time since the last periodic report; a status in between shows the rate so far.
+    double const seconds = std::chrono::duration<double>(now - _rateTime).count();
+    if (seconds >= 1.0 && _state != State::Paused)
+    {
+        _ticksPerSecond = double(_ticks - _rateTicks) / seconds;
+        _episodesPerSecond = double(sim.Episodes - std::min(sim.Episodes, _rateEpisodes)) / seconds;
+    }
+
+    if (advanceRates)
+    {
+        _rateTime = now;
+        _rateTicks = _ticks;
+        _rateEpisodes = sim.Episodes;
+    }
+
+    sim.TicksPerSecond = _ticksPerSecond;
+    sim.EpisodesPerSecond = _episodesPerSecond;
+
+    sim.LearnerRunning = _learner.IsRunning();
+    sim.LearnerPid = _learner.IsRunning() ? int32(_learner.Pid()) : -1;
+    sim.LearnerConnected = _server.HasClient();
+    sim.LearnerFailed = _learnerStarted && _learner.FailedUnexpectedly();
+    sim.SecondsSinceAct = _lastAct ? std::chrono::duration<double>(now - *_lastAct).count() : -1.0;
+    return sim;
+}
+
+std::vector<AnimusForge::PlanRow> AnimusForge::Forge::PlanRows(Plan const& plan, bool live) const
+{
+    std::vector<PlanRow> rows;
+    for (std::size_t i = 0; i < plan.Entries.size(); ++i)
+    {
+        PlanEntry const& entry = plan.Entries[i];
+
+        PlanRow row;
+        row.Scenario = entry.Scenario;
+        row.Resume = entry.Resume;
+        row.Current = live && i == plan.Index;
+        row.Status = !entry.Outcome.empty() ? entry.Outcome : row.Current ? StateName() : "pending";
+        rows.push_back(std::move(row));
+    }
+
+    return rows;
+}
+
+std::string AnimusForge::Forge::StateName() const
+{
+    switch (_state)
+    {
+        case State::Idle:
+            return "idle";
+        case State::Training:
+            return _server.HasClient() ? "training" : "waiting for learner";
+        case State::Running:
+            return "running " + _plan.Policy;
+        case State::Paused:
+            return "paused";
+    }
+
+    return "unknown";
 }
 
 void AnimusForge::Forge::LocalDecision()
 {
     _pool->Collect();
 
-    // A queue under a local policy (smoke tests, baselines) moves on after a fixed number of episodes.
-    if (_config.QueueLocalEpisodes && _pool->CompletedEpisodes() >= _config.QueueLocalEpisodes)
+    if (_plan.LocalEpisodes && _pool->CompletedEpisodes() >= _plan.LocalEpisodes)
     {
-        AdvanceQueue();
+        FinishCurrent("done");
         return;
     }
 
-    _pool->ChooseLocalActions(_config.Policy);
+    _pool->ChooseLocalActions(_plan.Policy);
     _pool->ApplyActions();
 }
 
 void AnimusForge::Forge::RemoteDecision()
 {
+    // While the world thread waits on the learner: answer console commands, report progress, and stop waiting
+    // when a command needs this scenario to end.
+    auto const onIdle = [this]()
+    {
+        _learner.Poll();
+        Pump();
+        return _request == Request::None;
+    };
+
     if (!_server.HasClient())
     {
-        // Blocks the world thread until the learner connects; returns false on shutdown, or when a
-        // queued scenario's learner has finished its run. Polls the auto-started learner meanwhile,
-        // so an early exit is logged instead of silent.
-        bool const connected = _server.AcceptClient([this]()
+        // Blocks until the learner connects; returns false on shutdown, a cancel or skip, or when the scenario's
+        // learner has finished its run.
+        bool const connected = _server.AcceptClient([this, &onIdle]()
         {
-            _learner.Poll();
-            return !QueueScenarioFinished();
+            return onIdle() && !LearnerFinished() && !LearnerHalted();
         });
 
         if (!connected)
         {
-            if (QueueScenarioFinished())
-                AdvanceQueue();
+            if (LearnerFinished())
+                FinishCurrent("done");
+            else if (LearnerHalted())
+            {
+                // The stage stayed below its target after its restarts: later stages must not train on top of it.
+                _plan.Entries[_plan.Index].Outcome = "below target";
+                LOG_ERROR("module.animus", "{} stayed below its stage target after its restarts (see runs/{}/"
+                    "finished.json and stage.jsonl). The plan halts here: tune the target or the stage, then `forge "
+                    "start {}`.", _current, _current, _current);
+                TeardownScenario(false);
+                EndPlan("a stage stayed below its target");
+            }
             return;
         }
 
@@ -272,7 +590,7 @@ void AnimusForge::Forge::RemoteDecision()
     {
         MsgType type;
         std::vector<char> payload;
-        if (!_server.ReceiveAny(type, payload, std::max(actionBytes, sizeof(ModeMsg))))
+        if (!_server.ReceiveAny(type, payload, std::max(actionBytes, sizeof(ModeMsg)), onIdle))
         {
             _server.DropClient();
             return;
@@ -281,6 +599,7 @@ void AnimusForge::Forge::RemoteDecision()
         if (type == MsgType::Act && payload.size() == actionBytes)
         {
             std::memcpy(_pool->Actions.data(), payload.data(), actionBytes);
+            _lastAct = std::chrono::steady_clock::now();
             break;
         }
 

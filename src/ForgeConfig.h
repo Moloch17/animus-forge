@@ -21,6 +21,7 @@
 
 #include "Define.h"
 #include "Position.h"
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -32,16 +33,16 @@ namespace AnimusForge
     {
         bool Enable = true;
 
-        /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes. Empty = every
-        /// class/role stage, first to last.
+        /// AnimusForge.Queue: the scenarios `forge start` trains, one after another, when given none. Empty =
+        /// every class/role stage, first to last.
         std::vector<std::string> Queue;
 
-        /// AnimusForge.Queue.SkipFinished: skip queued scenarios whose run already finished
-        /// (<RunsDir>/<name>/finished.json).
+        /// AnimusForge.Queue.SkipFinished: `forge start` without scenarios skips those whose run already finished
+        /// and moved on (<RunsDir>/<name>/finished.json with "advanced": true).
         bool QueueSkipFinished = true;
 
-        /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per queued scenario (0 = run the
-        /// first one forever).
+        /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per scenario of `forge start` (0 = run
+        /// the first one until cancelled).
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
@@ -72,13 +73,18 @@ namespace AnimusForge
         /// Heroic Strike.
         uint32 WarriorDummy20HsRageThreshold = 15;
 
+        /// AnimusForge.ModelDir, resolved: where `forge export` writes models. Never empty after Load.
+        std::string ModelDir;
+        /// AnimusForge.Progress.Interval, seconds; 0 = no periodic report.
+        uint32 ProgressInterval = 60;
+
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
-        /// Where learners train: <OutputDir>/runs.
-        [[nodiscard]] std::string RunsDir() const;
+        /// Where learners train: <OutputDir>/runs, runs/<scenario>/ per scenario.
+        [[nodiscard]] std::filesystem::path RunsDir() const;
 
         /// Where scenarios write their layout manifests and stage descriptions: <OutputDir>/layouts.
-        [[nodiscard]] std::string LayoutsDir() const;
+        [[nodiscard]] std::filesystem::path LayoutsDir() const;
 
         /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else configs/<scenario>.yaml.
         [[nodiscard]] std::string LearnerConfigFor(std::string const& scenario) const;
