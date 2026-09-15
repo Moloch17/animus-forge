@@ -66,13 +66,6 @@ namespace
         return uint8(urand(minLevel, DEFAULT_MAX_LEVEL));
     }
 
-    Role RandomRole(ClassRoleTuning::PartyTuning const& tuning)
-    {
-        int32 const roll = irand(0, 99);
-        int32 const dps = 100 - tuning.RoleTankChance - tuning.RoleHealerChance;
-        return roll < dps ? Role::Dps : roll < dps + tuning.RoleTankChance ? Role::Tank : Role::Heal;
-    }
-
     /// How many party seats get a character, drawn from the size weights.
     uint32 RandomPartySize(ClassRoleTuning::PartyTuning const& tuning)
     {
@@ -501,27 +494,6 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         data.Seats[seat].Bot.Begin();
 
-    // How many seats play this episode: every seat, except in a party, which has 1-4 like a player's companions. The
-    // rest stay empty: no character, no layout, only the no-op allowed.
-    data.ActiveSeats = _seatCount;
-    std::array<Role, MAX_SEATS> roles{};
-    if (_stage.Seats == SeatPlan::Party)
-    {
-        data.ActiveSeats = RandomPartySize(_tuning.Party);
-
-        // Some parties are the classic makeup (as many of a tank, a healer and two damage dealers as there are seats,
-        // in a random order); the rest draw every seat's role on its own.
-        roles = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
-        if (roll_chance_i(_tuning.Party.ClassicChance))
-            Acore::Containers::RandomShuffle(roles);
-        else
-            for (Role& role : roles)
-                role = RandomRole(_tuning.Party);
-    }
-    else
-        for (uint32 seat = 0; seat < _seatCount; ++seat)
-            roles[seat] = _layouts[urand(0, uint32(_layouts.size()) - 1)].PlayRole();
-
     // What the seats' current characters are, to put back if a new one cannot be built: the old bots stay.
     struct Character
     {
@@ -544,14 +516,37 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
             s.EquippedItems };
     }
 
-    // The class/roles first, then one level they can all be.
+    // How many seats play this episode, and their class/roles. Every seat plays, except in a party, which has 1-4
+    // like a player's companions; the rest stay empty: no character, no layout, only the no-op allowed.
+    data.ActiveSeats = _seatCount;
+    if (_stage.Seats == SeatPlan::Party)
+    {
+        data.ActiveSeats = RandomPartySize(_tuning.Party);
+
+        // Some parties are the classic makeup (as many of a tank, a healer and two damage dealers as there are seats,
+        // in a random order); the rest draw every seat's role on its own. Each seat is then a class/role of its role.
+        std::array<Role, MAX_SEATS> roles = { Role::Tank, Role::Heal, Role::Dps, Role::Dps };
+        if (roll_chance_i(_tuning.Party.ClassicChance))
+            Acore::Containers::RandomShuffle(roles);
+        else
+            for (Role& role : roles)
+                role = RollRole(_tuning.Party.RoleTankChance, _tuning.Party.RoleHealerChance);
+
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+            data.Seats[seat].L = seat < data.ActiveSeats ? &PickLayout(roles[seat]) : nullptr;
+    }
+    else
+    {
+        // Any class/role of the run, each equally likely.
+        for (uint32 seat = 0; seat < _seatCount; ++seat)
+            data.Seats[seat].L = &_layouts[urand(0, uint32(_layouts.size()) - 1)];
+    }
+
+    // One level every seat's class/role can be.
     uint8 minLevel = 1;
     for (uint32 seat = 0; seat < _seatCount; ++seat)
-    {
-        data.Seats[seat].L = seat < data.ActiveSeats ? &PickLayout(roles[seat]) : nullptr;
         if (data.Seats[seat].L)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
-    }
 
     uint8 const level = RandomLevel(minLevel, _tuning.Characters);
     Map* map = firstBuild ? nullptr : env.FindMap();

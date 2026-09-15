@@ -31,8 +31,8 @@ worldserver (forge)                                   python -m animus.train
 - **Bots are sessionless players.** See `src/Bot/ForgeBotFactory.cpp`. They are deliberately kept out
   of `WorldSessionMgr`: a socketless session registered there is deleted, and its player saved,
   on the next update.
-- **Damage is measured in `UnitScript::DealDamage`**, before the victim's AI runs.
-  `npc_training_dummy` zeroes damage in `DamageTaken`, so `OnDamage` would only ever see 0.
+- **Damage is measured in `UnitScript::DealDamage`**, before the victim's AI runs: a creature script may change
+  the amount in `DamageTaken` (a training dummy zeroes it), so `OnDamage` would not always see what was dealt.
 - **The learner drives time.** In `remote` mode the world thread waits on the learner each
   decision, and while no learner is connected. Scripted policies run without Python.
 - **The console drives the sim.** The sim starts idle; `forge start`, `forge pause`, `forge cancel` and the other
@@ -44,39 +44,6 @@ worldserver (forge)                                   python -m animus.train
 List the scenarios to train in `AnimusForge.Queue` (see
 [Training every model](#training-every-model-animusforgequeue)). The learner auto-starts with
 `configs/<scenario>.yaml` and trains in `<OutputDir>/runs/<scenario>/`.
-
-### `warrior_dummy_20`
-
-A level 20 human Arms warrior on a level 20 training dummy.
-
-- **Kit:** every spell the warrior trainers teach by level 20 (from `trainer_spell`, ranks resolved
-  from `Spell.dbc`). Weapon and defense skills are maxed for the level.
-- **Gear:** a strength/stamina mail kit of level 16-20 greens and dungeon blues, with Haunting Blade
-  (two-handed sword). No helm or trinkets. Listed in `GEAR` in `WarriorDummy20Scenario.cpp`.
-- **Talents:** reset every episode, then one build is drawn uniformly from all **1371** valid ways
-  to spend the 11 points in the Arms tree. Validity follows `Player::LearnTalent`: a point in row r
-  needs 5r points spent, and Deep Wounds needs 2/2 Impale. The build's ranks (10 talents) are part
-  of the observation, so one policy learns to play every build.
-- **Talent abilities:** active talent spells in reachable rows are appended to the action space
-  automatically and masked when the build lacks them. At level 20 every reachable Arms talent is
-  passive; the first active one, Sweeping Strikes, needs 20 points (level 29).
-- **Actions (11):** no-op, Heroic Strike, Cleave, cancel queued, Rend, Thunder Clap, Battle Shout,
-  Bloodrage, Overpower, Hamstring, Mocking Blow. Charge, Victory Rush, Revenge and the shield or
-  defensive abilities are learned but left out, because they can't be used or deal no damage
-  against a dummy.
-- **Masks:** each action is checked with the core's own `Spell::CheckCast`, run without casting.
-  That covers cooldowns, the GCD, rage, stance, range and facing, and Overpower's dodge window.
-- **Observation (29):**
-  - rage, swing timer and weapon speed
-  - which on-next-swing ability is queued
-  - GCD and each cooldown
-  - the Overpower window
-  - Rend, Thunder Clap and Hamstring remaining on the target
-  - Battle Shout and Bloodrage remaining on the bot
-  - last-step damage and rage change
-  - the 10 talent ranks
-- **Episode info:** damage and DPS, hit counts, the talent build index, and casts per ability.
-- **Baselines:** `white_only`, `hs_at_threshold`, and `rotation`, a conventional levelling priority.
 
 ### Class/role curriculum: one policy for every class and role
 
@@ -474,17 +441,20 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
 | `AnimusForge.SpawnPoint.*` | Old Hillsbrad entrance | Dungeon map and position every env's bots start at |
-| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`, `rotation`, ...) |
+| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`) |
 | `AnimusForge.ReportEpisodes` | `256` | Mean episode stats (`forge status`, local runs) are taken over N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
 | `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
-| `AnimusForge.WarriorDummy20.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
 | `AnimusForge.ModelDir` | `models/` in the module | Where `forge export` writes models |
 | `AnimusForge.Progress.Interval` | `60` | Seconds between progress reports while a scenario runs; `0` = off |
 | `AnimusForge.Fast.*` | see the `.dist` | The low-resolution profile of `forge fast` (see [Fast test run](#fast-test-run-forge-fast)) |
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
+
+Relative paths in the path keys (`OutputDir`, `ModelDir`, `Socket`, `Learner.WorkDir`, `Learner.Python`,
+`Learner.Config`, `Learner.LogFile`) are relative to the directory of the `worldserver.conf` the server loaded, not
+to its working directory.
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
 
@@ -637,14 +607,11 @@ Run a scripted policy from the console and read the episode means in its progres
 ```
 forge run stage1_duel greedy 1024        # class/role stages: first usable spell or trinket
 forge run stage1_duel fight 1024         # class/role stages: close in, fight, eat, drink, heal
-forge run warrior_dummy_20 white_only    # warrior_dummy_20: white swings only, until forge cancel
-forge run warrior_dummy_20 rotation 512  # warrior_dummy_20: levelling priority
 forge run stage1_duel random 1024
 ```
 
-These are the numbers the learner has to match or beat. They double as a mechanics check. With
-`white_only`, `white_hits` per episode should be roughly `EpisodeSeconds / weapon speed` (minus
-misses and dodges). To baseline every queued scenario in one go, set `AnimusForge.Policy` to the scripted policy
+These are the numbers the learner has to match or beat. They double as a mechanics check. To baseline every queued
+scenario in one go, set `AnimusForge.Policy` to the scripted policy
 and `AnimusForge.Queue.LocalEpisodes` to the episodes per scenario, then `forge start`.
 
 ## Training
@@ -773,7 +740,7 @@ python -m animus.export --checkpoint <OutputDir>/runs/stage1_duel/best.pt --out 
 Copying exported models to a server that plays them is also done by hand.
 
 It writes one model per layout, named by the stage's `stage.json`: `warrior_dps_duel.amdl`, `priest_heal_duel.amdl`,
-... (a single-layout scenario such as `warrior_dummy_20` writes `warrior_dummy_20.amdl`). Each is the layout's input
+... (a scenario without a stage.json and a single layout writes `<scenario>.amdl`). Each is the layout's input
 adapter, the shared trunk and the layout's action head, in the plain MLP format below.
 
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that

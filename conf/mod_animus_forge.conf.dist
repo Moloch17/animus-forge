@@ -18,7 +18,7 @@ AnimusForge.Enable = 1
 #    AnimusForge.OutputDir
 #        Description: Where training writes its data: runs/<scenario>/ (checkpoints, metrics, evaluation)
 #                     and layouts/<scenario>/ (each model's layout manifest and the stage's stage.json).
-#                     Relative to AnimusForge.Learner.WorkDir, or absolute. The Docker ac-worldserver
+#                     Relative to the directory of worldserver.conf, or absolute. The Docker ac-worldserver
 #                     service sets it to /azerothcore/var/animus-forge.
 #        Default:     "" - (the learner's directory, the module's python/)
 
@@ -61,9 +61,6 @@ AnimusForge.OutputDir = ""
 #                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
 #                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
-#                     Standalone:
-#                       "warrior_dummy_20"     - level 20 Arms human warrior on a training dummy, a new
-#                                                random Arms talent build every episode
 #        Example:     "stage1_duel" - (train a single scenario)
 #        Default:     "" - (the whole class/role curriculum, first stage to last)
 
@@ -154,12 +151,6 @@ AnimusForge.SpawnPoint.O     = 2.96
 #                     "fight"           - (class/role stages with the duel block) start attacking, run
 #                                         to the target, first usable spell; eat and drink between
 #                                         gauntlet pulls; heal a hurt owner or teammate
-#                     "white_only"      - (warrior_dummy_20) white swings only
-#                     "hs_at_threshold" - (warrior_dummy_20) queue Heroic Strike at
-#                                         AnimusForge.WarriorDummy20.HsRageThreshold rage or more
-#                     "rotation"        - (warrior_dummy_20) levelling priority: Battle Shout,
-#                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
-#                                         then Heroic Strike at the rage threshold
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"
@@ -175,7 +166,8 @@ AnimusForge.ReportEpisodes = 256
 
 #
 #    AnimusForge.Socket
-#        Description: Unix domain socket path the remote policy listens on.
+#        Description: Unix domain socket path the remote policy listens on, relative to the directory of
+#                     worldserver.conf or absolute.
 #        Default:     "/tmp/animus-forge.sock"
 
 AnimusForge.Socket = "/tmp/animus-forge.sock"
@@ -202,21 +194,24 @@ AnimusForge.Learner.AutoStart = 1
 
 #
 #    AnimusForge.Learner.WorkDir
-#        Description: Directory the learner runs in (the module's python/ directory).
+#        Description: Directory the learner runs in (the module's python/ directory). Relative to the
+#                     directory of worldserver.conf, or absolute.
 #        Default:     "" - the python/ directory of the module source this server was built from
 
 AnimusForge.Learner.WorkDir = ""
 
 #
 #    AnimusForge.Learner.Python
-#        Description: Python interpreter for the learner.
+#        Description: Python interpreter for the learner: a name found on PATH, or a path (relative to the
+#                     directory of worldserver.conf, or absolute).
 #        Default:     "" - <WorkDir>/.venv/bin/python if it exists, otherwise python3 from PATH
 
 AnimusForge.Learner.Python = ""
 
 #
 #    AnimusForge.Learner.Config
-#        Description: Learner config for every scenario, relative to WorkDir or absolute. The run is
+#        Description: Learner config for every scenario, relative to the directory of worldserver.conf or
+#                     absolute. The run is
 #                     always named after the scenario (--run-name).
 #        Default:     "" - configs/<scenario>.yaml
 
@@ -234,7 +229,8 @@ AnimusForge.Learner.Args = ""
 
 #
 #    AnimusForge.Learner.LogFile
-#        Description: File the learner's stdout and stderr are appended to.
+#        Description: File the learner's stdout and stderr are appended to, relative to the directory of
+#                     worldserver.conf or absolute.
 #        Default:     "" - animus-learner.log in LogsDir
 
 AnimusForge.Learner.LogFile = ""
@@ -304,7 +300,7 @@ AnimusForge.Fast.Learner.Args = ""
 #
 #    AnimusForge.ModelDir
 #        Description: Folder `forge export` writes .amdl models (and their layout manifests) to, relative
-#                     to the module directory or absolute. Models are never copied anywhere else: copy
+#                     to the directory of worldserver.conf or absolute. Models are never copied anywhere else: copy
 #                     them to a game server by hand. `forge clean exports` empties it.
 #        Default:     "" - models/ in the module source this server was built from
 
@@ -322,16 +318,6 @@ AnimusForge.ModelDir = ""
 #                     0  - (no periodic report)
 
 AnimusForge.Progress.Interval = 60
-
-###################################################################################################
-# WARRIOR_DUMMY_20
-#
-#    AnimusForge.WarriorDummy20.HsRageThreshold
-#        Description: Rage at which warrior_dummy_20's hs_at_threshold and rotation policies queue
-#                     Heroic Strike.
-#        Default:     15
-
-AnimusForge.WarriorDummy20.HsRageThreshold = 15
 
 ###################################################################################################
 # CLASS/ROLE TUNING

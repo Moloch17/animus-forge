@@ -42,7 +42,7 @@ namespace
         AnimusForgeUnitScript() : UnitScript("AnimusForgeUnitScript") { }
 
         /// Called for every damage event, on map threads, before the victim's AI can change the
-        /// amount -- npc_training_dummy zeroes it in DamageTaken, so OnDamage would only see 0.
+        /// amount (a creature script may rewrite it in DamageTaken), so it counts what was dealt.
         uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, DamageEffectType type) override
         {
             if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())

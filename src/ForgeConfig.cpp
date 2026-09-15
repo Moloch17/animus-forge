@@ -43,6 +43,22 @@ namespace
         return ModuleRoot() / "python";
     }
 
+    /// The directory of the worldserver config file this server loaded: what every relative path key is relative to.
+    fs::path ConfigDir()
+    {
+        fs::path const file = sConfigMgr->GetFilename();
+        fs::path const dir = file.has_parent_path() ? file.parent_path() : fs::path(".");
+        std::error_code error;
+        fs::path const absolute = fs::absolute(dir, error);
+        return error ? dir : absolute;
+    }
+
+    /// A path key's value: as given when absolute, else under `base`.
+    fs::path Resolve(fs::path const& value, fs::path const& base)
+    {
+        return (value.is_relative() ? base / value : value).lexically_normal();
+    }
+
     /// A comma-separated config list, whitespace removed, empty entries dropped.
     std::vector<std::string> GetList(std::string const& key, std::string const& fallback = "")
     {
@@ -83,21 +99,21 @@ void AnimusForge::ForgeConfig::Load()
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");
     ReportEpisodes = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.ReportEpisodes", 256));
-    SocketPath = sConfigMgr->GetOption<std::string>("AnimusForge.Socket", "/tmp/animus-forge.sock");
+    // Relative path keys are relative to the directory of the worldserver config file, whatever the server's working
+    // directory; empty ones take the defaults below.
+    fs::path const configDir = ConfigDir();
+
+    SocketPath = Resolve(sConfigMgr->GetOption<std::string>("AnimusForge.Socket", "/tmp/animus-forge.sock"),
+        configDir).string();
 
     LearnerAutoStart = sConfigMgr->GetOption<bool>("AnimusForge.Learner.AutoStart", true);
 
     fs::path workDir = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.WorkDir", "");
-    if (workDir.empty())
-        workDir = DefaultLearnerWorkDir();
+    workDir = workDir.empty() ? DefaultLearnerWorkDir() : Resolve(workDir, configDir);
     LearnerWorkDir = workDir.string();
 
-    fs::path outputDir = sConfigMgr->GetOption<std::string>("AnimusForge.OutputDir", "");
-    if (outputDir.empty())
-        outputDir = workDir;
-    else if (outputDir.is_relative())
-        outputDir = workDir / outputDir;
-    OutputDir = outputDir.lexically_normal().string();
+    fs::path const outputDir = sConfigMgr->GetOption<std::string>("AnimusForge.OutputDir", "");
+    OutputDir = (outputDir.empty() ? workDir : Resolve(outputDir, configDir)).lexically_normal().string();
 
     LearnerPython = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Python", "");
     if (LearnerPython.empty())
@@ -106,28 +122,31 @@ void AnimusForge::ForgeConfig::Load()
         std::error_code error;
         LearnerPython = fs::exists(venvPython, error) ? venvPython.string() : "python3";
     }
+    else if (LearnerPython.find('/') != std::string::npos)
+        LearnerPython = Resolve(LearnerPython, configDir).string();     // a bare name ("python3") is found on PATH
 
-    LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
+    // Set: relative to the config directory. Empty: configs/<scenario>.yaml in the work directory (LearnerConfigFor).
+    fs::path const learnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
+    LearnerConfig = learnerConfig.empty() ? std::string() : Resolve(learnerConfig, configDir).string();
 
     LearnerArgs.clear();
     std::istringstream extraArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Args", ""));
     for (std::string arg; extraArgs >> arg;)
         LearnerArgs.push_back(arg);
 
-    LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
-    if (LearnerLogFile.empty())
+    fs::path const logFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
+    if (logFile.empty())
     {
+        // Beside the server's own logs (LogsDir is the core's key, resolved as the core resolves it).
         fs::path logsDir = sConfigMgr->GetOption<std::string>("LogsDir", "");
         LearnerLogFile = (logsDir / "animus-learner.log").string();
     }
+    else
+        LearnerLogFile = Resolve(logFile, configDir).string();
 
     // Exported models stay in the forge's own folder; copying them to a game server is done by hand.
-    fs::path modelDir = sConfigMgr->GetOption<std::string>("AnimusForge.ModelDir", "");
-    if (modelDir.empty())
-        modelDir = ModuleRoot() / "models";
-    else if (modelDir.is_relative())
-        modelDir = ModuleRoot() / modelDir;
-    ModelDir = modelDir.lexically_normal().string();
+    fs::path const modelDir = sConfigMgr->GetOption<std::string>("AnimusForge.ModelDir", "");
+    ModelDir = (modelDir.empty() ? ModuleRoot() / "models" : Resolve(modelDir, configDir)).lexically_normal().string();
 
     ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 60);
 
@@ -171,9 +190,6 @@ void AnimusForge::ForgeConfig::Load()
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Y", 1315.2f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Z", 14.0f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.O", 2.96f));
-
-    WarriorDummy20HsRageThreshold = sConfigMgr->GetOption<uint32>("AnimusForge.WarriorDummy20.HsRageThreshold", 15,
-        false);
 }
 
 fs::path AnimusForge::ForgeConfig::RunsDir() const

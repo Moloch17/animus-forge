@@ -19,23 +19,12 @@
 #ifndef MOD_ANIMUS_FORGE_TRAINING_DUMMY_H
 #define MOD_ANIMUS_FORGE_TRAINING_DUMMY_H
 
-#include "Define.h"
-
-class Creature;
-class Map;
 class Player;
 
 namespace AnimusForge::TrainingDummy
 {
     /// Remove every creature near the bot that a scenario did not spawn (the spawn point's own creatures).
     void ClearSpawnArea(Player* bot);
-
-    /// Summon a Grandmaster's Training Dummy in front of the bot at the bot's level and turn the
-    /// bot to face it. The dummy is rooted, never attacks, and its script zeroes all damage, so
-    /// damage has to be measured before that (UnitScript::DealDamage). Returns nullptr on failure.
-    /// `distance` is how far in front of the bot it stands (melee by default; casters and hunters
-    /// stand further back).
-    Creature* Spawn(Player* bot, Map* map, float distance = 2.0f);
 }
 
 #endif

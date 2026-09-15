@@ -117,9 +117,7 @@ bool AnimusForge::ClassRole::OpponentEncounter::RebuildScripted(Env& env, Player
     uint8 const level = uint8(std::clamp<int32>(int32(_scenario.Data(env).Seats[0].Level)
         + irand(-tuning.LevelSpread, tuning.LevelSpread), 1, DEFAULT_MAX_LEVEL));
 
-    int32 const roll = irand(0, 99);
-    Role role = roll < tuning.HealerChance ? Role::Heal
-        : roll < tuning.HealerChance + tuning.TankChance ? Role::Tank : Role::Dps;
+    Role role = RollRole(tuning.TankChance, tuning.HealerChance);
     std::vector<uint8> classes = ClassRoleAssets::ClassesForRole(level, role);
     if (classes.empty())
     {

@@ -17,6 +17,7 @@
  */
 
 #include "ClassRoleProfile.h"
+#include "Random.h"
 #include <cmath>
 
 namespace
@@ -53,6 +54,12 @@ char const* AnimusForge::ClassRole::RoleName(Role role)
     return "dps";
 }
 
+AnimusForge::ClassRole::Role AnimusForge::ClassRole::RollRole(int32 tankChance, int32 healerChance)
+{
+    int32 const roll = irand(0, 99);
+    return roll < tankChance ? Role::Tank : roll < tankChance + healerChance ? Role::Heal : Role::Dps;
+}
+
 float AnimusForge::ClassRole::DamageScale(uint8 level)
 {
     return 15.0f * std::exp(0.068f * float(level));
@@ -65,8 +72,8 @@ std::vector<AnimusForge::ClassRole::ClassRoleProfile> const& AnimusForge::ClassR
     constexpr RangeBand Melee = RangeBand::Melee;
     constexpr RangeBand Ranged = RangeBand::Ranged;
 
-    // Talent tabs follow TalentTab.dbc order (TabPage). Every role here trains on the training dummy for
-    // damage; the role decides the specs, the gear stats and where the bot stands.
+    // Talent tabs follow TalentTab.dbc order (TabPage). The role decides the specs, the gear stats and where the bot
+    // stands.
     static std::vector<ClassRoleProfile> const profiles =
     {
         { "warrior_dps", CLASS_WARRIOR, Role::Dps, {
