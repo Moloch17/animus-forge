@@ -122,7 +122,7 @@ bool AnimusForge::ClassRoleScenario::RebuildOwner(Env& env, Player* anchor, Map*
     }
 
     owner->InitTalentForLevel();
-    CompanionOwner::Configure(owner, assets, data.Owner);
+    CompanionOwner::Configure(owner, assets, data.Owner, false);
 
     // Either faction's races can be paired: give the owner the seats' faction so they are friends (heals and buffs
     // land, neither can attack the other).

@@ -50,8 +50,8 @@ namespace AnimusForge::CompanionOwner
     };
 
     /// Dress a placed bot of the assets' class and role: proficiencies, a random build of one of the role's specs,
-    /// trainer spells for its level, gear. Fills state's repertoire and role.
-    void Configure(Player* player, ClassRoleAssets const& assets, State& state);
+    /// trainer spells for its level, gear (PvP gear too when `pvp`). Fills state's repertoire and role.
+    void Configure(Player* player, ClassRoleAssets const& assets, State& state, bool pvp);
 
     /// One decision of a scripted damage dealer (the companion's owner). Between pulls it wanders near
     /// `home`, recovering health and mana; once a pull is up (and state.EngageMs has passed) it walks to

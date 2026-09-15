@@ -194,7 +194,8 @@ namespace
     }
 }
 
-void AnimusForge::CompanionOwner::Configure(Player* player, ClassRoleAssets const& assets, State& state)
+void AnimusForge::CompanionOwner::Configure(Player* player, ClassRoleAssets const& assets, State& state,
+    bool pvp)
 {
     SpecProfile const& spec =
         assets.Profile->Specs[urand(0, uint32(assets.Profile->Specs.size()) - 1)];
@@ -202,7 +203,7 @@ void AnimusForge::CompanionOwner::Configure(Player* player, ClassRoleAssets cons
     GearBuilder::LearnProficiencies(player);
     assets.Talents->Apply(player, assets.Talents->Random(spec.TabPage, player->GetFreeTalentPoints()));
     assets.Kit->Learn(player);
-    assets.Gear->Equip(player, spec);
+    assets.Gear->Equip(player, spec, pvp);
 
     player->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);
     player->UpdateAllStats();

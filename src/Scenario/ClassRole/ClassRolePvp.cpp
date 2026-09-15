@@ -143,7 +143,7 @@ bool AnimusForge::ClassRoleScenario::RebuildOpponent(Env& env, Player* bot, Map*
     }
 
     opponent->InitTalentForLevel();
-    CompanionOwner::Configure(opponent, assets, data.Opponent);
+    CompanionOwner::Configure(opponent, assets, data.Opponent, true);
     data.Opponent.EngageMs = env.EpisodeElapsedMs + urand(0, OPPONENT_ENGAGE_MAX_MS);
     MakeEnemies(bot, opponent);
 

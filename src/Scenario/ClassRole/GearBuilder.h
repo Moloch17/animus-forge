@@ -35,8 +35,10 @@ namespace AnimusForge::ClassRole
     /// Pools hold every obtainable item (dropped, sold, a quest reward or crafted) the class can use,
     /// whose stats suit the spec's StatProfile. Items with random stats keep only the random
     /// properties/suffixes whose stats suit the profile, and one of those is rolled when the item is
-    /// created. For a bot of level L each slot takes a random item required at L or up to a few levels
-    /// below, widening the window when the slot has nothing that close.
+    /// created. For a bot of level L each slot takes a random item it may wear (required level <= L) whose
+    /// item level is in the band players of level L wear (levelling gear, then dungeon gear at 80), reaching
+    /// further below the band when the slot has nothing in it, never above. Epics are worn only at the level caps
+    /// (70, 80), and PvP gear (resilience) only in the PvP stages.
     class GearBuilder
     {
     public:
@@ -46,7 +48,7 @@ namespace AnimusForge::ClassRole
         static void LearnProficiencies(Player* bot);
 
         /// Destroys everything equipped or in the backpack and equips a new set for the bot's level.
-        void Equip(Player* bot, SpecProfile const& spec) const;
+        void Equip(Player* bot, SpecProfile const& spec, bool pvp) const;
 
     private:
         enum Pool : uint8
@@ -77,7 +79,10 @@ namespace AnimusForge::ClassRole
         {
             uint32 ItemId = 0;
             uint8 ReqLevel = 1;
+            uint16 ItemLevel = 0;
             uint32 SubClass = 0;
+            bool Pvp = false;               // has resilience
+            bool Epic = false;
             bool Stats = false;             // has stats the profile wants (fixed or rolled)
             std::vector<int32> RandomIds;   // allowed random property (>0) / suffix (<0) ids
         };
@@ -86,12 +91,13 @@ namespace AnimusForge::ClassRole
 
         void BuildPools(StatProfile stats);
 
-        /// Random candidate for the level from a pool, widening the level window as needed.
+        /// Candidates for the level from a pool, reaching below the level's item level band as needed.
         [[nodiscard]] std::vector<Candidate const*> Window(Pool pool, uint8 level, StatProfile stats,
-            int32 armorSubclass, bool needStats) const;
+            int32 subclass, bool needStats, bool pvp) const;
 
-        bool EquipFromPool(Player* bot, uint8 slot, Pool pool, StatProfile stats, int32 armorSubclass = -1) const;
-        bool EquipWeapons(Player* bot, SpecProfile const& spec, WeaponLayout layout) const;
+        bool EquipFromPool(Player* bot, uint8 slot, Pool pool, StatProfile stats, bool pvp,
+            int32 subclass = -1) const;
+        bool EquipWeapons(Player* bot, SpecProfile const& spec, WeaponLayout layout, bool pvp) const;
         void StoreAmmo(Player* bot) const;
 
         ClassKit const& _kit;
