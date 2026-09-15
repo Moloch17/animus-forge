@@ -2,8 +2,8 @@
 
     python -m animus.export --checkpoint runs/stage1_duel/best.pt --out exported/stage1_duel
 
-Exporting is always run by hand, and the exported files are copied to a server by hand: training never writes
-models anywhere but its own run directory.
+Exporting runs on request only -- `forge export` on the sim's console starts this module, or run it by hand -- and
+the exported files are copied to a server by hand: training never writes models anywhere but its own run directory.
 
 The .amdl format (little-endian); a reader must follow it exactly, and a change bumps AMDL_VERSION:
 
@@ -169,7 +169,7 @@ def read_amdl(path: str | Path) -> dict:
     if offset != len(data):
         raise ValueError(f"{len(data) - offset} trailing bytes")
     return {
-        "scenario": name,
+        "name": name,
         "obs_dim": obs_dim,
         "num_agents": num_agents,
         "num_actions": num_actions,

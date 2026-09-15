@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
+from types import UnionType
+from typing import Union, get_args, get_origin, get_type_hints
 
 import yaml
 
@@ -58,7 +60,9 @@ class TargetConfig:
     min_over_baseline: float | None = None
     # Every class/role's score >= its baseline + this x |baseline|: a looser floor so no layout is left behind.
     min_layout_over_baseline: float | None = None
-    min_layout_episodes: int = 16  # layouts with fewer eval episodes than this are too noisy to gate
+    # Layouts with fewer eval rows than this (one per seat with a character in each seeded episode) are too noisy to
+    # gate. Named episodes for the configs' sake; in the party stage one episode gives up to four rows.
+    min_layout_episodes: int = 16
     # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
     metrics: dict = field(default_factory=dict)
     # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
@@ -186,21 +190,52 @@ def apply_override(raw: dict, override: str) -> None:
     target[name] = yaml.safe_load(value)
 
 
+def _matches(value, hint) -> bool:
+    """Whether a YAML value fits a field's type hint (ints fit floats; bools are never numbers)."""
+    origin = get_origin(hint)
+    if origin in (Union, UnionType):
+        return any(_matches(value, arg) for arg in get_args(hint))
+    if hint is type(None):
+        return value is None
+    if hint is float:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if hint is int:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if hint in (bool, str, dict):
+        return isinstance(value, hint)
+    if origin in (tuple, list):
+        # YAML gives sequences as lists; elements are checked loosely (a tuple[int, ...] of numbers).
+        if not isinstance(value, (list, tuple)):
+            return False
+        element = next((arg for arg in get_args(hint) if arg is not Ellipsis), None)
+        return element is None or all(_matches(item, element) for item in value)
+    if origin is dict:
+        return isinstance(value, dict)
+    return True
+
+
 def from_dict(cls, raw: dict, prefix: str = ""):
-    """Build dataclass `cls` from a dict, recursing into dataclass fields; unknown keys are an error."""
+    """Build dataclass `cls` from a dict, recursing into dataclass fields; unknown keys and values of the wrong type
+    are an error (so `total_env_steps: 3e8`, which YAML reads as a string, fails at load rather than hours later)."""
     raw = dict(raw or {})
     by_name = {f.name: f for f in fields(cls)}
     unknown = sorted(f"{prefix}{k}" for k in raw if k not in by_name)
     if unknown:
         raise ValueError(f"unknown config keys: {unknown}")
 
+    hints = get_type_hints(cls)
     kwargs = {}
     for name, value in raw.items():
         default = by_name[name].default_factory() if callable(by_name[name].default_factory) else by_name[name].default
         if is_dataclass(default):
             kwargs[name] = from_dict(type(default), value, f"{prefix}{name}.")
-        elif isinstance(default, tuple) and isinstance(value, list):
+            continue
+        if not _matches(value, hints[name]):
+            raise ValueError(f"config key {prefix}{name}: expected {hints[name]}, got {type(value).__name__} {value!r}")
+        if isinstance(default, tuple) and isinstance(value, list):
             kwargs[name] = tuple(value)
+        elif hints[name] is float and isinstance(value, int):
+            kwargs[name] = float(value)
         else:
             kwargs[name] = value
     return cls(**kwargs)

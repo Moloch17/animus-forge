@@ -11,6 +11,7 @@ its own attached (AnimusForge.Learner.AutoStart = 0).
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 
 import torch
 
@@ -18,6 +19,7 @@ from .config import REPORT_COLUMNS, TrainConfig
 from .env import ForgeEnv
 from .evaluation import format_summary, run_evaluation
 from .mappo.trainer import MappoConfig, MappoTrainer
+from .runs import resume_mismatch
 
 
 def main() -> None:
@@ -40,9 +42,10 @@ def main() -> None:
     if spec.scenario != checkpoint["spec"]["scenario"]:
         raise SystemExit(f"checkpoint was trained on {checkpoint['spec']['scenario']}, sim runs {spec.scenario}")
 
+    # Layouts must match by name as well as size: two class/role lists can have equally sized layouts.
+    if mismatch := resume_mismatch(checkpoint["spec"], asdict(spec)):
+        raise SystemExit(f"the checkpoint's {', '.join(mismatch)} do not match the sim's (AnimusForge.ClassRoles?)")
     layouts = [(layout.obs_dim, layout.num_actions) for layout in spec.layouts]
-    if [(l["obs_dim"], l["num_actions"]) for l in checkpoint["spec"]["layouts"]] != layouts:
-        raise SystemExit("the checkpoint's agent layouts do not match the sim's (AnimusForge.ClassRoles?)")
 
     trainer = MappoTrainer(layouts, spec.state_dim, mappo)
     trainer.load_state_dict(checkpoint["trainer"], load_optimizers=False)

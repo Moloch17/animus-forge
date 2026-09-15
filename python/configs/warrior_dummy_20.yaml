@@ -31,8 +31,8 @@ rollout_device: cpu
 mappo:
   # Wide enough for the policy to combine 10 talent features with the combat state.
   hidden: [256, 256]
-  # Decisions are 50 ms apart. Rend lasts 15 s and Bloodrage/Mocking Blow have 60 s cooldowns, so
-  # look further ahead: 0.995 is a ~200-decision (10 s) horizon.
+  # A decision is AnimusForge.DecisionTicks x 50 ms (100 ms by default). Rend lasts 15 s and Bloodrage/Mocking
+  # Blow have 60 s cooldowns, so look further ahead: 0.995 is a ~200-decision (20 s at 100 ms) horizon.
   gamma: 0.995
   gae_lambda: 0.95
   clip: 0.2

@@ -257,7 +257,8 @@ def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...
             rows.append((key, row, (baseline or {}).get(group, {}).get(key)))
 
     width = max(7, *(len(key) for key, _, _ in rows))
-    lines = [f"  {'group':>{width}} {'n':>4}  " + "  ".join(f"{n[:21]:>21}" for n in names)]
+    # "rows": one per agent of each seeded episode (a party episode is up to four), not episodes.
+    lines = [f"  {'group':>{width}} {'rows':>4}  " + "  ".join(f"{n[:21]:>21}" for n in names)]
     for key, row, base in rows:
         cells = "  ".join(f"{cell(row, n)}/{cell(base, n).strip():>10}" for n in names)
         lines.append(f"  {key:>{width}} {row['episodes']:>4}  {cells}")
