@@ -143,6 +143,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
 
         TextTable table({ { "Setting" }, { "Value" } });
         table.AddRow({ "queue (forge start)", Join(DefaultQueue()) });
+        table.AddRow({ "queue (forge fast)", Join(FastQueue()) });
         table.AddRow({ "policy", _config.Policy });
         table.AddRow({ "envs", Acore::StringFormat("{}, a decision every {} ms, {} s episodes", _config.Envs,
             _config.DecisionMs, _config.EpisodeSeconds) });
@@ -302,26 +303,14 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
         return false;
     }
 
-    // Without names: AnimusForge.Fast.Queue (else the whole queue), minus the stages whose fast run already finished,
-    // so running `forge fast` again trains the next stage on top of the ones before. Named stages always train.
-    bool const fromQueue = scenarios.empty();
-    if (fromQueue)
-    {
-        for (std::string const& scenario : _config.FastQueue.empty() ? DefaultQueue() : _config.FastQueue)
-        {
-            if (RunAdvanced(_fastConfig, scenario))
-                out(Acore::StringFormat("  Skipping {}: its fast run already finished (`forge fast {}` trains it "
-                    "again, `forge clean fast` starts over).", scenario, scenario));
-            else
-                scenarios.push_back(scenario);
-        }
-    }
+    // Without names: the whole fast queue (AnimusForge.Fast.Queue, else every curriculum stage), every stage trained
+    // again from scratch in order, so one `forge fast` is a full run of the curriculum with nothing skipped.
+    if (scenarios.empty())
+        scenarios = FastQueue();
 
     if (scenarios.empty())
     {
-        out(fromQueue ? "Nothing to start: every stage of AnimusForge.Fast.Queue has a finished fast run. Name the "
-            "stages to train (`forge fast <scenario> [scenario ...]`) or `forge clean fast` to start over."
-            : "Nothing to start: name the scenarios (`forge fast <scenario> [scenario ...]`).");
+        out("Nothing to start: AnimusForge.Fast.Queue names no scenarios and the curriculum has no stages.");
         return false;
     }
 

@@ -153,7 +153,7 @@ void AnimusForge::ForgeConfig::Load()
 
     FastEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Envs", 16));
     FastLevel = std::min<uint32>(DEFAULT_MAX_LEVEL, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Level", 20));
-    FastQueue = GetList("AnimusForge.Fast.Queue", "stage1_duel, stage6_pvp, mix_duel_pvp");
+    FastQueue = GetList("AnimusForge.Fast.Queue", "");
     FastClassRoles = GetList("AnimusForge.Fast.ClassRoles", "warrior_tank, priest_heal, rogue_dps, hunter_dps");
 
     fs::path fastOutputDir = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.OutputDir", "fast");

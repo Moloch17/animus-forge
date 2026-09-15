@@ -84,7 +84,7 @@ namespace AnimusForge
         /// AnimusForge.Fast.*: the low-resolution profile `forge fast` trains with (see FastProfile).
         uint32 FastEnvs = 16;
         uint32 FastLevel = 20;
-        /// AnimusForge.Fast.Queue: what `forge fast` trains when given no scenarios; empty = AnimusForge.Queue.
+        /// AnimusForge.Fast.Queue: what `forge fast` trains when given no scenarios; empty = every curriculum stage.
         std::vector<std::string> FastQueue;
         std::vector<std::string> FastClassRoles;    // empty = AnimusForge.ClassRoles
         std::string FastOutputDir;                  // resolved: never empty after Load

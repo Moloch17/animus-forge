@@ -399,6 +399,18 @@ std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
     return stages;
 }
 
+std::vector<std::string> AnimusForge::Forge::FastQueue() const
+{
+    if (!_config.FastQueue.empty())
+        return _config.FastQueue;
+
+    std::vector<std::string> stages;
+    for (Animus::Curriculum::StageDefinition const& stage : Animus::Curriculum::CurriculumStages())
+        stages.push_back(stage.Name);
+
+    return stages;
+}
+
 bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string const& scenario) const
 {
     ProgressFile finished;

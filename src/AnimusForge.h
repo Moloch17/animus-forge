@@ -141,6 +141,8 @@ namespace AnimusForge
 
         /// AnimusForge.Queue, or every curriculum stage in order when it is empty.
         [[nodiscard]] std::vector<std::string> DefaultQueue() const;
+        /// AnimusForge.Fast.Queue, or every curriculum stage in order (pilots too) when it is empty.
+        [[nodiscard]] std::vector<std::string> FastQueue() const;
 
         /// The run of `scenario` finished and moved on (<RunsDir>/<scenario>/finished.json with "advanced": true, or
         /// a finished.json from before stage targets).

@@ -247,7 +247,7 @@ AnimusForge.Learner.LogFile = ""
 ###################################################################################################
 # FAST TEST RUN
 #
-#    `forge fast [scenario ...]` trains a few stages (default: AnimusForge.Fast.Queue) on an easier
+#    `forge fast [scenario ...]` trains stages (default: every curriculum stage) on an easier
 #    problem, to see quickly that training works and learns before a long run: fewer envs, a few
 #    class/roles at one level, and learner settings that end each stage as soon as its evaluation
 #    score stops improving. It always uses the remote policy and trains from scratch, in its own
@@ -255,13 +255,13 @@ AnimusForge.Learner.LogFile = ""
 #    setting (decision interval, episode length, rewards) is the one above.
 #
 #    AnimusForge.Fast.Queue
-#        Description: Comma-separated scenarios `forge fast` trains when given none. The default covers a
-#                     stage from scratch, a stage seeded from it, a scripted enemy player, and a stage that
-#                     mixes two arenas, merges two parents and distills from them.
-#        Default:     "stage1_duel, stage6_pvp, mix_duel_pvp"
-#                     ""  - (AnimusForge.Queue)
+#        Description: Comma-separated scenarios `forge fast` trains when given none, in order, each again
+#                     from scratch (nothing is skipped because an earlier fast run of it finished).
+#        Default:     ""  - (every curriculum stage in order, the mix_duel_pvp pilot included: a full run)
+#                     "stage1_duel, stage6_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
+#                     scripted enemy player, and a stage that mixes arenas, merges parents and distills)
 
-AnimusForge.Fast.Queue = "stage1_duel, stage6_pvp, mix_duel_pvp"
+AnimusForge.Fast.Queue = ""
 
 #
 #    AnimusForge.Fast.Envs

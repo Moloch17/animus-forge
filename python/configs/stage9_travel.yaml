@@ -1,0 +1,17 @@
+# Stage 9 of the curriculum: getting somewhere. A character of level 20 or more (riding and a mount of its level)
+# starts in Old Hillsbrad with a place 60-320 yd away by path. Mounting takes a cast, so a short trip is faster on foot
+# and a long one on a mount; the policy learns which, and to arrive on the ground ready to fight. Paid by potential
+# shaping on the distance left, arriving (faster pays more), damage taken and death. Episodes end on arriving.
+
+extends: stage1_duel.yaml
+run_name: stage9_travel
+
+# Trips take seconds to a minute: shorter than a fight, one policy for every class/role.
+total_env_steps: 150000000
+
+eval:
+  baseline: fight
+  report: [arrived, travel_seconds, start_distance, mounted_fraction, died]
+
+convergence:
+  min_env_steps: 20000000
