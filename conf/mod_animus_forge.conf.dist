@@ -18,7 +18,7 @@ AnimusForge.Enable = 1
 #    AnimusForge.OutputDir
 #        Description: Where training writes its data: runs/<scenario>/ (checkpoints, metrics, evaluation)
 #                     and layouts/<scenario>/ (each model's layout manifest and the stage's stage.json).
-#                     Relative to AnimusForge.Learner.WorkDir, or absolute. The Docker ac-worldserver
+#                     Relative to the directory of worldserver.conf, or absolute. The Docker ac-worldserver
 #                     service sets it to /azerothcore/var/animus-forge.
 #        Default:     "" - (the learner's directory, the module's python/)
 
@@ -166,7 +166,8 @@ AnimusForge.ReportEpisodes = 256
 
 #
 #    AnimusForge.Socket
-#        Description: Unix domain socket path the remote policy listens on.
+#        Description: Unix domain socket path the remote policy listens on, relative to the directory of
+#                     worldserver.conf or absolute.
 #        Default:     "/tmp/animus-forge.sock"
 
 AnimusForge.Socket = "/tmp/animus-forge.sock"
@@ -193,21 +194,24 @@ AnimusForge.Learner.AutoStart = 1
 
 #
 #    AnimusForge.Learner.WorkDir
-#        Description: Directory the learner runs in (the module's python/ directory).
+#        Description: Directory the learner runs in (the module's python/ directory). Relative to the
+#                     directory of worldserver.conf, or absolute.
 #        Default:     "" - the python/ directory of the module source this server was built from
 
 AnimusForge.Learner.WorkDir = ""
 
 #
 #    AnimusForge.Learner.Python
-#        Description: Python interpreter for the learner.
+#        Description: Python interpreter for the learner: a name found on PATH, or a path (relative to the
+#                     directory of worldserver.conf, or absolute).
 #        Default:     "" - <WorkDir>/.venv/bin/python if it exists, otherwise python3 from PATH
 
 AnimusForge.Learner.Python = ""
 
 #
 #    AnimusForge.Learner.Config
-#        Description: Learner config for every scenario, relative to WorkDir or absolute. The run is
+#        Description: Learner config for every scenario, relative to the directory of worldserver.conf or
+#                     absolute. The run is
 #                     always named after the scenario (--run-name).
 #        Default:     "" - configs/<scenario>.yaml
 
@@ -225,7 +229,8 @@ AnimusForge.Learner.Args = ""
 
 #
 #    AnimusForge.Learner.LogFile
-#        Description: File the learner's stdout and stderr are appended to.
+#        Description: File the learner's stdout and stderr are appended to, relative to the directory of
+#                     worldserver.conf or absolute.
 #        Default:     "" - animus-learner.log in LogsDir
 
 AnimusForge.Learner.LogFile = ""
@@ -235,7 +240,7 @@ AnimusForge.Learner.LogFile = ""
 #
 #    AnimusForge.ModelDir
 #        Description: Folder `forge export` writes .amdl models (and their layout manifests) to, relative
-#                     to the module directory or absolute. Models are never copied anywhere else: copy
+#                     to the directory of worldserver.conf or absolute. Models are never copied anywhere else: copy
 #                     them to a game server by hand. `forge clean exports` empties it.
 #        Default:     "" - models/ in the module source this server was built from
 

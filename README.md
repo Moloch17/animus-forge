@@ -441,7 +441,7 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
 | `AnimusForge.SpawnPoint.*` | Old Hillsbrad entrance | Dungeon map and position every env's bots start at |
-| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`, `rotation`, ...) |
+| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`) |
 | `AnimusForge.ReportEpisodes` | `256` | Mean episode stats (`forge status`, local runs) are taken over N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
@@ -450,6 +450,10 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.ModelDir` | `models/` in the module | Where `forge export` writes models |
 | `AnimusForge.Progress.Interval` | `60` | Seconds between progress reports while a scenario runs; `0` = off |
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
+
+Relative paths in the path keys (`OutputDir`, `ModelDir`, `Socket`, `Learner.WorkDir`, `Learner.Python`,
+`Learner.Config`, `Learner.LogFile`) are relative to the directory of the `worldserver.conf` the server loaded, not
+to its working directory.
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
 
@@ -573,7 +577,8 @@ forge run stage1_duel fight 1024         # class/role stages: close in, fight, e
 forge run stage1_duel random 1024
 ```
 
-These are the numbers the learner has to match or beat. They double as a mechanics check. To baseline every queued scenario in one go, set `AnimusForge.Policy` to the scripted policy
+These are the numbers the learner has to match or beat. They double as a mechanics check. To baseline every queued
+scenario in one go, set `AnimusForge.Policy` to the scripted policy
 and `AnimusForge.Queue.LocalEpisodes` to the episodes per scenario, then `forge start`.
 
 ## Training
