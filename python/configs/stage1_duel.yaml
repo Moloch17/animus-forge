@@ -21,8 +21,9 @@ init_from: auto
 
 # One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so it needs far
 # more experience than a single-character scenario. At 64 envs one update is 128 x 64 = 8192 env steps.
-# ~6 h at ~7k env steps/s; the plateau stop usually ends the stage sooner.
-total_env_steps: 150000000
+# ~12 h at ~7k env steps/s: convergence usually ends the stage much sooner; the headroom is for up to two restarts
+# (see restarts).
+total_env_steps: 300000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
@@ -64,10 +65,37 @@ eval:
   deterministic: true
   baseline: fight
 
-# Stop once `patience` evaluations in a row fail to beat the best score by 2%, but not before min_env_steps;
-# total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
-plateau:
+# Done learning: `patience` evaluations in a row set no new best -- one has to beat the best by 2% and by 2 standard
+# errors of the two scores, so a lucky evaluation does not count -- and the trend of the last 4 scores is flat too;
+# not before min_env_steps (counted again after each restart). total_env_steps stays the upper bound.
+convergence:
   patience: 5
+  window: 4
+  z: 2.0
   min_improvement: 0.02
   min_improvement_abs: 0.01
   min_env_steps: 30000000
+
+# Good enough to move on: the best networks beat the fight baseline by 10% overall and match it for every
+# class/role, on the evaluation that set the best and then again on 512 held-out episodes (a best picked from many
+# evaluations is partly luck). These are starting guesses: tune them after a pilot run (eval.jsonl has each
+# class/role's score next to the baseline's). Metric gates check episode info means directly, e.g.
+# metrics: {killed: {min: 0.8}, died: {max: 0.2}}.
+target:
+  min_over_baseline: 0.1
+  min_layout_over_baseline: 0.0
+  min_layout_episodes: 16
+  metrics: {}
+  confirm_episodes: 512
+  confirm_seed: 50000
+
+# Converged below the target is a local optimum: restart from best.pt with 3x the entropy bonus (decaying back with a
+# 10M env step half-life) and fresh optimizers, at most twice. After that -- or at total_env_steps below the target --
+# the learner exits with code 3 and the queue halts on this stage.
+restarts:
+  max_restarts: 2
+  entropy_boost: 3.0
+  entropy_half_life_env_steps: 10000000
+  reset_optimizers: true
+  shrink: 1.0
+  perturb: 0.0

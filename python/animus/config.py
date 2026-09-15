@@ -38,13 +38,51 @@ class EvalConfig:
 
 
 @dataclass
-class PlateauConfig:
-    """Stop training once evaluation stops improving. Needs eval.every_env_steps."""
+class ConvergenceConfig:
+    """When the stage is done learning (animus.evaluation.ConvergenceTracker). Needs eval.every_env_steps."""
 
-    patience: int = 0  # evaluations without improvement before stopping; 0 = train to total_env_steps
-    min_improvement: float = 0.02  # an improvement beats the best score by this fraction of |best| ...
-    min_improvement_abs: float = 0.01  # ... or by this much, whichever is larger
-    min_env_steps: int = 0  # never stop before this many env steps
+    patience: int = 0  # evaluations without a new best before converging; 0 = train to total_env_steps
+    window: int = 4  # latest evaluations whose trend must be flat too
+    z: float = 2.0  # a new best beats the best by this many standard errors ...
+    min_improvement: float = 0.02  # ... or by this fraction of |best| ...
+    min_improvement_abs: float = 0.01  # ... or by this much, whichever is largest
+    min_env_steps: int = 0  # never converge before this many env steps (counted again after each restart)
+
+
+@dataclass
+class TargetConfig:
+    """When the stage is good enough to move on (animus.gates). Unset gates are not checked; with none set, the
+    stage moves on as soon as it converges."""
+
+    # Overall score >= baseline + this x |baseline|, on the eval.baseline scripted policy's seeds: 0.2 = 20% better.
+    min_over_baseline: float | None = None
+    # Every class/role's score >= its baseline + this x |baseline|: a looser floor so no layout is left behind.
+    min_layout_over_baseline: float | None = None
+    min_layout_episodes: int = 16  # layouts with fewer eval episodes than this are too noisy to gate
+    # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
+    metrics: dict = field(default_factory=dict)
+    # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
+    # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
+    confirm_episodes: int = 512
+    confirm_seed: int = 50000
+
+    @property
+    def enabled(self) -> bool:
+        return self.min_over_baseline is not None or self.min_layout_over_baseline is not None or bool(self.metrics)
+
+
+@dataclass
+class RestartConfig:
+    """Escaping a local optimum: a stage that converges below its target restarts from its best networks with
+    more exploration, up to max_restarts times; after that the learner exits with an error and the queue halts."""
+
+    max_restarts: int = 2
+    entropy_boost: float = 3.0  # mappo.entropy_coef x this right after a restart ...
+    entropy_half_life_env_steps: int = 10_000_000  # ... decaying back to entropy_coef with this half-life
+    reset_optimizers: bool = True  # fresh Adam state, so steps are full-sized again
+    # Shrink and perturb: weights = shrink x best + perturb x freshly initialised weights. 1 and 0 = off.
+    shrink: float = 1.0
+    perturb: float = 0.0
 
 
 @dataclass
@@ -72,7 +110,9 @@ class TrainConfig:
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
-    plateau: PlateauConfig = field(default_factory=PlateauConfig)
+    convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
+    target: TargetConfig = field(default_factory=TargetConfig)
+    restarts: RestartConfig = field(default_factory=RestartConfig)
 
     def resolved_init_from(self, stage: dict | None) -> list[str]:
         if self.init_from == AUTO:
@@ -93,6 +133,9 @@ class TrainConfig:
         raw = load_yaml(path)
         for override in overrides or ():
             apply_override(raw, override)
+        if "plateau" in raw:
+            raise ValueError("config section 'plateau' was replaced by 'convergence' (same keys, plus window and z); "
+                             "see 'target' and 'restarts' for moving on to the next stage")
         return from_dict(cls, raw)
 
     def to_dict(self) -> dict:

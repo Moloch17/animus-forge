@@ -1,4 +1,4 @@
-"""Seeded evaluation against a fake sim, plateau tracking and config overrides."""
+"""Seeded evaluation against a fake sim, convergence tracking and config overrides."""
 
 import socket
 import threading
@@ -9,7 +9,7 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import PlateauTracker, run_evaluation
+from animus.evaluation import ConvergenceTracker, EvalResult, run_evaluation
 from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
@@ -137,34 +137,86 @@ def test_run_evaluation_collects_each_seed_once(tmp_path):
     assert not training_step.done.any()
 
 
-def test_plateau_tracker():
-    tracker = PlateauTracker(patience=2, min_improvement=0.1, min_improvement_abs=0.01)
+def test_stderr_in_summary():
+    result = EvalResult("learner", np.array([1.0, 3.0, 5.0, 7.0]), np.zeros((4, 0), np.float32), ())
+    assert result.stderr == pytest.approx(np.std([1, 3, 5, 7], ddof=1) / 2)
+    assert result.summary(())["stderr"] == pytest.approx(result.stderr)
+    assert EvalResult("learner", np.array([2.0]), np.zeros((1, 0), np.float32), ()).stderr == 0.0
+
+
+def test_convergence_tracker_margins():
+    tracker = ConvergenceTracker(patience=2, min_improvement=0.1, min_improvement_abs=0.01, z=2.0)
     assert tracker.observe(1.0, 10)
     assert not tracker.observe(1.05, 20)  # within 10% of the best
-    assert not tracker.plateaued(20, 0)
+    assert not tracker.converged(20)
     assert not tracker.observe(0.9, 30)
-    assert tracker.plateaued(30, 0)
-    assert not tracker.plateaued(30, 40)  # min_env_steps not reached
+    assert tracker.converged(30)
+    assert not tracker.converged(30, min_env_steps=40)
     assert tracker.observe(1.2, 40)
-    assert not tracker.plateaued(40, 0)
+    assert not tracker.converged(40)
 
-    restored = PlateauTracker(patience=2)
+    # Noise: 0.5 better than the best is not an improvement when both scores have a standard error of 0.3.
+    noisy = ConvergenceTracker(patience=1, min_improvement=0.0, min_improvement_abs=0.0, z=2.0)
+    noisy.observe(10.0, 0, stderr=0.3)
+    assert not noisy.observe(10.5, 1, stderr=0.3)
+    assert noisy.last_margin == pytest.approx(2.0 * np.sqrt(0.18))
+    assert noisy.observe(11.0, 2, stderr=0.3)
+
+    restored = ConvergenceTracker(patience=2)
     restored.load_state_dict(tracker.state_dict())
     assert restored.best == 1.2 and restored.best_env_steps == 40 and len(restored.history) == 4
+
+
+def test_convergence_waits_for_a_flat_trend():
+    """No new best for `patience` evaluations is not enough while the recent scores still climb steeply."""
+    flat = ConvergenceTracker(patience=2, window=3, min_improvement=0.0, min_improvement_abs=1.0, z=0.0)
+    for i, score in enumerate([10.0, 10.6, 10.9]):
+        flat.observe(score, i * 100)
+    assert flat.evals_since_best == 2
+    assert flat.projected_gain() == pytest.approx(0.9)  # 0.45 per evaluation x 2 evaluations
+    assert flat.converged(200)  # below the 1.0 margin
+
+    # Recovering from a dip after the best: three evaluations without a new best, but climbing 0.75 per evaluation.
+    recovering = ConvergenceTracker(patience=2, window=3, min_improvement=0.0, min_improvement_abs=1.0, z=0.0)
+    for i, score in enumerate([12.0, 10.0, 10.5, 11.5]):
+        recovering.observe(score, i * 100)
+    assert recovering.evals_since_best == 3
+    assert recovering.projected_gain() == pytest.approx(1.5)
+    assert not recovering.converged(300)
+
+
+def test_convergence_segment_reset_keeps_best():
+    tracker = ConvergenceTracker(patience=1, min_improvement=0.0, min_improvement_abs=0.5)
+    tracker.observe(5.0, 0)
+    tracker.observe(4.0, 10)
+    assert tracker.converged(10)
+    tracker.reset_segment(10)
+    assert tracker.best == 5.0 and tracker.evals_since_best == 0
+    assert not tracker.converged(10)
+    assert not tracker.converged(15, min_env_steps=10)  # counted from the restart
+    tracker.observe(4.5, 20)
+    assert tracker.converged(20, min_env_steps=10)
+    assert tracker.projected_gain() is None  # one point in the new segment
 
 
 def test_config_overrides(tmp_path):
     path = tmp_path / "c.yaml"
     path.write_text("total_env_steps: 100\neval:\n  every_env_steps: 10\n  baseline: greedy\n")
-    config = TrainConfig.load(path, ["total_env_steps=5", "eval.episodes=16", "plateau.patience=3",
-                                     "eval.report=[dps,died]"])
+    config = TrainConfig.load(path, ["total_env_steps=5", "eval.episodes=16", "convergence.patience=3",
+                                     "eval.report=[dps,died]", "target.min_over_baseline=0.2",
+                                     "target.metrics={killed: {min: 0.9}}", "restarts.max_restarts=1"])
     assert config.total_env_steps == 5
     assert config.eval.every_env_steps == 10 and config.eval.episodes == 16 and config.eval.baseline == "greedy"
     assert config.eval.report == ("dps", "died")
-    assert config.plateau.patience == 3
+    assert config.convergence.patience == 3
+    assert config.target.min_over_baseline == 0.2 and config.target.metrics == {"killed": {"min": 0.9}}
+    assert config.target.enabled and not TrainConfig().target.enabled
+    assert config.restarts.max_restarts == 1
 
     with pytest.raises(ValueError):
         TrainConfig.load(path, ["eval.nope=1"])
+    with pytest.raises(ValueError, match="replaced by 'convergence'"):
+        TrainConfig.load(path, ["plateau.patience=3"])
 
 
 def test_config_extends_merges_sections(tmp_path):

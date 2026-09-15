@@ -2,7 +2,7 @@
 # each env, both played by this policy, so both sides of every fight are training data, across class matchups.
 #
 # Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides improve
-# together), so there is no baseline and no plateau stop: the run trains to total_env_steps. Judge it by stage 6's
+# together), so there is no baseline and no convergence stop: the run trains to total_env_steps. Judge it by stage 6's
 # evaluation: run the arena checkpoint on a stage6_pvp sim with animus.evaluate.
 
 extends: stage6_pvp.yaml
@@ -14,5 +14,11 @@ total_env_steps: 200000000
 eval:
   baseline: ""
 
-plateau:
+# No convergence stop and no target in self-play: the run trains to total_env_steps and moves on. Metric gates
+# (target.metrics) would work without a baseline.
+convergence:
   patience: 0
+
+target:
+  min_over_baseline: null
+  min_layout_over_baseline: null

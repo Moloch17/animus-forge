@@ -6,8 +6,8 @@
 extends: stage4_companion.yaml
 run_name: stage5_party
 
-# ~5.5 h at ~15k env steps/s (four seats); the plateau stop usually ends the stage sooner.
-total_env_steps: 300000000
+# ~11 h at ~15k env steps/s (four seats); convergence usually ends the stage much sooner (the headroom is for restarts).
+total_env_steps: 600000000
 
 eval:
   every_env_steps: 20000000
@@ -15,5 +15,5 @@ eval:
     teammate_healing, threat_on_teammates, casts_completed, casts_cancelled, cancelled_stopped, cancelled_moved,
     cancelled_target, cancelled_other]
 
-plateau:
+convergence:
   min_env_steps: 60000000

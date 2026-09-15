@@ -6,12 +6,12 @@
 extends: stage1_duel.yaml
 run_name: stage3_gauntlet
 
-# ~8 h at ~7k env steps/s; the plateau stop usually ends the stage sooner.
-total_env_steps: 200000000
+# ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
+total_env_steps: 400000000
 
 mappo:
   # Pulls and recovery span minutes: the longest horizon of the curriculum.
   gamma: 0.999
 
-plateau:
+convergence:
   min_env_steps: 40000000

@@ -46,22 +46,39 @@ class MappoTrainer:
         """layouts: (obs dim, action count) per agent layout, in the sim's layout order."""
         self.config = config
         self.layouts = list(layouts)
+        self.state_dim = state_dim
         self.train_device = torch.device(train_device)
         self.rollout_device = torch.device(rollout_device)
+        # Starts at config.entropy_coef; the stage controller raises it after a restart (animus.stage).
+        self.entropy_coef = config.entropy_coef
 
         hidden = list(config.hidden)
         self.actor = LayoutActor(self.layouts, hidden).to(self.train_device)
         self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
         self.value_norm = ValueNorm().to(self.train_device) if config.use_value_norm else None
 
-        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=config.actor_lr, eps=1e-5)
-        self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=config.critic_lr, eps=1e-5)
+        self.reset_optimizers()
 
         self._rollout_actor = copy.deepcopy(self.actor).to(self.rollout_device)
         self._rollout_critic = copy.deepcopy(self.critic).to(self.rollout_device)
         self._rollout_value_norm = (
             copy.deepcopy(self.value_norm).to(self.rollout_device) if self.value_norm is not None else None
         )
+
+    def reset_optimizers(self) -> None:
+        """Fresh Adam state: after a restart the step sizes are no longer shrunk by the old gradient history."""
+        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.config.actor_lr, eps=1e-5)
+        self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=self.config.critic_lr, eps=1e-5)
+
+    @torch.no_grad()
+    def shrink_perturb(self, shrink: float, perturb: float) -> None:
+        """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
+        hidden = list(self.config.hidden)
+        fresh = (LayoutActor(self.layouts, hidden), LayoutCritic(self.state_dim, self.layouts, hidden))
+        for network, init in zip((self.actor, self.critic), fresh):
+            for param, init_param in zip(network.parameters(), init.to(self.train_device).parameters()):
+                param.mul_(shrink).add_(init_param, alpha=perturb)
+        self._sync_rollout()
 
     # ------------------------------------------------------------------ rollout
 
@@ -130,7 +147,7 @@ class MappoTrainer:
                 entropy = dist.entropy().mean()
 
                 self.actor_opt.zero_grad()
-                (policy_loss - cfg.entropy_coef * entropy).backward()
+                (policy_loss - self.entropy_coef * entropy).backward()
                 nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 

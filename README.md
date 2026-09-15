@@ -409,8 +409,8 @@ player factions and the PvP flag, which players need to attack each other.
   and party columns are left out: nothing fills them in PvP).
 
 `configs/stage6_pvp.yaml` scores against the `fight` baseline. `configs/stage7_arena.yaml` has no
-baseline or plateau stop: against itself a policy's score does not track progress -- judge an arena model with
-`animus.evaluate` on a `stage6_pvp` sim.
+baseline, convergence stop or target: against itself a policy's score does not track progress -- judge an arena
+model with `animus.evaluate` on a `stage6_pvp` sim.
 
 ### Training every model: `AnimusForge.Queue`
 
@@ -419,15 +419,18 @@ baseline or plateau stop: against itself a policy's score does not track progres
 one (`AnimusForge.Queue = "stage1_duel"`).
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
-plateaus or it reaches `total_env_steps` (see
-[Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
-tears the scenario down and starts the next one. Every run trains in `<OutputDir>/runs/<scenario>/`; export its
-models by hand when you want them (see [Export](#export)). When the last scenario finishes the sim idles. A learner
-that crashes stops the queue at that scenario: the sim waits for a learner started by hand.
+converges and its best networks pass the stage target, or it reaches `total_env_steps` (see
+[Evaluation, convergence and stage targets](#evaluation-convergence-and-stage-targets)) -- and exits cleanly;
+the sim then tears the scenario down and starts the next one. A stage that stays below its target after its
+restarts exits with code 3, which halts the queue there like a crash (`finished.json` and `stage.jsonl` say which
+gates failed). Every run trains in `<OutputDir>/runs/<scenario>/`; export its models by hand when you want them
+(see [Export](#export)). When the last scenario finishes the sim idles. A learner that crashes stops the queue at
+that scenario: the sim waits for a learner started by hand.
 
-A restart continues where the queue stopped: scenarios whose run already finished (`finished.json`) are skipped
-(`AnimusForge.Queue.SkipFinished`), and the first unfinished one trains from scratch. To retrain a finished stage,
-move its run directory away (or set `SkipFinished = 0` to retrain the whole queue).
+A restart continues where the queue stopped: scenarios whose run already finished and moved on (`finished.json`
+with `"advanced": true`) are skipped (`AnimusForge.Queue.SkipFinished`), and the first other one -- unfinished, or
+halted below its target -- trains from scratch. To retrain a finished stage, move its run directory away (or set
+`SkipFinished = 0` to retrain the whole queue).
 
 ## Enabling
 
@@ -563,7 +566,7 @@ worldserver starts the learner itself once the envs are built, for the current s
 - **Shutdown:** closing the socket makes the learner save a checkpoint and exit; it is interrupted
   after 10 s if it has not.
 
-### Evaluation and plateau stopping
+### Evaluation, convergence and stage targets
 
 Training curves are noisy when every episode rolls a new character, so the class/role configs score the
 networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `animus/evaluation.py`):
@@ -579,17 +582,42 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   same seeds once per run and cached in `eval_baseline.json`.
 - **When:** before training (`eval.at_start`, which also shows what a stage's warm start is worth), every
   `eval.every_env_steps` (20M), and at `total_env_steps`.
-- **Output:** the log prints the score, the best so far and a table of score and key episode stats
-  (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to baseline.
-  `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
+- **Output:** the log prints the score with its standard error, the best so far and a table of score and key
+  episode stats (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to
+  baseline. `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
   `eval_<band>/*`.
-- **Best model:** each new best score saves `best.pt`; the next curriculum stage seeds from it (see
+- **Best model:** each new best score saves `best.pt`; the stages that extend this one seed from it (see
   Bootstrapping; its `latest.pt` if there is no best).
-- **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
-  the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,
-  whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations
-  (100M env steps), 2% and 40M; `total_env_steps` stays the upper bound. `finished.json` records why a
-  run stopped.
+
+A stage ends on two questions (`animus/stage.py`), not on a fixed episode count:
+
+- **Done learning? (`convergence:`)** An evaluation is a new best only if it beats the best by the largest of
+  `min_improvement` (a fraction of it), `min_improvement_abs` and `z` standard errors of the two scores, so a
+  lucky evaluation inside the combat-roll noise does not count. The stage has converged once `patience`
+  evaluations in a row set no new best *and* the trend of the last `window` scores, projected `patience`
+  evaluations ahead, would not reach that margin either (a slow climb hidden by the noise keeps training), and
+  not before `min_env_steps`. `patience: 0` trains to `total_env_steps`.
+- **Good enough? (`target:`)** The best networks must beat the baseline by `min_over_baseline` overall (0.1 =
+  10% better, sign-safe for negative rewards), reach `min_layout_over_baseline` for every class/role with at
+  least `min_layout_episodes` evaluation episodes (a looser floor, so no layout is carried by the average into
+  the next stage), and pass any `metrics` gates on episode info (`{killed: {min: 0.8}}`). They are checked on
+  the evaluation that set the best, then again on `confirm_episodes` held-out episodes (`confirm_seed`),
+  because a best picked out of many evaluations is partly luck. With no gates set, a converged stage moves on.
+- **Stuck below the target? (`restarts:`)** Converging below the target is treated as a local optimum: the
+  networks reload `best.pt`, the entropy bonus is multiplied by `entropy_boost` and decays back with
+  `entropy_half_life_env_steps`, the optimizers start fresh (`reset_optimizers`) and, optionally, the weights are
+  shrunk and perturbed towards a fresh initialisation (`shrink`, `perturb`). The convergence test then starts
+  over (the best score is kept), up to `max_restarts` times.
+
+| Converged, target passed | Converged, below target | `total_env_steps` reached |
+| --- | --- | --- |
+| exit 0, the queue moves on (`converged`) | restart; once restarts run out, exit 3 and the queue halts (`below_target`) | target passed: exit 0 (`total_env_steps`); below it: exit 3 (`budget_below_target`) |
+
+A bad target is caught at startup (a metric the scenario does not report, a baseline gate without
+`eval.baseline`), not at the end of the stage. `finished.json` records the reason, the restarts and the gate
+values; `stage.jsonl` has every restart/advance/halt decision. The target numbers in the class/role configs are
+first guesses: tune them after a pilot run, where `eval.jsonl` has each class/role's score next to the
+baseline's.
 
 To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from `python/`:
 
@@ -608,7 +636,8 @@ A hand-started learner uses the config's `runs_dir` and `layouts_dir` (`runs`, `
 
 Each run writes `config.yaml`, `spec.json`, `stage.json` (class/role stages: blocks, seed chain, models, the
 effective tuning), `metrics.csv`, TensorBoard logs (if installed) and checkpoints to `runs/<run_name>/`; with
-evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`, `best.pt` and, once done, `finished.json`.
+evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`, `best.pt`, `stage.jsonl` and, once done,
+`finished.json`.
 
 ## Export
 

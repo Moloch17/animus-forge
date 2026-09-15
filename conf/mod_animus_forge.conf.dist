@@ -30,9 +30,11 @@ AnimusForge.OutputDir = ""
 #    AnimusForge.Queue
 #        Description: Comma-separated scenarios to train one after another, starting when the server
 #                     starts. Every env in the pool runs the current scenario. Each runs until its
-#                     auto-started learner finishes (its evaluation score plateaus or it reaches
-#                     total_env_steps, and it exits cleanly), then the next one starts; when the last
-#                     one finishes the sim idles. Moving on needs AnimusForge.Policy = "remote" and
+#                     auto-started learner finishes (its evaluation score converges and its best
+#                     networks pass the stage target, or it reaches total_env_steps, and it exits
+#                     cleanly), then the next one starts; when the last one finishes the sim idles. A
+#                     stage still below its target after its restarts exits with code 3 and halts the
+#                     queue there (see runs/<scenario>/finished.json). Moving on needs AnimusForge.Policy = "remote" and
 #                     AnimusForge.Learner.AutoStart = 1 (see AnimusForge.Queue.LocalEpisodes for local
 #                     policies). An unknown name stops the server at startup and logs the list of
 #                     available scenarios. Like any config key it can also be set from the environment:
