@@ -84,7 +84,7 @@ def test_model_names():
     assert model_name("stage1_duel", "warrior_dps", 18, duel) == "warrior_dps_duel"
     assert model_name("stage5_party", "druid_heal", 18, {"druid_heal": "druid_heal_party"}) == "druid_heal_party"
     # Without stage.json: a single-layout scenario keeps its name, others append the layout's.
-    assert model_name("warrior_dummy_20", "warrior_dummy_20", 1) == "warrior_dummy_20"
+    assert model_name("custom", "custom", 1) == "custom"
     assert model_name("custom", "mage_dps", 2) == "custom_mage_dps"
 
 

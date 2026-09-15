@@ -20,21 +20,17 @@
 #include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
 #include "StageDefinition.h"
-#include "WarriorDummy20Scenario.h"
 
 /*
  * Every scenario the module can run, by the name used in AnimusForge.Queue: the class/role curriculum's stages
- * (ClassRoleStages) and the standalone scenarios below. Adding a standalone scenario = implementing Scenario and one
- * branch here.
+ * (ClassRoleStages). Adding a standalone scenario = implementing Scenario, one branch in CreateScenario and its name in
+ * ScenarioNames.
  */
 
 std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(std::string const& name, ForgeConfig const& config)
 {
     if (ClassRole::StageDefinition const* stage = ClassRole::FindStage(name))
         return std::make_unique<ClassRole::ClassRoleScenario>(config, *stage);
-
-    if (name == "warrior_dummy_20")
-        return std::make_unique<WarriorDummy20Scenario>(config);
 
     return nullptr;
 }
@@ -45,6 +41,5 @@ std::vector<std::string> AnimusForge::ScenarioNames()
     for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
         names.push_back(stage.Name);
 
-    names.push_back("warrior_dummy_20");
     return names;
 }

@@ -137,9 +137,6 @@ void AnimusForge::ForgeConfig::Load()
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Y", 1315.2f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Z", 14.0f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.O", 2.96f));
-
-    WarriorDummy20HsRageThreshold = sConfigMgr->GetOption<uint32>("AnimusForge.WarriorDummy20.HsRageThreshold", 15,
-        false);
 }
 
 fs::path AnimusForge::ForgeConfig::RunsDir() const

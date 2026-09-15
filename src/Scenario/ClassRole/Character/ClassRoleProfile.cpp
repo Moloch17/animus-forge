@@ -65,8 +65,8 @@ std::vector<AnimusForge::ClassRole::ClassRoleProfile> const& AnimusForge::ClassR
     constexpr RangeBand Melee = RangeBand::Melee;
     constexpr RangeBand Ranged = RangeBand::Ranged;
 
-    // Talent tabs follow TalentTab.dbc order (TabPage). Every role here trains on the training dummy for
-    // damage; the role decides the specs, the gear stats and where the bot stands.
+    // Talent tabs follow TalentTab.dbc order (TabPage). The role decides the specs, the gear stats and where the bot
+    // stands.
     static std::vector<ClassRoleProfile> const profiles =
     {
         { "warrior_dps", CLASS_WARRIOR, Role::Dps, {

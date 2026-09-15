@@ -72,10 +72,6 @@ namespace AnimusForge
         uint32 SpawnMapId = 560;
         Position SpawnPosition;
 
-        /// AnimusForge.WarriorDummy20.HsRageThreshold: rage at which warrior_dummy_20's scripted policies queue
-        /// Heroic Strike.
-        uint32 WarriorDummy20HsRageThreshold = 15;
-
         /// AnimusForge.ModelDir, resolved: where `forge export` writes models. Never empty after Load.
         std::string ModelDir;
         /// AnimusForge.Progress.Interval, seconds; 0 = no periodic report.

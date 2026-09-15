@@ -61,9 +61,6 @@ AnimusForge.OutputDir = ""
 #                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
 #                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
-#                     Standalone:
-#                       "warrior_dummy_20"     - level 20 Arms human warrior on a training dummy, a new
-#                                                random Arms talent build every episode
 #        Example:     "stage1_duel" - (train a single scenario)
 #        Default:     "" - (the whole class/role curriculum, first stage to last)
 
@@ -154,12 +151,6 @@ AnimusForge.SpawnPoint.O     = 2.96
 #                     "fight"           - (class/role stages with the duel block) start attacking, run
 #                                         to the target, first usable spell; eat and drink between
 #                                         gauntlet pulls; heal a hurt owner or teammate
-#                     "white_only"      - (warrior_dummy_20) white swings only
-#                     "hs_at_threshold" - (warrior_dummy_20) queue Heroic Strike at
-#                                         AnimusForge.WarriorDummy20.HsRageThreshold rage or more
-#                     "rotation"        - (warrior_dummy_20) levelling priority: Battle Shout,
-#                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
-#                                         then Heroic Strike at the rage threshold
 #        Default:     "remote"
 
 AnimusForge.Policy = "remote"
@@ -262,16 +253,6 @@ AnimusForge.ModelDir = ""
 #                     0  - (no periodic report)
 
 AnimusForge.Progress.Interval = 60
-
-###################################################################################################
-# WARRIOR_DUMMY_20
-#
-#    AnimusForge.WarriorDummy20.HsRageThreshold
-#        Description: Rage at which warrior_dummy_20's hs_at_threshold and rotation policies queue
-#                     Heroic Strike.
-#        Default:     15
-
-AnimusForge.WarriorDummy20.HsRageThreshold = 15
 
 ###################################################################################################
 # CLASS/ROLE TUNING
