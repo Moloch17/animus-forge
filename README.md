@@ -108,9 +108,16 @@ A stage is one entry in `src/Scenario/ClassRole/Stages/Stages.cpp` (`StageDefini
   (the owner), `party` (three teammates), `pvp` (the enemy player). A block is stateless: it sizes its slice of a
   layout, writes its features and mask, and applies its actions. `Layout` places each block after the previous
   one, and the manifest lists every block with its spans.
-- **What it extends:** the stage it builds on. Its blocks must start with that stage's blocks, so every layout keeps
-  the earlier stage's features and actions in place and the earlier stage's model seeds it. The sim checks this at
-  startup and leaves out a stage that breaks it.
+- **What it extends:** the stage it builds on and seeds from. It keeps the base's blocks it needs, drops the rest and
+  adds its own; several stages can extend the same base, so the curriculum is a tree:
+
+  ```
+  class_role ─ duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
+                     └─ pvp ─ arena                               (PvP: core, duel, pvp)
+  ```
+
+  The sim checks each definition at startup (the base exists and comes earlier, no block twice, every part has the
+  blocks it needs) and leaves out a stage that breaks a rule.
 - **Encounters** (`Encounters/`): what its envs contain besides the seats -- a training dummy, a creature, pulls
   (one pack or the gauntlet's schedule), a scripted owner, a party group, an enemy player (scripted or the other
   seat). Each encounter builds and updates its part of the world, keeps its own episode state, and adds its reward
@@ -231,11 +238,13 @@ opponent:
 
 **Bootstrapping:** every stage after the first has `init_from: auto`: the learner reads the stage's `stage.json`,
 whose `seed_chain` lists the stages it extends, closest first, and seeds from the first of those that has been
-trained (`<runs_dir>/<stage>/best.pt`, or its `latest.pt`). It seeds its networks layout by layout
-(`animus/bootstrap.py`; class/roles are matched by name): each layout's earlier features keep their places in its
-wider adapter (new inputs start at zero) and its earlier actions keep their logits (new actions start near zero);
-the trunk is copied; the critic's state encoder and value head start fresh because the global state and reward
-differ. Queue the stages in order.
+trained (`<runs_dir>/<stage>/best.pt`, or its `latest.pt`). It seeds its networks layout by layout and block by
+block (`animus/bootstrap.py`; class/roles and blocks are matched by name, their positions come from the
+`layouts` of both stages' `stage.json`, which every checkpoint carries): each kept block's features and actions move
+to where the block sits now, new blocks' inputs start at zero and their actions near zero, and dropped blocks are
+left behind; the trunk is copied; the critic's state encoder and value head start fresh because the global state and
+reward differ. A checkpoint without block positions (from before this) is seeded as a prefix. Queue every stage after
+the stage it extends (the sim warns otherwise); the two branches can go in either order, or on two machines.
 
 #### Stage 3 (`class_role_pack`): packs
 
@@ -345,9 +354,10 @@ no-op.
 
 #### Stages 7 and 8 (`class_role_pvp`, `class_role_arena`): PvP
 
-One-on-one against a player. They keep stage 6's layouts (so they seed from it), but there are no pulls, owner
-or teammates: those observations stay zero and those actions masked. Both players get opposing player factions
-and the PvP flag, which players need to attack each other.
+One-on-one against a player: the PvP branch of the curriculum. `class_role_pvp` extends the duel (and seeds from
+it), keeping its core and duel blocks and adding the pvp block; the pack, gauntlet, companion and party blocks are not
+in its layouts at all, so the PvP line trains right after the duel, without the PvE stages. Both players get opposing
+player factions and the PvP flag, which players need to attack each other.
 
 - **`class_role_pvp` (stage 7):** a scripted enemy player at the bot's level (within 1), of a random class and
   role (damage 60%, tank 20%, healer 20%) with that role's spec, talents, kit and gear, spawned 40-50 yd away
@@ -356,9 +366,9 @@ and the PvP flag, which players need to attack each other.
 - **`class_role_arena` (stage 8), self-play:** two learned seats of random classes and roles at one level in the
   same env, the second spawned 40-50 yd from the first. Both are played by the same policy, so every fight is
   training data for both sides, across class matchups.
-- **Observation:** stage 6's, then the opponent's class, role, level difference, mana, rage/energy/runic
+- **Observation:** the duel's, then the opponent's class, role, level difference, mana, rage/energy/runic
   power, whether it is crowd-controlled, stealthed, has a pet out or is casting a heal, whether the bot is
-  stunned/feared, rooted or silenced, and whether the opponent is a learned agent.
+  stunned/feared, rooted or silenced, and whether the opponent is a learned agent. Actions: the duel's.
 - **Reward:** the duel's (damage dealt and taken, closing in, stealth openers, casts, a fast kill with health
   kept, death). The episode ends when either player dies.
 - **Episode info:** stage 1's and the duel's columns, then won, opponent class and opponent role (the pulls, owner

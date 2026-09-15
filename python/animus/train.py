@@ -209,7 +209,11 @@ def main() -> None:
     if candidates := config.resolved_init_from(stage):
         seed_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
         if seed_path:
-            seeded = seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
+            checkpoint = torch.load(seed_path, map_location="cpu", weights_only=False)
+            # Block positions for block-wise seeding: the checkpoint's own, else the stage.json of its run.
+            if checkpoint.get("stage") is None and (seed_path.parent / STAGE_FILE).is_file():
+                checkpoint["stage"] = json.loads((seed_path.parent / STAGE_FILE).read_text())
+            seeded = seed_trainer(trainer, checkpoint, spec, stage)
             print(f"Seeded the networks from {seed_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
                   flush=True)
         else:
@@ -228,7 +232,8 @@ def main() -> None:
     baseline_summary: dict | None = None
 
     def checkpoint_extra() -> dict:
-        return {"plateau": tracker.state_dict()}
+        # The stage (its block positions) travels with the checkpoint, for seeding the stages that extend it.
+        return {"plateau": tracker.state_dict(), "stage": stage}
 
     def learner_actions(step):
         return trainer.act(step.obs, step.mask, step.layout, deterministic=config.eval.deterministic)[0]

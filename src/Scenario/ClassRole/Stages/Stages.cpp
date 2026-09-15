@@ -17,8 +17,14 @@
  */
 
 /*
- * The class/role curriculum. Adding a stage is one entry here (plus new blocks or encounters only if it needs new
- * features) and a learner config, configs/<name>.yaml.
+ * The class/role curriculum, a tree: every stage extends one earlier stage (and seeds from it), keeping the base's
+ * blocks it needs and adding its own.
+ *
+ *   class_role ─ duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
+ *                      └─ pvp ─ arena                               (PvP)
+ *
+ * Adding a stage is one entry here (plus new blocks or encounters only if it needs new features) and a learner
+ * config, configs/<name>.yaml.
  */
 
 #include "StageDefinition.h"
@@ -97,12 +103,13 @@ namespace
             .PartyGroup = true,
         });
 
+        // The PvP branch: off the duel, without the PvE blocks it would never fill.
         stages.push_back({
             .Name = "class_role_pvp",
             .Suffix = "_pvp",
-            .Extends = "class_role_party",
+            .Extends = "class_role_duel",
             .Summary = "one-on-one against a scripted enemy player",
-            .Blocks = { Core, Duel, Pack, Gauntlet, Companion, Party, Pvp },
+            .Blocks = { Core, Duel, Pvp },
             .Against = Opposition::ScriptedPlayer,
         });
 
@@ -111,7 +118,7 @@ namespace
             .Suffix = "_arena",
             .Extends = "class_role_pvp",
             .Summary = "self-play one-on-one: two learned seats of any classes",
-            .Blocks = { Core, Duel, Pack, Gauntlet, Companion, Party, Pvp },
+            .Blocks = { Core, Duel, Pvp },
             .Seats = SeatPlan::Mirror,
             .Against = Opposition::MirrorSeat,
         });
@@ -129,18 +136,12 @@ namespace
             if (std::find(stage.Blocks.begin() + i + 1, stage.Blocks.end(), stage.Blocks[i]) != stage.Blocks.end())
                 return "a block is listed twice";
 
-        if (!stage.Extends.empty())
-        {
-            auto const base = std::find_if(valid.begin(), valid.end(),
-                [&stage](StageDefinition const& other) { return other.Name == stage.Extends; });
-            if (base == valid.end())
-                return "it extends " + stage.Extends + ", which is not an earlier valid stage";
-
-            // Seeding copies the base's input columns and action rows: its blocks must come first, in order.
-            if (base->Blocks.size() > stage.Blocks.size()
-                || !std::equal(base->Blocks.begin(), base->Blocks.end(), stage.Blocks.begin()))
-                return "its blocks do not start with the blocks of " + stage.Extends;
-        }
+        // The base only has to exist: seeding maps the base's blocks to this stage's by name (stage.json spans), so a
+        // stage may drop base blocks it does not need and several stages may share a base.
+        if (!stage.Extends.empty()
+            && std::none_of(valid.begin(), valid.end(),
+                [&stage](StageDefinition const& other) { return other.Name == stage.Extends; }))
+            return "it extends " + stage.Extends + ", which is not an earlier valid stage";
 
         bool const pulls = stage.Against == Opposition::Pulls;
         if (pulls != (stage.Schedule != PullSchedule::None))

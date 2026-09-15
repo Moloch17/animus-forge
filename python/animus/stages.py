@@ -29,6 +29,18 @@ def seed_chain(stage: dict | None) -> list[str]:
     return list(stage.get("seed_chain", ())) if stage else []
 
 
+Span = tuple[int, int]  # (first, count)
+
+
+def block_spans(stage: dict | None, layout: str) -> dict[str, tuple[Span, Span]] | None:
+    """Block name -> (observation span, action span) of `layout` in `stage`, or None when the stage has no spans for
+    it (a stage.json from before block spans, or no stage.json)."""
+    entry = (stage or {}).get("layouts", {}).get(layout)
+    if not entry:
+        return None
+    return {block["name"]: (tuple(block["obs"]), tuple(block["actions"])) for block in entry["blocks"]}
+
+
 def model_names(stage: dict | None) -> dict[str, str]:
     """Layout name -> model name (warrior_dps -> warrior_dps_duel)."""
     return dict(stage.get("models", {})) if stage else {}

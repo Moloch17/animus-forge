@@ -367,6 +367,27 @@ void AnimusForge::ClassRole::ClassRoleScenario::WriteStageFiles(ForgeConfig cons
         json.Key(layout.Profile->Name).Value(layout.ModelName());
     json.EndObject();
 
+    // Where each block sits in each layout: a later stage seeds its networks block by block from these.
+    json.Key("layouts").BeginObject();
+    for (Layout const& layout : _layouts)
+    {
+        json.Key(layout.Profile->Name).BeginObject()
+            .Key("obs_dim").Value(layout.ObsDim)
+            .Key("num_actions").Value(layout.NumActions)
+            .Key("blocks").BeginArray();
+        for (BlockId id : layout.Blocks)
+        {
+            BlockSlice const& slice = layout.Slice(id);
+            json.BeginObject()
+                .Key("name").Value(BlockName(id))
+                .Key("obs").Span(slice.ObsFirst, slice.ObsCount)
+                .Key("actions").Span(slice.ActionFirst, slice.ActionCount)
+                .EndObject();
+        }
+        json.EndArray().EndObject();
+    }
+    json.EndObject();
+
     json.Key("episode_info").Array(_info.Names(), [](JsonWriter& out, std::string const& name) { out.Value(name); });
     json.Key("tuning").Raw(_tuning.Json());
     json.EndObject();

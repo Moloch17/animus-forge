@@ -51,6 +51,20 @@ void AnimusForge::Forge::OnStartup()
         return;
     }
 
+    // A stage seeds from the closest trained stage it extends: queued before its base, it seeds from further up the
+    // tree (or starts from scratch) unless that base already finished in an earlier run.
+    for (std::size_t index = 0; index < _queue.size(); ++index)
+    {
+        ClassRole::StageDefinition const* stage = ClassRole::FindStage(_queue[index]);
+        if (!stage || stage->Extends.empty())
+            continue;
+
+        auto const base = std::find(_queue.begin() + index + 1, _queue.end(), stage->Extends);
+        if (base != _queue.end() && !AlreadyFinished(stage->Extends))
+            LOG_WARN("module.animus", "Queue: {} comes before {}, which it extends and seeds from; it will not seed "
+                "from it. Queue {} first.", stage->Name, stage->Extends, stage->Extends);
+    }
+
     _queueIndex = 0;
     StartQueue();
 }

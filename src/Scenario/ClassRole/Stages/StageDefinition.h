@@ -53,8 +53,9 @@ namespace AnimusForge::ClassRole
 
     /// One curriculum stage: its own scenario (`class_role_duel`, ...), its blocks and what its envs contain.
     ///
-    /// A stage extends one earlier stage: its blocks start with that stage's blocks, so every layout keeps the earlier
-    /// stage's features and actions in place, and the earlier stage's best model seeds it.
+    /// A stage extends one earlier stage, whose best model seeds it: the base's blocks this stage keeps are seeded
+    /// block by block (their features and actions may move), dropped ones are left behind and new ones start fresh.
+    /// Several stages may extend the same base, so the curriculum is a tree.
     struct StageDefinition
     {
         std::string Name;               // the scenario name
@@ -72,8 +73,8 @@ namespace AnimusForge::ClassRole
         [[nodiscard]] uint32 SeatCount() const;
     };
 
-    /// Every class/role stage, first to last. Invalid definitions (a stage that does not extend its base's blocks, an
-    /// unknown base, parts that need a missing block) are logged and left out.
+    /// Every class/role stage, every base before the stages that extend it. Invalid definitions (an unknown or later
+    /// base, a repeated block, parts that need a missing block) are logged and left out.
     [[nodiscard]] std::vector<StageDefinition> const& ClassRoleStages();
 
     [[nodiscard]] StageDefinition const* FindStage(std::string_view name);
