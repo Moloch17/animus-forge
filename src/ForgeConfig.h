@@ -27,9 +27,6 @@
 
 namespace AnimusForge
 {
-    /// Game milliseconds per world tick: the forge core's fixed sim tick (ForgeUpdateLoop in ForgeMain.cpp).
-    constexpr uint32 SIM_TICK_MS = 50;
-
     /// Module settings, read once at startup (mod_animus_forge.conf.dist documents every key). Only settings: what is
     /// running lives in Forge. The curriculum's tuning is CurriculumTuning.
     struct ForgeConfig
@@ -49,7 +46,9 @@ namespace AnimusForge
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
-        uint32 DecisionTicks = 2;
+        /// AnimusForge.DecisionMs: game time per decision, which is also the forge core's world tick (ForgeUpdateLoop in
+        /// ForgeMain.cpp reads the same key): every world update is one decision.
+        uint32 DecisionMs = 100;
         uint32 EpisodeSeconds = 60;
 
         std::string Policy;
@@ -74,13 +73,18 @@ namespace AnimusForge
 
         /// AnimusForge.ModelDir, resolved: where `forge export` writes models. Never empty after Load.
         std::string ModelDir;
-        /// AnimusForge.Progress.Interval, seconds; 0 = no periodic report.
-        uint32 ProgressInterval = 60;
+        /// AnimusForge.Progress.Interval, seconds; 0 = no periodic report (`forge status` and each stage's end only).
+        uint32 ProgressInterval = 0;
+
+        /// The level every character is, or 0 for the curriculum's random levels (AnimusForge.Curriculum.Characters.*).
+        /// Only the fast profile sets it (AnimusForge.Fast.Level).
+        uint32 Level = 0;
 
         /// AnimusForge.Fast.*: the low-resolution profile `forge fast` trains with (see FastProfile).
         uint32 FastEnvs = 16;
-        uint32 FastDecisionTicks = 4;
-        uint32 FastEpisodeSeconds = 30;
+        uint32 FastLevel = 20;
+        /// AnimusForge.Fast.Queue: what `forge fast` trains when given no scenarios; empty = AnimusForge.Queue.
+        std::vector<std::string> FastQueue;
         std::vector<std::string> FastClassRoles;    // empty = AnimusForge.ClassRoles
         std::string FastOutputDir;                  // resolved: never empty after Load
         std::string FastLearnerOverlay;             // resolved: never empty after Load
@@ -88,8 +92,8 @@ namespace AnimusForge
 
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
-        /// These settings with the fast profile applied: fewer envs, coarser decisions, shorter episodes, fewer
-        /// class/roles, and the learner's small budgets (FastLearnerOverlay). Everything goes to FastOutputDir (runs,
+        /// These settings with the fast profile applied: fewer envs, a few class/roles at one level, and the learner's
+        /// quick convergence settings (FastLearnerOverlay). Everything goes to FastOutputDir (runs,
         /// layouts and models), so a test run never archives, seeds from or overwrites a real run.
         [[nodiscard]] ForgeConfig FastProfile() const;
 

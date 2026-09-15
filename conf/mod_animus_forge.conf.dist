@@ -117,13 +117,15 @@ AnimusForge.ClassRoles = ""
 AnimusForge.Envs = 64
 
 #
-#    AnimusForge.DecisionTicks
-#        Description: World ticks per agent decision; a tick is 50 ms of game time. Per-decision reward
-#                     terms are scaled to stay the same per second. Models play at this interval
-#                     (mod-animus: Animus.DecisionMs = 50 x DecisionTicks).
-#        Default:     2 - (a decision every 100 ms)
+#    AnimusForge.DecisionMs
+#        Description: Game time per agent decision, in milliseconds. It is also the sim's world tick: the
+#                     forge worldserver advances the world this much per update and every update is one
+#                     decision, so game time and decisions stay in step. Read once at startup (a change
+#                     needs a restart). Per-decision reward terms are scaled to stay the same per second.
+#                     Models play at this interval (mod-animus: Animus.Curriculum.DecisionMs).
+#        Default:     100
 
-AnimusForge.DecisionTicks = 2
+AnimusForge.DecisionMs = 100
 
 #
 #    AnimusForge.EpisodeSeconds
@@ -244,27 +246,35 @@ AnimusForge.Learner.LogFile = ""
 ###################################################################################################
 # FAST TEST RUN
 #
-#    `forge fast [scenario ...]` trains the scenarios (default: AnimusForge.Queue) at low resolution,
-#    to check quickly that training works end to end before a long run: fewer envs, coarser
-#    decisions, shorter episodes, a few class/roles, and small learner budgets. It always uses the
-#    remote policy and trains from scratch, in its own output directory, so it never archives,
-#    seeds from or overwrites a real run. Every other setting is the one above.
+#    `forge fast [scenario ...]` trains a few stages (default: AnimusForge.Fast.Queue) on an easier
+#    problem, to see quickly that training works and learns before a long run: fewer envs, a few
+#    class/roles at one level, and learner settings that end each stage as soon as its evaluation
+#    score stops improving. It always uses the remote policy and trains from scratch, in its own
+#    output directory, so it never archives, seeds from or overwrites a real run. Every other
+#    setting (decision interval, episode length, rewards) is the one above.
+#
+#    AnimusForge.Fast.Queue
+#        Description: Comma-separated scenarios `forge fast` trains when given none. The default covers a
+#                     stage from scratch, a stage seeded from it, a scripted enemy player, and a stage that
+#                     mixes two arenas, merges two parents and distills from them.
+#        Default:     "stage1_duel, stage6_pvp, mix_duel_pvp"
+#                     ""  - (AnimusForge.Queue)
+
+AnimusForge.Fast.Queue = "stage1_duel, stage6_pvp, mix_duel_pvp"
+
 #
 #    AnimusForge.Fast.Envs
 #        Description: Parallel envs of a fast run.
-#        Default:     16
+#        Default:     32
 #
-#    AnimusForge.Fast.DecisionTicks
-#        Description: World ticks per decision of a fast run.
-#        Default:     4 - (a decision every 200 ms)
-#
-#    AnimusForge.Fast.EpisodeSeconds
-#        Description: Game-time episode length of a fast run, in seconds.
-#        Default:     30
+#    AnimusForge.Fast.Level
+#        Description: The level of every character in a fast run (raised to a class's starting level, e.g.
+#                     55 for death knights). One level means fewer spells, gear and matchups to learn.
+#        Default:     20
+#                     0  - (the curriculum's random levels, AnimusForge.Curriculum.Characters.*)
 
-AnimusForge.Fast.Envs = 16
-AnimusForge.Fast.DecisionTicks = 4
-AnimusForge.Fast.EpisodeSeconds = 30
+AnimusForge.Fast.Envs = 32
+AnimusForge.Fast.Level = 20
 
 #
 #    AnimusForge.Fast.ClassRoles
@@ -287,8 +297,9 @@ AnimusForge.Fast.OutputDir = "fast"
 #
 #    AnimusForge.Fast.Learner.Overlay
 #        Description: Learner config merged over every stage's config in a fast run (--overlay),
-#                     relative to the directory of worldserver.conf or absolute. The default shrinks step,
-#                     evaluation and checkpoint budgets and turns the stage targets off.
+#                     relative to the directory of worldserver.conf or absolute. The default evaluates
+#                     often, ends a stage once its score stops improving (with a step cap as a safety
+#                     net) and turns the stage targets off.
 #        Default:     "" - configs/fast.yaml
 
 AnimusForge.Fast.Learner.Overlay = ""
@@ -314,16 +325,16 @@ AnimusForge.ModelDir = ""
 
 #
 #    AnimusForge.Progress.Interval
-#        Description: While a scenario runs, log a progress report every this many wall-clock seconds:
-#                     env steps, step rate, ETAs (step limit, earliest convergence, the whole plan),
-#                     evaluation scores against the baseline, restarts, losses and warnings (stalled
-#                     learner, falling step rate, entropy collapse, large updates, non-finite values,
-#                     convergence close). `forge status` prints the same report at any time; `forge
-#                     progress <seconds|off>` changes the interval until the server restarts.
-#        Default:     60
-#                     0  - (no periodic report)
+#        Description: While a scenario runs, also log the progress report every this many wall-clock
+#                     seconds: env steps, step rate, ETAs (step limit, earliest convergence, the whole
+#                     plan), evaluation scores against the baseline, restarts, losses and warnings
+#                     (stalled learner, falling step rate, entropy collapse, large updates, non-finite
+#                     values, convergence close). The report is always printed when a stage ends, and
+#                     `forge status` prints it at any time; `forge progress <seconds|off>` changes the
+#                     interval until the server restarts.
+#        Default:     0  - (no periodic report)
 
-AnimusForge.Progress.Interval = 60
+AnimusForge.Progress.Interval = 0
 
 ###################################################################################################
 # CURRICULUM TUNING
@@ -332,7 +343,7 @@ AnimusForge.Progress.Interval = 60
 # and scripted players it meets, and the reward weights. Every key is optional; a missing one keeps
 # the default shown. The effective values are written to <OutputDir>/layouts/<stage>/stage.json and
 # copied into every run directory. Per-decision reward terms are tuned per 50 ms decision and scaled
-# with AnimusForge.DecisionTicks.
+# with AnimusForge.DecisionMs.
 
 #
 #    AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight

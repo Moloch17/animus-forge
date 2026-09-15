@@ -61,8 +61,12 @@ namespace
     /// Version of stage.json (2 adds the stage's arenas).
     constexpr uint32 STAGE_FILE_FORMAT = 2;
 
-    uint8 RandomLevel(uint8 minLevel, CurriculumTuning::CharacterTuning const& tuning)
+    /// A level every seat's class can be: `fixed` when set (raised to minLevel), else drawn from the tuning.
+    uint8 RandomLevel(uint8 minLevel, uint32 fixed, CurriculumTuning::CharacterTuning const& tuning)
     {
+        if (fixed)
+            return uint8(std::clamp<uint32>(fixed, minLevel, DEFAULT_MAX_LEVEL));
+
         uint32 const highFirst = std::clamp<uint32>(tuning.HighLevelFirst, 1, DEFAULT_MAX_LEVEL);
         if (minLevel <= highFirst && roll_chance_i(tuning.HighLevelChance))
             return uint8(urand(highFirst, DEFAULT_MAX_LEVEL));
@@ -130,8 +134,8 @@ namespace
 
 AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config, StageDefinition const& stage)
     : _stage(stage), _tuning(CurriculumTuning::Load()), _spawnMapId(config.SpawnMapId),
-    _spawnPoint(config.SpawnPosition), _seatCount(stage.SeatCount()),
-    _decisionScale(float(config.DecisionTicks * SIM_TICK_MS) / REWARD_TUNING_MS)
+    _spawnPoint(config.SpawnPosition), _seatCount(stage.SeatCount()), _level(config.Level),
+    _decisionScale(float(config.DecisionMs) / REWARD_TUNING_MS)
 {
     // The class/roles this run plays: AnimusForge.ClassRoles, or all of them.
     for (ClassRoleProfile const& profile : ClassRoleProfiles())
@@ -279,11 +283,11 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
 
     WriteStageFiles(config);
 
-    LOG_INFO("module.animus", "{}: {} seats per env, {} class/role layouts (obs up to {}, actions up to {}), state {}",
+    LOG_DEBUG("module.animus", "{}: {} seats per env, {} class/role layouts (obs up to {}, actions up to {}), state {}",
         Name(), _seatCount, _layouts.size(), _spec.ObsDim, _spec.NumActions, _spec.StateDim);
     if (_stage.Arenas.size() > 1)
         for (std::size_t arena = 0; arena < _stage.Arenas.size(); ++arena)
-            LOG_INFO("module.animus", "{}: arena {} (weight {}, {} s episodes)", Name(), _stage.Arenas[arena].Name,
+            LOG_DEBUG("module.animus", "{}: arena {} (weight {}, {} s episodes)", Name(), _stage.Arenas[arena].Name,
                 _arenaWeights[arena], _arenaEpisodeMs[arena] / IN_MILLISECONDS);
 }
 
@@ -712,7 +716,7 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
         if (data.Seats[seat].L)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
 
-    uint8 const level = RandomLevel(minLevel, _tuning.Characters);
+    uint8 const level = RandomLevel(minLevel, _level, _tuning.Characters);
     Map* map = firstBuild ? nullptr : env.FindMap();
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a

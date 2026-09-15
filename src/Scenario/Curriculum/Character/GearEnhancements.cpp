@@ -172,7 +172,7 @@ void AnimusForge::Curriculum::GearBuilder::BuildEnhancements(StatProfile stats)
             uint16(proto.ItemLevel), uint8(proto.Quality) });
     }
 
-    LOG_INFO("module.animus", "Enhancements for class {} profile {}: {} enchants, {} gems", _class, uint32(stats),
+    LOG_DEBUG("module.animus", "Enhancements for class {} profile {}: {} enchants, {} gems", _class, uint32(stats),
         enchants.size(), gems.size());
 }
 

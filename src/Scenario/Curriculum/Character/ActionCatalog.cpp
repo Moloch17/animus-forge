@@ -361,7 +361,7 @@ AnimusForge::Curriculum::ActionCatalog::ActionCatalog(uint8 playerClass, ClassKi
     if (playerClass == CLASS_WARLOCK)
         _revives.push_back({ Kind::Soulstone, "soulstone" });
 
-    LOG_INFO("module.animus", "Class {}: {} actions, {} tactical, {} sustain, {} revives, from {} candidate spells",
+    LOG_DEBUG("module.animus", "Class {}: {} actions, {} tactical, {} sustain, {} revives, from {} candidate spells",
         playerClass, _actions.size(), _tactical.size(), _sustain.size(), _revives.size(), candidates.size());
 }
 

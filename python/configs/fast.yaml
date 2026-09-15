@@ -1,38 +1,41 @@
-# Overlay for `forge fast`: a low-resolution test run of the curriculum. The sim passes `--overlay configs/fast.yaml`
-# to every stage's learner, and it is merged over that stage's whole config (extends chain included), before any
-# --set. It is not a stage config of its own: never `extends` it or train it directly.
+# Overlay for `forge fast`: a quick run of a few stages that still shows learning. The sim passes
+# `--overlay configs/fast.yaml` to every stage's learner, and it is merged over that stage's whole config (extends chain
+# included), before any --set. It is not a stage config of its own: never `extends` it or train it directly.
 #
-# The sim side of the fast profile (AnimusForge.Fast.*) plays fewer envs, coarser decisions, shorter episodes and a few
-# class/roles, in its own output directory. This file shrinks what the learner spends: step budgets, evaluation and
-# checkpoint sizes. Everything that decides how a stage trains and ends -- networks, gamma, entropy, patience, the
-# evaluation baseline, restarts -- stays each stage's own, so a fast run goes through the same code paths as the real
-# one: spec and layouts, rollouts and updates, seeded evaluation with the baseline, convergence, checkpoints,
-# finished.json, the plan moving on and each stage seeding from the one before.
+# The sim side of the fast profile (AnimusForge.Fast.*) makes the problem easier -- fewer envs, a few class/roles at one
+# level -- in its own output directory. This file makes the learner end a stage as soon as it stops improving, like a
+# real run but with small evaluations: a stage ends by convergence, and total_env_steps is only a safety cap. Networks,
+# gamma, entropy, the evaluation baseline and seeding stay each stage's own, so a fast stage seeds from the fast runs of
+# the stages it builds on, through the same code paths as a real run.
 #
-# A few hundred thousand env steps are enough to see the loss, entropy and evaluation score move, not to learn the
-# stage: compare the at_start evaluation with the last one in eval.csv.
+# Look at eval.csv: the at_start evaluation against the best, and the baseline in eval_baseline.json.
 
-total_env_steps: 600000
-rollout_length: 64
-checkpoint_every: 5
+total_env_steps: 3000000
+rollout_length: 128
+checkpoint_every: 10
 keep_checkpoints: 2
+
+mappo:
+  minibatches: 4
 
 eval:
   every_env_steps: 100000
-  episodes: 32
+  episodes: 64
 
 convergence:
-  min_env_steps: 200000
+  patience: 4
+  window: 3
+  min_env_steps: 500000
 
-# No stage target: a policy this short-trained would not beat the scripted baseline, and the plan would halt at the
-# first stage. To test the gates and restarts too, put them back from the console config, e.g.
-# AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0".
+# No stage target: a short run is not held to the real gates, so the plan never halts on a fast stage. To test the gates
+# and restarts too: AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0".
 target:
   min_over_baseline: null
   min_layout_over_baseline: null
   metrics: {}
-  confirm_episodes: 32
+  arenas: {}
+  confirm_episodes: 64
 
 restarts:
   max_restarts: 1
-  entropy_half_life_env_steps: 50000
+  entropy_half_life_env_steps: 200000

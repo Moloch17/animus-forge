@@ -133,7 +133,7 @@ AnimusForge::Curriculum::Opponents::OpponentPool::OpponentPool()
         }
     }
 
-    LOG_INFO("module.animus", "Opponent pool: {} opponent creatures, {} pack creatures ({} casting), {} elites",
+    LOG_DEBUG("module.animus", "Opponent pool: {} opponent creatures, {} pack creatures ({} casting), {} elites",
         opponents, packMembers, castOnlySmart.size(), elites);
 }
 

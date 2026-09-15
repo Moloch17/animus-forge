@@ -19,6 +19,7 @@
 #include "ForgeConfig.h"
 #include "BotAccounts.h"
 #include "Config.h"
+#include "DBCEnums.h"
 #include "Log.h"
 #include "Tokenize.h"
 #include <algorithm>
@@ -94,7 +95,7 @@ void AnimusForge::ForgeConfig::Load()
             BotAccounts::MAX_ENVS);
         Envs = BotAccounts::MAX_ENVS;
     }
-    DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 2));
+    DecisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 100));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");
@@ -148,11 +149,11 @@ void AnimusForge::ForgeConfig::Load()
     fs::path const modelDir = sConfigMgr->GetOption<std::string>("AnimusForge.ModelDir", "");
     ModelDir = (modelDir.empty() ? ModuleRoot() / "models" : Resolve(modelDir, configDir)).lexically_normal().string();
 
-    ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 60);
+    ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 0);
 
     FastEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Envs", 16));
-    FastDecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.DecisionTicks", 4));
-    FastEpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.EpisodeSeconds", 30));
+    FastLevel = std::min<uint32>(DEFAULT_MAX_LEVEL, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Level", 20));
+    FastQueue = GetList("AnimusForge.Fast.Queue", "stage1_duel, stage6_pvp, mix_duel_pvp");
     FastClassRoles = GetList("AnimusForge.Fast.ClassRoles", "warrior_tank, priest_heal, rogue_dps, hunter_dps");
 
     fs::path fastOutputDir = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.OutputDir", "fast");
@@ -204,8 +205,7 @@ AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile() const
     ForgeConfig fast = *this;
     fast.Policy = "remote";
     fast.Envs = FastEnvs;
-    fast.DecisionTicks = FastDecisionTicks;
-    fast.EpisodeSeconds = FastEpisodeSeconds;
+    fast.Level = FastLevel;
     fast.ReportEpisodes = std::min<uint32>(ReportEpisodes, 64);
     if (!FastClassRoles.empty())
         fast.ClassRoles = FastClassRoles;

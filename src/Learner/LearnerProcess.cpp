@@ -73,7 +73,7 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config, std::string c
     if (!ChildProcess::Start(LearnerArgs(config, scenario, resume), workDir.string(), config.LearnerLogFile))
         return false;
 
-    LOG_INFO("module.animus", "Started learner (pid {}) for {}{}: config {}; output in {}", Pid(), scenario,
+    LOG_DEBUG("module.animus", "Started learner (pid {}) for {}{}: config {}; output in {}", Pid(), scenario,
         resume ? ", resuming latest.pt" : "", configPath.string(), config.LearnerLogFile);
     return true;
 }

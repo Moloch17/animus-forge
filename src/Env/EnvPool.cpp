@@ -79,7 +79,7 @@ bool AnimusForge::EnvPool::Setup()
         IndexEnv(env);
     }
 
-    LOG_INFO("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
+    LOG_DEBUG("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
         _envs.size(), _spec.AgentsPerEnv, _spec.ObsDim, _spec.StateDim, _spec.NumActions);
 
     return true;

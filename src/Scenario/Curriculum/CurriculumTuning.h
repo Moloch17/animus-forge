@@ -29,7 +29,7 @@
  * (mod_animus_forge.conf.dist documents them); the effective values are recorded in each stage's stage.json and so in
  * every run directory. Visit lists them once, for loading and for writing.
  *
- * Per-decision reward terms are tuned per 50 ms decision and scaled with AnimusForge.DecisionTicks.
+ * Per-decision reward terms are tuned per 50 ms decision and scaled with AnimusForge.DecisionMs.
  */
 namespace AnimusForge::Curriculum
 {

@@ -74,7 +74,7 @@ bool AnimusForge::LockstepServer::Listen(std::string const& path)
     }
 
     _path = path;
-    LOG_INFO("module.animus", "Listening for the learner on {}", path);
+    LOG_DEBUG("module.animus", "Listening for the learner on {}", path);
     return true;
 }
 
@@ -94,7 +94,7 @@ bool AnimusForge::LockstepServer::AcceptClient(std::function<bool()> const& onId
 {
     DropClient();
 
-    LOG_INFO("module.animus", "Waiting for the learner to connect...");
+    LOG_DEBUG("module.animus", "Waiting for the learner to connect...");
 
     while (WaitReadable(_listener, onIdle))
     {
@@ -120,7 +120,7 @@ bool AnimusForge::LockstepServer::AcceptClient(std::function<bool()> const& onId
             continue;
         }
 
-        LOG_INFO("module.animus", "Learner connected");
+        LOG_DEBUG("module.animus", "Learner connected");
         return true;
     }
 
@@ -200,7 +200,7 @@ bool AnimusForge::LockstepServer::Receive(MsgType& type, void* dst, std::size_t 
     // CLOSE carries no payload; the caller sees the type and the connection is already gone.
     if (type == MsgType::Close)
     {
-        LOG_INFO("module.animus", "Learner closed the session");
+        LOG_DEBUG("module.animus", "Learner closed the session");
         DropClient();
         return true;
     }
@@ -228,7 +228,7 @@ bool AnimusForge::LockstepServer::ReceiveAny(MsgType& type, std::vector<char>& p
 
     if (type == MsgType::Close)
     {
-        LOG_INFO("module.animus", "Learner closed the session");
+        LOG_DEBUG("module.animus", "Learner closed the session");
         DropClient();
         return true;
     }

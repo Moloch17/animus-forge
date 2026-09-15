@@ -30,6 +30,7 @@
 #include "Random.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "Supplies.h"
 #include <algorithm>
 #include <string_view>
 #include <unordered_map>
@@ -379,7 +380,7 @@ std::unordered_map<uint32, uint8> const& AnimusForge::Curriculum::GearStats::Ite
                     result[item] |= SOURCE_QUEST;
         }
 
-        LOG_INFO("module.animus", "Gear: {} items from dungeons and quests", result.size());
+        LOG_DEBUG("module.animus", "Gear: {} items from dungeons and quests", result.size());
         return result;
     }();
 
@@ -430,7 +431,7 @@ std::unordered_set<uint32> const& AnimusForge::Curriculum::GearStats::Obtainable
                         && effect.ItemType)
                         result.insert(effect.ItemType);
 
-        LOG_INFO("module.animus", "Gear: {} obtainable items", result.size());
+        LOG_DEBUG("module.animus", "Gear: {} obtainable items", result.size());
         return result;
     }();
 
@@ -634,7 +635,7 @@ void AnimusForge::Curriculum::GearBuilder::BuildPools(StatProfile stats)
             pools[pool].push_back(candidate);
     }
 
-    LOG_INFO("module.animus", "Gear pools for class {} profile {}: {} two-handers, {} one-handers, {} chests, "
+    LOG_DEBUG("module.animus", "Gear pools for class {} profile {}: {} two-handers, {} one-handers, {} chests, "
         "{} trinkets", _class, uint32(stats), pools[POOL_TWO_HAND].size(), pools[POOL_MAIN_HAND].size(),
         pools[POOL_CHEST].size(), pools[POOL_TRINKET].size());
 }
@@ -863,6 +864,6 @@ void AnimusForge::Curriculum::GearBuilder::StoreAmmo(Player* bot) const
         if (reqLevel <= bot->GetLevel())
             itemId = id;
 
-    if (itemId && bot->StoreNewItemInBestSlots(itemId, AMMO_COUNT))
+    if (itemId && StoreInBags(bot, itemId, AMMO_COUNT))
         bot->SetAmmo(itemId);
 }

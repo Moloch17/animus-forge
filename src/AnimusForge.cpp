@@ -100,14 +100,19 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
         return;
     }
 
-    _tickMs = diff;
+    // The forge core ticks by the same key; a different tick means a worldserver built before the two were one, and
+    // the per-decision reward scale would be off.
+    if (diff != RunConfig().DecisionMs && !_tickMismatchLogged)
+    {
+        _tickMismatchLogged = true;
+        LOG_ERROR("module.animus", "The world ticks {} ms, but AnimusForge.DecisionMs is {}: rebuild the worldserver "
+            "(./forge.sh --build) so every tick is one decision", diff, RunConfig().DecisionMs);
+    }
+
     ++_ticks;
     _pool->AdvanceClock(diff);
 
     MaybeReport();
-
-    if (_ticks % RunConfig().DecisionTicks)
-        return;
 
     if (_plan.Remote())
         RemoteDecision();
@@ -152,7 +157,7 @@ void AnimusForge::Forge::ApplyRequest()
             _plan = std::move(_requested);
             _requested = {};
             _plan.Index = 0;
-            LOG_INFO("module.animus", "Plan: {} scenario{} with policy {}", _plan.Entries.size(),
+            LOG_DEBUG("module.animus", "Plan: {} scenario{} with policy {}", _plan.Entries.size(),
                 _plan.Entries.size() == 1 ? "" : "s", _plan.Policy);
             if (!StartCurrent())
             {
@@ -229,8 +234,7 @@ bool AnimusForge::Forge::StartCurrent()
 
     LOG_INFO("module.animus", "Starting {}{}{} with policy {}{}", entry.Scenario, position,
         entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy, _plan.Fast
-        ? Acore::StringFormat(" (fast: {} envs, a decision every {} ms, {} s episodes, in {})", config.Envs,
-            SIM_TICK_MS * config.DecisionTicks, config.EpisodeSeconds, config.OutputDir) : "");
+        ? Acore::StringFormat(" (fast: {}; in {})", FastSummary(), config.OutputDir) : "");
 
     // Reject a local policy name before building anything, rather than on the first decision.
     if (!_plan.Remote() && !KnowsPolicy(_plan.Policy))
@@ -328,6 +332,7 @@ void AnimusForge::Forge::FinishCurrent(Outcome outcome)
     PlanEntry& entry = _plan.Entries[_plan.Index];
     entry.Result = outcome;
 
+    ReportStageEnd();
     LOG_INFO("module.animus", "{} {} after {}{}", entry.Scenario, OutcomeName(outcome),
         Format::Duration(std::chrono::duration<double>(std::chrono::steady_clock::now() - _scenarioStarted).count()),
         _plan.Entries.size() > 1 ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "");
@@ -404,8 +409,8 @@ bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string cons
 void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<std::string> const& scenarios,
     LineSink const& out) const
 {
-    // A stage seeds from the closest trained stage it extends: listed before its base, it seeds from further up the
-    // tree (or starts from scratch) unless that base already advanced in an earlier run.
+    // A stage seeds from the closest trained stage it extends (and a merge from its other parents): a parent that has
+    // no finished run in this config's runs directory and is not trained earlier in this plan is not seeded from.
     for (std::size_t index = 0; index < scenarios.size(); ++index)
     {
         Curriculum::StageDefinition const* stage = Curriculum::FindStage(scenarios[index]);
@@ -415,10 +420,18 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
         std::vector<std::string> parents = { stage->Extends };
         parents.insert(parents.end(), stage->Merges.begin(), stage->Merges.end());
         for (std::string const& parent : parents)
-            if (std::find(scenarios.begin() + index + 1, scenarios.end(), parent) != scenarios.end()
-                && !RunAdvanced(config, parent))
+        {
+            if (RunAdvanced(config, parent)
+                || std::find(scenarios.begin(), scenarios.begin() + index, parent) != scenarios.begin() + index)
+                continue;
+
+            if (std::find(scenarios.begin() + index + 1, scenarios.end(), parent) != scenarios.end())
                 out(Acore::StringFormat("  Warning: {} comes before {}, which it builds on and seeds from; it will "
                     "not seed from it. List {} first.", stage->Name, parent, parent));
+            else
+                out(Acore::StringFormat("  Warning: {} builds on {}, which has no finished run in {}; it will not "
+                    "seed from it. Train {} first.", stage->Name, parent, config.RunsDir().string(), parent));
+        }
     }
 }
 
@@ -456,6 +469,13 @@ void AnimusForge::Forge::MaybeReport()
     _lastReport = now;
     _learner.Poll();
     _monitor.Report(RunConfig(), Snapshot(true), PlanRows(_plan, true), LogInfo, LogWarn, true);
+}
+
+void AnimusForge::Forge::ReportStageEnd()
+{
+    // The report `forge status` shows, once more as the stage ends: its final evaluation and the plan so far.
+    _learner.Poll();
+    _monitor.Report(RunConfig(), Snapshot(false), PlanRows(_plan, true), LogInfo, LogWarn, false);
 }
 
 AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
@@ -594,6 +614,7 @@ void AnimusForge::Forge::RemoteDecision()
             {
                 // The stage stayed below its target after its restarts: later stages must not train on top of it.
                 _plan.Entries[_plan.Index].Result = Outcome::BelowTarget;
+                ReportStageEnd();
                 LOG_ERROR("module.animus", "{} stayed below its stage target after its restarts (see runs/{}/"
                     "finished.json and stage.jsonl). The plan halts here: tune the target or the stage, then `forge "
                     "start {}`.", _current, _current, _current);
@@ -711,10 +732,10 @@ bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
     _pool->SetEvaluation(mode.Mode == 1, mode.SeedBase, mode.Episodes, baseline, opponentsOnly);
 
     if (mode.Mode == 1)
-        LOG_INFO("module.animus", "Evaluation: {} seeded episodes from seed {}, policy {}", mode.Episodes,
+        LOG_DEBUG("module.animus", "Evaluation: {} seeded episodes from seed {}, policy {}", mode.Episodes,
             mode.SeedBase, baseline.empty() ? "learner" : opponentsOnly ? "learner against " + baseline : baseline);
     else
-        LOG_INFO("module.animus", "Evaluation finished; training");
+        LOG_DEBUG("module.animus", "Evaluation finished; training");
 
     return true;
 }
@@ -731,8 +752,9 @@ bool AnimusForge::Forge::SendSpec()
     msg.StateDim = spec.StateDim;
     msg.NumActions = spec.NumActions;
     msg.EpisodeInfoDim = spec.EpisodeInfoDim;
-    msg.TickMs = _tickMs;
-    msg.DecisionTicks = RunConfig().DecisionTicks;
+    // Every world tick is a decision.
+    msg.TickMs = RunConfig().DecisionMs;
+    msg.DecisionTicks = 1;
     // The longest episode the scenario can have: the learner sizes evaluation windows by it.
     msg.EpisodeSeconds = std::max(RunConfig().EpisodeSeconds, spec.LongestEpisodeSeconds);
     std::strncpy(msg.Scenario, _scenario->Name(), SCENARIO_NAME_SIZE - 1);

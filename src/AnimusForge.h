@@ -33,8 +33,8 @@
 
 namespace AnimusForge
 {
-    /// Module root: owns the scenario, the env pool and the learner connection, and runs one decision step every
-    /// AnimusForge.DecisionTicks world ticks while a plan runs.
+    /// Module root: owns the scenario, the env pool and the learner connection, and runs one decision step every world
+    /// tick while a plan runs (a tick is AnimusForge.DecisionMs of game time).
     ///
     /// The sim starts idle; console commands (Hooks/ForgeCommandScript.cpp) start, pause, resume, skip and cancel
     /// plans. A command only records a request: OnUpdate applies it at the start of a tick, never in the middle of
@@ -177,6 +177,10 @@ namespace AnimusForge
         [[nodiscard]] SimSnapshot Snapshot(bool advanceRates);
         [[nodiscard]] std::vector<PlanRow> PlanRows(Plan const& plan, bool live) const;
         [[nodiscard]] std::string StateName() const;
+        /// The progress report at the end of the running stage (whatever AnimusForge.Progress.Interval is).
+        void ReportStageEnd();
+        /// The fast profile in a few words: envs, level and class/roles.
+        [[nodiscard]] std::string FastSummary() const;
         [[nodiscard]] bool Enabled(LineSink const& out) const;
         [[nodiscard]] bool ValidScenario(std::string const& scenario, LineSink const& out) const;
 
@@ -204,8 +208,8 @@ namespace AnimusForge
 
         uint64 _ticks = 0;
         uint64 _decisions = 0;
-        uint32 _tickMs = 0;
-        uint32 _progressInterval = 60;
+        bool _tickMismatchLogged = false;   // a world tick other than AnimusForge.DecisionMs was reported once
+        uint32 _progressInterval = 0;
 
         std::chrono::steady_clock::time_point _scenarioStarted;
         std::chrono::steady_clock::time_point _lastReport;

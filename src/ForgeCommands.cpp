@@ -145,7 +145,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
         table.AddRow({ "queue (forge start)", Join(DefaultQueue()) });
         table.AddRow({ "policy", _config.Policy });
         table.AddRow({ "envs", Acore::StringFormat("{}, a decision every {} ms, {} s episodes", _config.Envs,
-            (_tickMs ? _tickMs : SIM_TICK_MS) * _config.DecisionTicks, _config.EpisodeSeconds) });
+            _config.DecisionMs, _config.EpisodeSeconds) });
 
         if (_config.IsRemote())
         {
@@ -156,13 +156,9 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
 
         table.AddRow({ "runs", _config.RunsDir().string() });
         table.AddRow({ "models", _config.ModelDir });
-        table.AddRow({ "fast test run (forge fast)", Acore::StringFormat("{} envs, a decision every {} ms, {} s "
-            "episodes, {}; in {}", _fastConfig.Envs, SIM_TICK_MS * _fastConfig.DecisionTicks,
-            _fastConfig.EpisodeSeconds,
-            _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles),
-            _fastConfig.OutputDir) });
-        table.AddRow({ "progress report", _progressInterval ? Acore::StringFormat("every {}",
-            Format::Duration(_progressInterval)) : "off" });
+        table.AddRow({ "fast test run (forge fast)", FastSummary() + "; in " + _fastConfig.OutputDir });
+        table.AddRow({ "progress report", _progressInterval ? Acore::StringFormat("every {} and at each stage's end",
+            Format::Duration(_progressInterval)) : "`forge status`, and at each stage's end" });
 
         if (_lastPlan)
         {
@@ -306,9 +302,28 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
         return false;
     }
 
-    // A test run checks the whole pipeline, so without names it trains every queued scenario, finished or not.
+    // Without names: AnimusForge.Fast.Queue (else the whole queue), minus the stages whose fast run already finished,
+    // so running `forge fast` again trains the next stage on top of the ones before. Named stages always train.
+    bool const fromQueue = scenarios.empty();
+    if (fromQueue)
+    {
+        for (std::string const& scenario : _config.FastQueue.empty() ? DefaultQueue() : _config.FastQueue)
+        {
+            if (RunAdvanced(_fastConfig, scenario))
+                out(Acore::StringFormat("  Skipping {}: its fast run already finished (`forge fast {}` trains it "
+                    "again, `forge clean fast` starts over).", scenario, scenario));
+            else
+                scenarios.push_back(scenario);
+        }
+    }
+
     if (scenarios.empty())
-        scenarios = DefaultQueue();
+    {
+        out(fromQueue ? "Nothing to start: every stage of AnimusForge.Fast.Queue has a finished fast run. Name the "
+            "stages to train (`forge fast <scenario> [scenario ...]`) or `forge clean fast` to start over."
+            : "Nothing to start: name the scenarios (`forge fast <scenario> [scenario ...]`).");
+        return false;
+    }
 
     Plan plan;
     plan.Policy = _fastConfig.Policy;
@@ -324,13 +339,12 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
     _requested = std::move(plan);
     _request = Request::Start;
 
-    out(Acore::StringFormat("Fast test run of {}: {} envs, a decision every {} ms, {} s episodes, {}.", Join(scenarios),
-        _fastConfig.Envs, SIM_TICK_MS * _fastConfig.DecisionTicks, _fastConfig.EpisodeSeconds,
-        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles)));
-    out(Acore::StringFormat("  Learner budgets from {} over each stage's config.", _fastConfig.FastLearnerOverlay));
-    out(Acore::StringFormat("  Runs, layouts and models go to {}: each scenario trains from scratch there, seeding "
-        "from the fast runs before it. The runs in {} are not touched.", _fastConfig.OutputDir,
-        _config.RunsDir().string()));
+    out(Acore::StringFormat("Fast test run of {}: {}.", Join(scenarios), FastSummary()));
+    out(Acore::StringFormat("  Learner settings from {} over each stage's config: each stage ends when its evaluation "
+        "score stops improving.", _fastConfig.FastLearnerOverlay));
+    out(Acore::StringFormat("  Runs, layouts and models go to {}: each scenario trains from scratch there (an earlier "
+        "fast run of it is archived), seeding from the fast runs of the stages it builds on. The runs in {} are not "
+        "touched.", _fastConfig.OutputDir, _config.RunsDir().string()));
     WarnSeedOrder(_fastConfig, scenarios, out);
     return true;
 }
@@ -784,6 +798,13 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
     return ok;
 }
 
+std::string AnimusForge::Forge::FastSummary() const
+{
+    return Acore::StringFormat("{} envs, {}, {}", _fastConfig.Envs,
+        _fastConfig.Level ? Acore::StringFormat("level {}", _fastConfig.Level) : std::string("random levels"),
+        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles));
+}
+
 void AnimusForge::Forge::CommandProgress(std::optional<uint32> seconds, LineSink const& out)
 {
     if (seconds)
@@ -796,5 +817,5 @@ void AnimusForge::Forge::CommandProgress(std::optional<uint32> seconds, LineSink
     }
 
     out(_progressInterval ? Acore::StringFormat("Progress report every {} while a scenario runs.",
-        Format::Duration(_progressInterval)) : "Periodic progress report off; `forge status` shows it on demand.");
+        Format::Duration(_progressInterval)) : "Periodic progress report off: `forge status` shows it on demand, and each stage's end prints it.");
 }

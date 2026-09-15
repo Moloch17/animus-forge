@@ -19,7 +19,7 @@ worldserver (forge)                                   python -m animus.train
  └─ World::ForgeUpdate ── every tick ─┐
      sScriptMgr->OnWorldUpdate        │  EnvPool: N envs, one instance map each
                                       │   ├─ Scenario::Reward / Observe / auto-reset
-                                      │   └─ every DecisionTicks:
+                                      │   └─ every tick (AnimusForge.DecisionMs):
                                       │        STEP  ── unix socket ──►  MAPPO actor picks actions
                                       │        ACT   ◄───────────────   (lock-step)
                                       └─ Scenario::ApplyActions
@@ -493,7 +493,7 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per scenario of `forge start` before moving on |
 | `AnimusForge.ClassRoles` | `""` | Class/roles the curriculum stages play; empty = all 18 |
 | `AnimusForge.Envs` | `64` | Parallel envs (one instance map each) |
-| `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
+| `AnimusForge.DecisionMs` | `100` | Game time per decision, and the sim's world tick: every world update is one decision |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
 | `AnimusForge.SpawnPoint.*` | Old Hillsbrad entrance | Dungeon map and position every env's bots start at |
 | `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`) |
@@ -503,8 +503,8 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
 | `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
 | `AnimusForge.ModelDir` | `models/` in the module | Where `forge export` writes models |
-| `AnimusForge.Progress.Interval` | `60` | Seconds between progress reports while a scenario runs; `0` = off |
-| `AnimusForge.Fast.*` | see the `.dist` | The low-resolution profile of `forge fast` (see [Fast test run](#fast-test-run-forge-fast)) |
+| `AnimusForge.Progress.Interval` | `0` | Seconds between extra progress reports while a scenario runs; `0` = only `forge status` and each stage's end |
+| `AnimusForge.Fast.*` | see the `.dist` | The quick profile of `forge fast` (see [Fast test run](#fast-test-run-forge-fast)) |
 | `AnimusForge.Curriculum.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
 Relative paths in the path keys (`OutputDir`, `ModelDir`, `Socket`, `Learner.WorkDir`, `Learner.Python`,
@@ -565,7 +565,7 @@ and prints its settings; nothing trains until you say so.
 | `forge status` | The progress report below, or the idle settings and the last plan's outcome |
 | `forge scenarios` | Every scenario with its run: finished (and why: converged, below_target, ...), resumable checkpoint, steps, best score |
 | `forge start [scenario ...]` | Train these from scratch, in order. Without names: `AnimusForge.Queue` (every stage when empty), minus the stages that already advanced (`Queue.SkipFinished`). Earlier runs are archived; a stage listed before the stage it extends is warned about |
-| `forge fast [scenario ...]` | A quick low-resolution training run of these (default: `AnimusForge.Queue`, finished or not) in the fast output directory, to check training works before a long run (see [Fast test run](#fast-test-run-forge-fast)) |
+| `forge fast [scenario ...]` | A quick training run of these on an easier problem, in the fast output directory (default: `AnimusForge.Fast.Queue` minus the stages with a finished fast run), to see training work before a long run (see [Fast test run](#fast-test-run-forge-fast)) |
 | `forge resume [scenario ...]` | Unpause; or continue the first scenario from its `latest.pt`, then train the rest. Without names: where the last plan stopped. With a crashed learner: restart it from its checkpoint |
 | `forge pause` | Freeze after the current decision: maps, episode clocks and the learner all wait |
 | `forge cancel` | Stop the plan; the learner saves `latest.pt` first, so `forge resume` can continue it |
@@ -585,8 +585,8 @@ removal is listed with its size.
 
 ### Progress report
 
-While a scenario runs the console prints a report every `AnimusForge.Progress.Interval` seconds (and `forge status`
-prints one at any time). The learner keeps `runs/<scenario>/progress.json` up to date after every update and
+`forge status` prints this report at any time, and the console prints it when each stage ends (also every
+`AnimusForge.Progress.Interval` seconds when that is set). The learner keeps `runs/<scenario>/progress.json` up to date after every update and
 evaluation; the sim combines it with what it measures itself:
 
 ```
@@ -627,33 +627,36 @@ Forge: stage2_pack (2 of 4) | training | update 412 | 3h 12m
 
 ### Fast test run (`forge fast`)
 
-A real stage trains for hours before its first stage decision. `forge fast` runs the same pipeline at low resolution
-in minutes, to check that a change to a scenario, the learner or the configs still trains before starting a long
-run:
+A real stage trains for hours before its first stage decision. `forge fast` trains stages on an easier problem that
+learns in minutes, through the same pipeline, to see that a change to a scenario, the learner or the configs still
+trains -- and learns -- before a long run. Stages can be trained one at a time, each on top of the last:
 
 ```
-forge fast                       # every queued stage, one after another
-forge fast stage1_duel stage2_pack
+forge fast                       # AnimusForge.Fast.Queue, minus stages whose fast run already finished
+forge fast                       # again: the next stage (nothing left: name one, or `forge clean fast`)
+forge fast stage2_pack           # just this stage, seeded from the fast run of stage1_duel; trains it again if done
 ```
 
-- **Sim (`AnimusForge.Fast.*`):** 16 envs, a decision every 200 ms, 30 s episodes, and four class/roles
-  (`warrior_tank, priest_heal, rogue_dps, hunter_dps`: a tank and a healer for the party, energy, rage, mana and a
-  pet). Per-decision rewards are scaled to the decision interval as usual.
-- **Learner (`configs/fast.yaml`):** merged over each stage's config with `--overlay`. It shrinks the budgets --
-  600k env steps, an evaluation of 32 seeded episodes every 100k, `min_env_steps` 200k, small checkpoints -- and
-  turns the stage targets off, so the plan moves on to the next stage when a stage converges or reaches its budget.
-  Networks, gamma, entropy, patience, the baseline and restarts stay each stage's own, so the run goes through the same
-  code as a real one: spec and layouts, rollouts and updates, evaluation with the baseline, convergence, checkpoints,
-  `finished.json`, the next stage seeding from this one, and `forge export`. To test the target gates and restarts
-  too: `AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0"`.
+- **Sim (`AnimusForge.Fast.*`):** 32 envs and four class/roles (`warrior_tank, priest_heal, rogue_dps, hunter_dps`: a
+  tank and a healer for the party, energy, rage, mana and a pet), every character at level 20 (`Fast.Level`; 0 = the
+  usual random levels). The decision interval, episode lengths and rewards are the real ones. Without names it trains
+  `Fast.Queue` (`stage1_duel, stage6_pvp, mix_duel_pvp`: a stage from scratch, a seeded one, a scripted enemy player,
+  and an arena mix with merge seeding and distillation).
+- **Learner (`configs/fast.yaml`):** merged over each stage's config with `--overlay`. A stage ends when its score
+  stops improving: an evaluation of 64 seeded episodes every 100k env steps, done after 4 evaluations without a new
+  best but not before 500k, with 3M as a safety cap. Stage targets (per-arena ones included) are off, so the plan never
+  halts on a fast stage. Networks, gamma, entropy and the baseline stay each stage's own, so the run goes through the
+  same code as a real one: spec and layouts, rollouts and updates, evaluation with the baseline, convergence,
+  checkpoints, `finished.json`, seeding and distillation from earlier stages, and `forge export`. To test the target
+  gates and restarts too: `AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0"`.
 - **Output:** runs, layouts and models go to `<OutputDir>/fast/` (`AnimusForge.Fast.OutputDir`), never into the real
-  `runs/`: a fast run never archives, seeds from or overwrites a real one. Each `forge fast` trains from scratch
-  there. The progress report says `(fast)`; `forge pause`, `cancel`, `skip`, `resume` (without names) and `export`
-  (without a scenario) work on the fast run; `forge clean fast` deletes it all.
-- **What to look at:** in `fast/runs/<stage>/`, `eval.csv` (the `at_start` evaluation against the later ones, and the
-  baseline in `eval_baseline.json`), `metrics.csv` (losses, entropy, approx KL) and `finished.json`; in the console,
-  the progress report's warnings (NaN metrics, collapsing entropy, a learner that stopped answering). A few hundred
-  thousand steps show whether the score, loss and entropy move -- not whether the stage can be learned.
+  `runs/`: a fast run never archives, seeds from or overwrites a real one. A stage trained again archives its earlier
+  fast run in `fast/runs/_archive/`. `forge start` and `forge fast` warn about a stage whose parents have no finished
+  run to seed from. `forge pause`, `cancel`, `skip`, `resume` (without names) and `export` (without a scenario) work on
+  the fast run; `forge clean fast` deletes it all.
+- **What to look at:** the report printed at the end of each stage (best score against the baseline), and in
+  `fast/runs/<stage>/`, `eval.csv` (the `at_start` evaluation against the later ones, the baseline in
+  `eval_baseline.json`), `metrics.csv` (losses, entropy, approx KL) and `finished.json`.
 
 ## Baselines (no Python)
 

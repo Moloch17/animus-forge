@@ -204,7 +204,7 @@ AnimusForge::Curriculum::ConsumablePool::ConsumablePool()
         std::sort(items->begin(), items->end());
     std::sort(_bandages.begin(), _bandages.end());
 
-    LOG_INFO("module.animus", "Consumables: {} foods, {} drinks sold by vendors; {} healing and {} mana potions, {} "
+    LOG_DEBUG("module.animus", "Consumables: {} foods, {} drinks sold by vendors; {} healing and {} mana potions, {} "
         "bandages, {} healthstones, {} soulstones", _food.size(), _drink.size(), _healthPotions.size(),
         _manaPotions.size(), _bandages.size(), _healthstones.size(), _soulstones.size());
 }
@@ -290,7 +290,7 @@ AnimusForge::Curriculum::StablePool::StablePool()
     for (auto& [family, entries] : beastsByFamily)
         _beastsByFamily.push_back(std::move(entries));
 
-    LOG_INFO("module.animus", "Stable: {} tameable beast families", _beastsByFamily.size());
+    LOG_DEBUG("module.animus", "Stable: {} tameable beast families", _beastsByFamily.size());
 }
 
 std::vector<uint32> AnimusForge::Curriculum::StablePool::Random(uint32 count) const
@@ -311,12 +311,21 @@ std::vector<uint32> AnimusForge::Curriculum::StablePool::Random(uint32 count) co
     return stable;
 }
 
+bool AnimusForge::Curriculum::StoreInBags(Player* bot, uint32 itemId, uint32 count)
+{
+    ItemPosCountVec dest;
+    if (bot->CanStoreNewItem(INVENTORY_SLOT_BAG_0, NULL_SLOT, dest, itemId, count) != EQUIP_ERR_OK)
+        return false;
+
+    return bot->StoreNewItem(dest, itemId, true) != nullptr;
+}
+
 void AnimusForge::Curriculum::StockBattleSupplies(Player* bot, BattleSupplies const& supplies, StatProfile stats)
 {
     auto const stock = [bot](uint32 item, uint32 count)
     {
         for (uint32 have = item ? bot->GetItemCount(item) : count; have < count; ++have)
-            if (!bot->StoreNewItemInBestSlots(item, 1))
+            if (!StoreInBags(bot, item, 1))
                 break;
     };
 
@@ -345,7 +354,7 @@ void AnimusForge::Curriculum::StockConsumables(Player* bot, uint32 food, uint32 
             continue;
 
         for (uint32 count = bot->GetItemCount(item); count < CONSUMABLE_COUNT; ++count)
-            if (!bot->StoreNewItemInBestSlots(item, 1))
+            if (!StoreInBags(bot, item, 1))
                 break;
     }
 }

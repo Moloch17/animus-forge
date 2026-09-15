@@ -135,7 +135,7 @@ namespace AnimusForge::Curriculum
         [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
         [[nodiscard]] uint32 SeatCount() const { return _seatCount; }
         /// Decision interval / 50 ms: per-decision reward terms are tuned per 50 ms and scaled by this, so they mean
-        /// the same per second at any AnimusForge.DecisionTicks.
+        /// the same per second at any AnimusForge.DecisionMs.
         [[nodiscard]] float DecisionScale() const { return _decisionScale; }
 
         [[nodiscard]] EnvState& Data(Env const& env);
@@ -198,6 +198,7 @@ namespace AnimusForge::Curriculum
         uint32 _spawnMapId;
         Position _spawnPoint;
         uint32 _seatCount = 1;
+        uint32 _level = 0;                  // ForgeConfig::Level: every character's level, 0 = random
         float _decisionScale = 1.0f;
 
         std::vector<Layout> _layouts;

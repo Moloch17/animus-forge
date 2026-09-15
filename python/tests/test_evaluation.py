@@ -322,8 +322,10 @@ def test_fast_overlay_loads_over_every_stage():
         fast = TrainConfig.load(stage, overlays=[configs / "fast.yaml"])
         assert fast.run_name == full.run_name
         assert fast.total_env_steps < full.total_env_steps
-        assert fast.eval.every_env_steps < fast.total_env_steps
-        assert fast.convergence.min_env_steps < fast.total_env_steps
+        assert fast.eval.every_env_steps < fast.convergence.min_env_steps < fast.total_env_steps
+        assert fast.convergence.patience > 0
+        # A fast stage never halts the plan on a gate, per-arena gates of mixed stages included.
+        assert not fast.target.enabled
         assert tuple(fast.mappo.hidden) == tuple(full.mappo.hidden)
 
 

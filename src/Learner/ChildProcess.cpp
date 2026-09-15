@@ -160,9 +160,9 @@ void AnimusForge::ChildProcess::ReportExit(int status)
     _exitCode = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
     if (_exitedCleanly)
-        LOG_INFO("module.animus", "{} (pid {}) finished; output in {}", _name, _pid, _logFile);
+        LOG_DEBUG("module.animus", "{} (pid {}) finished; output in {}", _name, _pid, _logFile);
     else if (_stopping)
-        LOG_INFO("module.animus", "{} (pid {}) stopped; output in {}", _name, _pid, _logFile);
+        LOG_DEBUG("module.animus", "{} (pid {}) stopped; output in {}", _name, _pid, _logFile);
     else if (WIFEXITED(status))
         LOG_ERROR("module.animus", "{} (pid {}) exited with code {}; see {}", _name, _pid, WEXITSTATUS(status),
             _logFile);

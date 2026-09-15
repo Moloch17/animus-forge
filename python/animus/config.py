@@ -221,10 +221,11 @@ def load_yaml(path: str | Path, seen: tuple[Path, ...] = ()) -> dict:
 
 
 def merge(base: dict, override: dict) -> dict:
-    """`override` over `base`: sections merge key by key, anything else is replaced."""
+    """`override` over `base`: sections merge key by key, anything else is replaced. An empty map replaces too, so
+    `metrics: {}` in an overlay clears what the stage set."""
     merged = dict(base)
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+        if isinstance(value, dict) and value and isinstance(merged.get(key), dict):
             merged[key] = merge(merged[key], value)
         else:
             merged[key] = value

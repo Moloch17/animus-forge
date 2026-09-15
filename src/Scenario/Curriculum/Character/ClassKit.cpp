@@ -23,6 +23,7 @@
 #include "Player.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "Supplies.h"
 #include <algorithm>
 #include <set>
 
@@ -164,7 +165,7 @@ void AnimusForge::Curriculum::ClassKit::StoreReagents(Player* bot) const
         // Some reagents do not stack (Soul Shard), and a store is all-or-nothing: add one at a time
         // until the bags are full.
         uint32 stored = 0;
-        while (stored < reagent.Count && bot->StoreNewItemInBestSlots(reagent.ItemId, 1))
+        while (stored < reagent.Count && StoreInBags(bot, reagent.ItemId, 1))
             ++stored;
 
         if (!stored)
