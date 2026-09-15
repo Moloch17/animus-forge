@@ -103,7 +103,13 @@ namespace AnimusForge::Curriculum
             std::array<SeatPull, MAX_SEATS> Seats;
         };
 
-        [[nodiscard]] bool Gauntlet() const { return _scenario.Stage().Schedule == PullSchedule::Gauntlet; }
+        /// Whether the env's episode is pull after pull (else a single pack).
+        [[nodiscard]] bool Gauntlet(Env const& env) const
+        {
+            return _scenario.Arena(env).Schedule == PullSchedule::Gauntlet;
+        }
+        /// Whether any arena of the stage is: its supplies, episode info columns.
+        [[nodiscard]] bool AnyGauntlet() const;
         bool SpawnPull(Env& env, Map* map);
         /// The field is empty: schedule the next pull and restart the seats' target selection.
         void EndPull(Env& env, EnvPulls& pulls);
@@ -132,6 +138,7 @@ namespace AnimusForge::Curriculum
         void WriteState(Env const& env, float* state) const override;
         void OnRecovered(Env& env, int32 who) override;
         void OnPullStarting(Env& env) override;
+        void Deactivate(Env& env) override;
         void Teardown(Env& env) override;
 
     private:
@@ -204,11 +211,11 @@ namespace AnimusForge::Curriculum
     };
 
     /// An enemy player: one played by a script (Opposition::ScriptedPlayer), or the other seat (self-play,
-    /// Opposition::MirrorSeat). Reward: CombatReward::OneOnOne against it.
+    /// Opposition::MirrorSeat), as the env's arena says. Reward: CombatReward::OneOnOne against it.
     class OpponentEncounter final : public Encounter
     {
     public:
-        OpponentEncounter(StageScenario& scenario, uint32 envs, bool mirror);
+        OpponentEncounter(StageScenario& scenario, uint32 envs);
 
         [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
         void AddEpisodeInfo(EpisodeInfoTable& table) override;
@@ -218,6 +225,7 @@ namespace AnimusForge::Curriculum
         void View(Env const& env, uint32 seat, SeatView& view) const override;
         void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        void Deactivate(Env& env) override;
         void Teardown(Env& env) override;
 
     private:
@@ -229,10 +237,14 @@ namespace AnimusForge::Curriculum
             ScriptedPlayer::State Script;
         };
 
+        /// Whether the env's opponent is the other seat.
+        [[nodiscard]] bool Mirror(Env const& env) const
+        {
+            return _scenario.Arena(env).Against == Opposition::MirrorSeat;
+        }
         [[nodiscard]] Player* Find(Env const& env, uint32 seat) const;
         bool RebuildScripted(Env& env, Player* bot, Map* map);
 
-        bool _mirror;
         std::vector<EnvOpponent> _envs;
     };
 }

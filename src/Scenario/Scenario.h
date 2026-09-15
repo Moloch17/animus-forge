@@ -47,6 +47,7 @@ namespace AnimusForge
         uint32 StateDim = 0;
         uint32 NumActions = 0;      // the largest layout's: every agent's mask row is padded to it
         uint32 EpisodeInfoDim = 0;  // per agent
+        uint32 LongestEpisodeSeconds = 0;   // when some episodes run longer than AnimusForge.EpisodeSeconds
         std::vector<LayoutSpec> Layouts;    // empty = one layout named after the scenario, ObsDim x NumActions
     };
 

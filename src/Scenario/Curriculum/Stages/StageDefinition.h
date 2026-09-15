@@ -50,7 +50,28 @@ namespace AnimusForge::Curriculum
         Gauntlet,       // pull after pull with a break between, until the episode ends
     };
 
-    /// One curriculum stage: its own scenario (`stage1_duel`, ...), its blocks and what its envs contain.
+    /// Most arenas a stage can mix (the critic state has one column per arena).
+    constexpr uint32 MAX_ARENAS = 8;
+
+    /// One situation an episode of a stage can be: who the seats are, what they fight, and how long it lasts. Every
+    /// episode of a stage draws one of its arenas by weight, so one stage (and one policy) can train PvE and PvP
+    /// together. A stage with a single arena is a stage of one situation.
+    struct ArenaDefinition
+    {
+        std::string Name;               // unique in the stage: episode info, stage.json, tuning keys
+        uint32 Weight = 1;              // share of episodes; AnimusForge.Curriculum.Arena.<stage>.<name>.Weight
+        SeatPlan Seats = SeatPlan::Solo;
+        Opposition Against = Opposition::Creature;
+        PullSchedule Schedule = PullSchedule::None;
+        bool Owner = false;             // a scripted owner the seats fight for
+        bool PartyGroup = false;        // the owner and seats form a core group
+        bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
+        uint32 EpisodeSeconds = 0;      // episode length; 0 = AnimusForge.EpisodeSeconds
+
+        [[nodiscard]] uint32 SeatCount() const;
+    };
+
+    /// One curriculum stage: its own scenario (`stage1_duel`, ...), its blocks and the arenas its episodes are.
     ///
     /// A stage extends one earlier stage, whose best model seeds it: the base's blocks this stage keeps are seeded
     /// block by block (their features and actions may move), dropped ones are left behind and new ones start fresh.
@@ -61,15 +82,22 @@ namespace AnimusForge::Curriculum
         std::string Suffix;             // added to a class/role's name for the stage's models (warrior_dps_duel)
         std::string Extends;            // the stage it builds on and seeds from; empty for the first
         std::string Summary;
-        std::vector<BlockId> Blocks;    // in layout order
-        SeatPlan Seats = SeatPlan::Solo;
-        Opposition Against = Opposition::Creature;
-        PullSchedule Schedule = PullSchedule::None;
-        bool Owner = false;             // a scripted owner the seats fight for
-        bool PartyGroup = false;        // the owner and seats form a core group
+        std::vector<BlockId> Blocks;    // in layout order: every block any of its arenas needs
+        std::vector<ArenaDefinition> Arenas;
+        bool InDefaultQueue = true;     // trained by an empty AnimusForge.Queue (false: only when named)
 
         [[nodiscard]] bool Has(BlockId block) const;
+        /// Seats per env: the largest arena's.
         [[nodiscard]] uint32 SeatCount() const;
+        /// Whether any arena of the stage satisfies `predicate` (encounters, info columns and pools it needs).
+        template <typename Predicate>
+        [[nodiscard]] bool AnyArena(Predicate predicate) const
+        {
+            for (ArenaDefinition const& arena : Arenas)
+                if (predicate(arena))
+                    return true;
+            return false;
+        }
     };
 
     /// Every curriculum stage, every base before the stages that extend it. Invalid definitions (an unknown or later

@@ -61,6 +61,9 @@ AnimusForge.OutputDir = ""
 #                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
 #                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
+#                     Only when named (not in an empty queue):
+#                       "mix_duel_pvp"     - pilot arena mix: each episode a creature duel or a scripted
+#                                            enemy player (seeds from stage6_pvp)
 #        Example:     "stage1_duel" - (train a single scenario)
 #        Default:     "" - (the whole curriculum, first stage to last)
 
@@ -327,6 +330,13 @@ AnimusForge.Progress.Interval = 60
 # the default shown. The effective values are written to <OutputDir>/layouts/<stage>/stage.json and
 # copied into every run directory. Per-decision reward terms are tuned per 50 ms decision and scaled
 # with AnimusForge.DecisionTicks.
+
+#
+#    AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight
+#        Description: A stage's share of episodes for one of its arenas (see stage.json "arenas"), e.g.
+#                     AnimusForge.Curriculum.Arena.mix_duel_pvp.duel.Weight = 3 for three duels per
+#                     scripted enemy player. Only matters for stages with several arenas.
+#        Default:     the stage definition's weight (1 for every arena of the current stages)
 
 #
 #    AnimusForge.Curriculum.Characters.*

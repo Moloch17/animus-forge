@@ -44,8 +44,8 @@ namespace
     }
 }
 
-AnimusForge::Curriculum::OpponentEncounter::OpponentEncounter(StageScenario& scenario, uint32 envs, bool mirror)
-    : Encounter(scenario), _mirror(mirror), _envs(envs)
+AnimusForge::Curriculum::OpponentEncounter::OpponentEncounter(StageScenario& scenario, uint32 envs)
+    : Encounter(scenario), _envs(envs)
 {
 }
 
@@ -60,12 +60,12 @@ void AnimusForge::Curriculum::OpponentEncounter::AddEpisodeInfo(EpisodeInfoTable
     table.Add("won", [this](Env const& env, uint32 seat)
     {
         CombatTally const& tally = _scenario.Data(env).Seats[seat].Combat;
-        return tally.Killed && !tally.Died ? 1.0f : 0.0f;
+        return _scenario.Uses(env, *this) && tally.Killed && !tally.Died ? 1.0f : 0.0f;
     });
 
     table.Add("opponent_class", [this](Env const& env, uint32 seat)
     {
-        if (!_mirror)
+        if (!Mirror(env))
             return float(_envs[env.Index].Class);
         SeatState const& other = _scenario.Data(env).Seats[1 - seat];
         return other.L ? float(other.L->Profile->Class) : 0.0f;
@@ -73,7 +73,7 @@ void AnimusForge::Curriculum::OpponentEncounter::AddEpisodeInfo(EpisodeInfoTable
 
     table.Add("opponent_role", [this](Env const& env, uint32 seat)
     {
-        if (!_mirror)
+        if (!Mirror(env))
             return float(uint32(_envs[env.Index].PlayRole));
         SeatState const& other = _scenario.Data(env).Seats[1 - seat];
         return other.L ? float(uint32(other.L->PlayRole())) : 0.0f;
@@ -82,7 +82,7 @@ void AnimusForge::Curriculum::OpponentEncounter::AddEpisodeInfo(EpisodeInfoTable
 
 Player* AnimusForge::Curriculum::OpponentEncounter::Find(Env const& env, uint32 seat) const
 {
-    if (_mirror)
+    if (Mirror(env))
         return env.FindBot(1 - seat);
 
     Player* opponent = _envs[env.Index].Bot.Active();
@@ -93,11 +93,13 @@ bool AnimusForge::Curriculum::OpponentEncounter::Build(Env& env, Map* map, uint8
 {
     EnvState& data = _scenario.Data(env);
 
-    for (uint32 seat = 0; seat < _scenario.SeatCount(); ++seat)
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
         _scenario.PrepareFighter(_scenario.SeatBot(env, seat), data.Seats[seat]);
 
-    if (_mirror)
+    if (Mirror(env))
     {
+        // A scripted opponent of an earlier episode (a stage mixing both kinds) has no place here.
+        _envs[env.Index].Bot.Destroy();
         MakeEnemies(_scenario.SeatBot(env, 0), _scenario.SeatBot(env, 1));
         return true;
     }
@@ -170,7 +172,7 @@ void AnimusForge::Curriculum::OpponentEncounter::Update(Env& env)
     if (!bot->IsPvP() || !opponent->IsPvP())
         MakeEnemies(bot, opponent);
 
-    if (!_mirror)
+    if (!Mirror(env))
         ScriptedPlayer::UpdateOpponent(opponent, bot, env.EpisodeElapsedMs, _envs[env.Index].Script,
             _scenario.Tuning().ScriptedPlayers);
 }
@@ -184,9 +186,9 @@ bool AnimusForge::Curriculum::OpponentEncounter::SelectTarget(Env const& env, ui
 void AnimusForge::Curriculum::OpponentEncounter::View(Env const& env, uint32 seat, SeatView& view) const
 {
     view.Opponent = Find(env, seat);
-    view.Mirror = _mirror;
+    view.Mirror = Mirror(env);
 
-    if (_mirror)
+    if (Mirror(env))
     {
         SeatState const& other = _scenario.Data(env).Seats[1 - seat];
         view.OpponentClass = other.L ? other.L->Profile->Class : 0;
@@ -208,16 +210,22 @@ void AnimusForge::Curriculum::OpponentEncounter::Reward(Env& env, uint32 seat, P
 bool AnimusForge::Curriculum::OpponentEncounter::IsTerminal(Env const& env) const
 {
     EnvState const& data = _scenario.Data(env);
-    if (_mirror)
+    if (Mirror(env))
         return data.Seats[0].Combat.Died || data.Seats[1].Combat.Died;
 
     return data.Seats[0].Combat.Died || data.Seats[0].Combat.Killed;
 }
 
+void AnimusForge::Curriculum::OpponentEncounter::Deactivate(Env& env)
+{
+    Teardown(env);
+    _envs[env.Index].Class = 0;
+    _envs[env.Index].PlayRole = Role::Dps;
+}
+
 void AnimusForge::Curriculum::OpponentEncounter::Teardown(Env& env)
 {
-    if (!_mirror)
-        _envs[env.Index].Bot.Destroy();
-
+    // Nothing to destroy in self-play: the slot is empty then.
+    _envs[env.Index].Bot.Destroy();
     env.Targets.clear();
 }

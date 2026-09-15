@@ -88,11 +88,19 @@ A stage is one entry in `src/Scenario/Curriculum/Stages/Stages.cpp` (`StageDefin
 
   The sim checks each definition at startup (the base exists and comes earlier, no block twice, every part has the
   blocks it needs) and leaves out a stage that breaks a rule.
+- **Arenas** (`ArenaDefinition`): what its episodes are -- the seats (one, a party, a mirror pair), what they fight
+  (a creature, pulls on a pack or gauntlet schedule, a scripted or mirror enemy player), whether there is an owner and
+  a party group, whether it is PvP (resilience gear, no resurrecting oneself) and its episode length. Every episode
+  draws one of the stage's arenas by weight (`AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight`, default the
+  definition's), after the evaluation reseed, so a seed always gets the same arena. A stage's blocks are the union of
+  what its arenas need, so one policy learns every situation of the stage; stages 1-7 have one arena each. An env
+  switching arenas removes what the old one had (the owner, the group, the enemy player) before rebuilding.
 - **Encounters** (`Encounters/`): what its envs contain besides the seats -- a creature, pulls
   (one pack or the gauntlet's schedule), a scripted owner, a party group, an enemy player (scripted or the other
-  seat). Each encounter builds and updates its part of the world, keeps its own episode state, and adds its reward
-  terms, episode info columns and critic state. `StageScenario` builds the seats and calls every encounter's
-  hooks in a fixed order.
+  seat). The stage creates every encounter any of its arenas uses. Each builds and updates its part of the world,
+  keeps its own episode state, and adds its reward terms, episode info columns and critic state; its columns read 0
+  in an episode whose arena does not use it. `StageScenario` builds the seats and calls the hooks of the episode's
+  encounters in a fixed order.
 - **Rewards** are added term by term (`Rewards/RewardLedger.h`); every term's episode sum is reported as the
   episode info column `reward_<term>` (`reward_damage_dealt`, `reward_clear`, `reward_owner_death`, ...), so
   TensorBoard shows what each stage actually pays for.
@@ -382,6 +390,15 @@ player factions and the PvP flag, which players need to attack each other.
 `configs/stage6_pvp.yaml` scores against the `fight` baseline. `configs/stage7_arena.yaml` has no
 baseline, convergence stop or target: against itself a policy's score does not track progress -- judge an arena
 model with `animus.evaluate` on a `stage6_pvp` sim.
+
+#### Arena mix pilot (`mix_duel_pvp`)
+
+Not part of the curriculum and left out of an empty `AnimusForge.Queue`: train it by name (`forge start mix_duel_pvp`).
+It has stage 6's blocks (core, duel, pvp), seeds from `stage6_pvp`, and each episode is either the creature duel
+(`duel`) or the scripted enemy player (`pvp_scripted`), half and half. It checks that one policy can train PvE and PvP
+episodes side by side before the curriculum's later stages mix larger arenas. The episode info column `arena` is the
+episode's index into `stage.json`'s `arenas` (with each arena's weight, seats, episode length and whether it is PvP);
+the critic state has the arena as a one-hot.
 
 ### Training every model: `AnimusForge.Queue`
 

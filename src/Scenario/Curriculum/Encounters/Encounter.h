@@ -42,10 +42,11 @@ namespace AnimusForge::Curriculum
     /// Who stood up again after a pull (see Encounter::OnRecovered).
     constexpr int32 RECOVERED_OWNER = -1;
 
-    /// One part of what a stage's envs contain besides the seats: the dummy, a creature, pulls, the owner, the party
-    /// group, the enemy player. The scenario creates the encounters its StageDefinition asks for and calls each hook
-    /// on every encounter, in a fixed order; an encounter keeps its own per-env state and adds its own rewards,
-    /// episode info and critic state.
+    /// One part of what a stage's envs contain besides the seats: a creature, pulls, the owner, the party group, the
+    /// enemy player. The scenario creates the encounters any of its arenas asks for; each episode it calls the hooks
+    /// of the encounters the episode's arena uses, in a fixed order. An encounter keeps its own per-env state and adds
+    /// its own rewards, episode info and critic state. Episode info columns and reward terms are the union over the
+    /// stage's arenas: an encounter an episode does not use reports 0.
     class Encounter
     {
     public:
@@ -100,6 +101,10 @@ namespace AnimusForge::Curriculum
 
         /// A new pull is about to spawn (the pulls encounter announces it; see StageScenario::NotifyPullStarting).
         virtual void OnPullStarting(Env& /*env*/) { }
+
+        /// The env's next episode is an arena without this encounter: remove what it keeps in the world (a bot, a
+        /// group), before the seats are rebuilt. It may be built again for a later episode.
+        virtual void Deactivate(Env& env) { Teardown(env); }
 
         /// Once at shutdown: remove what the encounter spawned.
         virtual void Teardown(Env& /*env*/) { }

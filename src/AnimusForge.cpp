@@ -384,7 +384,8 @@ std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
 
     std::vector<std::string> stages;
     for (Curriculum::StageDefinition const& stage : Curriculum::CurriculumStages())
-        stages.push_back(stage.Name);
+        if (stage.InDefaultQueue)
+            stages.push_back(stage.Name);
 
     return stages;
 }
@@ -726,7 +727,8 @@ bool AnimusForge::Forge::SendSpec()
     msg.EpisodeInfoDim = spec.EpisodeInfoDim;
     msg.TickMs = _tickMs;
     msg.DecisionTicks = RunConfig().DecisionTicks;
-    msg.EpisodeSeconds = RunConfig().EpisodeSeconds;
+    // The longest episode the scenario can have: the learner sizes evaluation windows by it.
+    msg.EpisodeSeconds = std::max(RunConfig().EpisodeSeconds, spec.LongestEpisodeSeconds);
     std::strncpy(msg.Scenario, _scenario->Name(), SCENARIO_NAME_SIZE - 1);
 
     uint32 const layoutCount = uint32(spec.Layouts.size());

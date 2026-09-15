@@ -52,8 +52,16 @@ AnimusForge::Curriculum::PullsEncounter::PullsEncounter(StageScenario& scenario,
 {
     // Load it at startup rather than on the first episode.
     Opponents::OpponentPool::Instance();
-    if (Gauntlet())
+    if (AnyGauntlet())
         ConsumablePool::Instance();
+}
+
+bool AnimusForge::Curriculum::PullsEncounter::AnyGauntlet() const
+{
+    return _scenario.Stage().AnyArena([](ArenaDefinition const& arena)
+    {
+        return arena.Schedule == PullSchedule::Gauntlet;
+    });
 }
 
 std::vector<AnimusForge::Curriculum::RewardTerm> AnimusForge::Curriculum::PullsEncounter::RewardTerms() const
@@ -73,7 +81,7 @@ void AnimusForge::Curriculum::PullsEncounter::AddEpisodeInfo(EpisodeInfoTable& t
     table.Add("pack_size", [this](Env const& env, uint32) { return float(_envs[env.Index].PackSize); });
     table.Add("linked", [this](Env const& env, uint32) { return _envs[env.Index].Linked ? 1.0f : 0.0f; });
 
-    if (Gauntlet())
+    if (AnyGauntlet())
     {
         table.Add("pulls_cleared", [this](Env const& env, uint32) { return float(_envs[env.Index].PullsCleared); });
         table.Add("food_used", [this](Env const& env, uint32 seat)
@@ -94,7 +102,7 @@ void AnimusForge::Curriculum::PullsEncounter::AddEpisodeInfo(EpisodeInfoTable& t
         });
     }
 
-    if (_scenario.Stage().Owner)
+    if (_scenario.Stage().AnyArena([](ArenaDefinition const& arena) { return arena.Owner; }))
         table.Add("wipes", [this](Env const& env, uint32) { return float(_envs[env.Index].Wipes); });
 }
 
@@ -118,7 +126,7 @@ bool AnimusForge::Curriculum::PullsEncounter::Build(Env& env, Map* map, uint8 /*
     EnvPulls& pulls = _envs[env.Index];
 
     // Pulls spawn around the owner: it has to be built first (see the build order in StageScenario).
-    if (_scenario.Stage().Owner && !_scenario.Owner(env))
+    if (_scenario.Arena(env).Owner && !_scenario.Owner(env))
     {
         LOG_ERROR("module.animus", "{}: env {} builds its pulls before its owner", _scenario.Name(), env.Index);
         return false;
@@ -132,7 +140,7 @@ bool AnimusForge::Curriculum::PullsEncounter::Build(Env& env, Map* map, uint8 /*
 
         SeatPull& supplies = pulls.Seats[seatIndex];
         supplies = SeatPull();
-        if (Gauntlet())
+        if (Gauntlet(env))
         {
             ConsumablePool const& consumables = ConsumablePool::Instance();
             supplies.FoodItem = consumables.Food(seat.Level);
@@ -149,7 +157,7 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
     EnvState& data = _scenario.Data(env);
     EnvPulls& pulls = _envs[env.Index];
     CurriculumTuning::PullTuning const& tuning = _scenario.Tuning().Pulls;
-    StageDefinition const& stage = _scenario.Stage();
+    ArenaDefinition const& arena = _scenario.Arena(env);
     Opponents::OpponentPool const& pool = Opponents::OpponentPool::Instance();
 
     Player* lead = _scenario.SeatBot(env, 0);
@@ -162,7 +170,7 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
     pulls.EliteOrHigher = false;
 
     // A party faces dungeon-like packs: 2-4 creatures, each sometimes elite, up to 2 levels higher.
-    if (stage.PartyGroup)
+    if (arena.PartyGroup)
     {
         level = uint8(std::min<uint32>(HIGHEST_OPPONENT_LEVEL, botLevel + urand(0, 2)));
         uint8 const poolLevel = uint8(std::min<uint32>(level, DEFAULT_MAX_LEVEL));
@@ -176,7 +184,7 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
         }
     }
 
-    if (entries.empty() && Gauntlet() && roll_chance_i(tuning.EliteChance))
+    if (entries.empty() && Gauntlet(env) && roll_chance_i(tuning.EliteChance))
     {
         if (uint32 const elite = pool.RandomElite(botLevel))
         {
@@ -187,13 +195,13 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
 
     if (entries.empty())
     {
-        if (Gauntlet() && roll_chance_i(tuning.HigherLevelChance))
+        if (Gauntlet(env) && roll_chance_i(tuning.HigherLevelChance))
         {
             level = uint8(std::min<uint32>(HIGHEST_OPPONENT_LEVEL, botLevel + urand(1, 3)));
             pulls.EliteOrHigher = true;
         }
 
-        uint32 const count = Gauntlet() ? urand(1, PACK_SLOTS) : urand(2, PACK_SLOTS);
+        uint32 const count = Gauntlet(env) ? urand(1, PACK_SLOTS) : urand(2, PACK_SLOTS);
         for (uint32 i = 0; i < count; ++i)
             if (uint32 const entry = pool.RandomPackMember(uint8(std::min<uint32>(level, DEFAULT_MAX_LEVEL))))
                 entries.push_back(entry);
@@ -258,11 +266,11 @@ void AnimusForge::Curriculum::PullsEncounter::UpdateEnemies(Env& env)
 
 void AnimusForge::Curriculum::PullsEncounter::Update(Env& env)
 {
-    bool const hasOwner = _scenario.Stage().Owner;
+    bool const hasOwner = _scenario.Arena(env).Owner;
     if (hasOwner)
         Recover(env);
 
-    if (!Gauntlet() || !env.Targets.empty() || env.EpisodeElapsedMs < _envs[env.Index].NextPullMs)
+    if (!Gauntlet(env) || !env.Targets.empty() || env.EpisodeElapsedMs < _envs[env.Index].NextPullMs)
         return;
 
     // The next pull once the break is over, if anyone is left to fight it.
@@ -452,7 +460,7 @@ void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex,
     tally.DamageTaken += step.DamageTaken;
     pull.PullDamageTaken += step.DamageTaken;
     ledger.Add(RewardTerm::DamageTaken,
-        -(Gauntlet() ? tuning.GauntletDamageTaken : tuning.DamageTaken) * seat.LastStepDamageTaken);
+        -(Gauntlet(env) ? tuning.GauntletDamageTaken : tuning.DamageTaken) * seat.LastStepDamageTaken);
 
     CombatReward::Casting(bot, step, tally, _scenario.Tuning().Casting, ledger);
     CombatReward::Approach(bot, nearest && bot->IsAlive() ? nearest : nullptr,
@@ -483,7 +491,7 @@ void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex,
 
     // Kills and clears are the party's: every seat shares them. With an owner they count more: the pilot's party
     // learned to fight less to avoid the penalties.
-    float const clearScale = _scenario.Stage().Owner ? tuning.OwnerClearScale : 1.0f;
+    float const clearScale = _scenario.Arena(env).Owner ? tuning.OwnerClearScale : 1.0f;
     if (pulls.NewKills)
         ledger.Add(RewardTerm::Kill, tuning.Kill * clearScale * float(pulls.NewKills));
 
@@ -491,7 +499,7 @@ void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex,
     {
         float const healthKept = 1.0f - std::min(1.0f, float(pull.PullDamageTaken) / botHealth);
 
-        if (Gauntlet())
+        if (Gauntlet(env))
         {
             float const pullTime = float(env.EpisodeElapsedMs - pulls.PullStartMs);
             ledger.Add(RewardTerm::Clear,
@@ -518,14 +526,14 @@ void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex,
         tally.Died = true;
         tally.DeathMs = env.EpisodeElapsedMs;
         ++tally.Deaths;
-        ledger.Add(RewardTerm::Death, -(Gauntlet() ? tuning.GauntletDeath : tuning.PackDeath));
+        ledger.Add(RewardTerm::Death, -(Gauntlet(env) ? tuning.GauntletDeath : tuning.PackDeath));
     }
 }
 
 void AnimusForge::Curriculum::PullsEncounter::AfterRewards(Env& env)
 {
     EnvPulls& pulls = _envs[env.Index];
-    if (!pulls.PullCleared || !Gauntlet())
+    if (!pulls.PullCleared || !Gauntlet(env))
         return;
 
     // Clear the field and schedule the next pull.
@@ -551,9 +559,9 @@ bool AnimusForge::Curriculum::PullsEncounter::IsTerminal(Env const& env) const
 {
     // With an owner nobody's death ends the episode (they stand up after the pull), so letting the owner die is
     // never a way out of the penalties. Alone, a death ends it once no resurrection of its own is left to wait for.
-    if (_scenario.Stage().Owner)
+    if (_scenario.Arena(env).Owner)
         return false;
 
     bool const dead = _scenario.DeadForGood(env, 0);
-    return Gauntlet() ? dead : _scenario.Data(env).Seats[0].Combat.Killed || dead;
+    return Gauntlet(env) ? dead : _scenario.Data(env).Seats[0].Combat.Killed || dead;
 }

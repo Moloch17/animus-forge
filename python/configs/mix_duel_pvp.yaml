@@ -1,0 +1,8 @@
+# Pilot of arena mixing, not part of the curriculum (trained only when named: forge start mix_duel_pvp): every episode
+# is one of the stage's arenas, drawn by weight -- here half a creature duel (stage 1's situation) and half a scripted
+# enemy player (stage 6's) -- so one policy learns PvE and PvP together. It seeds from stage6_pvp, which has the same
+# blocks (core, duel, pvp). The episode info column "arena" is the index into stage.json's arenas: duel 0,
+# pvp_scripted 1.
+
+extends: stage6_pvp.yaml
+run_name: mix_duel_pvp

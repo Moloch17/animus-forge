@@ -25,6 +25,7 @@
 #include "Layout.h"
 #include "Position.h"
 #include "Scenario.h"
+#include "StageDefinition.h"
 #include "StageState.h"
 #include <memory>
 
@@ -32,7 +33,6 @@ namespace AnimusForge::Curriculum
 {
     class OwnerEncounter;
     class PartyEncounter;
-    struct StageDefinition;
 
     /// One curriculum stage (see StageDefinition) for every class/role of AnimusForge.ClassRoles, as layouts of one
     /// policy.
@@ -43,8 +43,9 @@ namespace AnimusForge::Curriculum
     /// enchants and gems, and potions, bandages and stones it must learn to use. A seat's layout is its class/role's (see Layout), padded to the
     /// largest layout's on the wire; the learner shares one trunk between all layouts.
     ///
-    /// The scenario builds the seats and drives the stage's encounters (see Encounter); the critic state is
-    /// class-agnostic (every seat's and enemy's essentials, the owner and the pull timing).
+    /// Every episode is one of the stage's arenas (see ArenaDefinition), drawn by weight after the evaluation reseed.
+    /// The scenario builds the seats and drives the encounters the arena uses (see Encounter); the critic state is
+    /// class-agnostic (every seat's and enemy's essentials, the owner, the pull timing and the arena).
     class StageScenario final : public Scenario
     {
     public:
@@ -64,7 +65,8 @@ namespace AnimusForge::Curriculum
             STATE_OWNER_X               = 10,   // relative to the spawn point, / 40
             STATE_OWNER_Y               = 11,
             STATE_OWNER_IN_COMBAT       = 12,
-            STATE_GLOBAL_COUNT          = 13
+            STATE_ARENA_FIRST           = 13,   // one-hot: the episode's arena (MAX_ARENAS columns)
+            STATE_GLOBAL_COUNT          = 13 + MAX_ARENAS
         };
 
         enum StateSeat : uint32
@@ -122,6 +124,10 @@ namespace AnimusForge::Curriculum
 
         // For the encounters.
         [[nodiscard]] StageDefinition const& Stage() const { return _stage; }
+        /// The env's current episode's arena.
+        [[nodiscard]] ArenaDefinition const& Arena(Env const& env) const;
+        /// Whether the env's current episode uses `encounter`.
+        [[nodiscard]] bool Uses(Env const& env, Encounter const& encounter) const;
         [[nodiscard]] CurriculumTuning const& Tuning() const { return _tuning; }
         [[nodiscard]] Position const& SpawnPoint() const { return _spawnPoint; }
         [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
@@ -136,10 +142,10 @@ namespace AnimusForge::Curriculum
         /// Seat `seat`'s bot, in or out of the world (see BotSlot::Active).
         [[nodiscard]] Player* SeatBot(Env const& env, uint32 seat) const;
 
-        /// The scripted owner, or null (no owner in this stage, or none built).
+        /// The scripted owner, or null (no owner in the env's arena, or none built).
         [[nodiscard]] Player* Owner(Env const& env) const;
 
-        /// The party's living tank seat, or null (no party in this stage).
+        /// The party's living tank seat, or null (no party in the env's arena).
         [[nodiscard]] Player* PartyTank(Env const& env) const;
 
         /// Get a seat's bot ready to fight something that fights back: no XP, a hunter's stable, a warrior's stance.
@@ -163,9 +169,14 @@ namespace AnimusForge::Curriculum
         void WriteStageFiles(ForgeConfig const& config) const;
 
         bool Rebuild(Env& env);
+        /// The next episode's arena: drawn by weight (no draw for a single arena, so its random numbers are as before).
+        [[nodiscard]] uint32 DrawArena() const;
+        /// The encounters arena `arena` uses, in build order and in reward order.
+        [[nodiscard]] std::vector<Encounter*> const& ActiveEncounters(Env const& env) const;
+        [[nodiscard]] std::vector<Encounter*> const& ActiveRewardOrder(Env const& env) const;
         /// Create and place seat `seat`'s next character (its layout is set). `map` is null for the env's first bot.
         Player* BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start);
-        void Configure(Player* bot, SeatState& seat) const;
+        void Configure(Player* bot, SeatState& seat, bool pvp) const;
         /// Every seat's potions, bandages, stones and flask for the episode (after the encounters are built).
         void StockSeats(Env& env);
         /// Dead players with a resurrection request accept it, as a client does; the reviving seat is credited.
@@ -192,10 +203,16 @@ namespace AnimusForge::Curriculum
         EpisodeInfoTable _info;
         std::vector<EnvState> _data;
 
-        /// In build order: opponent, owner, party group, pulls, creature, dummy.
+        /// Every encounter any arena uses, in build order: opponent, owner, party group, pulls, creature.
         std::vector<std::unique_ptr<Encounter>> _encounters;
         /// The same encounters in reward order: a reward may read what an earlier one recorded this decision.
         std::vector<Encounter*> _rewardOrder;
+        /// Per arena: the encounters it uses, in build order and in reward order.
+        std::vector<std::vector<Encounter*>> _arenaEncounters;
+        std::vector<std::vector<Encounter*>> _arenaRewardOrder;
+        /// Per arena: its share of episodes (AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight) and episode length.
+        std::vector<uint32> _arenaWeights;
+        std::vector<uint32> _arenaEpisodeMs;
         OwnerEncounter* _owner = nullptr;
         PartyEncounter* _party = nullptr;
     };

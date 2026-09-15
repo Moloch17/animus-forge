@@ -250,7 +250,7 @@ void AnimusForge::Curriculum::OwnerEncounter::Reward(Env& env, uint32 seatIndex,
 
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
         // tank pulls first by design).
-        if (bot->IsInCombat() && !owner->IsInCombat() && !(_scenario.Stage().PartyGroup && role == Role::Tank))
+        if (bot->IsInCombat() && !owner->IsInCombat() && !(_scenario.Arena(env).PartyGroup && role == Role::Tank))
             ledger.Add(RewardTerm::SoloFight, -tuning.SoloFight * scale);
 
         // Out of combat, stay with the owner.
@@ -312,8 +312,15 @@ void AnimusForge::Curriculum::OwnerEncounter::OnPullStarting(Env& env)
     bool const ownerPulls = state.PlayRole == Role::Tank || roll_chance_i(tuning.OwnerPullsChance);
     state.Script.EngageMs = env.EpisodeElapsedMs
         + (ownerPulls ? urand(tuning.OwnerPullsMinMs, tuning.OwnerPullsMaxMs)
-        : _scenario.Stage().PartyGroup ? urand(tuning.PartyOwnerEngageMinMs, tuning.PartyOwnerEngageMaxMs)
+        : _scenario.Arena(env).PartyGroup ? urand(tuning.PartyOwnerEngageMinMs, tuning.PartyOwnerEngageMaxMs)
         : urand(tuning.OwnerEngageMinMs, tuning.OwnerEngageMaxMs));
+}
+
+void AnimusForge::Curriculum::OwnerEncounter::Deactivate(Env& env)
+{
+    Teardown(env);
+    _envs[env.Index].Class = 0;
+    _envs[env.Index].PlayRole = Role::Dps;
 }
 
 void AnimusForge::Curriculum::OwnerEncounter::Teardown(Env& env)

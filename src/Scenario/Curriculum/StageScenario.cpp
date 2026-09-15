@@ -19,6 +19,7 @@
 #include "StageScenario.h"
 #include "Baselines.h"
 #include "BotAccounts.h"
+#include "Config.h"
 #include "Containers.h"
 #include "Creature.h"
 #include "EncoderSupport.h"
@@ -57,8 +58,8 @@ namespace
     constexpr float REWARD_TUNING_MS = 50.0f;       // per-decision reward terms are tuned for this decision interval
     constexpr float MAX_COMBAT_TIME_MS = 60000.0f;
 
-    /// Version of stage.json.
-    constexpr uint32 STAGE_FILE_FORMAT = 1;
+    /// Version of stage.json (2 adds the stage's arenas).
+    constexpr uint32 STAGE_FILE_FORMAT = 2;
 
     uint8 RandomLevel(uint8 minLevel, CurriculumTuning::CharacterTuning const& tuning)
     {
@@ -149,7 +150,10 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
 
     // A scripted owner or enemy player can be any class/role, whatever AnimusForge.ClassRoles says: build every
     // profile's assets now (seconds each) rather than on the world thread in the middle of an episode reset.
-    if (_stage.Owner || _stage.Against == Opposition::ScriptedPlayer)
+    if (_stage.AnyArena([](ArenaDefinition const& arena)
+        {
+            return arena.Owner || arena.Against == Opposition::ScriptedPlayer;
+        }))
         for (ClassRoleProfile const& profile : ClassRoleProfiles())
             ClassRoleAssets::For(profile);
 
@@ -164,7 +168,7 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
     _spec.StateDim = STATE_GLOBAL_COUNT + MAX_SEATS * STATE_SEAT_FEATURES + PACK_SLOTS * STATE_ENEMY_FEATURES;
     _data.resize(config.Envs);
 
-    // The stage's encounters, in build order.
+    // The encounters any of the stage's arenas uses, in build order.
     uint32 const envs = config.Envs;
     OpponentEncounter* opponent = nullptr;
     PullsEncounter* pulls = nullptr;
@@ -177,18 +181,25 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
         return raw;
     };
 
+    auto const fightsPlayer = [](ArenaDefinition const& arena)
+    {
+        return arena.Against == Opposition::ScriptedPlayer || arena.Against == Opposition::MirrorSeat;
+    };
+    auto const hasPulls = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Pulls; };
+    auto const hasCreature = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Creature; };
+
     // Build order matters: the owner comes before the party group (which it leads) and the pulls (which spawn around
     // it); both check it. Rewards do not depend on each other's order: what several read (a seat's damage taken, the
     // owner's totals) is computed before any encounter's Reward.
-    if (_stage.Against == Opposition::ScriptedPlayer || _stage.Against == Opposition::MirrorSeat)
-        opponent = add(std::make_unique<OpponentEncounter>(*this, envs, _stage.Against == Opposition::MirrorSeat));
-    if (_stage.Owner)
+    if (_stage.AnyArena(fightsPlayer))
+        opponent = add(std::make_unique<OpponentEncounter>(*this, envs));
+    if (_stage.AnyArena([](ArenaDefinition const& arena) { return arena.Owner; }))
         _owner = add(std::make_unique<OwnerEncounter>(*this, envs));
-    if (_stage.PartyGroup)
+    if (_stage.AnyArena([](ArenaDefinition const& arena) { return arena.PartyGroup; }))
         _party = add(std::make_unique<PartyEncounter>(*this, envs));
-    if (_stage.Against == Opposition::Pulls)
+    if (_stage.AnyArena(hasPulls))
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
-    if (_stage.Against == Opposition::Creature)
+    if (_stage.AnyArena(hasCreature))
         creature = add(std::make_unique<CreatureEncounter>(*this));
 
     // The order episode info columns and reward terms are listed in.
@@ -196,7 +207,46 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
         if (encounter)
             _rewardOrder.push_back(encounter);
 
-    if (_stage.Against == Opposition::Creature || _stage.Against == Opposition::Pulls)
+    // Which of them each arena uses, its share of episodes and its episode length.
+    uint32 longestMs = config.EpisodeSeconds * IN_MILLISECONDS;
+    for (ArenaDefinition const& arena : _stage.Arenas)
+    {
+        auto const uses = [&](Encounter const* encounter)
+        {
+            return (encounter == opponent && fightsPlayer(arena)) || (encounter == _owner && arena.Owner)
+                || (encounter == _party && arena.PartyGroup) || (encounter == pulls && hasPulls(arena))
+                || (encounter == creature && hasCreature(arena));
+        };
+
+        std::vector<Encounter*>& build = _arenaEncounters.emplace_back();
+        for (auto const& encounter : _encounters)
+            if (uses(encounter.get()))
+                build.push_back(encounter.get());
+
+        std::vector<Encounter*>& reward = _arenaRewardOrder.emplace_back();
+        for (Encounter* encounter : _rewardOrder)
+            if (uses(encounter))
+                reward.push_back(encounter);
+
+        _arenaWeights.push_back(sConfigMgr->GetOption<uint32>(
+            Acore::StringFormat("AnimusForge.Curriculum.Arena.{}.{}.Weight", _stage.Name, arena.Name), arena.Weight,
+            false));
+
+        uint32 const episodeMs = (arena.EpisodeSeconds ? arena.EpisodeSeconds : config.EpisodeSeconds)
+            * IN_MILLISECONDS;
+        _arenaEpisodeMs.push_back(episodeMs);
+        longestMs = std::max(longestMs, episodeMs);
+    }
+
+    if (std::all_of(_arenaWeights.begin(), _arenaWeights.end(), [](uint32 weight) { return weight == 0; }))
+    {
+        LOG_ERROR("module.animus", "{}: every arena weight is 0; the arenas are drawn evenly", Name());
+        std::fill(_arenaWeights.begin(), _arenaWeights.end(), 1);
+    }
+
+    _spec.LongestEpisodeSeconds = longestMs / IN_MILLISECONDS;
+
+    if (_stage.AnyArena(hasCreature) || _stage.AnyArena(hasPulls))
         Opponents::OpponentPool::Instance();    // load it at startup rather than on the first episode
     ConsumablePool::Instance();
 
@@ -226,6 +276,58 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
 
     LOG_INFO("module.animus", "{}: {} seats per env, {} class/role layouts (obs up to {}, actions up to {}), state {}",
         Name(), _seatCount, _layouts.size(), _spec.ObsDim, _spec.NumActions, _spec.StateDim);
+    if (_stage.Arenas.size() > 1)
+        for (std::size_t arena = 0; arena < _stage.Arenas.size(); ++arena)
+            LOG_INFO("module.animus", "{}: arena {} (weight {}, {} s episodes)", Name(), _stage.Arenas[arena].Name,
+                _arenaWeights[arena], _arenaEpisodeMs[arena] / IN_MILLISECONDS);
+}
+
+AnimusForge::Curriculum::ArenaDefinition const& AnimusForge::Curriculum::StageScenario::Arena(Env const& env) const
+{
+    uint32 const arena = Data(env).Arena;
+    return _stage.Arenas[arena < _stage.Arenas.size() ? arena : 0];
+}
+
+bool AnimusForge::Curriculum::StageScenario::Uses(Env const& env, Encounter const& encounter) const
+{
+    std::vector<Encounter*> const& active = ActiveEncounters(env);
+    return std::find(active.begin(), active.end(), &encounter) != active.end();
+}
+
+std::vector<AnimusForge::Curriculum::Encounter*> const& AnimusForge::Curriculum::StageScenario::ActiveEncounters(
+    Env const& env) const
+{
+    static std::vector<Encounter*> const none;
+    uint32 const arena = Data(env).Arena;
+    return arena < _arenaEncounters.size() ? _arenaEncounters[arena] : none;
+}
+
+std::vector<AnimusForge::Curriculum::Encounter*> const& AnimusForge::Curriculum::StageScenario::ActiveRewardOrder(
+    Env const& env) const
+{
+    static std::vector<Encounter*> const none;
+    uint32 const arena = Data(env).Arena;
+    return arena < _arenaRewardOrder.size() ? _arenaRewardOrder[arena] : none;
+}
+
+uint32 AnimusForge::Curriculum::StageScenario::DrawArena() const
+{
+    if (_arenaWeights.size() == 1)
+        return 0;
+
+    uint32 total = 0;
+    for (uint32 weight : _arenaWeights)
+        total += weight;
+
+    uint32 roll = urand(0, total - 1);
+    for (uint32 arena = 0; arena < _arenaWeights.size(); ++arena)
+    {
+        if (roll < _arenaWeights[arena])
+            return arena;
+        roll -= _arenaWeights[arena];
+    }
+
+    return 0;
 }
 
 AnimusForge::Curriculum::StageScenario::~StageScenario() = default;
@@ -272,6 +374,12 @@ void AnimusForge::Curriculum::StageScenario::AddCoreEpisodeInfo()
     });
     // A party seat left empty this episode reports 0: ignore its row.
     _info.Add("present", [seat](Env const& env, uint32 index) { return seat(env, index).L ? 1.0f : 0.0f; });
+    // The episode's arena: its index in stage.json's arenas.
+    _info.Add("arena", [this](Env const& env, uint32)
+    {
+        uint32 const arena = Data(env).Arena;
+        return arena == NO_ARENA ? 0.0f : float(arena);
+    });
 
     // Fights against something that fights back.
     auto const tally = [this](Env const& env, uint32 index) -> CombatTally const&
@@ -358,6 +466,19 @@ void AnimusForge::Curriculum::StageScenario::WriteStageFiles(ForgeConfig const& 
     for (BlockId id : _stage.Blocks)
         blocks.push_back(boost::json::string(BlockName(id)));
 
+    // What its episodes are: the episode info column "arena" is an index into this list.
+    boost::json::array& arenas = stageFile["arenas"].emplace_array();
+    for (std::size_t arena = 0; arena < _stage.Arenas.size(); ++arena)
+    {
+        ArenaDefinition const& definition = _stage.Arenas[arena];
+        boost::json::object& entry = arenas.emplace_back(boost::json::object()).get_object();
+        entry["name"] = definition.Name;
+        entry["weight"] = _arenaWeights[arena];
+        entry["seats"] = definition.SeatCount();
+        entry["episode_seconds"] = _arenaEpisodeMs[arena] / IN_MILLISECONDS;
+        entry["pvp"] = definition.Pvp;
+    }
+
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.
     boost::json::array& seedChain = stageFile["seed_chain"].emplace_array();
     for (StageDefinition const* base = FindStage(_stage.Extends); base; base = FindStage(base->Extends))
@@ -413,12 +534,12 @@ Player* AnimusForge::Curriculum::StageScenario::SeatBot(Env const& env, uint32 s
 
 Player* AnimusForge::Curriculum::StageScenario::Owner(Env const& env) const
 {
-    return _owner ? _owner->Find(env) : nullptr;
+    return _owner && Arena(env).Owner ? _owner->Find(env) : nullptr;
 }
 
 Player* AnimusForge::Curriculum::StageScenario::PartyTank(Env const& env) const
 {
-    return _party ? _party->Tank(env) : nullptr;
+    return _party && Arena(env).PartyGroup ? _party->Tank(env) : nullptr;
 }
 
 AnimusForge::Curriculum::Layout const& AnimusForge::Curriculum::StageScenario::PickLayout(Role role) const
@@ -441,8 +562,9 @@ bool AnimusForge::Curriculum::StageScenario::IsTerminal(Env const& env) const
     if (Data(env).BuildFailed)
         return true;
 
-    return std::any_of(_encounters.begin(), _encounters.end(),
-        [&env](std::unique_ptr<Encounter> const& encounter) { return encounter->IsTerminal(env); });
+    std::vector<Encounter*> const& active = ActiveEncounters(env);
+    return std::any_of(active.begin(), active.end(),
+        [&env](Encounter const* encounter) { return encounter->IsTerminal(env); });
 }
 
 bool AnimusForge::Curriculum::StageScenario::Setup(Env& env)
@@ -481,7 +603,13 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
 {
     EnvState& data = Data(env);
 
-    // A new episode starts from clean totals.
+    // The episode's arena, drawn first: an evaluation episode's random numbers decide it like everything else.
+    std::vector<Encounter*> const previousEncounters = ActiveEncounters(env);
+    data.Arena = DrawArena();
+    ArenaDefinition const& arena = Arena(env);
+    env.EpisodeLengthMs = _arenaEpisodeMs[data.Arena];
+
+    // A new episode starts from clean totals, in every encounter: those this arena does not use report 0.
     for (SeatState& seat : data.Seats)
         seat.ResetEpisode();
     for (auto const& encounter : _encounters)
@@ -492,7 +620,12 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
         if (Creature* creature = env.FindTarget(target))
             oldTargets.push_back(creature);
 
-    for (auto const& encounter : _encounters)
+    // What the last episode's arena had and this one does not (an owner, a group, an enemy player) goes first.
+    for (Encounter* encounter : previousEncounters)
+        if (!Uses(env, *encounter))
+            encounter->Deactivate(env);
+
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->BeforeRebuild(env);
 
     bool const firstBuild = !SeatBot(env, 0);
@@ -521,10 +654,10 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
             s.EquippedItems };
     }
 
-    // How many seats play this episode, and their class/roles. Every seat plays, except in a party, which has 1-4
+    // How many seats play this episode, and their class/roles: the arena's seats, except in a party, which has 1-4
     // like a player's companions; the rest stay empty: no character, no layout, only the no-op allowed.
-    data.ActiveSeats = _seatCount;
-    if (_stage.Seats == SeatPlan::Party)
+    data.ActiveSeats = arena.SeatCount();
+    if (arena.Seats == SeatPlan::Party)
     {
         data.ActiveSeats = RandomPartySize(_tuning.Party);
 
@@ -544,7 +677,7 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
     {
         // Any class/role of the run, each equally likely.
         for (uint32 seat = 0; seat < _seatCount; ++seat)
-            data.Seats[seat].L = &_layouts[urand(0, uint32(_layouts.size()) - 1)];
+            data.Seats[seat].L = seat < data.ActiveSeats ? &_layouts[urand(0, uint32(_layouts.size()) - 1)] : nullptr;
     }
 
     // One level every seat's class/role can be.
@@ -562,12 +695,12 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
     for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
     {
         Position start = _spawnPoint;
-        if (_stage.Seats == SeatPlan::Party)
+        if (arena.Seats == SeatPlan::Party)
         {
             start.m_positionX += (seat % 2 ? -PARTY_SPACING : PARTY_SPACING) * float(1 + seat / 2);
             start.m_positionY += (seat % 2 ? PARTY_SPACING : -PARTY_SPACING);
         }
-        else if (_stage.Seats == SeatPlan::Mirror && seat == 1 && firstNew)
+        else if (arena.Seats == SeatPlan::Mirror && seat == 1 && firstNew)
         {
             // Out of range of the first seat's new bot, at a random bearing, facing a random way.
             start = Opponents::FindSpawnPoint(firstNew, map);
@@ -620,7 +753,7 @@ bool AnimusForge::Curriculum::StageScenario::Rebuild(Env& env)
         env.Bots.push_back(seat < data.ActiveSeats ? SeatBot(env, seat)->GetGUID() : ObjectGuid::Empty);
     env.Targets.clear();
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         if (!encounter->Build(env, map, level))
             return false;
 
@@ -656,11 +789,11 @@ Player* AnimusForge::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatI
     // Talent points depend on the map for death knights (Ebon Hold, where Create put the bot, only counts
     // quest-rewarded points); recompute them on the spawn map.
     bot->InitTalentForLevel();
-    Configure(bot, seat);
+    Configure(bot, seat, Arena(env).Pvp);
     return bot;
 }
 
-void AnimusForge::Curriculum::StageScenario::Configure(Player* bot, SeatState& seat) const
+void AnimusForge::Curriculum::StageScenario::Configure(Player* bot, SeatState& seat, bool pvp) const
 {
     ClassRoleAssets const& assets = *seat.L->Assets;
     SpecProfile const& spec = seat.L->Profile->Specs[seat.Spec];
@@ -672,7 +805,7 @@ void AnimusForge::Curriculum::StageScenario::Configure(Player* bot, SeatState& s
 
     assets.Kit->Learn(bot);
     assets.Talents->ApplyGlyphs(bot, spec.Name);
-    assets.Gear->Equip(bot, spec, _stage.Has(BlockId::Pvp));
+    assets.Gear->Equip(bot, spec, pvp);
 
     seat.EquippedItems = 0;
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
@@ -708,7 +841,7 @@ void AnimusForge::Curriculum::StageScenario::StockSeats(Env& env)
     // Warlocks hand out healthstones to the party they are in.
     Player* owner = Owner(env);
     bool warlockInParty = owner && owner->getClass() == CLASS_WARLOCK;
-    if (_stage.PartyGroup)
+    if (Arena(env).PartyGroup)
         for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
             if (data.Seats[seat].L && data.Seats[seat].L->Profile->Class == CLASS_WARLOCK)
                 warlockInParty = true;
@@ -761,7 +894,7 @@ bool AnimusForge::Curriculum::StageScenario::DeadForGood(Env const& env, uint32 
     if (!tally.Died || (bot && bot->IsAlive()))
         return false;
 
-    bool const canResurrect = bot && !_stage.Has(BlockId::Pvp) && bot->GetUInt32Value(PLAYER_SELF_RES_SPELL);
+    bool const canResurrect = bot && !Arena(env).Pvp && bot->GetUInt32Value(PLAYER_SELF_RES_SPELL);
     return !canResurrect || env.EpisodeElapsedMs >= tally.DeathMs + _tuning.Resurrection.GraceMs;
 }
 
@@ -784,13 +917,13 @@ void AnimusForge::Curriculum::StageScenario::NotifyRecovered(Env& env, int32 who
     if (who >= 0)
         Data(env).Seats[who].Combat.DeathCounted = false;
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->OnRecovered(env, who);
 }
 
 void AnimusForge::Curriculum::StageScenario::NotifyPullStarting(Env& env)
 {
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->OnPullStarting(env);
 }
 
@@ -798,9 +931,9 @@ void AnimusForge::Curriculum::StageScenario::ApplyActions(Env& env, int32 const*
 {
     // Env upkeep first (linked pulls, the owner, the next pull, the scripted opponent), so the targets below are
     // current.
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->UpdateEnemies(env);
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->Update(env);
 
     AcceptResurrections(env);
@@ -812,7 +945,7 @@ void AnimusForge::Curriculum::StageScenario::ApplyActions(Env& env, int32 const*
 Unit* AnimusForge::Curriculum::StageScenario::CurrentTarget(Env const& env, uint32 seat)
 {
     Unit* target = nullptr;
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         if (encounter->SelectTarget(env, seat, target))
             return target;
 
@@ -838,7 +971,7 @@ AnimusForge::Curriculum::SeatView AnimusForge::Curriculum::StageScenario::ViewSe
     view.CombatTime = seat.InCombat
         ? std::min(1.0f, float(env.EpisodeElapsedMs - seat.CombatStartMs) / MAX_COMBAT_TIME_MS) : 0.0f;
     view.Supplies = seat.Supplies;
-    view.SelfResurrectAllowed = !_stage.Has(BlockId::Pvp);
+    view.SelfResurrectAllowed = !Arena(env).Pvp;
 
     view.StableCount = uint32(std::min<std::size_t>(seat.Stable.size(), STABLE_SLOTS));
     std::copy_n(seat.Stable.begin(), view.StableCount, view.Stable.begin());
@@ -848,7 +981,7 @@ AnimusForge::Curriculum::SeatView AnimusForge::Curriculum::StageScenario::ViewSe
         view.Enemies[slot] = env.FindTargetUnit(slot);
     view.TargetSlot = seat.TargetSlot;
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->View(env, seatIndex, view);
 
     return view;
@@ -865,7 +998,7 @@ void AnimusForge::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 se
     if (!target && !SeatEncoder::ActsWithoutTarget(*seat.L))
         return;
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->BeforeSeatAction(env, seatIndex, target);
 
     SeatView view = ViewSeat(env, seatIndex, bot, target);
@@ -884,7 +1017,7 @@ void AnimusForge::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 se
         ++seat.Combat.StealthOpeners;
     }
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->OnSeatAction(env, seatIndex, result);
 
     if (result.CallBeast && CallHunterBeast(bot, result.CallBeast))
@@ -940,13 +1073,13 @@ void AnimusForge::Curriculum::StageScenario::ObserveSeat(Env& env, uint32 seatIn
 
 void AnimusForge::Curriculum::StageScenario::Reward(Env& env, float* reward)
 {
-    for (Encounter* encounter : _rewardOrder)
+    for (Encounter* encounter : ActiveRewardOrder(env))
         encounter->BeforeRewards(env);
 
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         reward[seat] = SeatReward(env, seat);
 
-    for (Encounter* encounter : _rewardOrder)
+    for (Encounter* encounter : ActiveRewardOrder(env))
         encounter->AfterRewards(env);
 }
 
@@ -967,7 +1100,7 @@ float AnimusForge::Curriculum::StageScenario::SeatReward(Env& env, uint32 seatIn
     if (bot && bot->IsAlive())
         seat.Combat.DeathCounted = false;
 
-    for (Encounter* encounter : _rewardOrder)
+    for (Encounter* encounter : ActiveRewardOrder(env))
         encounter->Reward(env, seatIndex, bot, seat.Rewards);
 
     if (bot)
@@ -992,8 +1125,10 @@ void AnimusForge::Curriculum::StageScenario::WriteState(Env const& env, float* s
 
     state[STATE_EPISODE_TIME] = env.EpisodeLengthMs
         ? std::min(1.0f, float(env.EpisodeElapsedMs) / float(env.EpisodeLengthMs)) : 0.0f;
+    if (Data(env).Arena < MAX_ARENAS)
+        state[STATE_ARENA_FIRST + Data(env).Arena] = 1.0f;
 
-    for (auto const& encounter : _encounters)
+    for (Encounter* encounter : ActiveEncounters(env))
         encounter->WriteState(env, state);
 
     std::array<Player*, MAX_SEATS> bots{};

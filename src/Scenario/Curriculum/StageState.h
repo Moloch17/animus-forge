@@ -114,8 +114,12 @@ namespace AnimusForge::Curriculum
         }
     };
 
+    /// EnvState::Arena before the env's first episode.
+    constexpr uint32 NO_ARENA = ~uint32(0);
+
     struct EnvState
     {
+        uint32 Arena = NO_ARENA;                // index into the stage's arenas: what this episode is
         std::array<SeatState, MAX_SEATS> Seats;
         uint32 ActiveSeats = 1;                 // seats with a character this episode (the first ones)
         bool Fresh = false;                     // built by Setup, not yet reset
