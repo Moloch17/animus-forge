@@ -1,8 +1,8 @@
 # new-arenas: PvE and PvP in one branching curriculum, up to raids and battlegrounds
 
-Branch: `new-arenas` (from `master` at f33267c). Status: the renames below, **P1 (arenas in stages)** with the pilot
-stage `mix_duel_pvp` (duel + scripted enemy player), and **P2 (per-arena evaluation and gates, self-play scored
-against a scripted opponent, protocol 4)** and **P3 (merge seeding and per-arena distillation)** are done. P3
+Merged to `master` (replayed onto master at 5af6e6d). Status: the renames below, **P1 (arenas in stages)** with the
+pilot stage `mix_duel_pvp` (duel + scripted enemy player), and **P2 (per-arena evaluation and gates, self-play scored
+against a scripted opponent, protocol 5)** and **P3 (merge seeding and per-arena distillation)** are done. P3
 differs from §5.4-5.5 in two details: a merge lists its extra parents in `Merges` (Extends stays the trunk), and the
 learner reads each decision's arena from the critic state one-hot (`stage.json` `state`) instead of a protocol field.
 **P4 (`context` + `hostiles` blocks, `AmbushEncounter` with the `ambush` and `escort_duel` arenas,
@@ -11,7 +11,7 @@ Ambushers are a separate encounter rather than `OpponentEncounter` beside pulls:
 slots (a pull has at most `PACK_SLOTS - Ambushers` creatures), and the pulls count, clear and despawn creatures only.
 P5 onward is still plan. Nothing has run in a sim yet.
 
-## Naming (done on this branch)
+## Naming (done)
 
 | Before | Now | Why |
 |---|---|---|
@@ -19,14 +19,12 @@ P5 onward is still plan. Nothing has run in a sim yet.
 | `ClassRoleScenario`, `ClassRoleState.h` | `StageScenario`, `StageState.h` | one scenario plays one stage (and, with this plan, its arenas) |
 | `ClassRoleTuning`, `ClassRoleStages()` | `CurriculumTuning`, `CurriculumStages()` | |
 | `AnimusForge.ClassRole.<Group>.<Name>` | `AnimusForge.Curriculum.<Group>.<Name>` | this plan's `AnimusForge.Curriculum.Arena.*` keys fit next to them |
-| `warrior_dummy_20`, `WarriorDummy20Scenario` | `bench_arms_warrior_20`, `Bench::ArmsWarriorBenchScenario` | a fixed benchmark and mechanics check, not a stage |
-| `AnimusForge.WarriorDummy20.HsRageThreshold` | `AnimusForge.Bench.ArmsWarrior20.HsRageThreshold` | |
 | `TrainingDummy::ClearSpawnArea` | `SpawnArea::Clear` | used by every scenario, nothing to do with dummies |
-| `TrainingDummy::Spawn` | `Bench::TrainingDummy::Spawn` | only the bench uses it |
 
-Kept: `ClassRoleProfile`, `ClassRoleAssets`, `AnimusForge.ClassRoles`, the manifest `class_role` key and layout names
-(`warrior_dps`), so exported models and manifests are unchanged. mod-animus gets the matching rename on its own
-`new-arenas` branch.
+`warrior_dummy_20` (and the dummy spawning with it) was retired on master while this branch renamed it to a bench, so
+the bench rename was dropped. Kept: `ClassRoleProfile`, `ClassRoleAssets`, `AnimusForge.ClassRoles`, the manifest
+`class_role` key and layout names (`warrior_dps`), so exported models and manifests are unchanged. mod-animus got the
+matching `ClassRole` → `Curriculum` rename on its own `new-arenas` branch.
 
 ## 1. Goal
 
