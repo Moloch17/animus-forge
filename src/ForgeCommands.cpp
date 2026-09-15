@@ -145,7 +145,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
         table.AddRow({ "queue (forge start)", Join(DefaultQueue()) });
         table.AddRow({ "policy", _config.Policy });
         table.AddRow({ "envs", Acore::StringFormat("{}, a decision every {} ms, {} s episodes", _config.Envs,
-            50 * _config.DecisionTicks, _config.EpisodeSeconds) });
+            (_tickMs ? _tickMs : SIM_TICK_MS) * _config.DecisionTicks, _config.EpisodeSeconds) });
 
         if (_config.IsRemote())
         {
@@ -454,8 +454,9 @@ bool AnimusForge::Forge::CommandCancel(LineSink const& out)
     }
 
     _request = Request::Cancel;
-    out(Acore::StringFormat("Cancelling {}{}.", _current, _plan.Remote()
-        ? ": the learner saves its latest checkpoint, then the sim goes idle" : ""));
+    bool const learnerSaves = _plan.Remote() && (_learner.IsRunning() || _server.HasClient());
+    out(Acore::StringFormat("Cancelling {}{}.", _current,
+        learnerSaves ? ": the learner saves its latest checkpoint, then the sim goes idle" : ""));
     return true;
 }
 
@@ -625,7 +626,7 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
         std::error_code error;
         std::vector<fs::path> files;
         for (fs::directory_iterator it(_config.ModelDir, error), end; !error && it != end; it.increment(error))
-            if (it->is_regular_file() && (it->path().extension() == ".amdl" || it->path().extension() == ".json"))
+            if (it->is_regular_file(error) && (it->path().extension() == ".amdl" || it->path().extension() == ".json"))
                 files.push_back(it->path());
 
         for (fs::path const& file : files)
@@ -682,7 +683,7 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
         std::error_code error;
         std::vector<fs::path> dirs;
         for (fs::directory_iterator it(runs, error), end; !error && it != end; it.increment(error))
-            if (it->is_directory())
+            if (it->is_directory(error))
                 dirs.push_back(it->path());
 
         for (fs::path const& dir : dirs)

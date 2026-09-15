@@ -46,15 +46,6 @@ namespace
     constexpr std::array<uint8, 2> FLASK_LEVELS = { 70, 80 };
     constexpr int32 LEVELLING_ELIXIR_CHANCE = 50;
 
-    SpellInfo const* OnUseSpell(ItemTemplate const& proto)
-    {
-        for (_Spell const& spell : proto.Spells)
-            if (spell.SpellId > 0 && spell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE)
-                return sSpellMgr->GetSpellInfo(spell.SpellId);
-
-        return nullptr;
-    }
-
     bool EnergizesMana(SpellInfo const* info)
     {
         for (SpellEffectInfo const& effect : info->GetEffects())
@@ -158,7 +149,7 @@ AnimusForge::ClassRole::ConsumablePool::ConsumablePool()
             continue;
 
         uint8 const requiredLevel = uint8(std::min<uint32>(proto.RequiredLevel, DEFAULT_MAX_LEVEL));
-        SpellInfo const* onUse = OnUseSpell(proto);
+        SpellInfo const* onUse = GearStats::ItemUseSpell(&proto);
         if (!onUse)
             continue;
 
@@ -202,17 +193,10 @@ AnimusForge::ClassRole::ConsumablePool::ConsumablePool()
             || proto.RequiredReputationFaction)
             continue;
 
-        _Spell const& use = proto.Spells[0];
-        SpellInfo const* info = use.SpellId > 0 && use.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE
-            ? sSpellMgr->GetSpellInfo(use.SpellId) : nullptr;
-        if (!info)
-            continue;
-
-        uint8 const level = uint8(std::min<uint32>(proto.RequiredLevel, DEFAULT_MAX_LEVEL));
-        if (info->HasAura(SPELL_AURA_MOD_REGEN))
-            _food.emplace_back(level, itemId);
-        else if (info->HasAura(SPELL_AURA_MOD_POWER_REGEN))
-            _drink.emplace_back(level, itemId);
+        if (onUse->HasAura(SPELL_AURA_MOD_REGEN))
+            _food.emplace_back(requiredLevel, itemId);
+        else if (onUse->HasAura(SPELL_AURA_MOD_POWER_REGEN))
+            _drink.emplace_back(requiredLevel, itemId);
     }
 
     for (auto* items : { &_food, &_drink, &_healthPotions, &_manaPotions, &_healthstones, &_soulstones })

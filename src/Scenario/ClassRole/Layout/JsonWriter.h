@@ -20,6 +20,7 @@
 #define MOD_ANIMUS_FORGE_CLASS_ROLE_JSON_WRITER_H
 
 #include <charconv>
+#include <cmath>
 #include <concepts>
 #include <cstdio>
 #include <string>
@@ -80,6 +81,12 @@ namespace AnimusForge::ClassRole
         JsonWriter& Value(T value)
         {
             Separate();
+            if (!std::isfinite(value))
+            {
+                _out += "null";     // JSON has no NaN or infinity
+                return *this;
+            }
+
             char buffer[32];
             auto const result = std::to_chars(buffer, buffer + sizeof(buffer), value);
             _out.append(buffer, result.ptr);

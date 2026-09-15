@@ -231,7 +231,6 @@ int32 AnimusForge::ClassRole::GearStats::StatPreference(StatProfile profile, uin
     }
 }
 
-
 namespace
 {
     /// Well-known weapon and armor procs, by enchantment name, that suit a profile.
@@ -438,6 +437,17 @@ std::unordered_set<uint32> const& AnimusForge::ClassRole::GearStats::ObtainableI
     return items;
 }
 
+SpellInfo const* AnimusForge::ClassRole::GearStats::ItemUseSpell(ItemTemplate const* proto)
+{
+    if (!proto)
+        return nullptr;
+
+    for (_Spell const& spell : proto->Spells)
+        if (spell.SpellId > 0 && spell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE)
+            return sSpellMgr->GetSpellInfo(spell.SpellId);
+
+    return nullptr;
+}
 
 AnimusForge::ClassRole::GearBuilder::GearBuilder(ClassRoleProfile const& profile, ClassKit const& kit)
     : _kit(kit), _class(profile.Class)

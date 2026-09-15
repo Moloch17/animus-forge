@@ -132,13 +132,16 @@ namespace AnimusForge
         std::optional<double> _peakRate;
         std::optional<double> _firstEntropy;
         Previous _previous;
+
+        /// ConfiguredTotalEnvSteps per scenario of the plan table, read once per running scenario.
+        mutable std::unordered_map<std::string, std::optional<uint64>> _configuredSteps;
     };
 
     /// runs/<scenario>/progress.json under the learner directory.
     std::filesystem::path ProgressPath(ForgeConfig const& config, std::string const& scenario);
 
     /// total_env_steps a scenario's learner will train for: the last --set total_env_steps= in
-    /// AnimusForge.Learner.Args, else the key in its YAML config. Empty when neither says.
+    /// AnimusForge.Learner.Args, else the key in its YAML config or the configs it extends. Empty when none says.
     std::optional<uint64> ConfiguredTotalEnvSteps(ForgeConfig const& config, std::string const& scenario);
 }
 

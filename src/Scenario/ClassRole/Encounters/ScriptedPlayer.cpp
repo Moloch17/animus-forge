@@ -44,6 +44,7 @@ namespace
     constexpr uint32 MOVE_POINT_ID = 2;
     constexpr uint32 CHASE_REPATH_MS = 1000;
     constexpr uint32 REGEN_INTERVAL_MS = 1000;
+    constexpr uint32 CAST_RETRY_MS = 500;           // after a cast that could not start
     constexpr float WANDER_MIN_DISTANCE = 8.0f;
     constexpr float WANDER_MAX_DISTANCE = 20.0f;
     constexpr float WANDER_LEASH = 30.0f;       // never wander further than this from home
@@ -88,15 +89,16 @@ namespace
         return spell->prepare(&targets) == SPELL_CAST_OK;
     }
 
-    /// A random spell of `spells` at `target`, if the spell timer allows; restarts the timer.
+    /// A random spell of `spells` at `target`, if the spell timer allows. A cast restarts the timer; a failed one
+    /// (range, cooldown, power) tries again shortly, so the scripted player casts as often as it is tuned to.
     void CastSometimes(Player* caster, std::vector<uint32> const& spells, Unit* target, uint32 nowMs, uint32& nextMs,
         uint32 minMs, uint32 maxMs)
     {
         if (nowMs < nextMs || spells.empty())
             return;
 
-        nextMs = nowMs + urand(minMs, maxMs);
-        TryCast(caster, spells[urand(0, uint32(spells.size()) - 1)], target);
+        bool const cast = TryCast(caster, spells[urand(0, uint32(spells.size()) - 1)], target);
+        nextMs = nowMs + (cast ? urand(minMs, maxMs) : CAST_RETRY_MS);
     }
 
     void MoveNear(Player* player, Unit* target, float distance, uint32 nowMs, State& state)

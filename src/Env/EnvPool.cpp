@@ -78,13 +78,7 @@ bool AnimusForge::EnvPool::Setup()
             return false;
         }
 
-        for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
-            _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
-
-        for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
-            _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
-
-        IndexInstance(env);
+        IndexEnv(env);
     }
 
     LOG_INFO("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
@@ -319,27 +313,33 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
         env.EpisodeStats[agent] = AgentStats();
     }
     env.StepInterruptedTargets.clear();
-    IndexInstance(env);
 
     // A scenario may rebuild its bots and allies on reset. Safe to update here: resets run on the world
     // thread while no map is updating, so no damage or heal hook is reading the maps.
-    if (env.Bots != previousBots)
+    if (env.Bots != previousBots || env.Allies != previousAllies)
     {
         for (ObjectGuid const& guid : previousBots)
             _agents.erase(guid);
-
-        for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
-            _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
-    }
-
-    if (env.Allies != previousAllies)
-    {
         for (ObjectGuid const& guid : previousAllies)
             _allies.erase(guid);
-
-        for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
-            _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
     }
+
+    IndexEnv(env);
+}
+
+void AnimusForge::EnvPool::IndexEnv(Env const& env)
+{
+    // An empty seat's slot holds no bot: its empty GUID is shared by every env and must never be a key.
+    for (uint32 agent = 0; agent < env.Bots.size(); ++agent)
+        if (!env.Bots[agent].IsEmpty())
+            _agents[env.Bots[agent]] = AgentSlot{ env.Index, agent };
+
+    for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
+        if (!env.Allies[ally].IsEmpty())
+            _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
+
+    if (env.InstanceId)
+        _envByInstance[env.InstanceId] = env.Index;
 }
 
 void AnimusForge::EnvPool::RecordHeal(Unit const* healer, Unit const* receiver, uint32 gain)
@@ -433,13 +433,6 @@ void AnimusForge::EnvPool::RecordTargetInterrupted(Unit const* caster, bool bySe
     if (caster->GetMapId() == owner.MapId
         && std::find(owner.Targets.begin(), owner.Targets.end(), caster->GetGUID()) != owner.Targets.end())
         owner.StepInterruptedTargets.push_back(caster->GetGUID());
-}
-
-void AnimusForge::EnvPool::IndexInstance(Env const& env)
-{
-    // Rebuilt only on the world thread while no map is updating, like _agents.
-    if (env.InstanceId)
-        _envByInstance[env.InstanceId] = env.Index;
 }
 
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)

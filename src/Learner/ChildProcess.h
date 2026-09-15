@@ -66,6 +66,7 @@ namespace AnimusForge
         void ExpectExit() { _stopping = true; }
 
         /// Wait up to `grace` for a voluntary exit, then SIGINT (Python saves on KeyboardInterrupt), then SIGKILL.
+        /// `grace` applies to each of the three phases, so a child that ignores everything blocks for 3 x grace.
         void Stop(std::chrono::milliseconds grace);
 
     private:

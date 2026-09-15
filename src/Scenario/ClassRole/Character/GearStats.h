@@ -25,6 +25,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+class SpellInfo;
+struct ItemTemplate;
 struct SpellItemEnchantmentEntry;
 
 /// What suits a spec's gear: shared by gear, enchants, gems and consumables (GearBuilder*.cpp).
@@ -54,6 +56,10 @@ namespace AnimusForge::ClassRole::GearStats
 
     /// Random property / suffix enchantments together (ItemRandomProperties/ItemRandomSuffix entries): stats only.
     [[nodiscard]] StatVerdict RandomEnchantmentVerdict(StatProfile profile, std::array<uint32, 5> const& enchantments);
+
+    /// The spell an item casts when used (the first on-use spell of any of its spell slots), or null. The one lookup
+    /// every consumer uses, so an item is never stocked by one rule and refused by another.
+    [[nodiscard]] SpellInfo const* ItemUseSpell(ItemTemplate const* proto);
 
     /// Items a player can actually get: loot, vendors, quest rewards and crafting. Loaded once (world thread).
     [[nodiscard]] std::unordered_set<uint32> const& ObtainableItems();

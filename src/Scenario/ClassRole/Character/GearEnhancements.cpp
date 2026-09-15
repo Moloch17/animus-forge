@@ -154,7 +154,7 @@ void AnimusForge::ClassRole::GearBuilder::BuildEnhancements(StatProfile stats)
             continue;
         }
 
-        if (proto.Class != ITEM_CLASS_GEM || !proto.GemProperties || (proto.Flags & ITEM_FLAG_UNIQUE_EQUIPPABLE)
+        if (proto.Class != ITEM_CLASS_GEM || !proto.GemProperties || proto.HasFlag(ITEM_FLAG_UNIQUE_EQUIPPABLE)
             || proto.ItemLimitCategory || proto.Quality < ITEM_QUALITY_UNCOMMON)
             continue;
 

@@ -122,6 +122,10 @@ void AnimusForge::Forge::OnShutdown()
     if (_learner.IsRunning())
         _learner.ExpectExit();
 
+    // An export cut short by the shutdown is expected, not a failure.
+    if (_export.IsRunning())
+        _export.ExpectExit();
+
     _server.Shutdown();
     _learner.Stop(std::chrono::seconds(10));
     _export.Stop(std::chrono::seconds(10));
@@ -157,13 +161,16 @@ void AnimusForge::Forge::ApplyRequest()
             }
             break;
         case Request::Cancel:
+        {
             if (_state == State::Idle)
                 break;
+            // Only a learner that is running or connected has a run to save.
+            bool const learnerSaves = _plan.Remote() && (_learner.IsRunning() || _server.HasClient());
             _plan.Entries[_plan.Index].Outcome = "cancelled";
             TeardownScenario(true);
-            EndPlan(_plan.Remote() ? "cancelled; the learner saved latest.pt, `forge resume` continues it"
-                : "cancelled");
+            EndPlan(learnerSaves ? "cancelled; the learner saved latest.pt, `forge resume` continues it" : "cancelled");
             break;
+        }
         case Request::Skip:
             if (_state != State::Idle)
                 FinishCurrent("skipped");
@@ -530,7 +537,13 @@ void AnimusForge::Forge::LocalDecision()
         return;
     }
 
-    _pool->ChooseLocalActions(_plan.Policy);
+    if (!_pool->ChooseLocalActions(_plan.Policy))
+    {
+        LOG_ERROR("module.animus", "Scenario {} could not choose actions with policy '{}'", _current, _plan.Policy);
+        FinishCurrent("failed");
+        return;
+    }
+
     _pool->ApplyActions();
 }
 
@@ -545,14 +558,17 @@ void AnimusForge::Forge::RemoteDecision()
         return _request == Request::None;
     };
 
+    // Waiting for a learner to connect holds no decision, so a pause applies right away (OnUpdate pauses next tick).
+    auto const onAccepting = [this, &onIdle]()
+    {
+        return onIdle() && !_pauseRequested && !LearnerFinished() && !LearnerHalted();
+    };
+
     if (!_server.HasClient())
     {
         // Blocks until the learner connects; returns false on shutdown, a cancel or skip, or when the scenario's
         // learner has finished its run.
-        bool const connected = _server.AcceptClient([this, &onIdle]()
-        {
-            return onIdle() && !LearnerFinished() && !LearnerHalted();
-        });
+        bool const connected = _server.AcceptClient(onAccepting);
 
         if (!connected)
         {
@@ -632,8 +648,13 @@ void AnimusForge::Forge::RemoteDecision()
     }
 
     // Scoring a scripted baseline on the evaluation seeds: its actions replace the learner's.
-    if (!_pool->EvalBaseline().empty())
-        _pool->ChooseLocalActions(_pool->EvalBaseline());
+    if (!_pool->EvalBaseline().empty() && !_pool->ChooseLocalActions(_pool->EvalBaseline()))
+    {
+        LOG_ERROR("module.animus", "Scenario {} could not run baseline '{}'; dropping the learner", _current,
+            _pool->EvalBaseline());
+        _server.DropClient();
+        return;
+    }
 
     _pool->ApplyActions();
 }

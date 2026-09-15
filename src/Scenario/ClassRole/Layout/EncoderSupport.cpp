@@ -20,6 +20,7 @@
 #include "CharmInfo.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "GearStats.h"
 #include "Item.h"
 #include "Layout.h"
 #include "MotionMaster.h"
@@ -207,23 +208,12 @@ namespace AnimusForge::ClassRole::Encoding
 
     SpellInfo const* TrinketSpell(Item const* item)
     {
-        if (!item)
-            return nullptr;
-
-        for (_Spell const& spellData : item->GetTemplate()->Spells)
-            if (spellData.SpellId > 0 && spellData.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE)
-                return sSpellMgr->GetSpellInfo(spellData.SpellId);
-
-        return nullptr;
+        return item ? GearStats::ItemUseSpell(item->GetTemplate()) : nullptr;
     }
 
     SpellInfo const* UseSpell(uint32 itemEntry)
     {
-        ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemEntry);
-        if (!proto || proto->Spells[0].SpellId <= 0 || proto->Spells[0].SpellTrigger != ITEM_SPELLTRIGGER_ON_USE)
-            return nullptr;
-
-        return sSpellMgr->GetSpellInfo(proto->Spells[0].SpellId);
+        return GearStats::ItemUseSpell(sObjectMgr->GetItemTemplate(itemEntry));
     }
 
     bool CanUseItemOn(Player* bot, uint32 entry, Unit* target)

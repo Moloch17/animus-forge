@@ -274,22 +274,47 @@ std::filesystem::path AnimusForge::ProgressPath(ForgeConfig const& config, std::
     return config.RunsDir() / scenario / "progress.json";
 }
 
+namespace
+{
+    /// Most `extends:` links followed: a longer chain is a loop.
+    constexpr uint32 MAX_EXTENDS_DEPTH = 16;
+
+    /// The top-level total_env_steps of a learner config, following `extends:` as the learner does (the file's own
+    /// value wins over its base's).
+    std::optional<uint64> YamlTotalEnvSteps(std::filesystem::path const& path, uint32 depth = 0)
+    {
+        std::ifstream file(path);
+        if (!file || depth > MAX_EXTENDS_DEPTH)
+            return std::nullopt;
+
+        static std::regex const key(R"(^total_env_steps:\s*([0-9_]+))");
+        static std::regex const extends(R"(^extends:\s*["']?([^"'\s#]+))");
+
+        std::optional<uint64> own;
+        std::optional<std::filesystem::path> base;
+        for (std::string line; std::getline(file, line);)
+        {
+            std::smatch match;
+            if (std::regex_search(line, match, key))
+            {
+                std::string digits = match[1].str();
+                digits.erase(std::remove(digits.begin(), digits.end(), '_'), digits.end());
+                own = std::strtoull(digits.c_str(), nullptr, 10);
+            }
+            else if (std::regex_search(line, match, extends))
+                base = path.parent_path() / match[1].str();
+        }
+
+        if (own || !base)
+            return own;
+
+        return YamlTotalEnvSteps(*base, depth + 1);
+    }
+}
+
 std::optional<uint64> AnimusForge::ConfiguredTotalEnvSteps(ForgeConfig const& config, std::string const& scenario)
 {
-    std::optional<uint64> total;
-
-    std::ifstream file(config.LearnerConfigFor(scenario));
-    std::regex const key(R"(^total_env_steps:\s*([0-9_]+))");
-    for (std::string line; std::getline(file, line);)
-    {
-        std::smatch match;
-        if (std::regex_search(line, match, key))
-        {
-            std::string digits = match[1].str();
-            digits.erase(std::remove(digits.begin(), digits.end(), '_'), digits.end());
-            total = std::strtoull(digits.c_str(), nullptr, 10);
-        }
-    }
+    std::optional<uint64> total = YamlTotalEnvSteps(config.LearnerConfigFor(scenario));
 
     // `--set total_env_steps=N` in AnimusForge.Learner.Args wins, as it does in the learner.
     for (std::size_t i = 0; i + 1 < config.LearnerArgs.size(); ++i)
@@ -307,6 +332,7 @@ void AnimusForge::ProgressMonitor::Begin(std::string const& scenario)
     _peakRate.reset();
     _firstEntropy.reset();
     _previous = {};
+    _configuredSteps.clear();       // re-read the configs once per scenario: they may have been edited
 }
 
 std::optional<double> AnimusForge::ProgressMonitor::StepRate(ProgressFile const& progress) const
@@ -636,7 +662,10 @@ void AnimusForge::ProgressMonitor::ReportPlan(ForgeConfig const& config, std::ve
         if (!row.Current && row.Status != "pending" && file.Load(ProgressPath(config, row.Scenario)))
             progress = &file;
 
-        std::optional<uint64> const configured = ConfiguredTotalEnvSteps(config, row.Scenario);
+        auto cached = _configuredSteps.find(row.Scenario);
+        if (cached == _configuredSteps.end())
+            cached = _configuredSteps.emplace(row.Scenario, ConfiguredTotalEnvSteps(config, row.Scenario)).first;
+        std::optional<uint64> const configured = cached->second;
 
         if (progress)
         {

@@ -64,7 +64,8 @@ namespace
 
     std::optional<int32> Fight(Row const& row, Layout const& layout)
     {
-        bool const hasTarget = row.Obs(BlockId::Duel, DuelBlock::OBS_DISTANCE) > 0.0f;
+        // A living target's health; not the distance, which is 0 in melee range (it is measured between reaches).
+        bool const hasTarget = row.Obs(BlockId::Core, CoreBlock::OBS_TARGET_HEALTH) > 0.0f;
         uint32 const heals = uint32(layout.AllyHeals.size());
 
         if (row.Has(BlockId::Gauntlet) && !hasTarget)

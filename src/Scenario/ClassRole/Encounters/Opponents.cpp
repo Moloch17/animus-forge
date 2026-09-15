@@ -274,4 +274,3 @@ std::vector<Creature*> AnimusForge::ClassRole::Opponents::SpawnPack(Player* bot,
 
     return pack;
 }
-

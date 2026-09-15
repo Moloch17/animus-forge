@@ -95,7 +95,8 @@ void AnimusForge::ForgeConfig::Load()
     if (LearnerPython.empty())
     {
         fs::path const venvPython = workDir / ".venv" / "bin" / "python";
-        LearnerPython = fs::exists(venvPython) ? venvPython.string() : "python3";
+        std::error_code error;
+        LearnerPython = fs::exists(venvPython, error) ? venvPython.string() : "python3";
     }
 
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");

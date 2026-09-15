@@ -51,8 +51,10 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config, std::string c
 {
     namespace fs = std::filesystem;
 
+    // Non-throwing checks: this also runs from console commands (`forge resume`).
+    std::error_code error;
     fs::path const workDir = config.LearnerWorkDir;
-    if (!fs::is_directory(workDir) || !fs::exists(workDir / "animus" / "train.py"))
+    if (!fs::is_directory(workDir, error) || !fs::exists(workDir / "animus" / "train.py", error))
     {
         LOG_ERROR("module.animus", "Learner directory '{}' does not contain animus/train.py. Set "
             "AnimusForge.Learner.WorkDir to mod-animus-forge/python, or AnimusForge.Learner.AutoStart = 0 "
@@ -61,7 +63,7 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config, std::string c
     }
 
     fs::path const configPath = config.LearnerConfigFor(scenario);
-    if (!fs::exists(configPath))
+    if (!fs::exists(configPath, error))
     {
         LOG_ERROR("module.animus", "Learner config '{}' does not exist (scenario {}). Create it or set "
             "AnimusForge.Learner.Config.", configPath.string(), scenario);

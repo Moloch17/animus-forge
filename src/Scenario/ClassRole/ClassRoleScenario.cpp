@@ -53,7 +53,7 @@ namespace
     };
 
     constexpr float PARTY_SPACING = 3.0f;
-    constexpr uint32 WORLD_TICK_MS = 50;            // the sim's fixed world tick
+    constexpr float REWARD_TUNING_MS = 50.0f;       // per-decision reward terms are tuned for this decision interval
     constexpr float MAX_COMBAT_TIME_MS = 60000.0f;
     constexpr float POSITION_SCALE = 40.0f;
 
@@ -142,7 +142,7 @@ namespace
 AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& config, StageDefinition const& stage)
     : _stage(stage), _tuning(ClassRoleTuning::Load()), _spawnMapId(config.SpawnMapId),
     _spawnPoint(config.SpawnPosition), _seatCount(stage.SeatCount()),
-    _decisionScale(float(config.DecisionTicks * WORLD_TICK_MS) / 50.0f)
+    _decisionScale(float(config.DecisionTicks * SIM_TICK_MS) / REWARD_TUNING_MS)
 {
     // The class/roles this run plays: AnimusForge.ClassRoles, or all of them.
     for (ClassRoleProfile const& profile : ClassRoleProfiles())
