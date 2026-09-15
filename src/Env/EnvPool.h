@@ -103,6 +103,7 @@ namespace AnimusForge
         std::vector<float> FinalObs;
         std::vector<float> FinalState;
         std::vector<uint16> Layout;             // per agent: index into Spec().Layouts
+        std::vector<uint8> Present;             // per agent: 1 = has a character this episode
         std::vector<float> EpisodeInfo;         // per agent
         std::vector<uint32> EpisodeSeed;        // per env: seed index of the episode that just ended
         std::vector<int32> Actions;
@@ -115,6 +116,11 @@ namespace AnimusForge
         };
 
         void ResetEnv(Env& env);
+        /// Write the env's per-agent layout and presence rows (after its observation).
+        void DescribeAgents(Env const& env);
+        /// A non-agent's cast was cancelled: note it on its env when it is one of the env's targets.
+        void RecordTargetInterrupted(Unit const* caster, bool bySelf);
+        void IndexInstance(Env const& env);
         void ReportEpisode(uint32 envIndex);
 
         Scenario& _scenario;
@@ -131,6 +137,10 @@ namespace AnimusForge
 
         /// Ally GUID -> env and index in Env::Allies. Maintained like _agents.
         std::unordered_map<ObjectGuid, AgentSlot> _allies;
+
+        /// Instance id -> env index, for hooks about units that are not agents (the env's targets). Maintained like
+        /// _agents.
+        std::unordered_map<uint32, uint32> _envByInstance;
 
         std::vector<uint8> _scratchMask;
 

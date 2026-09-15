@@ -111,6 +111,10 @@ namespace AnimusForge
         std::vector<AgentStats> StepStats;      // since the last decision
         std::vector<AgentStats> EpisodeStats;   // since the last reset
 
+        /// Targets whose cast or channel was cut short by something other than themselves since the last decision
+        /// (an interrupt, stun, silence, ...). Written by the map thread updating the env's instance.
+        std::vector<ObjectGuid> StepInterruptedTargets;
+
         [[nodiscard]] Map* FindMap() const;
         [[nodiscard]] Player* FindBot(uint32 agent) const;
         [[nodiscard]] Creature* FindTarget(uint32 target) const;

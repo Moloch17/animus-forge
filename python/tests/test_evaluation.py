@@ -46,6 +46,7 @@ def blank_step(decision: int) -> p.Step:
         state=np.zeros((e, SPEC.state_dim), np.float32),
         mask=np.ones((e, a, SPEC.num_actions), bool),
         layout=np.tile(np.arange(a, dtype=np.uint16), (e, 1)),  # agent 0 warrior, agent 1 mage
+        present=np.ones((e, a), bool),
         reward=np.zeros((e, a), np.float32),
         done=np.zeros(e, bool),
         terminated=np.zeros(e, bool),

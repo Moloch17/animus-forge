@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -77,6 +77,7 @@ class Spec:
             ("state", f32, (e, self.state_dim)),
             ("mask", u8, (e, a, self.num_actions)),
             ("layout", u16, (e, a)),
+            ("present", u8, (e, a)),
             ("reward", f32, (e, a)),
             ("done", u8, (e,)),
             ("terminated", u8, (e,)),
@@ -103,6 +104,7 @@ class Step:
     state: np.ndarray  # [E, S] float32
     mask: np.ndarray  # [E, A, N] bool, each agent padded to N
     layout: np.ndarray  # [E, A] uint16, index into Spec.layouts
+    present: np.ndarray  # [E, A] bool, False for a seat without a character this episode (not a sample)
     reward: np.ndarray  # [E, A] float32
     done: np.ndarray  # [E] bool
     terminated: np.ndarray  # [E] bool

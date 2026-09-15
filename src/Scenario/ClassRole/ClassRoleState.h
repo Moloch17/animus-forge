@@ -119,6 +119,7 @@ namespace AnimusForge::ClassRole
         std::array<SeatState, MAX_SEATS> Seats;
         uint32 ActiveSeats = 1;                 // seats with a character this episode (the first ones)
         bool Fresh = false;                     // built by Setup, not yet reset
+        bool BuildFailed = false;               // the last reset could not build the episode: end it and retry
         uint32 OpponentEntry = 0;               // creature entry: the duel's opponent, the first pull's first member
     };
 }

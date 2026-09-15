@@ -114,7 +114,10 @@ class MappoTrainer:
 
     def update(self, buffer: RolloutBuffer) -> dict[str, float]:
         cfg = self.config
+        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0}
         data = {k: torch.as_tensor(v, device=self.train_device) for k, v in buffer.flat().items()}
+        if data["actions"].shape[0] == 0:
+            return stats  # no seat had a character this rollout: nothing to learn from
 
         advantages = data["advantages"]
         data["advantages"] = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
@@ -129,7 +132,6 @@ class MappoTrainer:
 
         samples = data["actions"].shape[0]
         batch = max(1, samples // cfg.minibatches)
-        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0}
         updates = 0
 
         for _ in range(cfg.epochs):

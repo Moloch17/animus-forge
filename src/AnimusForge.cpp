@@ -574,7 +574,9 @@ void AnimusForge::Forge::RemoteDecision()
         if (!SendSpec())
             return;
 
-        // A new learner starts from fresh episodes; whatever ran unobserved is discarded.
+        // A new learner starts from fresh training episodes; whatever ran unobserved is discarded. An evaluation the
+        // previous learner left unfinished ends here, or its baseline would keep replacing this learner's actions.
+        _pool->SetEvaluation(false, 0, 0, {});
         _pool->ResetAll();
     }
     else
@@ -719,6 +721,7 @@ bool AnimusForge::Forge::SendStep()
         chunk(_pool->State),
         chunk(_pool->Mask),
         chunk(_pool->Layout),
+        chunk(_pool->Present),
         chunk(_pool->Rewards),
         chunk(_pool->Done),
         chunk(_pool->Terminated),

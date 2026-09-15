@@ -56,6 +56,7 @@ class RolloutBuffer:
         self.state = np.zeros((steps, envs, state_dim), dtype=np.float32)
         self.mask = np.zeros((*shape, num_actions), dtype=bool)
         self.layout = np.zeros(shape, dtype=np.int64)
+        self.valid = np.ones(shape, dtype=bool)  # False for a seat without a character: not a sample
         self.actions = np.zeros(shape, dtype=np.int64)
         self.log_probs = np.zeros(shape, dtype=np.float32)
         self.values = np.zeros(shape, dtype=np.float32)  # denormalised
@@ -67,13 +68,15 @@ class RolloutBuffer:
         self.returns = np.zeros(shape, dtype=np.float32)
         self.cursor = 0
 
-    def add_decision(self, obs, state, mask, layout, actions, log_probs, values) -> None:
-        """Record what the policy saw and did at step `cursor`."""
+    def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None) -> None:
+        """Record what the policy saw and did at step `cursor`; `present` [E, A] marks the agents with a character
+        (default: all)."""
         t = self.cursor
         self.obs[t] = obs
         self.state[t] = state
         self.mask[t] = mask
         self.layout[t] = layout
+        self.valid[t] = True if present is None else present
         self.actions[t] = actions
         self.log_probs[t] = log_probs
         self.values[t] = values
@@ -107,19 +110,26 @@ class RolloutBuffer:
         self.cursor = 0
 
     def flat(self) -> dict[str, np.ndarray]:
-        """Every per-agent sample flattened to [T*E*A, ...]. State is repeated per agent."""
+        """Every valid per-agent sample flattened to [n, ...] (n = valid rows of T*E*A). State is repeated per agent.
+
+        Seats without a character (``valid`` False) are left out: they only have the no-op and earn nothing, so as
+        samples they would only dilute the advantages, the entropy and the value targets."""
         steps, envs, agents = self.actions.shape
-        n = steps * envs * agents
-        # Broadcast views are read-only; materialise them so torch gets writable arrays.
-        state = np.broadcast_to(self.state[:, :, None, :], (steps, envs, agents, self.state.shape[-1])).copy()
+        keep = self.valid.reshape(-1)
+        # Boolean indexing copies, so torch gets writable arrays.
+        state = np.broadcast_to(self.state[:, :, None, :], (steps, envs, agents, self.state.shape[-1]))
         return {
-            "obs": self.obs.reshape(n, -1),
-            "state": state.reshape(n, -1),
-            "layout": self.layout.reshape(n),
-            "mask": self.mask.reshape(n, -1),
-            "actions": self.actions.reshape(n),
-            "log_probs": self.log_probs.reshape(n),
-            "values": self.values.reshape(n),
-            "advantages": self.advantages.reshape(n),
-            "returns": self.returns.reshape(n),
+            "obs": self.obs.reshape(-1, self.obs.shape[-1])[keep],
+            "state": state.reshape(-1, self.state.shape[-1])[keep],
+            "layout": self.layout.reshape(-1)[keep],
+            "mask": self.mask.reshape(-1, self.mask.shape[-1])[keep],
+            "actions": self.actions.reshape(-1)[keep],
+            "log_probs": self.log_probs.reshape(-1)[keep],
+            "values": self.values.reshape(-1)[keep],
+            "advantages": self.advantages.reshape(-1)[keep],
+            "returns": self.returns.reshape(-1)[keep],
         }
+
+    def mean_reward(self) -> float:
+        """Mean reward per decision over the valid samples (0 when there are none)."""
+        return float(self.rewards[self.valid].mean()) if self.valid.any() else 0.0

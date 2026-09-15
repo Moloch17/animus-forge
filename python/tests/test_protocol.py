@@ -35,6 +35,7 @@ def make_step(decision: int, rng: np.random.Generator) -> p.Step:
         state=rng.random((e, SPEC.state_dim), dtype=np.float32),
         mask=rng.random((e, a, SPEC.num_actions)) < 0.7,
         layout=rng.integers(0, len(SPEC.layouts), size=(e, a), dtype=np.uint16),
+        present=rng.random((e, a)) < 0.8,
         reward=rng.random((e, a), dtype=np.float32),
         done=done,
         terminated=done & (rng.random(e) < 0.5),

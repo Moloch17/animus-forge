@@ -22,7 +22,6 @@
 #include "CreatureAI.h"
 #include "Env.h"
 #include "Map.h"
-#include "ObjectAccessor.h"
 #include "Opponents.h"
 #include "Player.h"
 #include "Random.h"
@@ -467,11 +466,12 @@ void AnimusForge::ClassRole::PullsEncounter::Reward(Env& env, uint32 seatIndex, 
         tally.StepStealthOpener = false;
     }
 
-    // An interrupt counts when the enemy it was cast at is no longer casting.
+    // An interrupt counts when the enemy it was cast at had its cast cut short since: a cast that finished on its own,
+    // or an enemy that died, is not one.
     if (!pull.PendingInterrupt.IsEmpty())
     {
-        Unit* interrupted = ObjectAccessor::GetUnit(*bot, pull.PendingInterrupt);
-        if (!interrupted || !interrupted->IsNonMeleeSpellCast(false))
+        if (std::find(env.StepInterruptedTargets.begin(), env.StepInterruptedTargets.end(), pull.PendingInterrupt)
+            != env.StepInterruptedTargets.end())
         {
             ledger.Add(RewardTerm::Interrupt, tuning.Interrupt);
             ++pull.Interrupts;

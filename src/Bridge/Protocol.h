@@ -35,6 +35,8 @@
  *                              u16 layout[E*A]        each agent's layout (index into the SPEC's layouts):
  *                                                     it fills only that layout's first obs dim features
  *                                                     and action count mask entries; constant per episode
+ *                              u8  present[E*A]       1 = the agent has a character this episode; 0 = an
+ *                                                     empty seat (only the no-op, reward 0): not a sample
  *                              f32 reward[E*A]        reward for the transition that just ended
  *                              u8  done[E]            1 = episode ended on this transition
  *                              u8  terminated[E]      1 = it ended in a terminal state (no
@@ -55,7 +57,8 @@
  * (SeedBase, index) -- the same characters and opponents every evaluation, whatever the env count. Envs that
  * reset once every index is handed out run unseeded episodes (NO_EPISODE_SEED). With a Baseline policy name
  * the sim ignores the ACT actions and runs that scripted policy instead, so the learner can score it on the
- * same seeds. MODE with Mode = 0 returns to unseeded training episodes.
+ * same seeds. MODE with Mode = 0 returns to unseeded training episodes. Every new session (HELLO) starts in
+ * training mode, whatever mode the previous learner left the sim in.
  *
  * The first STEP after SPEC carries freshly reset envs: its reward and done arrays are zero and
  * must not be recorded as a transition. A truncated episode (done, not terminated) bootstraps from
@@ -70,7 +73,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 3;
+    constexpr uint32 PROTOCOL_VERSION = 4;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;

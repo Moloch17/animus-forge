@@ -442,6 +442,9 @@ AnimusForge::ClassRole::Layout const& AnimusForge::ClassRole::ClassRoleScenario:
 
 bool AnimusForge::ClassRole::ClassRoleScenario::IsTerminal(Env const& env) const
 {
+    if (Data(env).BuildFailed)
+        return true;
+
     return std::any_of(_encounters.begin(), _encounters.end(),
         [&env](std::unique_ptr<Encounter> const& encounter) { return encounter->IsTerminal(env); });
 }
@@ -471,8 +474,10 @@ void AnimusForge::ClassRole::ClassRoleScenario::Reset(Env& env)
         return;
     }
 
-    if (!Rebuild(env))
-        LOG_ERROR("module.animus", "{}: env {} could not build new characters; it keeps the old ones", Name(),
+    // A failed build ends the episode at the next decision, and the reset that follows tries again.
+    data.BuildFailed = !Rebuild(env);
+    if (data.BuildFailed)
+        LOG_ERROR("module.animus", "{}: env {} could not build its episode; it ends at once and is rebuilt", Name(),
             env.Index);
 }
 
@@ -519,6 +524,28 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
         for (uint32 seat = 0; seat < _seatCount; ++seat)
             roles[seat] = _layouts[urand(0, uint32(_layouts.size()) - 1)].PlayRole();
 
+    // What the seats' current characters are, to put back if a new one cannot be built: the old bots stay.
+    struct Character
+    {
+        Layout const* L;
+        uint8 Race;
+        uint8 Level;
+        uint8 Spec;
+        float DamageScale;
+        TalentBuilder::Build Build;
+        uint32 UnspentTalentPoints;
+        uint32 EquippedItems;
+    };
+
+    uint32 const previousActiveSeats = data.ActiveSeats;
+    std::array<Character, MAX_SEATS> previous{};
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+    {
+        SeatState const& s = data.Seats[seat];
+        previous[seat] = { s.L, s.Race, s.Level, s.Spec, s.DamageScale, s.Build, s.UnspentTalentPoints,
+            s.EquippedItems };
+    }
+
     // The class/roles first, then one level they can all be.
     uint8 minLevel = 1;
     for (uint32 seat = 0; seat < _seatCount; ++seat)
@@ -551,7 +578,27 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
 
         Player* bot = BuildSeat(env, seat, map, level, start);
         if (!bot)
+        {
+            // Nothing changes: the bots already made for this episode go, the old characters stay with their seats.
+            for (uint32 other = 0; other < _seatCount; ++other)
+            {
+                data.Seats[other].Bot.Abort();
+
+                SeatState& s = data.Seats[other];
+                Character const& c = previous[other];
+                s.L = c.L;
+                s.Race = c.Race;
+                s.Level = c.Level;
+                s.Spec = c.Spec;
+                s.DamageScale = c.DamageScale;
+                s.Build = c.Build;
+                s.UnspentTalentPoints = c.UnspentTalentPoints;
+                s.EquippedItems = c.EquippedItems;
+            }
+
+            data.ActiveSeats = previousActiveSeats;
             return false;
+        }
 
         if (seat == 0)
             firstNew = bot;
@@ -853,6 +900,13 @@ void AnimusForge::ClassRole::ClassRoleScenario::AgentLayouts(Env const& env, uin
     EnvState const& data = Data(env);
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         layout[seat] = data.Seats[seat].L ? data.Seats[seat].L->Index : 0;
+}
+
+void AnimusForge::ClassRole::ClassRoleScenario::AgentPresence(Env const& env, uint8* present) const
+{
+    EnvState const& data = Data(env);
+    for (uint32 seat = 0; seat < _seatCount; ++seat)
+        present[seat] = data.Seats[seat].L ? 1 : 0;
 }
 
 void AnimusForge::ClassRole::ClassRoleScenario::ObserveSeat(Env& env, uint32 seatIndex, float* obs, uint8* mask)

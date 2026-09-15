@@ -428,7 +428,8 @@ def main() -> int:
             while not buffer.full:
                 values = trainer.value(step.state, step.obs, step.layout)
                 actions, log_probs = trainer.act(step.obs, step.mask, step.layout)
-                buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values)
+                buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values,
+                                    step.present)
 
                 # The ended episodes' layouts: the next STEP already carries the new episodes'.
                 layout = step.layout
@@ -455,7 +456,7 @@ def main() -> int:
                     "env_steps": env_steps,
                     "env_steps_per_sec": config.rollout_length * envs * agents / rollout_seconds,
                     "update_seconds": time.perf_counter() - started - rollout_seconds,
-                    "reward_per_decision": float(buffer.rewards.mean()),
+                    "reward_per_decision": buffer.mean_reward(),
                     "episodes": len(finished_episodes),
                     "entropy_coef": trainer.entropy_coef,
                 }
@@ -495,6 +496,9 @@ def main() -> int:
             if evaluating and last_eval_env_steps < env_steps:
                 step = evaluate()
                 last_eval_env_steps = env_steps
+            if evaluating and controller.baseline_summary is None:
+                # A run resumed at its budget judges without evaluating: the baseline is cached in eval_baseline.json.
+                controller.baseline_summary = baseline_for(config.eval.seed, config.eval.episodes)
             handle(outcome := controller.at_budget(confirm_best))
     finally:
         save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps, checkpoint_extra())

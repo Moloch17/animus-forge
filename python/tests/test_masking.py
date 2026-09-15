@@ -49,3 +49,38 @@ def test_trainer_update_smoke():
     buffer.finish(trainer.value(state, obs, layout), 0.99, 0.95)
     stats = trainer.update(buffer)
     assert all(np.isfinite(v) for v in stats.values())
+
+
+def _filled_buffer(present):
+    """A 4-step, 2-env, 2-agent buffer with fixed data; agent 1's rows are marked absent where present is False."""
+    envs, agents, obs_dim, state_dim, actions = 2, 2, 3, 4, 3
+    buffer = RolloutBuffer(4, envs, agents, obs_dim, state_dim, actions)
+    rng = np.random.default_rng(7)
+    while not buffer.full:
+        buffer.add_decision(rng.random((envs, agents, obs_dim), dtype=np.float32),
+                            rng.random((envs, state_dim), dtype=np.float32),
+                            np.ones((envs, agents, actions), bool), np.zeros((envs, agents), np.int64),
+                            rng.integers(0, actions, (envs, agents)), np.zeros((envs, agents), np.float32),
+                            rng.random((envs, agents), dtype=np.float32), present)
+        buffer.add_outcome(rng.random((envs, agents), dtype=np.float32), np.zeros(envs, bool), np.zeros(envs, bool),
+                           np.zeros((envs, agents), np.float32))
+    buffer.finish(np.zeros((envs, agents), np.float32), 0.99, 0.95)
+    return buffer
+
+
+def test_absent_seats_are_not_samples():
+    present = np.array([[True, False], [True, False]])
+    buffer = _filled_buffer(present)
+    flat = buffer.flat()
+    assert len(flat["actions"]) == 4 * 2  # agent 0 of both envs, every step
+    np.testing.assert_array_equal(flat["actions"], buffer.actions[:, :, 0].reshape(-1))
+    assert buffer.mean_reward() == pytest.approx(float(buffer.rewards[:, :, 0].mean()))
+
+
+def test_update_with_no_present_seat_is_a_no_op():
+    trainer = MappoTrainer([(3, 3)], 4, MappoConfig(hidden=(8, 8), epochs=1, minibatches=1))
+    before = {k: v.clone() for k, v in trainer.actor.state_dict().items()}
+    stats = trainer.update(_filled_buffer(np.zeros((2, 2), bool)))
+    assert all(v == 0.0 for v in stats.values())
+    for key, value in trainer.actor.state_dict().items():
+        assert torch.equal(value, before[key])

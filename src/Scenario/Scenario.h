@@ -83,6 +83,13 @@ namespace AnimusForge
             std::fill(layout, layout + Spec().AgentsPerEnv, uint16(0));
         }
 
+        /// present: [AgentsPerEnv] 1 when the agent has a character this episode, 0 for a seat left empty (it only
+        /// has the no-op and earns nothing, so the learner does not train on it). Constant within an episode.
+        virtual void AgentPresence(Env const& /*env*/, uint8* present) const
+        {
+            std::fill(present, present + Spec().AgentsPerEnv, uint8(1));
+        }
+
         /// reward: [AgentsPerEnv], from env.StepStats (cleared by EnvPool afterwards).
         virtual void Reward(Env& env, float* reward) = 0;
 

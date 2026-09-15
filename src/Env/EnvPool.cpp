@@ -59,6 +59,7 @@ AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     FinalState.assign(envs * _spec.StateDim, 0.0f);
     EpisodeInfo.assign(agents * _spec.EpisodeInfoDim, 0.0f);
     Layout.assign(agents, 0);
+    Present.assign(agents, 1);
     EpisodeSeed.assign(envs, NO_EPISODE_SEED);
     _envSeed.assign(envs, NO_EPISODE_SEED);
     Actions.assign(agents, 0);
@@ -82,6 +83,8 @@ bool AnimusForge::EnvPool::Setup()
 
         for (uint32 ally = 0; ally < env.Allies.size() && ally < MAX_ALLIES; ++ally)
             _allies[env.Allies[ally]] = AgentSlot{ env.Index, ally };
+
+        IndexInstance(env);
     }
 
     LOG_INFO("module.animus", "Scenario {}: {} envs x {} agents, obs {}, state {}, actions {}", _scenario.Name(),
@@ -94,6 +97,7 @@ void AnimusForge::EnvPool::Teardown()
 {
     _agents.clear();
     _allies.clear();
+    _envByInstance.clear();
 
     for (Env& env : _envs)
         _scenario.Teardown(env);
@@ -123,7 +127,7 @@ void AnimusForge::EnvPool::ResetAll()
         uint32 const e = env.Index;
         _scenario.Observe(env, &Obs[e * _spec.AgentsPerEnv * _spec.ObsDim], &State[e * _spec.StateDim],
             &Mask[e * _spec.AgentsPerEnv * _spec.NumActions]);
-        _scenario.AgentLayouts(env, &Layout[e * _spec.AgentsPerEnv]);
+        DescribeAgents(env);
     }
 
     std::fill(Rewards.begin(), Rewards.end(), 0.0f);
@@ -146,6 +150,7 @@ void AnimusForge::EnvPool::Collect()
             env.EpisodeStats[agent].Add(env.StepStats[agent]);
             env.StepStats[agent] = AgentStats();
         }
+        env.StepInterruptedTargets.clear();
 
         bool const terminal = _scenario.IsTerminal(env);
         bool const done = terminal || env.EpisodeElapsedMs >= env.EpisodeLengthMs;
@@ -166,8 +171,15 @@ void AnimusForge::EnvPool::Collect()
 
         _scenario.Observe(env, &Obs[e * agentsPerEnv * _spec.ObsDim], &State[e * _spec.StateDim],
             &Mask[e * agentsPerEnv * _spec.NumActions]);
-        _scenario.AgentLayouts(env, &Layout[e * agentsPerEnv]);
+        DescribeAgents(env);
     }
+}
+
+void AnimusForge::EnvPool::DescribeAgents(Env const& env)
+{
+    uint32 const first = env.Index * _spec.AgentsPerEnv;
+    _scenario.AgentLayouts(env, &Layout[first]);
+    _scenario.AgentPresence(env, &Present[first]);
 }
 
 bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
@@ -306,6 +318,8 @@ void AnimusForge::EnvPool::ResetEnv(Env& env)
         env.StepStats[agent] = AgentStats();
         env.EpisodeStats[agent] = AgentStats();
     }
+    env.StepInterruptedTargets.clear();
+    IndexInstance(env);
 
     // A scenario may rebuild its bots and allies on reset. Safe to update here: resets run on the world
     // thread while no map is updating, so no damage or heal hook is reading the maps.
@@ -373,13 +387,18 @@ void AnimusForge::EnvPool::RecordCastCompleted(Unit const* caster, Spell* spell)
 
 void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell, bool bySelf)
 {
-    // Only a cast still in its cast time: a cancelled channel has already paid out its ticks.
-    if (!caster || !spell || spell->getState() != SPELL_STATE_PREPARING || spell->IsTriggered()
-        || spell->GetCastTime() <= 0)
+    if (!caster || !spell || spell->IsTriggered())
         return;
 
     auto const agent = _agents.find(caster->GetGUID());
     if (agent == _agents.end())
+    {
+        RecordTargetInterrupted(caster, bySelf);
+        return;
+    }
+
+    // Only a cast still in its cast time: a cancelled channel has already paid out its ticks.
+    if (spell->getState() != SPELL_STATE_PREPARING || spell->GetCastTime() <= 0)
         return;
 
     // Pushback adds to the time left, so clamp what was spent to [0, cast time].
@@ -400,17 +419,44 @@ void AnimusForge::EnvPool::RecordCastCancelled(Unit const* caster, Spell* spell,
         ++stats.CastsOther;
 }
 
+void AnimusForge::EnvPool::RecordTargetInterrupted(Unit const* caster, bool bySelf)
+{
+    // Stopped by itself (it moved, changed its mind) or by dying is not an interrupt.
+    if (bySelf || !caster->IsAlive())
+        return;
+
+    auto const env = _envByInstance.find(caster->GetInstanceId());
+    if (env == _envByInstance.end())
+        return;
+
+    Env& owner = _envs[env->second];
+    if (caster->GetMapId() == owner.MapId
+        && std::find(owner.Targets.begin(), owner.Targets.end(), caster->GetGUID()) != owner.Targets.end())
+        owner.StepInterruptedTargets.push_back(caster->GetGUID());
+}
+
+void AnimusForge::EnvPool::IndexInstance(Env const& env)
+{
+    // Rebuilt only on the world thread while no map is updating, like _agents.
+    if (env.InstanceId)
+        _envByInstance[env.InstanceId] = env.Index;
+}
+
 void AnimusForge::EnvPool::ReportEpisode(uint32 envIndex)
 {
-    // Every agent's episode counts as one.
+    // Every present agent's episode counts as one; Present still describes the episode that just ended.
     for (uint32 agent = 0; agent < _spec.AgentsPerEnv; ++agent)
     {
-        float const* info = &EpisodeInfo[(envIndex * _spec.AgentsPerEnv + agent) * _spec.EpisodeInfoDim];
+        uint32 const row = envIndex * _spec.AgentsPerEnv + agent;
+        if (!Present[row])
+            continue;
+
+        float const* info = &EpisodeInfo[row * _spec.EpisodeInfoDim];
         for (uint32 i = 0; i < _spec.EpisodeInfoDim; ++i)
             _reportInfoSum[i] += info[i];
+        ++_reportedEpisodes;
     }
 
-    _reportedEpisodes += _spec.AgentsPerEnv;
     if (_reportedEpisodes < _reportEpisodes)
         return;
 

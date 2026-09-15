@@ -290,8 +290,9 @@ Stage 2. The duel's characters against a pack instead of a single opponent:
   casting, in combat, crowd-controlled, current target, elite, level difference), and each tactical
   spell's known/cooldown.
 - **Reward:** damage as a fraction of the pack's total health (x2), damage taken as a fraction of
-  the bot's (x1), approach shaping toward the nearest enemy, +0.5 per kill, +0.3 per interrupt (a
-  cast that stops after the bot's interrupt, stun, silence, fear or polymorph), +0.5 for a stealth
+  the bot's (x1), approach shaping toward the nearest enemy, +0.5 per kill, +0.3 per interrupt (an
+  enemy whose cast is cut short, not by itself or its death, after the bot's interrupt, stun, silence, fear or
+  polymorph at it; a cast that finishes on its own does not count), +0.5 for a stealth
   opener. Clearing the pack: +2, up to +3 for the time left, up to +2 for the health kept. Death -3.
   The episode ends when the pack is cleared or the bot dies.
 - **Episode info:** the duel's (killed = cleared), then kills, interrupts, pack size, linked.

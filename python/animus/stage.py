@@ -96,6 +96,7 @@ class StageController:
             "restarts": self.restarts,
             "restart_env_steps": self.restart_env_steps,
             "best_summary": self.best_summary,
+            "baseline_summary": self.baseline_summary,
         }
 
     def load_state_dict(self, state: dict | None) -> None:
@@ -104,6 +105,8 @@ class StageController:
         self.restarts = state.get("restarts", 0)
         self.restart_env_steps = state.get("restart_env_steps")
         self.best_summary = state.get("best_summary")
+        # The target's baseline gates need it even when the resumed run judges the stage before evaluating again.
+        self.baseline_summary = state.get("baseline_summary")
 
     def _decide(self, outcome: Outcome) -> Outcome:
         self.last_outcome = outcome

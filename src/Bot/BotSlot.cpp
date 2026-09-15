@@ -86,6 +86,19 @@ void AnimusForge::BotSlot::Promote()
     _created = false;
 }
 
+void AnimusForge::BotSlot::Abort()
+{
+    if (_created)
+    {
+        // CreateNext put the new bot on NextSession(); the session stays with the slot for the next rebuild.
+        if (Player* bot = _sessions[NextSession()]->GetPlayer())
+            BotFactory::Destroy(bot, true);
+    }
+
+    _previous = nullptr;
+    _created = false;
+}
+
 void AnimusForge::BotSlot::Destroy()
 {
     if (Player* bot = Active())

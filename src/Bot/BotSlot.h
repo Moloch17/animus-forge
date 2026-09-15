@@ -71,6 +71,10 @@ namespace AnimusForge
         /// if any, becomes the slot's bot.
         void Promote();
 
+        /// Cancel the rebuild: the bot CreateNext made, if any, is destroyed (its session kept) and the bot remembered
+        /// by Begin stays the slot's bot.
+        void Abort();
+
         /// Destroy the slot's bot and its session (teardown).
         void Destroy();
 

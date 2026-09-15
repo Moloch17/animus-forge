@@ -49,6 +49,17 @@ def test_a_resumed_controller_judges_its_best_evaluation():
     assert (outcome.action, outcome.stage) == (ADVANCE, "best")
 
 
+def test_a_controller_resumed_at_its_budget_still_has_its_baseline():
+    controller = StageController(make_config(min_over_baseline=0.2))
+    evaluate(controller, 13.0, 0)
+
+    resumed = StageController(make_config(min_over_baseline=0.2))
+    resumed.tracker.load_state_dict(controller.tracker.state_dict())
+    resumed.load_state_dict(controller.state_dict())
+    outcome = resumed.at_budget(confirm=lambda: pytest.fail("no confirmation expected"))
+    assert (outcome.action, outcome.reason) == (ADVANCE, "total_env_steps")
+
+
 def test_converged_above_target_moves_on():
     controller = StageController(make_config(min_over_baseline=0.2))
     evaluate(controller, 13.0, 0)
