@@ -21,6 +21,7 @@
 
 #include "Define.h"
 #include "Position.h"
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -31,14 +32,14 @@ namespace AnimusForge
     {
         bool Enable = true;
 
-        /// Scenario currently running: the current entry of Queue.
+        /// Scenario currently running (set by the forge before it builds one); empty while idle.
         std::string Scenario;
 
-        /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes.
+        /// AnimusForge.Queue: the scenarios `forge start` trains, one after another, when given none.
         std::vector<std::string> Queue;
 
-        /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per queued scenario (0 = run the
-        /// first one forever).
+        /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per scenario of `forge start` (0 = run
+        /// the first one until cancelled).
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
@@ -62,11 +63,17 @@ namespace AnimusForge
         uint32 ArenaMapId = 560;
         Position ArenaPosition;
 
+        std::string ModelDir;           // AnimusForge.ModelDir, resolved: never empty after Load
+        uint32 ProgressInterval = 60;   // AnimusForge.Progress.Interval, seconds; 0 = no periodic report
+
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
         /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else
         /// configs/<scenario>.yaml if it exists, else configs/class_role.yaml.
         [[nodiscard]] std::string LearnerConfigFor(std::string const& scenario) const;
+
+        /// The learner's runs directory (runs/ under the learner directory): runs/<scenario>/ per scenario.
+        [[nodiscard]] std::filesystem::path RunsDir() const;
 
         void Load();
     };

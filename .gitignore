@@ -4,3 +4,4 @@ __pycache__/
 .venv/
 python/runs/
 python/layouts/
+models/

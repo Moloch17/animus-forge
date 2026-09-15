@@ -86,6 +86,14 @@ namespace AnimusForge
         /// Episodes finished by every env since Setup.
         [[nodiscard]] uint64 CompletedEpisodes() const;
 
+        /// Mean episode info of the last AnimusForge.ReportEpisodes finished episodes, by column name, and how many
+        /// episodes that was (0 before the first batch).
+        [[nodiscard]] std::vector<std::pair<std::string, double>> const& LastEpisodeMeans() const
+        {
+            return _lastEpisodeMeans;
+        }
+        [[nodiscard]] uint64 LastEpisodeMeansCount() const { return _lastEpisodeMeansCount; }
+
         std::vector<float> Obs;
         std::vector<float> State;
         std::vector<uint8> Mask;
@@ -135,6 +143,8 @@ namespace AnimusForge
 
         std::vector<double> _reportInfoSum;
         uint32 _reportedEpisodes = 0;
+        std::vector<std::pair<std::string, double>> _lastEpisodeMeans;
+        uint64 _lastEpisodeMeansCount = 0;
     };
 }
 

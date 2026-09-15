@@ -33,9 +33,14 @@ namespace
     /// This module's python/ directory, from the path the compiler saw for this source file
     /// (<module>/src/ForgeConfig.cpp). Valid wherever the module source tree still exists at the
     /// path it was built from: native builds and the bind-mounted Docker services, not the runtime images.
+    std::filesystem::path ModuleRoot()
+    {
+        return std::filesystem::path(__FILE__).parent_path().parent_path();
+    }
+
     std::filesystem::path DefaultLearnerWorkDir()
     {
-        return std::filesystem::path(__FILE__).parent_path().parent_path() / "python";
+        return ModuleRoot() / "python";
     }
 }
 
@@ -109,6 +114,16 @@ void AnimusForge::ForgeConfig::Load()
         LearnerLogFile = (logsDir / "animus-learner.log").string();
     }
 
+    // Exported models stay in the forge's own folder; copying them to a game server is done by hand.
+    std::filesystem::path modelDir = sConfigMgr->GetOption<std::string>("AnimusForge.ModelDir", "");
+    if (modelDir.empty())
+        modelDir = ModuleRoot() / "models";
+    else if (modelDir.is_relative())
+        modelDir = ModuleRoot() / modelDir;
+    ModelDir = modelDir.lexically_normal().string();
+
+    ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 60);
+
     ArenaMapId = sConfigMgr->GetOption<uint32>("AnimusForge.Arena.MapId", 560);
     ArenaPosition.Relocate(
         sConfigMgr->GetOption<float>("AnimusForge.Arena.X", 2741.9f),
@@ -140,4 +155,9 @@ std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenar
     }
 
     return absolute("configs/class_role.yaml").string();
+}
+
+std::filesystem::path AnimusForge::ForgeConfig::RunsDir() const
+{
+    return std::filesystem::path(LearnerWorkDir) / "runs";
 }

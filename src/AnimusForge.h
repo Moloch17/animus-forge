@@ -19,17 +19,27 @@
 #ifndef MOD_ANIMUS_FORGE_H
 #define MOD_ANIMUS_FORGE_H
 
-#include "ForgeConfig.h"
+#include "ChildProcess.h"
 #include "EnvPool.h"
+#include "ForgeConfig.h"
 #include "LearnerProcess.h"
 #include "LockstepServer.h"
+#include "Progress.h"
 #include "Scenario.h"
+#include "TextTable.h"
+#include <chrono>
 #include <memory>
+#include <optional>
 
 namespace AnimusForge
 {
-    /// Module root: owns the scenario, the env pool and the learner connection, and runs one
-    /// decision step every AnimusForge.DecisionTicks world ticks.
+    /// Module root: owns the scenario, the env pool and the learner connection, and runs one decision step every
+    /// AnimusForge.DecisionTicks world ticks while a plan runs.
+    ///
+    /// The sim starts idle; console commands (Hooks/ForgeCommandScript.cpp) start, pause, resume, skip and cancel
+    /// plans. A command only records a request: OnUpdate applies it at the start of a tick, never in the middle of
+    /// a decision. While the world thread waits on the learner (accepting it, or waiting for its ACT) it keeps
+    /// running console commands, so the console answers within a fraction of a second throughout.
     class Forge
     {
     public:
@@ -39,22 +49,84 @@ namespace AnimusForge
         void OnUpdate(uint32 diff);
         void OnShutdown();
 
-        /// The running pool, or nullptr when the module is disabled, failed to start or has shut
-        /// down. Set and cleared on the world thread while no map is updating, so map-thread hooks
-        /// may read it without a lock.
-        [[nodiscard]] EnvPool* ActivePool() const { return _running ? _pool.get() : nullptr; }
+        /// The running pool, or nullptr when no scenario is running. Set and cleared on the world thread while no
+        /// map is updating, so map-thread hooks may read it without a lock.
+        [[nodiscard]] EnvPool* ActivePool() const { return _poolLive ? _pool.get() : nullptr; }
+
+        /// Console commands, run on the world thread. Each writes its reply to `out` and returns false when it
+        /// refuses (the reply says why).
+        void CommandStatus(LineSink const& out);
+        void CommandScenarios(LineSink const& out);
+        bool CommandStart(std::vector<std::string> scenarios, LineSink const& out);
+        bool CommandResume(std::vector<std::string> scenarios, LineSink const& out);
+        bool CommandPause(LineSink const& out);
+        bool CommandCancel(LineSink const& out);
+        bool CommandSkip(LineSink const& out);
+        bool CommandRun(std::string const& scenario, std::string const& policy, uint32 episodes, LineSink const& out);
+        bool CommandExport(std::string scenario, std::string const& checkpoint, LineSink const& out);
+        bool CommandClean(std::string const& target, std::string const& scenario, LineSink const& out);
+        void CommandProgress(std::optional<uint32> seconds, LineSink const& out);
 
     private:
+        enum class State : uint8
+        {
+            Idle,
+            Training,       // remote policy: lock-step with the learner
+            Running,        // local policy: scripted or random actions
+            Paused,
+        };
+
+        enum class Request : uint8
+        {
+            None,
+            Start,
+            Cancel,
+            Skip,
+        };
+
+        struct PlanEntry
+        {
+            std::string Scenario;
+            bool Resume = false;
+            std::string Outcome;            // empty while pending or running; "done", "skipped", "failed", ...
+        };
+
+        /// Scenarios run one after another.
+        struct Plan
+        {
+            std::vector<PlanEntry> Entries;
+            uint32 Index = 0;
+            std::string Policy;             // "remote" trains; anything else runs locally
+            uint64 LocalEpisodes = 0;       // local policy: episodes per scenario (0 = until cancelled)
+
+            [[nodiscard]] bool Remote() const { return Policy == "remote"; }
+        };
+
         Forge() = default;
 
-        bool Start();
-        void Fail(char const* reason);
+        void ApplyRequest();
+        void HoldWhilePaused();
 
-        /// The running scenario's auto-started learner finished, so the queue can move on.
-        [[nodiscard]] bool QueueScenarioFinished() const;
+        /// Build and start the plan's current scenario. False (logged) when it cannot start.
+        bool StartCurrent();
 
-        /// Tear down the finished scenario and start the next one in the queue (or idle at the end).
-        void AdvanceQueue();
+        /// Tear the running scenario down. With `stopLearner` the learner is disconnected and waited for (it saves
+        /// latest.pt when the socket closes); a learner that finished by itself is already gone.
+        void TeardownScenario(bool stopLearner);
+
+        /// The current scenario ended with `outcome`: tear it down and start the next one, or finish the plan.
+        void FinishCurrent(std::string const& outcome);
+
+        /// The plan stops here (finished, cancelled or failed); the sim goes idle.
+        void EndPlan(char const* reason);
+
+        /// The running scenario's auto-started learner finished its run (plateau or step limit).
+        [[nodiscard]] bool LearnerFinished() const;
+
+        /// Console commands, the export process and the periodic report, while the world thread waits.
+        void Pump();
+        void PollExport();
+        void MaybeReport();
 
         void LocalDecision();
         void RemoteDecision();
@@ -62,17 +134,49 @@ namespace AnimusForge
         bool SendStep();
         bool ApplyMode(ModeMsg const& mode);
 
+        [[nodiscard]] SimSnapshot Snapshot(bool advanceRates);
+        [[nodiscard]] std::vector<PlanRow> PlanRows(Plan const& plan, bool live) const;
+        [[nodiscard]] std::string StateName() const;
+        [[nodiscard]] bool Enabled(LineSink const& out) const;
+        [[nodiscard]] bool ValidScenario(std::string const& scenario, LineSink const& out) const;
+
         ForgeConfig _config;
         std::unique_ptr<Scenario> _scenario;
         std::unique_ptr<EnvPool> _pool;
         LockstepServer _server;
         LearnerProcess _learner;
+        ChildProcess _export{ "Export" };
+        ProgressMonitor _monitor;
 
-        bool _running = false;
-        uint32 _queueIndex = 0;
+        State _state = State::Idle;
+        State _pausedFrom = State::Idle;
+        bool _poolLive = false;
+        bool _pauseRequested = false;
+        bool _resumeRequested = false;
+        bool _pumping = false;
+        bool _learnerStarted = false;      // the auto-started learner belongs to the running scenario
+
+        Request _request = Request::None;
+        Plan _requested;
+        Plan _plan;
+        std::optional<Plan> _lastPlan;     // the last plan that ended, for `forge resume` without arguments
+
         uint64 _ticks = 0;
         uint64 _decisions = 0;
         uint32 _tickMs = 0;
+        uint32 _progressInterval = 60;
+
+        std::chrono::steady_clock::time_point _scenarioStarted;
+        std::chrono::steady_clock::time_point _lastReport;
+        std::optional<std::chrono::steady_clock::time_point> _lastAct;
+
+        std::chrono::steady_clock::time_point _rateTime;
+        uint64 _rateTicks = 0;
+        uint64 _rateEpisodes = 0;
+        double _ticksPerSecond = 0.0;
+        double _episodesPerSecond = 0.0;
+
+        std::string _exportScenario;
     };
 }
 

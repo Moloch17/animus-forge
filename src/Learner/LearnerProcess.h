@@ -19,9 +19,8 @@
 #ifndef MOD_ANIMUS_FORGE_LEARNER_PROCESS_H
 #define MOD_ANIMUS_FORGE_LEARNER_PROCESS_H
 
-#include <chrono>
+#include "ChildProcess.h"
 #include <string>
-#include <sys/types.h>
 
 namespace AnimusForge
 {
@@ -29,41 +28,22 @@ namespace AnimusForge
 
     /// The Python learner as a child process of the worldserver.
     ///
-    /// Lifetime is tied to the learner socket rather than to signals: when the server shuts down
-    /// (or crashes) the socket closes, the learner's train loop sees the disconnect, saves
+    /// Lifetime is tied to the learner socket rather than to signals: when the server shuts down, a run is
+    /// cancelled (or the server crashes) the socket closes, the learner's train loop sees the disconnect, saves
     /// latest.pt and exits by itself. Stop() only escalates if it does not.
-    class LearnerProcess
+    class LearnerProcess : public ChildProcess
     {
     public:
-        LearnerProcess() = default;
-        ~LearnerProcess();
+        LearnerProcess() : ChildProcess("Learner") { }
 
-        LearnerProcess(LearnerProcess const&) = delete;
-        LearnerProcess& operator=(LearnerProcess const&) = delete;
+        /// Validate the setup and spawn the learner for `scenario`: training from scratch, or with `resume`
+        /// continuing runs/<scenario>/latest.pt. Returns false (with the reason logged) if the working directory
+        /// or config is missing or the process cannot be started.
+        bool Start(ForgeConfig const& config, std::string const& scenario, bool resume);
 
-        /// Validate the setup and spawn the learner. Returns false (with the reason logged) if the
-        /// working directory or config is missing or the process cannot be started.
-        bool Start(ForgeConfig const& config);
-
-        /// Reap the child if it has exited, logging how it ended once. Cheap; safe to call often.
-        void Poll();
-
-        [[nodiscard]] bool IsRunning() const { return _pid > 0; }
-
-        /// The last started learner has exited with status 0: its run reached total_env_steps.
-        [[nodiscard]] bool FinishedCleanly() const { return _pid <= 0 && _exitedCleanly; }
-
-        /// Wait up to `grace` for a voluntary exit, then SIGINT (the learner saves a checkpoint on
-        /// KeyboardInterrupt), then SIGKILL.
-        void Stop(std::chrono::milliseconds grace);
-
-    private:
-        bool WaitForExit(std::chrono::milliseconds timeout);
-        void ReportExit(int status);
-
-        pid_t _pid = -1;
-        bool _exitedCleanly = false;
-        std::string _logFile;
+        /// The command line to start the learner by hand, for error messages.
+        [[nodiscard]] static std::string ManualCommand(ForgeConfig const& config, std::string const& scenario,
+            bool resume);
     };
 }
 

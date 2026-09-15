@@ -216,10 +216,11 @@ bool AnimusForge::LockstepServer::Receive(MsgType& type, void* dst, std::size_t 
     return ReadExact(dst, size);
 }
 
-bool AnimusForge::LockstepServer::ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize)
+bool AnimusForge::LockstepServer::ReceiveAny(MsgType& type, std::vector<char>& payload, std::size_t maxSize,
+    std::function<bool()> const& onIdle)
 {
     MsgHeader header{};
-    if (!ReadExact(&header, sizeof(header)))
+    if (!ReadExact(&header, sizeof(header), onIdle))
         return false;
 
     type = static_cast<MsgType>(header.Type);
@@ -241,7 +242,7 @@ bool AnimusForge::LockstepServer::ReceiveAny(MsgType& type, std::vector<char>& p
     }
 
     payload.resize(header.Length);
-    return ReadExact(payload.data(), payload.size());
+    return ReadExact(payload.data(), payload.size(), onIdle);
 }
 
 bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<bool()> const& onIdle)
@@ -267,13 +268,13 @@ bool AnimusForge::LockstepServer::WaitReadable(int fd, std::function<bool()> con
     return false;
 }
 
-bool AnimusForge::LockstepServer::ReadExact(void* dst, std::size_t size)
+bool AnimusForge::LockstepServer::ReadExact(void* dst, std::size_t size, std::function<bool()> const& onIdle)
 {
     char* out = static_cast<char*>(dst);
 
     while (size)
     {
-        if (_client < 0 || !WaitReadable(_client))
+        if (_client < 0 || !WaitReadable(_client, onIdle))
             return false;
 
         ssize_t const got = ::recv(_client, out, size, 0);
