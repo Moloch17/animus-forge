@@ -19,8 +19,9 @@
 #include "DuelBlock.h"
 #include "DBCStores.h"
 #include "EncoderSupport.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "MotionMaster.h"
 #include "MoveSpline.h"
 #include "ObjectMgr.h"
@@ -127,9 +128,10 @@ AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::DuelBlock::Size(Layout
     return { OBS_COUNT_WITHOUT_STABLE + stable * STABLE_FEATURES, ACTION_COUNT_WITHOUT_STABLE + stable };
 }
 
-void AnimusForge::ClassRole::DuelBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
+void AnimusForge::ClassRole::DuelBlock::DescribeManifest(Layout const& layout, boost::json::object& block) const
 {
-    json.Key("stable_slots").Value(StableSlots(layout)).Key("stable_features").Value(STABLE_FEATURES);
+    block["stable_slots"] = StableSlots(layout);
+    block["stable_features"] = STABLE_FEATURES;
 }
 
 void AnimusForge::ClassRole::DuelBlock::Observe(SeatView const& view, float* obs, uint8* mask) const

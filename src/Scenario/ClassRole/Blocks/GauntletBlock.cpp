@@ -19,8 +19,9 @@
 #include "GauntletBlock.h"
 #include "EncoderSupport.h"
 #include "Item.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "MoveSpline.h"
 #include "Player.h"
 #include "Supplies.h"
@@ -55,10 +56,10 @@ AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::GauntletBlock::Size(La
     return { OBS_GLOBAL_COUNT + sustain * 2, ACTION_SUSTAIN_FIRST + sustain };
 }
 
-void AnimusForge::ClassRole::GauntletBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
+void AnimusForge::ClassRole::GauntletBlock::DescribeManifest(Layout const& layout, boost::json::object& block) const
 {
-    json.Key("consumables").Value(CONSUMABLE_COUNT).Key("sustain");
-    WriteSpellList(json, layout.Catalog().Sustain());
+    block["consumables"] = CONSUMABLE_COUNT;
+    block["sustain"] = SpellList(layout.Catalog().Sustain());
 }
 
 void AnimusForge::ClassRole::GauntletBlock::Observe(SeatView const& view, float* obs, uint8* mask) const

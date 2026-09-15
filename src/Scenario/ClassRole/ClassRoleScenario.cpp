@@ -25,7 +25,6 @@
 #include "Encounters.h"
 #include "Env.h"
 #include "ForgeConfig.h"
-#include "JsonWriter.h"
 #include "Log.h"
 #include "Map.h"
 #include "Opponents.h"
@@ -37,6 +36,9 @@
 #include "StringFormat.h"
 #include "Supplies.h"
 #include "TrainingDummy.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -341,53 +343,53 @@ void AnimusForge::ClassRole::ClassRoleScenario::WriteStageFiles(ForgeConfig cons
             LOG_WARN("module.animus", "{}: could not write the {} layout manifest to {}", Name(), layout.ModelName(),
                 directory.string());
 
-    JsonWriter json;
-    json.BeginObject()
-        .Key("format").Value(STAGE_FILE_FORMAT)
-        .Key("stage").Value(_stage.Name)
-        .Key("suffix").Value(_stage.Suffix)
-        .Key("extends").Value(_stage.Extends)
-        .Key("summary").Value(_stage.Summary)
-        .Key("seats").Value(_seatCount)
-        .Key("blocks").Array(_stage.Blocks, [](JsonWriter& out, BlockId id) { out.Value(BlockName(id)); });
+    boost::json::object stageFile;
+    stageFile["format"] = STAGE_FILE_FORMAT;
+    stageFile["stage"] = _stage.Name;
+    stageFile["suffix"] = _stage.Suffix;
+    stageFile["extends"] = _stage.Extends;
+    stageFile["summary"] = _stage.Summary;
+    stageFile["seats"] = _seatCount;
+
+    boost::json::array& blocks = stageFile["blocks"].emplace_array();
+    for (BlockId id : _stage.Blocks)
+        blocks.push_back(boost::json::string(BlockName(id)));
 
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.
-    json.Key("seed_chain").BeginArray();
+    boost::json::array& seedChain = stageFile["seed_chain"].emplace_array();
     for (StageDefinition const* base = FindStage(_stage.Extends); base; base = FindStage(base->Extends))
-        json.Value(base->Name);
-    json.EndArray();
+        seedChain.push_back(boost::json::string(base->Name));
 
-    json.Key("models").BeginObject();
+    boost::json::object& models = stageFile["models"].emplace_object();
     for (Layout const& layout : _layouts)
-        json.Key(layout.Profile->Name).Value(layout.ModelName());
-    json.EndObject();
+        models[layout.Profile->Name] = layout.ModelName();
 
     // Where each block sits in each layout: a later stage seeds its networks block by block from these.
-    json.Key("layouts").BeginObject();
+    boost::json::object& layouts = stageFile["layouts"].emplace_object();
     for (Layout const& layout : _layouts)
     {
-        json.Key(layout.Profile->Name).BeginObject()
-            .Key("obs_dim").Value(layout.ObsDim)
-            .Key("num_actions").Value(layout.NumActions)
-            .Key("blocks").BeginArray();
+        boost::json::object& entry = layouts[layout.Profile->Name].emplace_object();
+        entry["obs_dim"] = layout.ObsDim;
+        entry["num_actions"] = layout.NumActions;
+
+        boost::json::array& spans = entry["blocks"].emplace_array();
         for (BlockId id : layout.Blocks)
         {
             BlockSlice const& slice = layout.Slice(id);
-            json.BeginObject()
-                .Key("name").Value(BlockName(id))
-                .Key("obs").Span(slice.ObsFirst, slice.ObsCount)
-                .Key("actions").Span(slice.ActionFirst, slice.ActionCount)
-                .EndObject();
+            boost::json::object& block = spans.emplace_back(boost::json::object()).get_object();
+            block["name"] = BlockName(id);
+            block["obs"] = Span(slice.ObsFirst, slice.ObsCount);
+            block["actions"] = Span(slice.ActionFirst, slice.ActionCount);
         }
-        json.EndArray().EndObject();
     }
-    json.EndObject();
 
-    json.Key("episode_info").Array(_info.Names(), [](JsonWriter& out, std::string const& name) { out.Value(name); });
-    json.Key("tuning").Raw(_tuning.Json());
-    json.EndObject();
+    boost::json::array& episodeInfo = stageFile["episode_info"].emplace_array();
+    for (std::string const& name : _info.Names())
+        episodeInfo.push_back(boost::json::string(name));
 
-    if (!WriteIfChanged(directory / "stage.json", json.Str()))
+    stageFile["tuning"] = _tuning.Json();
+
+    if (!WriteIfChanged(directory / "stage.json", boost::json::serialize(stageFile)))
         LOG_WARN("module.animus", "{}: could not write stage.json to {}", Name(), directory.string());
 }
 

@@ -19,8 +19,9 @@
 #include "CoreBlock.h"
 #include "EncoderSupport.h"
 #include "Item.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "Player.h"
 #include "SpellChecks.h"
 #include "SpellInfo.h"
@@ -86,40 +87,40 @@ uint32 AnimusForge::ClassRole::CoreBlock::TreeObsFirst(Layout const& layout)
     return TalentObsFirst(layout) + uint32(layout.Assets->Talents->Talents().size());
 }
 
-void AnimusForge::ClassRole::CoreBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
+void AnimusForge::ClassRole::CoreBlock::DescribeManifest(Layout const& layout, boost::json::object& block) const
 {
-    json.Key("action_features").Value(ACTION_FEATURES);
+    block["action_features"] = ACTION_FEATURES;
 
-    json.Key("catalog").Array(layout.Catalog().Actions(), [](JsonWriter& out, ActionCatalog::Action const& action)
+    boost::json::array& catalog = block["catalog"].emplace_array();
+    for (ActionCatalog::Action const& action : layout.Catalog().Actions())
     {
-        out.BeginObject();
+        boost::json::object& entry = catalog.emplace_back(boost::json::object()).get_object();
         switch (action.Type)
         {
             case ActionCatalog::Kind::Noop:
-                out.Key("kind").Value("noop");
+                entry["kind"] = "noop";
                 break;
             case ActionCatalog::Kind::CancelQueued:
-                out.Key("kind").Value("cancel_queued");
+                entry["kind"] = "cancel_queued";
                 break;
             case ActionCatalog::Kind::Trinket:
-                out.Key("kind").Value("trinket").Key("slot").Value(action.EquipmentSlot);
+                entry["kind"] = "trinket";
+                entry["slot"] = action.EquipmentSlot;
                 break;
             case ActionCatalog::Kind::Soulstone:
-                out.Key("kind").Value("soulstone");
+                entry["kind"] = "soulstone";
                 break;
             case ActionCatalog::Kind::Spell:
-                out.Key("kind").Value("spell").Key("first_rank").Value(action.FirstRank)
-                    .Key("next_swing").Value(action.NextSwing);
+                entry["kind"] = "spell";
+                entry["first_rank"] = action.FirstRank;
+                entry["next_swing"] = action.NextSwing;
                 break;
         }
-        out.EndObject();
-    });
+    }
 
-    json.Key("talents").Array(layout.Assets->Talents->Talents(),
-        [](JsonWriter& out, TalentBuilder::Talent const& talent)
-    {
-        out.BeginArray().Value(talent.TalentId).Value(talent.MaxRank).EndArray();
-    });
+    boost::json::array& talents = block["talents"].emplace_array();
+    for (TalentBuilder::Talent const& talent : layout.Assets->Talents->Talents())
+        talents.push_back(boost::json::array{ talent.TalentId, talent.MaxRank });
 }
 
 void AnimusForge::ClassRole::CoreBlock::ObserveCharacter(SeatView const& view, float* obs)

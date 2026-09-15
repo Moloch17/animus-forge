@@ -18,9 +18,11 @@
 
 #include "ClassRoleTuning.h"
 #include "Config.h"
-#include "JsonWriter.h"
 #include "Log.h"
 #include <algorithm>
+#include <boost/json/object.hpp>
+#include <charconv>
+#include <cstdlib>
 #include <cmath>
 #include <type_traits>
 
@@ -100,11 +102,23 @@ AnimusForge::ClassRole::ClassRoleTuning AnimusForge::ClassRole::ClassRoleTuning:
     return tuning;
 }
 
-std::string AnimusForge::ClassRole::ClassRoleTuning::Json() const
+boost::json::object AnimusForge::ClassRole::ClassRoleTuning::Json() const
 {
-    JsonWriter json(2048);
-    json.BeginObject();
-    Visit(*this, [&json](char const* key, auto const& value) { json.Key(key).Value(value); });
-    json.EndObject();
-    return json.Str();
+    boost::json::object json;
+    Visit(*this, [&json](char const* key, auto const& value)
+    {
+        using Value = std::decay_t<decltype(value)>;
+        if (!std::is_floating_point_v<Value>)
+        {
+            json[key] = value;
+            return;
+        }
+
+        // The float's shortest decimal (0.03, not 0.029999999329447746), as a double.
+        char buffer[32];
+        auto const result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+        json[key] = std::strtod(std::string(buffer, result.ptr).c_str(), nullptr);
+    });
+
+    return json;
 }

@@ -3,9 +3,9 @@
 The learner rewrites ``runs/<run>/progress.json`` after every update and around every evaluation. The worldserver
 reads it for ``forge status`` and its periodic progress report (steps, ETA, evaluation scores, health warnings).
 
-The file is one flat JSON object -- numbers, strings and nulls, no nesting -- so the sim reads it without a JSON
-library. A metric that is NaN or infinite is written as null and named in ``nonfinite``. The file is written to a
-temporary name and renamed, so a reader never sees half of it.
+The file is one flat JSON object -- numbers, strings and nulls, no nesting: the sim reads only top-level values
+(src/Console/Progress.cpp, with Boost.JSON). A metric that is NaN or infinite is written as null and named in
+``nonfinite``. The file is written to a temporary name and renamed, so a reader never sees half of it.
 """
 
 from __future__ import annotations

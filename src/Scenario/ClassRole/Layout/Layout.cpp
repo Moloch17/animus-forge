@@ -17,10 +17,12 @@
  */
 
 #include "Layout.h"
-#include "JsonWriter.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "StageDefinition.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
+#include <boost/json/serialize.hpp>
 
 namespace
 {
@@ -97,9 +99,19 @@ std::optional<AnimusForge::ClassRole::BlockId> AnimusForge::ClassRole::Layout::B
     return std::nullopt;
 }
 
-void AnimusForge::ClassRole::WriteSpellList(JsonWriter& json, std::vector<ActionCatalog::Action> const& actions)
+boost::json::array AnimusForge::ClassRole::SpellList(std::vector<ActionCatalog::Action> const& actions)
 {
-    json.Array(actions, [](JsonWriter& out, ActionCatalog::Action const& action) { out.Value(action.FirstRank); });
+    boost::json::array list;
+    list.reserve(actions.size());
+    for (ActionCatalog::Action const& action : actions)
+        list.push_back(action.FirstRank);
+
+    return list;
+}
+
+boost::json::array AnimusForge::ClassRole::Span(uint32 first, uint32 count)
+{
+    return { first, count };
 }
 
 std::string AnimusForge::ClassRole::Layout::ModelName() const
@@ -109,32 +121,30 @@ std::string AnimusForge::ClassRole::Layout::ModelName() const
 
 std::string AnimusForge::ClassRole::Layout::Manifest() const
 {
-    // Catalogs run to a few hundred actions: size the buffer once for the largest layouts.
-    JsonWriter json(8192);
+    boost::json::object manifest;
+    manifest["format"] = MANIFEST_FORMAT;
+    manifest["model"] = ModelName();
+    manifest["stage"] = Stage->Name;
+    manifest["class_role"] = Profile->Name;
+    manifest["class"] = Profile->Class;
+    manifest["role"] = RoleName(PlayRole());
+    manifest["obs_dim"] = ObsDim;
+    manifest["num_actions"] = NumActions;
 
-    json.BeginObject()
-        .Key("format").Value(MANIFEST_FORMAT)
-        .Key("model").Value(ModelName())
-        .Key("stage").Value(Stage->Name)
-        .Key("class_role").Value(Profile->Name)
-        .Key("class").Value(Profile->Class)
-        .Key("role").Value(RoleName(PlayRole()))
-        .Key("obs_dim").Value(ObsDim)
-        .Key("num_actions").Value(NumActions)
-        .Key("specs").Array(Profile->Specs, [](JsonWriter& out, SpecProfile const& spec) { out.Value(spec.TabPage); });
+    boost::json::array& specs = manifest["specs"].emplace_array();
+    for (SpecProfile const& spec : Profile->Specs)
+        specs.push_back(spec.TabPage);
 
-    json.Key("blocks").BeginArray();
+    boost::json::array& blocks = manifest["blocks"].emplace_array();
     for (BlockId id : Blocks)
     {
         BlockSlice const& slice = Slice(id);
-        json.BeginObject()
-            .Key("name").Value(BlockName(id))
-            .Key("obs").Span(slice.ObsFirst, slice.ObsCount)
-            .Key("actions").Span(slice.ActionFirst, slice.ActionCount);
-        GetBlock(id).DescribeManifest(*this, json);
-        json.EndObject();
+        boost::json::object& block = blocks.emplace_back(boost::json::object()).get_object();
+        block["name"] = BlockName(id);
+        block["obs"] = Span(slice.ObsFirst, slice.ObsCount);
+        block["actions"] = Span(slice.ActionFirst, slice.ActionCount);
+        GetBlock(id).DescribeManifest(*this, block);
     }
 
-    json.EndArray().EndObject();
-    return json.Str();
+    return boost::json::serialize(manifest);
 }

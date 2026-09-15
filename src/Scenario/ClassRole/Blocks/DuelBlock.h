@@ -95,7 +95,7 @@ namespace AnimusForge::ClassRole
 
         [[nodiscard]] BlockId Id() const override { return BlockId::Duel; }
         [[nodiscard]] BlockSize Size(Layout const& layout) const override;
-        void DescribeManifest(Layout const& layout, JsonWriter& json) const override;
+        void DescribeManifest(Layout const& layout, boost::json::object& block) const override;
         void Observe(SeatView const& view, float* obs, uint8* mask) const override;
         void BeforeApply(SeatView& view) const override;
         void Apply(SeatView& view, uint32 local, SeatActionResult& result) const override;

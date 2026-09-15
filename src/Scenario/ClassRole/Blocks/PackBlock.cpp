@@ -19,8 +19,9 @@
 #include "PackBlock.h"
 #include "Creature.h"
 #include "EncoderSupport.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "Player.h"
 #include <cmath>
 
@@ -44,10 +45,11 @@ AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::PackBlock::Size(Layout
     return { OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES + tactical * 2, PACK_SLOTS + tactical };
 }
 
-void AnimusForge::ClassRole::PackBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
+void AnimusForge::ClassRole::PackBlock::DescribeManifest(Layout const& layout, boost::json::object& block) const
 {
-    json.Key("slots").Value(PACK_SLOTS).Key("slot_features").Value(uint32(SLOT_FEATURES)).Key("tactical");
-    WriteSpellList(json, layout.Catalog().Tactical());
+    block["slots"] = PACK_SLOTS;
+    block["slot_features"] = uint32(SLOT_FEATURES);
+    block["tactical"] = SpellList(layout.Catalog().Tactical());
 }
 
 void AnimusForge::ClassRole::PackBlock::Observe(SeatView const& view, float* obs, uint8* mask) const

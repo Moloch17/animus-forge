@@ -18,8 +18,9 @@
 
 #include "CompanionBlock.h"
 #include "EncoderSupport.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "MoveSpline.h"
 #include "Player.h"
 #include <cmath>
@@ -72,12 +73,10 @@ AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::CompanionBlock::Size(L
     return { OBS_GLOBAL_COUNT + allyActions * 2, ACTION_HEAL_FIRST + allyActions };
 }
 
-void AnimusForge::ClassRole::CompanionBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
+void AnimusForge::ClassRole::CompanionBlock::DescribeManifest(Layout const& layout, boost::json::object& block) const
 {
-    json.Key("ally_heals");
-    WriteSpellList(json, layout.AllyHeals);
-    json.Key("ally_revives");
-    WriteSpellList(json, layout.AllyRevives);
+    block["ally_heals"] = SpellList(layout.AllyHeals);
+    block["ally_revives"] = SpellList(layout.AllyRevives);
 }
 
 void AnimusForge::ClassRole::CompanionBlock::Observe(SeatView const& view, float* obs, uint8* mask) const

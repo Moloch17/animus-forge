@@ -18,8 +18,9 @@
 
 #include "PartyBlock.h"
 #include "EncoderSupport.h"
-#include "JsonWriter.h"
 #include "Layout.h"
+#include <boost/json/array.hpp>
+#include <boost/json/object.hpp>
 #include "Player.h"
 #include <cmath>
 
@@ -82,9 +83,10 @@ AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::PartyBlock::Size(Layou
         ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size() + layout.AllyRevives.size()) };
 }
 
-void AnimusForge::ClassRole::PartyBlock::DescribeManifest(Layout const& /*layout*/, JsonWriter& json) const
+void AnimusForge::ClassRole::PartyBlock::DescribeManifest(Layout const& /*layout*/, boost::json::object& block) const
 {
-    json.Key("members").Value(PARTY_MEMBERS).Key("member_features").Value(uint32(MEMBER_FEATURES));
+    block["members"] = PARTY_MEMBERS;
+    block["member_features"] = uint32(MEMBER_FEATURES);
 }
 
 void AnimusForge::ClassRole::PartyBlock::Observe(SeatView const& view, float* obs, uint8* mask) const

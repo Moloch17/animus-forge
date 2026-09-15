@@ -71,7 +71,10 @@ namespace AnimusForge::ClassRole
     };
 
     /// A manifest spell list: the first rank of every action.
-    void WriteSpellList(JsonWriter& json, std::vector<ActionCatalog::Action> const& actions);
+    [[nodiscard]] boost::json::array SpellList(std::vector<ActionCatalog::Action> const& actions);
+
+    /// A manifest span of a row: [first, count].
+    [[nodiscard]] boost::json::array Span(uint32 first, uint32 count);
 }
 
 #endif

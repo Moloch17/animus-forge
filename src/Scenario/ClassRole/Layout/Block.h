@@ -21,6 +21,7 @@
 
 #include "Define.h"
 #include <array>
+#include <boost/json/fwd.hpp>
 #include <optional>
 #include <string_view>
 
@@ -34,7 +35,6 @@
  */
 namespace AnimusForge::ClassRole
 {
-    class JsonWriter;
     struct Layout;
     struct SeatActionResult;
     struct SeatView;
@@ -93,7 +93,7 @@ namespace AnimusForge::ClassRole
         [[nodiscard]] virtual BlockSize Size(Layout const& layout) const = 0;
 
         /// Block-specific manifest entries (spell lists, slot counts), written inside the block's manifest object.
-        virtual void DescribeManifest(Layout const& /*layout*/, JsonWriter& /*json*/) const { }
+        virtual void DescribeManifest(Layout const& /*layout*/, boost::json::object& /*block*/) const { }
 
         /// Write the block's features and action mask for a living bot: `obs` and `mask` point at the block's slice.
         /// `mask` is null when no mask is wanted (an ended episode's final observation): skip the cast checks.

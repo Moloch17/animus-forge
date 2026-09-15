@@ -19,6 +19,9 @@
 #include "Progress.h"
 #include "ForgeConfig.h"
 #include "StringFormat.h"
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
+#include <boost/version.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -88,79 +91,6 @@ namespace
 
         return AnimusForge::Format::Percent((*now - *before) / std::abs(*before), true) + " vs last";
     }
-
-    void SkipSpace(std::string const& text, std::size_t& at)
-    {
-        while (at < text.size() && std::isspace(static_cast<unsigned char>(text[at])))
-            ++at;
-    }
-
-    /// Step over a nested object or array (finished.json's gates), strings included; false when it is not closed.
-    bool SkipNested(std::string const& text, std::size_t& at)
-    {
-        uint32 depth = 0;
-        bool inString = false;
-        for (; at < text.size(); ++at)
-        {
-            char const c = text[at];
-            if (inString)
-            {
-                if (c == '\\')
-                    ++at;
-                else if (c == '"')
-                    inString = false;
-            }
-            else if (c == '"')
-                inString = true;
-            else if (c == '{' || c == '[')
-                ++depth;
-            else if ((c == '}' || c == ']') && --depth == 0)
-            {
-                ++at;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    bool ParseString(std::string const& text, std::size_t& at, std::string& out)
-    {
-        if (at >= text.size() || text[at] != '"')
-            return false;
-
-        ++at;
-        out.clear();
-        while (at < text.size() && text[at] != '"')
-        {
-            char c = text[at++];
-            if (c == '\\' && at < text.size())
-            {
-                char const escaped = text[at++];
-                switch (escaped)
-                {
-                    case 'n': c = '\n'; break;
-                    case 't': c = '\t'; break;
-                    case 'r': c = '\r'; break;
-                    case 'b': c = '\b'; break;
-                    case 'f': c = '\f'; break;
-                    case 'u':
-                        // Scenario and run names are ASCII; anything else is replaced.
-                        at = std::min(text.size(), at + 4);
-                        c = '?';
-                        break;
-                    default: c = escaped; break;
-                }
-            }
-            out += c;
-        }
-
-        if (at >= text.size())
-            return false;
-
-        ++at;
-        return true;
-    }
 }
 
 bool AnimusForge::ProgressFile::Load(std::filesystem::path const& path)
@@ -179,79 +109,29 @@ bool AnimusForge::ProgressFile::Parse(std::string const& text)
     _numbers.clear();
     _strings.clear();
 
-    std::size_t at = 0;
-    SkipSpace(text, at);
-    if (at >= text.size() || text[at] != '{')
+    boost::json::parse_options options;
+#if BOOST_VERSION >= 108200
+    options.allow_infinity_and_nan = true;  // Python's json.dumps writes NaN and Infinity
+#endif
+
+    boost::json::error_code error;
+    boost::json::value const document = boost::json::parse(text, error, {}, options);
+    if (error || !document.is_object())
         return false;
 
-    ++at;
-    SkipSpace(text, at);
-    if (at < text.size() && text[at] == '}')
-        return true;
-
-    while (at < text.size())
+    // Top-level numbers, booleans (as 1 and 0) and strings; nested objects, arrays and nulls are left out.
+    for (auto const& [key, value] : document.get_object())
     {
-        std::string key;
-        SkipSpace(text, at);
-        if (!ParseString(text, at, key))
-            return false;
-
-        SkipSpace(text, at);
-        if (at >= text.size() || text[at] != ':')
-            return false;
-
-        ++at;
-        SkipSpace(text, at);
-        if (at >= text.size())
-            return false;
-
-        if (text[at] == '"')
-        {
-            std::string value;
-            if (!ParseString(text, at, value))
-                return false;
-
-            _strings[key] = value;
-        }
-        else if (text[at] == '{' || text[at] == '[')
-        {
-            if (!SkipNested(text, at))
-                return false;
-        }
-        else if (text.compare(at, 4, "null") == 0)
-            at += 4;
-        else if (text.compare(at, 4, "true") == 0)
-        {
-            _numbers[key] = 1.0;
-            at += 4;
-        }
-        else if (text.compare(at, 5, "false") == 0)
-        {
-            _numbers[key] = 0.0;
-            at += 5;
-        }
-        else
-        {
-            char* end = nullptr;
-            double const value = std::strtod(text.c_str() + at, &end);
-            if (end == text.c_str() + at)
-                return false;
-
-            _numbers[key] = value;
-            at = std::size_t(end - text.c_str());
-        }
-
-        SkipSpace(text, at);
-        if (at < text.size() && text[at] == ',')
-        {
-            ++at;
-            continue;
-        }
-
-        return at < text.size() && text[at] == '}';
+        std::string const name(key);
+        if (value.is_string())
+            _strings[name] = std::string(value.get_string());
+        else if (value.is_bool())
+            _numbers[name] = value.get_bool() ? 1.0 : 0.0;
+        else if (value.is_number())
+            _numbers[name] = value.to_number<double>();
     }
 
-    return false;
+    return true;
 }
 
 std::optional<double> AnimusForge::ProgressFile::Number(std::string const& key) const

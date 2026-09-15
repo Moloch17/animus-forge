@@ -20,6 +20,7 @@
 #define MOD_ANIMUS_FORGE_CLASS_ROLE_TUNING_H
 
 #include "Define.h"
+#include <boost/json/fwd.hpp>
 #include <string>
 
 /*
@@ -285,7 +286,7 @@ namespace AnimusForge::ClassRole
         [[nodiscard]] static ClassRoleTuning Load();
 
         /// Every value as a JSON object, keys as in the config.
-        [[nodiscard]] std::string Json() const;
+        [[nodiscard]] boost::json::object Json() const;
     };
 }
 
