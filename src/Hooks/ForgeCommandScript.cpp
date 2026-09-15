@@ -68,6 +68,7 @@ namespace
                 { "status",    HandleStatus,    SEC_ADMINISTRATOR, Console::Yes },
                 { "scenarios", HandleScenarios, SEC_ADMINISTRATOR, Console::Yes },
                 { "start",     HandleStart,     SEC_ADMINISTRATOR, Console::Yes },
+                { "fast",      HandleFast,      SEC_ADMINISTRATOR, Console::Yes },
                 { "resume",    HandleResume,    SEC_ADMINISTRATOR, Console::Yes },
                 { "pause",     HandlePause,     SEC_ADMINISTRATOR, Console::Yes },
                 { "cancel",    HandleCancel,    SEC_ADMINISTRATOR, Console::Yes },
@@ -94,6 +95,8 @@ namespace
             table.AddRow({ "forge scenarios", "every scenario with its run: checkpoint, steps, best score" });
             table.AddRow({ "forge start [scenario ...]", "train these from scratch in order (default: "
                 "AnimusForge.Queue)" });
+            table.AddRow({ "forge fast [scenario ...]", "quick low-resolution test run of these (default: "
+                "AnimusForge.Queue) in the fast output directory" });
             table.AddRow({ "forge resume [scenario ...]", "unpause; or continue the first from its latest.pt, then the "
                 "rest (default: where the last plan stopped)" });
             table.AddRow({ "forge pause", "freeze the sim and the learner after the current decision" });
@@ -105,6 +108,7 @@ namespace
             table.AddRow({ "forge clean archive", "delete runs/_archive/" });
             table.AddRow({ "forge clean scenario <scenario>", "delete runs/<scenario>/ (its checkpoints and logs)" });
             table.AddRow({ "forge clean exports", "delete the exported models" });
+            table.AddRow({ "forge clean fast", "delete the fast test runs, layouts and models" });
             table.AddRow({ "forge clean logs", "delete the learner and export logs" });
             table.AddRow({ "forge clean all", "all of the above, every run included (idle only)" });
             table.AddRow({ "forge progress [seconds|off]", "show or set the periodic progress report interval" });
@@ -129,6 +133,11 @@ namespace
         static bool HandleStart(ChatHandler* handler, Tail scenarios)
         {
             return sAnimusForge->CommandStart(SplitNames(scenarios), Reply(handler));
+        }
+
+        static bool HandleFast(ChatHandler* handler, Tail scenarios)
+        {
+            return sAnimusForge->CommandFast(SplitNames(scenarios), Reply(handler));
         }
 
         static bool HandleResume(ChatHandler* handler, Tail scenarios)

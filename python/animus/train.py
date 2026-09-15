@@ -575,6 +575,10 @@ def main() -> int:
     parser.add_argument("--runs-dir", help="where runs go, overriding the config; the sim passes its own")
     parser.add_argument("--layouts-dir", help="where the sim writes layouts and stage.json, overriding the config")
     parser.add_argument(
+        "--overlay", action="append", default=[], metavar="YAML",
+        help="merge this config over --config, section by section (before --set), e.g. configs/fast.yaml",
+    )
+    parser.add_argument(
         "--set", action="append", default=[], metavar="KEY=VALUE",
         help="override a config value, e.g. --set total_env_steps=5000000 --set eval.every_env_steps=1000000",
     )
@@ -584,7 +588,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    config = TrainConfig.load(args.config, args.set)
+    config = TrainConfig.load(args.config, args.set, args.overlay)
     if args.socket:
         config.socket = args.socket
     if args.run_name:

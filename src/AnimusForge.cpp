@@ -53,6 +53,7 @@ AnimusForge::Forge* AnimusForge::Forge::Instance()
 void AnimusForge::Forge::OnStartup()
 {
     _config.Load();
+    _fastConfig = _config.FastProfile();
     _progressInterval = _config.ProgressInterval;
 
     if (!_config.Enable)
@@ -105,7 +106,7 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
 
     MaybeReport();
 
-    if (_ticks % _config.DecisionTicks)
+    if (_ticks % RunConfig().DecisionTicks)
         return;
 
     if (_plan.Remote())
@@ -213,20 +214,23 @@ void AnimusForge::Forge::HoldWhilePaused()
 bool AnimusForge::Forge::StartCurrent()
 {
     PlanEntry const& entry = _plan.Entries[_plan.Index];
+    ForgeConfig const& config = RunConfig();
     _current = entry.Scenario;
 
     std::string const position = _plan.Entries.size() > 1
         ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "";
 
-    _scenario = CreateScenario(entry.Scenario, _config);
+    _scenario = CreateScenario(entry.Scenario, config);
     if (!_scenario)
     {
         LOG_ERROR("module.animus", "Unknown scenario '{}'", entry.Scenario);
         return false;
     }
 
-    LOG_INFO("module.animus", "Starting {}{}{} with policy {}", entry.Scenario, position,
-        entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy);
+    LOG_INFO("module.animus", "Starting {}{}{} with policy {}{}", entry.Scenario, position,
+        entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy, _plan.Fast
+        ? Acore::StringFormat(" (fast: {} envs, a decision every {} ms, {} s episodes, in {})", config.Envs,
+            SIM_TICK_MS * config.DecisionTicks, config.EpisodeSeconds, config.OutputDir) : "");
 
     // Reject a local policy name before building anything, rather than on the first decision.
     if (!_plan.Remote() && !KnowsPolicy(_plan.Policy))
@@ -235,28 +239,28 @@ bool AnimusForge::Forge::StartCurrent()
         return false;
     }
 
-    _pool = std::make_unique<EnvPool>(*_scenario, _config);
+    _pool = std::make_unique<EnvPool>(*_scenario, config);
     if (!_pool->Setup())
         return false;
 
     _learnerStarted = false;
     if (_plan.Remote())
     {
-        if (!_server.Listen(_config.SocketPath))
+        if (!_server.Listen(config.SocketPath))
             return false;
 
         // A learner that cannot be started is not fatal: the sim keeps waiting on the socket, so one started by
         // hand still works (and `forge cancel` gives up).
-        if (_config.LearnerAutoStart)
+        if (config.LearnerAutoStart)
         {
-            _learnerStarted = _learner.Start(_config, entry.Scenario, entry.Resume);
+            _learnerStarted = _learner.Start(config, entry.Scenario, entry.Resume);
             if (!_learnerStarted)
                 LOG_ERROR("module.animus", "Learner auto-start failed; start it by hand: {}",
-                    LearnerProcess::ManualCommand(_config, entry.Scenario, entry.Resume));
+                    LearnerProcess::ManualCommand(config, entry.Scenario, entry.Resume));
         }
         else
             LOG_INFO("module.animus", "Waiting for a learner started by hand: {}",
-                LearnerProcess::ManualCommand(_config, entry.Scenario, entry.Resume));
+                LearnerProcess::ManualCommand(config, entry.Scenario, entry.Resume));
     }
 
     _pool->ResetAll();
@@ -385,10 +389,10 @@ std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
     return stages;
 }
 
-bool AnimusForge::Forge::RunAdvanced(std::string const& scenario) const
+bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string const& scenario) const
 {
     ProgressFile finished;
-    if (!finished.Load(_config.RunsDir() / scenario / "finished.json"))
+    if (!finished.Load(config.RunsDir() / scenario / "finished.json"))
         return false;
 
     // A stage below its target writes finished.json too, with "advanced": false: it has not been passed.
@@ -396,7 +400,8 @@ bool AnimusForge::Forge::RunAdvanced(std::string const& scenario) const
     return !advanced || *advanced != 0.0;
 }
 
-void AnimusForge::Forge::WarnSeedOrder(std::vector<std::string> const& scenarios, LineSink const& out) const
+void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<std::string> const& scenarios,
+    LineSink const& out) const
 {
     // A stage seeds from the closest trained stage it extends: listed before its base, it seeds from further up the
     // tree (or starts from scratch) unless that base already advanced in an earlier run.
@@ -407,7 +412,7 @@ void AnimusForge::Forge::WarnSeedOrder(std::vector<std::string> const& scenarios
             continue;
 
         if (std::find(scenarios.begin() + index + 1, scenarios.end(), stage->Extends) != scenarios.end()
-            && !RunAdvanced(stage->Extends))
+            && !RunAdvanced(config, stage->Extends))
             out(Acore::StringFormat("  Warning: {} comes before {}, which it extends and seeds from; it will not seed "
                 "from it. List {} first.", stage->Name, stage->Extends, stage->Extends));
     }
@@ -432,7 +437,7 @@ void AnimusForge::Forge::PollExport()
 
     _export.Poll();
     if (_export.FinishedCleanly())
-        LOG_INFO("module.animus", "Export of {} finished: models in {}", _exportScenario, _config.ModelDir);
+        LOG_INFO("module.animus", "Export of {} finished: models in {}", _exportScenario, _exportModelDir);
 }
 
 void AnimusForge::Forge::MaybeReport()
@@ -446,7 +451,7 @@ void AnimusForge::Forge::MaybeReport()
 
     _lastReport = now;
     _learner.Poll();
-    _monitor.Report(_config, Snapshot(true), PlanRows(_plan, true), LogInfo, LogWarn, true);
+    _monitor.Report(RunConfig(), Snapshot(true), PlanRows(_plan, true), LogInfo, LogWarn, true);
 }
 
 AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
@@ -455,7 +460,7 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
     auto const now = std::chrono::steady_clock::now();
 
     sim.Scenario = _current;
-    sim.State = StateName();
+    sim.State = StateName() + (_plan.Fast && _state != State::Idle ? " (fast)" : "");
     sim.PlanPosition = _plan.Index + 1;
     sim.PlanSize = uint32(_plan.Entries.size());
     sim.Remote = _plan.Remote();
@@ -720,8 +725,8 @@ bool AnimusForge::Forge::SendSpec()
     msg.NumActions = spec.NumActions;
     msg.EpisodeInfoDim = spec.EpisodeInfoDim;
     msg.TickMs = _tickMs;
-    msg.DecisionTicks = _config.DecisionTicks;
-    msg.EpisodeSeconds = _config.EpisodeSeconds;
+    msg.DecisionTicks = RunConfig().DecisionTicks;
+    msg.EpisodeSeconds = RunConfig().EpisodeSeconds;
     std::strncpy(msg.Scenario, _scenario->Name(), SCENARIO_NAME_SIZE - 1);
 
     uint32 const layoutCount = uint32(spec.Layouts.size());

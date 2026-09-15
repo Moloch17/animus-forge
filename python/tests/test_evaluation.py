@@ -2,6 +2,7 @@
 
 import socket
 import threading
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -231,6 +232,31 @@ def test_config_extends_merges_sections(tmp_path):
     (tmp_path / "loop.yaml").write_text("extends: loop.yaml\n")
     with pytest.raises(ValueError):
         TrainConfig.load(tmp_path / "loop.yaml")
+
+
+def test_config_overlay_merges_over_extends_before_overrides(tmp_path):
+    (tmp_path / "base.yaml").write_text("run_name: base\ntotal_env_steps: 100\neval:\n  episodes: 128\n"
+                                        "  baseline: fight\ntarget:\n  min_over_baseline: 0.1\n")
+    (tmp_path / "stage.yaml").write_text("extends: base.yaml\nrun_name: stage\ntotal_env_steps: 200\n")
+    (tmp_path / "fast.yaml").write_text("total_env_steps: 10\neval:\n  episodes: 16\n"
+                                        "target:\n  min_over_baseline: null\n")
+
+    config = TrainConfig.load(tmp_path / "stage.yaml", ["eval.episodes=8"], [tmp_path / "fast.yaml"])
+    assert config.run_name == "stage" and config.total_env_steps == 10
+    assert config.eval.episodes == 8 and config.eval.baseline == "fight"
+    assert not config.target.enabled
+
+
+def test_fast_overlay_loads_over_every_stage():
+    configs = Path(__file__).resolve().parent.parent / "configs"
+    for stage in sorted(configs.glob("stage*.yaml")):
+        full = TrainConfig.load(stage)
+        fast = TrainConfig.load(stage, overlays=[configs / "fast.yaml"])
+        assert fast.run_name == full.run_name
+        assert fast.total_env_steps < full.total_env_steps
+        assert fast.eval.every_env_steps < fast.total_env_steps
+        assert fast.convergence.min_env_steps < fast.total_env_steps
+        assert tuple(fast.mappo.hidden) == tuple(full.mappo.hidden)
 
 
 def test_init_from_falls_back_to_latest(tmp_path):

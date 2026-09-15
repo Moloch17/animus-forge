@@ -316,6 +316,12 @@ std::optional<uint64> AnimusForge::ConfiguredTotalEnvSteps(ForgeConfig const& co
 {
     std::optional<uint64> total = YamlTotalEnvSteps(config.LearnerConfigFor(scenario));
 
+    // An `--overlay` file (the fast profile's) is merged over the config, as it is in the learner.
+    for (std::size_t i = 0; i + 1 < config.LearnerArgs.size(); ++i)
+        if (config.LearnerArgs[i] == "--overlay")
+            if (std::optional<uint64> const overlay = YamlTotalEnvSteps(config.LearnerArgs[i + 1]))
+                total = overlay;
+
     // `--set total_env_steps=N` in AnimusForge.Learner.Args wins, as it does in the learner.
     for (std::size_t i = 0; i + 1 < config.LearnerArgs.size(); ++i)
         if (config.LearnerArgs[i] == "--set" && config.LearnerArgs[i + 1].starts_with("total_env_steps="))

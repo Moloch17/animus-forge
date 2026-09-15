@@ -142,7 +142,8 @@ namespace AnimusForge
     std::filesystem::path ProgressPath(ForgeConfig const& config, std::string const& scenario);
 
     /// total_env_steps a scenario's learner will train for: the last --set total_env_steps= in
-    /// AnimusForge.Learner.Args, else the key in its YAML config or the configs it extends. Empty when none says.
+    /// the learner arguments, else the key in an --overlay file (the fast profile's), else in its YAML config or the
+    /// configs it extends. Empty when none says.
     std::optional<uint64> ConfiguredTotalEnvSteps(ForgeConfig const& config, std::string const& scenario);
 }
 

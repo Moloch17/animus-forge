@@ -1,7 +1,8 @@
 """Training run configuration, loaded from YAML (see configs/).
 
 A config may start with ``extends: <other>.yaml`` (relative to its own file): it is merged over that config, section by
-section, so a curriculum stage lists only what differs from the base.
+section, so a curriculum stage lists only what differs from the base. Overlays (``--overlay``, e.g. configs/fast.yaml
+for ``forge fast``) are merged over the whole result the same way, so one file changes every stage.
 """
 
 from __future__ import annotations
@@ -131,10 +132,14 @@ class TrainConfig:
         return resolve_device(self.rollout_device)
 
     @classmethod
-    def load(cls, path: str | Path, overrides: list[str] | None = None) -> "TrainConfig":
-        """Load YAML (following extends), then apply "key=value" overrides (dotted keys for sections, values parsed
-        as YAML)."""
+    def load(
+        cls, path: str | Path, overrides: list[str] | None = None, overlays: list[str | Path] | None = None
+    ) -> "TrainConfig":
+        """Load YAML (following extends), merge each overlay file over it, then apply "key=value" overrides (dotted
+        keys for sections, values parsed as YAML)."""
         raw = load_yaml(path)
+        for overlay in overlays or ():
+            raw = merge(raw, load_yaml(overlay))
         for override in overrides or ():
             apply_override(raw, override)
         return from_dict(cls, raw)
