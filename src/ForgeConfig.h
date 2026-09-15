@@ -21,6 +21,7 @@
 
 #include "Define.h"
 #include "Position.h"
+#include "StageSettings.h"
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -91,6 +92,9 @@ namespace AnimusForge
         std::vector<std::string> FastLearnerArgs;
 
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
+
+        /// What the scenario and its env pool take from these settings (animus-lib's StageSettings).
+        [[nodiscard]] Animus::StageSettings Stage() const;
 
         /// These settings with the fast profile applied: fewer envs, a few class/roles at one level, and the learner's
         /// quick convergence settings (FastLearnerOverlay). Everything goes to FastOutputDir (runs,

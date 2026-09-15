@@ -16,12 +16,15 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+void Addmod_animus_libScripts();
 void AddSC_animus_forge();
 void AddSC_animus_forge_commands();
 
 // Called by the generated modules loader; the name is Add<module dir with - as _>Scripts.
 void Addmod_animus_forgeScripts()
 {
+    // animus-lib's hooks, which feed the forge's env pool (registered once, whichever module asks first).
+    Addmod_animus_libScripts();
     AddSC_animus_forge();
     AddSC_animus_forge_commands();
 }

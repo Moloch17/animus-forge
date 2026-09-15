@@ -71,6 +71,7 @@
 #define MOD_ANIMUS_FORGE_PROTOCOL_H
 
 #include "Define.h"
+#include "EnvPool.h"
 #include <bit>
 
 namespace AnimusForge
@@ -79,7 +80,7 @@ namespace AnimusForge
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
-    constexpr uint32 NO_EPISODE_SEED = 0xFFFFFFFF;
+    using Animus::NO_EPISODE_SEED;      // the EpisodeSeed of a training episode (EnvPool.h)
 
     static_assert(std::endian::native == std::endian::little, "the wire protocol is little-endian");
 

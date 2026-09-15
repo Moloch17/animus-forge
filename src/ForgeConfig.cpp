@@ -89,11 +89,11 @@ void AnimusForge::ForgeConfig::Load()
     ClassRoles = GetList("AnimusForge.ClassRoles");
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
-    if (Envs > BotAccounts::MAX_ENVS)
+    if (Envs > Animus::BotAccounts::MAX_ENVS)
     {
         LOG_ERROR("module.animus", "AnimusForge.Envs = {} is more than bot account ids allow; using {}", Envs,
-            BotAccounts::MAX_ENVS);
-        Envs = BotAccounts::MAX_ENVS;
+            Animus::BotAccounts::MAX_ENVS);
+        Envs = Animus::BotAccounts::MAX_ENVS;
     }
     DecisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 100));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
@@ -188,6 +188,22 @@ void AnimusForge::ForgeConfig::Load()
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Y", 1315.2f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Z", 14.0f),
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.O", 2.96f));
+}
+
+Animus::StageSettings AnimusForge::ForgeConfig::Stage() const
+{
+    Animus::StageSettings stage;
+    stage.Envs = Envs;
+    stage.DecisionMs = DecisionMs;
+    stage.EpisodeSeconds = EpisodeSeconds;
+    stage.ReportEpisodes = ReportEpisodes;
+    stage.ClassRoles = ClassRoles;
+    stage.SpawnMapId = SpawnMapId;
+    stage.SpawnPosition = SpawnPosition;
+    stage.Level = Level;
+    stage.TuningPrefix = "AnimusForge.Curriculum.";
+    stage.LayoutsDir = LayoutsDir().string();
+    return stage;
 }
 
 fs::path AnimusForge::ForgeConfig::RunsDir() const

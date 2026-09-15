@@ -122,7 +122,8 @@ AnimusForge.Envs = 64
 #                     forge worldserver advances the world this much per update and every update is one
 #                     decision, so game time and decisions stay in step. Read once at startup (a change
 #                     needs a restart). Per-decision reward terms are scaled to stay the same per second.
-#                     Models play at this interval (mod-animus: Animus.Curriculum.DecisionMs).
+#                     Models play at this interval (mod-animus: Animus.ClassRole.DecisionMs and
+#                     Animus.Stage.DecisionMs).
 #        Default:     100
 
 AnimusForge.DecisionMs = 100

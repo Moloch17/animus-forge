@@ -119,7 +119,7 @@ bool AnimusForge::Forge::Enabled(LineSink const& out) const
 
 bool AnimusForge::Forge::ValidScenario(std::string const& scenario, LineSink const& out) const
 {
-    std::vector<std::string> const names = ScenarioNames();
+    std::vector<std::string> const names = Animus::ScenarioNames();
     if (std::find(names.begin(), names.end(), scenario) != names.end())
         return true;
 
@@ -190,7 +190,7 @@ void AnimusForge::Forge::CommandScenarios(LineSink const& out)
     TextTable table({ { "Scenario" }, { "Run" }, { "Env steps", TextTable::Align::Right },
         { "Best score", TextTable::Align::Right }, { "Last written", TextTable::Align::Right } });
 
-    for (std::string const& name : ScenarioNames())
+    for (std::string const& name : Animus::ScenarioNames())
     {
         fs::path const run = _config.RunsDir() / name;
         std::error_code error;

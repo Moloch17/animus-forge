@@ -49,10 +49,6 @@ namespace AnimusForge
         void OnUpdate(uint32 diff);
         void OnShutdown();
 
-        /// The running pool, or nullptr when no scenario is running. Set and cleared on the world thread while no
-        /// map is updating, so map-thread hooks may read it without a lock.
-        [[nodiscard]] EnvPool* ActivePool() const { return _poolLive ? _pool.get() : nullptr; }
-
         /// Console commands, run on the world thread. Each writes its reply to `out` and returns false when it
         /// refuses (the reply says why).
         void CommandStatus(LineSink const& out);
@@ -186,8 +182,8 @@ namespace AnimusForge
 
         ForgeConfig _config;
         ForgeConfig _fastConfig;            // _config.FastProfile()
-        std::unique_ptr<Scenario> _scenario;
-        std::unique_ptr<EnvPool> _pool;
+        std::unique_ptr<Animus::Scenario> _scenario;
+        std::unique_ptr<Animus::EnvPool> _pool;
         LockstepServer _server;
         LearnerProcess _learner;
         ChildProcess _export{ "Export" };
@@ -195,7 +191,6 @@ namespace AnimusForge
 
         State _state = State::Idle;
         State _pausedFrom = State::Idle;
-        bool _poolLive = false;
         bool _pauseRequested = false;
         bool _resumeRequested = false;
         bool _pumping = false;

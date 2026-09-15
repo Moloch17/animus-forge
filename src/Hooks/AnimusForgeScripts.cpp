@@ -16,13 +16,17 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "AllCreatureScript.h"
-#include "AllSpellScript.h"
 #include "AnimusForge.h"
-#include "SummonLevel.h"
-#include "UnitScript.h"
+#include "CoreHooks.h"
+#include "Group.h"
+#include "RandomSeed.h"
 #include "WorldScript.h"
+#include "WorldSession.h"
 
+/*
+ * The forge's world hooks. The combat hooks every env pool needs (damage, heals, casts, summon levels) are
+ * animus-lib's (Hooks/AnimusLibScripts.cpp), fed while the forge's pool is registered.
+ */
 namespace
 {
     class AnimusForgeWorldScript : public WorldScript
@@ -35,69 +39,16 @@ namespace
         void OnUpdate(uint32 diff) override { sAnimusForge->OnUpdate(diff); }
         void OnShutdown() override { sAnimusForge->OnShutdown(); }
     };
-
-    class AnimusForgeUnitScript : public UnitScript
-    {
-    public:
-        AnimusForgeUnitScript() : UnitScript("AnimusForgeUnitScript") { }
-
-        /// Called for every damage event, on map threads, before the victim's AI can change the
-        /// amount (a creature script may rewrite it in DamageTaken), so it counts what was dealt.
-        uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage, DamageEffectType type) override
-        {
-            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
-                pool->RecordDamage(attacker, victim, damage, type);
-
-            return damage;
-        }
-
-        /// Called for every heal, on map threads, with the health actually gained (overhealing excluded).
-        void OnHeal(Unit* healer, Unit* receiver, uint32& gain) override
-        {
-            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
-                pool->RecordHeal(healer, receiver, gain);
-        }
-    };
-
-    class AnimusForgeSpellScript : public AllSpellScript
-    {
-    public:
-        AnimusForgeSpellScript() : AllSpellScript("AnimusForgeSpellScript",
-            { ALLSPELLHOOK_ON_CAST, ALLSPELLHOOK_ON_CAST_CANCEL }) { }
-
-        /// Called on map threads once a spell's cast time is over and it goes off.
-        void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool /*skipCheck*/) override
-        {
-            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
-                pool->RecordCastCompleted(caster, spell);
-        }
-
-        /// Called on map threads when a cast or channel is cancelled, with the spell still in its old state.
-        void OnSpellCastCancel(Spell* spell, Unit* caster, SpellInfo const* /*spellInfo*/, bool bySelf) override
-        {
-            if (AnimusForge::EnvPool* pool = sAnimusForge->ActivePool())
-                pool->RecordCastCancelled(caster, spell, bySelf);
-        }
-    };
-
-    class AnimusForgeCreatureScript : public AllCreatureScript
-    {
-    public:
-        AnimusForgeCreatureScript() : AllCreatureScript("AnimusForgeCreatureScript") { }
-
-        void OnBeforeCreatureSelectLevel(CreatureTemplate const* /*cinfo*/, Creature* /*creature*/,
-            uint8& level) override
-        {
-            if (AnimusForge::PendingSummonLevel)
-                level = AnimusForge::PendingSummonLevel;
-        }
-    };
 }
 
 void AddSC_animus_forge()
 {
+    // What only the forge core can do, for the library's bots, groups and evaluation seeds.
+    Animus::CoreHooks::Seams seams;
+    seams.MarkSimSession = [](WorldSession* session) { session->SetSimSession(true); };
+    seams.MarkSimGroup = [](Group* group) { group->SetSimGroup(true); };
+    seams.SeedRandom = [](uint32 seed) { rand_seed(seed); };
+    Animus::CoreHooks::Install(seams);
+
     new AnimusForgeWorldScript();
-    new AnimusForgeUnitScript();
-    new AnimusForgeSpellScript();
-    new AnimusForgeCreatureScript();
 }

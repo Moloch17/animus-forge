@@ -12,6 +12,12 @@ a training run:
 Its main work is the curriculum: eight stages that train one policy for every class and role,
 from a one-on-one duel up to parties and self-play arenas, joined in stage 8 into one policy for PvE and PvP.
 
+The curriculum itself -- stages, blocks, layouts, encounters, characters, env pools and bots -- lives in
+[animus-lib](https://github.com/Moloch17/animus-lib) (`modules/mod-animus-lib`), which mod-animus shares: a
+stock AzerothCore with mod-animus runs the very same stages for a game master to watch (`.animus stage start`).
+This module adds what only training needs: the plan and console, the learner bridge and process, progress reports
+and export. Paths below starting with `animus-lib/` are in that repository.
+
 ## How it fits together
 
 ```
@@ -28,11 +34,13 @@ worldserver (forge)                                   python -m animus.train
 - **Envs are instance maps.** Each env's bots get their own `InstanceMap`, so envs update in
   parallel on `MapUpdate.Threads`. Envs are created once at startup and reset in place; maps and
   players are never recreated, so nothing touches the database while the run is going.
-- **Bots are sessionless players.** See `src/Bot/ForgeBotFactory.cpp`. They are deliberately kept out
+- **Bots are sessionless players.** See `animus-lib/src/Bot/BotFactory.cpp`. They are deliberately kept out
   of `WorldSessionMgr`: a socketless session registered there is deleted, and its player saved,
   on the next update.
 - **Damage is measured in `UnitScript::DealDamage`**, before the victim's AI runs: a creature script may change
   the amount in `DamageTaken` (a training dummy zeroes it), so `OnDamage` would not always see what was dealt.
+  animus-lib's hooks (`animus-lib/src/Hooks/AnimusLibScripts.cpp`) feed every env pool registered with its
+  `PoolRegistry`; the forge registers its pool while a scenario runs.
 - **The learner drives time.** In `remote` mode the world thread waits on the learner each
   decision, and while no learner is connected. Scripted policies run without Python.
 - **The console drives the sim.** The sim starts idle; `forge start`, `forge pause`, `forge cancel` and the other
@@ -70,7 +78,7 @@ earlier stage stays repeatable.
 
 #### How a stage is built: blocks, encounters, tuning
 
-A stage is one entry in `src/Scenario/Curriculum/Stages/Stages.cpp` (`StageDefinition`):
+A stage is one entry in `animus-lib/src/Scenario/Curriculum/Stages/Stages.cpp` (`StageDefinition`):
 
 - **Blocks** (`Blocks/`): the groups of observation features and actions its layouts have, in order -- `core` (the
   character, its spells, trinkets and talents), `duel` (movement, auto-attack, pets, casting, forms), `pack` (enemy
@@ -128,16 +136,16 @@ gear until the companion and party stages give them their jobs):
 | Warlock | `warlock_dps` (Affliction, Demonology, Destruction) |
 | Druid | `druid_dps` (Balance, Feral cat), `druid_tank` (Feral bear), `druid_heal` (Restoration) |
 
-The table lives in `src/Scenario/Curriculum/Character/ClassRoleProfile.cpp`, with each spec's stat profile,
+The table lives in `animus-lib/src/Scenario/Curriculum/Character/ClassRoleProfile.cpp`, with each spec's stat profile,
 range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
 
 - **Race and level:** a random race the class allows (`playercreateinfo`), random gender; half the characters
   are level 61-80 and the rest any level 1-80 (55-80 for death knights), since most players are high level
   (`Characters.HighLevelFirst`, `Characters.HighLevelChance`).
-- **Talents and glyphs:** one of the role's specs with its standard 3.3.5 build (`Character/SpecBuilds.cpp`, 31
-  specs: the talents players take, in the order they take them; generated from `tools/spec_builds/builds.py`, which
-  `validate.py` checks). Each point goes to the first talent in that order that still wants ranks and can take one
-  (row and prerequisite rules follow `Player::LearnTalent`), so a low-level character has the talents players pick
+- **Talents and glyphs:** one of the role's specs with its standard 3.3.5 build (`Character/SpecBuilds.cpp`, 31 specs:
+  the talents players take, in the order they take them; generated from animus-lib's `tools/spec_builds/builds.py`,
+  which `validate.py` checks). Each point goes to the first talent in that order that still wants ranks and can take
+  one (row and prerequisite rules follow `Player::LearnTalent`), so a low-level character has the talents players pick
   first; every build spends exactly 71 points at 80. The glyph slots the level has opened get the spec's standard
   major and minor glyphs the level can use.
 - **Kit:** every spell of the class trainers up to the level (`trainer`/`trainer_spell`, learn-spells
@@ -463,10 +471,14 @@ away, name it (`forge start stage3_gauntlet`), or set `SkipFinished = 0`.
 The module is picked up automatically from `modules/` (it has a `src/` directory). Rebuild the
 worldserver.
 
-This module is self-contained: it builds against the forge core on its own and shares no code with any other
-module. Nothing else belongs in a forge build -- in particular mod-animus, which plays exported models on a stock
-AzerothCore, is never built into the forge core. If another module's directory sits in `modules/`, disable it in
-the forge build:
+It needs animus-lib in `modules/mod-animus-lib`. When that directory is missing, configuring clones it
+(`mod-animus-forge.cmake`, from `ANIMUS_LIB_GIT_URL` at `ANIMUS_LIB_GIT_REF`, default
+`https://github.com/Moloch17/animus-lib.git` `master`) and builds it in the same configure; later configures find it
+as a module like any other. Build both the same way (static, the default, or both dynamic); disabling the library
+while this module is enabled stops the configure. The library needs no settings of its own.
+
+Nothing else belongs in a forge build -- in particular mod-animus, which plays exported models on a stock
+AzerothCore, is not built into the forge core. If its directory sits in `modules/`, disable it in the forge build:
 
 ```
 cmake . -DMODULE_MOD-ANIMUS=disabled
@@ -810,8 +822,9 @@ adapter, the shared trunk and the layout's action head, in the plain MLP format 
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
 the exported network reproduces the torch actor's greedy actions.
 
-A class/role model's inputs and outputs are defined by its stage's blocks (`src/Scenario/Curriculum/Blocks/`: each
-block's features, actions and what they do) placed one after another by `Layout/Layout.*`; the scenario only
+A class/role model's inputs and outputs are defined by its stage's blocks
+(`animus-lib/src/Scenario/Curriculum/Blocks/`: each block's features, actions and what they do) placed one after
+another by `Layout/Layout.*`; the scenario only
 describes each seat's situation (`SeatView`: enemies, owner, teammates, opponent, pull timing). Each exported
 class/role model gets its layout manifest beside it (`<model>.json`, e.g. `warrior_dps_duel.json`, format 3): the
 stage, class/role, class, role, sizes and specs, then every block with its observation and action spans
@@ -837,8 +850,8 @@ observation and mask rows are padded to the largest. A `STEP` carries, for every
 
 **A curriculum stage:**
 
-1. Add a `StageDefinition` to `src/Scenario/Curriculum/Stages/Stages.cpp`: its name and model suffix, the stage it
-   extends, its blocks (the extended stage's, then any new ones), its seats and what it fights (encounters).
+1. Add a `StageDefinition` to `animus-lib/src/Scenario/Curriculum/Stages/Stages.cpp`: its name and model suffix, the
+   stage it extends, its blocks (the extended stage's, then any new ones), its seats and what it fights (encounters).
 2. If it needs new observations or actions, add a block: a `BlockId`, a `Block` implementation in `Blocks/`
    (`Size`, `Observe`, `Apply`, `DescribeManifest`) and its entry in `Blocks/Blocks.cpp`. Add what it needs to know
    about the world to `SeatView`.
@@ -850,10 +863,10 @@ observation and mask rows are padded to the largest. A `STEP` carries, for every
 
 **A standalone scenario:**
 
-1. Implement `AnimusForge::Scenario` (`src/Scenario/Scenario.h`): `Setup` builds bots and targets once,
+1. Implement `Animus::Scenario` (`animus-lib/src/Scenario/Scenario.h`): `Setup` builds bots and targets once,
    `Reset` restarts an episode in place, and `Observe` / `ApplyActions` / `Reward` define the MDP.
    `IsTerminal` is optional.
-2. Create it by name in `CreateScenario` and list it in `ScenarioNames` (`src/Scenario/Scenario.cpp`).
+2. Create it by name in `CreateScenario` and list it in `ScenarioNames` (`animus-lib/src/Scenario/Scenario.cpp`).
 3. Add its name to `AnimusForge.Queue` and write a learner config under `python/configs/`.
 
 The protocol and learner are shape-generic. A multi-agent scenario sets `AgentsPerEnv > 1` and
@@ -862,23 +875,24 @@ provides a real global `State`, and MAPPO's shared actor and centralized critic 
 ## Core requirements
 
 The curriculum stages rebuild every bot each episode, hundreds of times a second in a fast sim.
-That relies on small Forge core APIs:
+That relies on small Forge core APIs. animus-lib also builds on a stock core, so it reaches them through
+`CoreHooks` (`animus-lib/src/Core/CoreHooks.h`), which this module fills in at load
+(`src/Hooks/AnimusForgeScripts.cpp`):
 
-- `WorldSession::SetSimSession(true)` (set by `BotFactory::Create`): the session's account and
-  characters exist only in memory, so logout, play time and instance binds write nothing to the
+- `WorldSession::SetSimSession(true)` (`CoreHooks::MarkSimSession`, called by `BotFactory::Create`): the session's
+  account and characters exist only in memory, so logout, play time and instance binds write nothing to the
   database. Without it every rebuild queued character-database writes faster than MySQL applied
   them, and the async queue grew without bound.
-- `Player::SetSocial` (set by `BotFactory::Create` to an empty `SocialMgr` list): logout and far
-  teleports read the social list, which `LoadFromDB` normally attaches.
+- `Group::SetSimGroup` (`CoreHooks::MarkSimGroup`, called by the party stage): a group that lives only in memory --
+  no database rows, character cache entries, instance bind resets or homebind timers -- so a party can be rebuilt
+  every episode.
+- `rand_seed` (`RandomSeed.h`; `CoreHooks::SeedRandom`): restarts the calling thread's `urand`/`frand`/... sequence
+  from a seed, so seeded evaluation episodes roll the same characters and opponents every time.
 
-- `Group::SetSimGroup` (set by the party stage): a group that lives only in memory -- no database rows,
-  character cache entries, instance bind resets or homebind timers -- so a party can be rebuilt every episode.
-- `rand_seed` (`RandomSeed.h`): restarts the calling thread's `urand`/`frand`/... sequence from a seed,
-  so seeded evaluation episodes roll the same characters and opponents every time.
-
-Bots also reuse a fixed pair of player GUIDs and sessions per seat (`BotSlot`), because the core keeps some
-per-GUID state (instance bind storage) for the life of the server. Their account ids come from `BotAccounts.h`,
-one range per kind of bot.
+A bot's social list, which logout and far teleports read, is attached by `BotFactory::Create` through the private
+`Player::m_social` member, so no core setter is needed. Bots also reuse a fixed pair of player GUIDs and sessions per
+seat (`BotSlot`), because the core keeps some per-GUID state (instance bind storage) for the life of the server.
+Their account ids come from animus-lib's `BotAccounts.h`, one range per kind of bot.
 
 ## Known limits
 

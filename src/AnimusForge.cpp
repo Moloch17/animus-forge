@@ -18,6 +18,7 @@
 
 #include "AnimusForge.h"
 #include "Log.h"
+#include "PoolRegistry.h"
 #include "StageDefinition.h"
 #include "StringFormat.h"
 #include "World.h"
@@ -122,7 +123,8 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
 
 void AnimusForge::Forge::OnShutdown()
 {
-    _poolLive = false;
+    // The library's damage, heal and spell hooks stop feeding the pool before it goes.
+    Animus::PoolRegistry::Unregister(_pool.get());
 
     // Closing the socket is what tells the learner to save and exit; give it time to do so.
     if (_learner.IsRunning())
@@ -225,7 +227,7 @@ bool AnimusForge::Forge::StartCurrent()
     std::string const position = _plan.Entries.size() > 1
         ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "";
 
-    _scenario = CreateScenario(entry.Scenario, config);
+    _scenario = Animus::CreateScenario(entry.Scenario, config.Stage());
     if (!_scenario)
     {
         LOG_ERROR("module.animus", "Unknown scenario '{}'", entry.Scenario);
@@ -243,7 +245,7 @@ bool AnimusForge::Forge::StartCurrent()
         return false;
     }
 
-    _pool = std::make_unique<EnvPool>(*_scenario, config);
+    _pool = std::make_unique<Animus::EnvPool>(*_scenario, config.Stage());
     if (!_pool->Setup())
         return false;
 
@@ -282,14 +284,16 @@ bool AnimusForge::Forge::StartCurrent()
     _episodesPerSecond = 0.0;
     _monitor.Begin(entry.Scenario);
 
-    _poolLive = true;
+    // From here on the library's damage, heal and spell hooks feed the pool.
+    Animus::PoolRegistry::Register(_pool.get());
     _state = _plan.Remote() ? State::Training : State::Running;
     return true;
 }
 
 void AnimusForge::Forge::TeardownScenario(bool stopLearner)
 {
-    _poolLive = false;
+    // The library's damage, heal and spell hooks stop feeding the pool before it goes.
+    Animus::PoolRegistry::Unregister(_pool.get());
 
     if (stopLearner && _learner.IsRunning())
     {
@@ -388,7 +392,7 @@ std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
         return _config.Queue;
 
     std::vector<std::string> stages;
-    for (Curriculum::StageDefinition const& stage : Curriculum::CurriculumStages())
+    for (Animus::Curriculum::StageDefinition const& stage : Animus::Curriculum::CurriculumStages())
         if (stage.InDefaultQueue)
             stages.push_back(stage.Name);
 
@@ -413,7 +417,7 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
     // no finished run in this config's runs directory and is not trained earlier in this plan is not seeded from.
     for (std::size_t index = 0; index < scenarios.size(); ++index)
     {
-        Curriculum::StageDefinition const* stage = Curriculum::FindStage(scenarios[index]);
+        Animus::Curriculum::StageDefinition const* stage = Animus::Curriculum::FindStage(scenarios[index]);
         if (!stage || stage->Extends.empty())
             continue;
 
@@ -704,7 +708,7 @@ bool AnimusForge::Forge::KnowsPolicy(std::string const& policy) const
         return true;
 
     // ScriptedAction answers whether the scenario has the policy; a blank row is enough to ask.
-    ScenarioSpec const spec = _scenario->Spec();
+    Animus::ScenarioSpec const spec = _scenario->Spec();
     std::vector<float> obs(spec.ObsDim, 0.0f);
     std::vector<uint8> mask(spec.NumActions, 0);
     int32 action = 0;
@@ -742,7 +746,7 @@ bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
 
 bool AnimusForge::Forge::SendSpec()
 {
-    ScenarioSpec const spec = _pool->Spec();
+    Animus::ScenarioSpec const spec = _pool->Spec();
 
     SpecMsg msg{};
     msg.Version = PROTOCOL_VERSION;
