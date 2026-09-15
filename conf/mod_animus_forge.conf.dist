@@ -396,11 +396,14 @@ AnimusForge.Curriculum.Duel.DamageDealt = 2.0
 AnimusForge.Curriculum.Duel.DamageTaken = 1.0
 #   shaping toward the spec's range, per 40 yd closed
 AnimusForge.Curriculum.Duel.Approach = 0.5
+#   a harmful spell from stealth that breaks it (Ambush, Cheap Shot)
 AnimusForge.Curriculum.Duel.StealthOpener = 0.5
+#   one that keeps it (Sap, Distract), once per target per stealth
+AnimusForge.Curriculum.Duel.StealthUtility = 0.05
 #   per decision
 AnimusForge.Curriculum.Duel.StepCost = 0.0002
 AnimusForge.Curriculum.Duel.Kill = 2.0
-#   times the fraction of the episode still left
+#   times the fraction of the episode length left, from the engagement
 AnimusForge.Curriculum.Duel.FastKill = 3.0
 #   times the fraction of the bot's health not lost
 AnimusForge.Curriculum.Duel.HealthKept = 2.0
@@ -455,14 +458,15 @@ AnimusForge.Curriculum.Pulls.DamageTaken = 1.0
 AnimusForge.Curriculum.Pulls.GauntletDamageTaken = 1.5
 AnimusForge.Curriculum.Pulls.Approach = 0.5
 AnimusForge.Curriculum.Pulls.StealthOpener = 0.5
+AnimusForge.Curriculum.Pulls.StealthUtility = 0.05
 AnimusForge.Curriculum.Pulls.Interrupt = 0.3
 AnimusForge.Curriculum.Pulls.Kill = 0.5
 #   per decision
 AnimusForge.Curriculum.Pulls.StepCost = 0.0002
 AnimusForge.Curriculum.Pulls.Clear = 2.0
-#   pack: times the fraction of the episode still left
+#   pack: times the episode fraction left after engaging
 AnimusForge.Curriculum.Pulls.FastClear = 3.0
-#   gauntlet: times 1 - pull time / 60 s
+#   gauntlet: times 1 - time since the pull engaged / 60 s
 AnimusForge.Curriculum.Pulls.FastPull = 2.0
 #   times the fraction of the bot's health not lost this pull
 AnimusForge.Curriculum.Pulls.HealthKept = 2.0
@@ -566,5 +570,7 @@ AnimusForge.Curriculum.ScriptedPlayers.TauntRange = 25.0
 AnimusForge.Curriculum.ScriptedPlayers.RangedMin = 20.0
 #   ... and closes in beyond this
 AnimusForge.Curriculum.ScriptedPlayers.RangedMax = 30.0
+#   PvP: percent of engagements a rogue sneaks up in stealth
+AnimusForge.Curriculum.ScriptedPlayers.StealthChance = 50
 
 ###################################################################################################

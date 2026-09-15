@@ -9,9 +9,15 @@ run_name: stage3_gauntlet
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 400000000
 
+# 256 decisions (25.6 s at 100 ms) per rollout: a pull, its recovery and the next pull's setup fit in fewer rollouts, so
+# fewer returns rest on the critic's bootstrap.
+rollout_length: 256
+
 mappo:
-  # Pulls and recovery span minutes: the longest horizon of the curriculum.
+  # Pulls and recovery span minutes: the longest horizon of the curriculum (~100 s). The GAE trace carries credit for
+  # ~9 s: resting before a pull, sapping or stealthing in, and saving cooldowns pay off over that long.
   gamma: 0.999
+  gae_lambda: 0.99
 
 convergence:
   min_env_steps: 40000000

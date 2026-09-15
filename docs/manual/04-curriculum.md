@@ -177,6 +177,11 @@ party's tank; the enemy player and whether it is a learned seat. Encounters fill
   action is the self-resurrect action.
 - **No target** (between gauntlet pulls) blocks observation and actions, unless the layout acts without a target, which
   is any layout with the gauntlet block (food, drink, sustain spells).
+- **Hidden enemies.** An enemy the bot can neither see nor detect (`CanSeeOrDetect`: stealth, invisibility) is left out
+  of the view, as a client leaves it off the screen. An enemy slot holding one reads empty, the pvp block writes only
+  what the bot remembers about a hidden opponent, and a hidden target is `HiddenTarget` instead of `Target`: every block
+  sees no target, but the seat still observes and acts, and the duel block shows where the target was last seen and
+  lets the seat search there. The critic's state (4.8) keeps everything.
 - Otherwise every block writes its slice and mask.
 
 `SeatEncoder::Apply` ignores actions of a missing or dead bot (except its own resurrection). It runs every block's
@@ -255,8 +260,8 @@ The same function builds training seats and live companions, so a model gets in 
 
 The catalog also provides three more lists that later blocks use:
 
-- `Tactical()` (pack block): interrupts, stuns, silences, fears, roots, polymorphs, knockbacks, taunts and offensive
-  dispels.
+- `Tactical()` (pack block): interrupts, stuns (Sap included), silences, fears, roots, polymorphs, knockbacks, taunts,
+  Distract and offensive dispels.
 - `Sustain()` (gauntlet block): heals, HoTs, absorbs and friendly dispels.
 - `Revives()` (companion and party blocks): Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth, and a
   warlock's soulstone.
@@ -273,12 +278,12 @@ Casting goes through `ApplySpellAction`, which builds the `SpellCastTargets` a c
 | Block | Observation (summary) | Actions |
 |---|---|---|
 | `core` | 61 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
-| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; hunters' stable families and pet types | Move to target, move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, 4 call-beast actions (hunter) |
+| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, 4 call-beast actions (hunter) |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
 | `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left; each sustain spell's known and cooldown | Eat, drink; sustain spells |
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally heal's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one heal-on-owner per ally heal, one revive-on-owner per revive |
 | `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, heals, revives |
-| `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent | none |
+| `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; the opponent hidden (then only class, role, level and the cooldowns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
 
@@ -347,15 +352,17 @@ teammates (the other seats, in order) and is rewarded for them.
 (`EnemyPlayers::Create`) at the seat's level within `Opponent.LevelSpread` (1), with a random role (DPS 60%, tank 20%,
 healer 20%), its spec, talents, kit and resilience gear, spawned 40-50 yd away. It engages within `EngageMaxMs` (3 s).
 Melee specs fight in melee, ranged specs keep 10-30 yd (`RangedMin/Max`), and healers heal themselves below
-`SelfHealBelow`. In a mirror arena the "opponent" is the other seat. Both players get opposing factions and the PvP
-flag. Against a scripted player the episode is terminal when the seat dies or kills it. In a mirror arena it is
+`SelfHealBelow`. A rogue sneaks up in Stealth `ScriptedPlayers.StealthChance` (50) percent of the time and opens with
+a stealth opener. Scripted enemy players see no more than a player: one that can neither see nor detect its enemy
+stops attacking, goes to where it last saw it and searches around there. In a mirror arena the "opponent" is the other
+seat. Both players get opposing factions and the PvP flag. Against a scripted player the episode is terminal when the seat dies or kills it. In a mirror arena it is
 terminal when either seat dies. PvP arenas allow no self-resurrection.
 
 **`AmbushEncounter`** (`Ambushers > 0`). One or two scripted enemy players with the opponent's class, role and gear
 rules.
 
 - Beside pulls (`ambush` arena), they arrive `Ambush.MinMs`-`MaxMs` (20-120 s) into the episode, engage within
-  `EngageMaxMs`, attack the owner while it lives and then the nearest seat. They take enemy slots the pulls leave free
+  `EngageMaxMs`, attack the owner while it lives and then the nearest seat they can see (a hidden one only when they see none). They take enemy slots the pulls leave free
   (a pull has at most 4 minus the arena's ambushers creatures). Every seat earns `Ambush.Kill` (3) per ambusher killed,
   and the pulls and owner rewards pay the rest.
 - Alone (`escort_duel`, `Opposition::Ambush`), exactly one ambusher is the whole fight from the start, paid as a
@@ -371,7 +378,8 @@ Each seat has a `RewardLedger`. An encounter adds `(term, value)` pairs, and the
 each term's episode total. Every term that any encounter of the stage pays becomes an episode info column
 `reward_<term>`, so TensorBoard shows exactly what the stage pays for.
 
-Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stealth_opener`, `interrupt`, `kill`,
+Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stealth_opener`, `stealth_utility`,
+`interrupt`, `kill`,
 `clear`, `health_kept`, `death`, `owner_damage_taken`, `owner_healing`, `tank_damage_refund`, `threat`, `solo_fight`,
 `follow`, `owner_death`, `teammate_damage_taken`, `teammate_healing`, `teammate_threat`, `teammate_death`, `revive`,
 `player_kill`.
@@ -390,18 +398,25 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 **One-on-one** (duel, PvP, escort duel; `Duel.*`, `Casting.*`):
 
 - per decision: damage dealt x2, damage taken x1, potential-based approach shaping toward the spec's range (melee
-  3.5 yd, ranged 25 yd; 0.5 per 40 yd closed), stealth opener +0.5, step cost 0.0002
+  3.5 yd, ranged 25 yd; 0.5 per 40 yd closed), step cost 0.0002
+- stealth: +0.5 for a harmful spell cast from stealth that breaks it (Ambush, Garrote, Cheap Shot, Pounce, an attack
+  out of Shadowmeld; it can't be repeated without earning stealth back), +0.05 for one that keeps it (Sap, Distract,
+  Premeditation), once per target per stealth so it can't be farmed
 - casting: -0.03 per second already spent on a cast-time spell that didn't finish, +0.03 per second of cast time for
   each one that finished in combat (channels pay through their ticks)
-- kill: +2, plus up to +3 for the share of the episode left, plus up to +2 for the share of health kept
+- kill: +2, plus up to +3 for the share of the episode length left since the fight was engaged (the bot or its opponent
+  entered combat), plus up to +2 for the share of health kept. The approach, stealth and preparation before engaging
+  cost only the discount
 - death: -3 each time, including after a self-resurrection. With a self-resurrection available the seat has
   `Resurrection.GraceMs` to use it before the episode ends
 
 **Pack** (`Pulls.*`): damage x2 of the pack's total health, damage taken x1, approach to the nearest enemy, +0.5 per
-kill, +0.3 per interrupt, +0.5 stealth opener. Clear: +2, up to +3 for time left, up to +2 for health kept. Death -3.
+kill, +0.3 per interrupt, the stealth terms. Clear: +2, up to +3 for the episode length left since a pack member
+entered combat, up to +2 for health kept. Death -3.
 
 **Gauntlet**: the pack's per-step terms with damage taken x1.5. Each cleared pull: +2, up to +2 for clearing within a
-minute, up to +2 for health kept during the pull. Death -5.
+minute of engaging it (not of its spawn, so resting, sapping or stealthing in first is free), up to +2 for health kept
+during the pull. Death -5.
 
 **Companion** (`Owner.*`, added to the gauntlet's, with kills and clears x2):
 
@@ -480,7 +495,7 @@ Every stage reports these **core columns** per seat:
 - `level`, `race`, `spec`, `class`, `role`, `unspent_talent_points`, `equipped_items`
 - `spell_casts`, `trinket_uses`
 - `present` (0 for an empty party seat; ignore that row), `arena` (index into `stage.json` arenas), `opponent_seat`
-- `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `pet_summoned`, `opponent` (creature
+- `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `stealth_utility_casts`, `pet_summoned`, `opponent` (creature
   entry)
 - `casts_completed`, `casts_cancelled`, `cast_seconds_wasted`, `cancelled_stopped`, `cancelled_moved`,
   `cancelled_target`, `cancelled_other`
@@ -509,8 +524,10 @@ observation shows each beast's family and pet type, so the policy can learn its 
 Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. The bot gains no XP.
 
 Learner (`configs/stage1_duel.yaml`, the root every other config extends): hidden `[512, 512]` (every stage keeps
-these sizes, or the trunk can't be copied), gamma 0.997, lambda 0.95, clip 0.2, entropy 0.01, learning rates 3e-4,
-4 epochs, 8 minibatches, rollout 128. Budget 300M env steps. Evaluation every 10M steps on 128 seeds against `fight`.
+these sizes, or the trunk can't be copied), gamma 0.997 and lambda 0.985 per 100 ms of game time
+(`reference_decision_ms`, compounded to `AnimusForge.DecisionMs` so horizons stay the same in seconds: a ~33 s horizon
+and a ~5.5 s GAE credit trace, printed at start), clip 0.2, entropy 0.01, learning rates 3e-4, 4 epochs, 8 minibatches,
+rollout 128. Budget 300M env steps. Evaluation every 10M steps on 128 seeds against `fight`.
 Convergence patience 5, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps. Target: 10% over
 baseline overall and at least baseline for every class/role (16+ episodes), confirmed on 512 held-out episodes. Up to
 2 restarts with 3x entropy decaying over 10M steps.
@@ -525,7 +542,8 @@ stage 1.
 
 Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and sustain spells. Between pulls
 there is no target, so target features are 0 and only self-cast actions are allowed. Needs long episodes (several
-minutes of `AnimusForge.EpisodeSeconds`). Config: gamma 0.999, budget 400M, at least 40M steps.
+minutes of `AnimusForge.EpisodeSeconds`). Config: gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so
+resting before a pull or stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps.
 
 ### Stage 4: `stage4_companion`
 
@@ -543,7 +561,9 @@ least 60M steps, a party-focused report.
 ### Stage 6: `stage6_pvp`
 
 The PvP branch. It extends the duel and keeps only core and duel, adding pvp. The pack, gauntlet, companion and party
-blocks aren't in its layouts, so the PvP line can train right after the duel. Scored against `fight`.
+blocks aren't in its layouts, so the PvP line can train right after the duel. Scored against `fight`. Config: gamma
+0.999 and lambda 0.99, as a fight turns on what happened tens of seconds before (a stealthy approach, a trinket baited
+out).
 
 ### Stage 7: `stage7_arena`
 

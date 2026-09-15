@@ -17,8 +17,11 @@ from .valuenorm import ValueNorm
 @dataclass
 class MappoConfig:
     hidden: tuple[int, ...] = (128, 128)
+    # gamma and gae_lambda are per reference_decision_ms of game time, so a horizon means the same number of seconds
+    # at any AnimusForge.DecisionMs (per_decision converts them).
     gamma: float = 0.99
     gae_lambda: float = 0.95
+    reference_decision_ms: int = 100
     clip: float = 0.2
     value_clip: float = 0.2
     entropy_coef: float = 0.01
@@ -29,6 +32,17 @@ class MappoConfig:
     minibatches: int = 4
     max_grad_norm: float = 0.5
     use_value_norm: bool = True
+
+
+def per_decision(config: MappoConfig, decision_ms: int) -> tuple[float, float]:
+    """(gamma, gae_lambda) for one decision of decision_ms: the configured per-reference values, compounded."""
+    exponent = max(1, decision_ms) / max(1, config.reference_decision_ms)
+    return config.gamma**exponent, config.gae_lambda**exponent
+
+
+def horizon_seconds(discount: float, decision_ms: int) -> float:
+    """The effective horizon 1 / (1 - discount), in seconds of game time."""
+    return float("inf") if discount >= 1.0 else decision_ms / 1000.0 / (1.0 - discount)
 
 
 class MappoTrainer:

@@ -38,9 +38,13 @@ mappo:
   # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space. Every stage
   # keeps these sizes, or seeding from the earlier stage cannot copy the trunk.
   hidden: [512, 512]
-  # Kills take tens of seconds of decisions including the approach: look further ahead.
+  # gamma and gae_lambda are per 100 ms of game time (reference_decision_ms), compounded to AnimusForge.DecisionMs, so
+  # horizons stay the same in seconds at any decision interval; the learner prints them at start.
+  # Kills take tens of seconds including the approach: a ~33 s horizon. The GAE trace (gamma x lambda) carries credit
+  # without the critic for ~5.5 s (0.95 gave ~2 s), long enough to tie a stealthy approach or a pet pull to the opener that pays for it.
   gamma: 0.997
-  gae_lambda: 0.95
+  gae_lambda: 0.985
+  reference_decision_ms: 100
   clip: 0.2
   value_clip: 0.2
   # Large action spaces with delayed payoffs need steady exploration.

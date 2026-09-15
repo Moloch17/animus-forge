@@ -6,7 +6,10 @@ extends: stage1_duel.yaml
 run_name: stage6_pvp
 
 mappo:
+  # A fight is shaped by what happened tens of seconds earlier (a stealthy approach, a trinket baited out, a cooldown
+  # saved): ~100 s horizon, ~9 s GAE trace.
   gamma: 0.999
+  gae_lambda: 0.99
 
 eval:
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]

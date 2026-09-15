@@ -100,7 +100,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.DamageTaken` | 1.0 | | `Pulls.DamageTaken` | 1.0 |
 | `Duel.Approach` | 0.5 | | `Pulls.GauntletDamageTaken` | 1.5 |
 | `Duel.StealthOpener` | 0.5 | | `Pulls.Approach` | 0.5 |
-| `Duel.StepCost` | 0.0002 | | `Pulls.StealthOpener` | 0.5 |
+| `Duel.StealthUtility` | 0.05 | | `Pulls.StealthOpener` | 0.5 |
+| `Duel.StepCost` | 0.0002 | | `Pulls.StealthUtility` | 0.05 |
 | `Duel.Kill` | 2.0 | | `Pulls.Interrupt` | 0.3 |
 | `Duel.FastKill` | 3.0 | | `Pulls.Kill` | 0.5 |
 | `Duel.HealthKept` | 2.0 | | `Pulls.StepCost` | 0.0002 |
@@ -135,6 +136,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `ScriptedPlayers.TauntRange` | 25.0 |
 | | | | `ScriptedPlayers.RangedMin` | 20.0 |
 | | | | `ScriptedPlayers.RangedMax` | 30.0 |
+| | | | `ScriptedPlayers.StealthChance` | 50 |
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
 

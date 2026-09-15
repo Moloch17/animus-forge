@@ -39,7 +39,7 @@ from .env import ForgeEnv
 from .evaluation import ConvergenceTracker, EvalResult, format_summary, run_evaluation
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
-from .mappo.trainer import MappoTrainer
+from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
 from .stage import ADVANCE, EXIT_BELOW_TARGET, HALT, RESTART, Outcome, StageController
@@ -271,6 +271,17 @@ class TrainingRun:
             rollout_device=config.resolved_rollout_device(),
         )
         print(f"Updates on {self.trainer.train_device}, rollouts on {config.resolved_rollout_device()}", flush=True)
+
+        # Horizons are configured in game time; each decision compounds them.
+        self.discounts = per_decision(config.mappo, spec.decision_ms)
+        gamma, gae_lambda = self.discounts
+        print(
+            f"Per {spec.decision_ms} ms decision: gamma {gamma:.5f} (horizon "
+            f"{horizon_seconds(gamma, spec.decision_ms):.0f} s), GAE trace {gamma * gae_lambda:.5f} (credit "
+            f"{horizon_seconds(gamma * gae_lambda, spec.decision_ms):.1f} s), rollout "
+            f"{config.rollout_length * spec.decision_ms / 1000.0:.1f} s",
+            flush=True,
+        )
 
         self.evaluating = config.eval.every_env_steps > 0
         self.controller = StageController(config)
@@ -523,8 +534,7 @@ class TrainingRun:
             buffer.add_outcome(step.reward, step.done, step.terminated, final_values)
 
         rollout_seconds = time.perf_counter() - started
-        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), self.config.mappo.gamma,
-                      self.config.mappo.gae_lambda)
+        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts)
         if self.distiller is not None:
             self.distiller.coef = self.config.distill.coef_at(self.env_steps)
         stats = trainer.update(buffer, self.distiller)
