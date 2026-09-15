@@ -88,13 +88,22 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
 
     // Run in the learner directory, append both output streams to the log file, and do not leak
     // the server's descriptors (database connections, log files, the learner socket) into Python.
+    // The console is the server's alone: the learner reads no stdin and runs in its own process
+    // group, so Ctrl+C in the terminal reaches only the server, which then stops the learner itself.
     posix_spawn_file_actions_addchdir_np(&actions, workDir.c_str());
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
     posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, _logFile.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
     posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
     posix_spawn_file_actions_addclosefrom_np(&actions, STDERR_FILENO + 1);
 
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP);
+    posix_spawnattr_setpgroup(&attributes, 0);
+
     pid_t pid = -1;
-    int const error = posix_spawnp(&pid, argv[0], &actions, nullptr, argv.data(), environ);
+    int const error = posix_spawnp(&pid, argv[0], &actions, &attributes, argv.data(), environ);
+    posix_spawnattr_destroy(&attributes);
     posix_spawn_file_actions_destroy(&actions);
 
     if (error)

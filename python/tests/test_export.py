@@ -69,7 +69,7 @@ def test_each_layout_exports_as_the_same_mlp(tmp_path):
 def test_model_names():
     assert model_name("class_role", "warrior_dps", 18) == "warrior_dps"
     assert model_name("class_role_party", "druid_heal", 18) == "druid_heal_party"
-    assert model_name("warrior_dummy", "warrior_dummy", 1) == "warrior_dummy"
+    assert model_name("warrior_dummy_20", "warrior_dummy_20", 1) == "warrior_dummy_20"
 
 
 def test_empty_mask_falls_back_to_action_zero(tmp_path):

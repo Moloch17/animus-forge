@@ -9,8 +9,8 @@ a training run:
 - observation, action and reward encoding
 - a lock-step bridge to a Python MAPPO learner
 
-Scenario 1, `warrior_dummy`, is a level 1 human warrior on a training dummy. It learns when to
-spend rage on Heroic Strike to maximise DPS.
+Its main work is the class/role curriculum: eight stages that train one policy for every class and role,
+from a training dummy up to parties and self-play arenas.
 
 ## How it fits together
 
@@ -38,16 +38,10 @@ worldserver (forge)                                   python -m animus.train
 
 ## Scenarios
 
-Select one with `AnimusForge.Scenario` (or several with `AnimusForge.Queue`). The learner auto-starts
-with `configs/<scenario>.yaml`, or `configs/class_role.yaml` when the scenario has none, and trains in
+List the scenarios to train in `AnimusForge.Queue` (see
+[Training every model](#training-every-model-animusforgequeue)). The learner auto-starts with
+`configs/<scenario>.yaml`, or the class/role config of the scenario's stage when it has none, and trains in
 `runs/<scenario>/`.
-
-### `warrior_dummy`
-
-A level 1 human warrior on a training dummy. The only decision is when to spend rage on Heroic
-Strike.
-- **Actions (3):** no-op, queue Heroic Strike, cancel it.
-- **Observation:** 9 features.
 
 ### `warrior_dummy_20`
 
@@ -341,20 +335,22 @@ baseline or plateau stop: against itself a policy's score does not track progres
 
 ### Training every model: `AnimusForge.Queue`
 
-`AnimusForge.Queue` lists scenarios to train one after another (it overrides
-`AnimusForge.Scenario`):
+`AnimusForge.Queue` lists the scenarios to train, one after another. It is the only way to pick what runs, and
+it defaults to the whole curriculum:
 
 ```
 AnimusForge.Queue = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, class_role_companion, class_role_party, class_role_pvp, class_role_arena"
 ```
+
+To train a single scenario, list only that one (`AnimusForge.Queue = "class_role_duel"`).
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
 plateaus or it reaches `total_env_steps` (see
 [Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
 tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/`; export its models by
 hand when you want them (see [Export](#export)). Change the list (or its order) in the config and restart to
-retrain or skip models; a restart starts the queue over from its first scenario. A learner that crashes stops the queue at that
-scenario: the sim waits for a learner, as it does without a queue.
+retrain or skip models; a restart starts the queue over from its first scenario. When the last scenario finishes the
+sim idles. A learner that crashes stops the queue at that scenario: the sim waits for a learner started by hand.
 
 ## Enabling
 
@@ -368,11 +364,13 @@ the forge build:
 
 ```
 cmake . -DMODULE_MOD-ANIMUS=disabled
-``` Settings live in `mod_animus_forge.conf`; `conf/mod_animus_forge.conf.dist` documents
-every key.
+```
 
-The build installs only the `.dist` file, and AzerothCore never reads a `.dist` directly. Copy it
-once, next to the installed template:
+Settings live in `mod_animus_forge.conf`; `conf/mod_animus_forge.conf.dist` documents every key.
+
+The build installs only the `.dist` file, and AzerothCore never reads a `.dist` directly. `acore.sh compiler build`
+(which the Docker setup uses) copies it to `mod_animus_forge.conf` on install when that file does not exist yet;
+after a plain `cmake --install`, copy it once, next to the installed template:
 
 ```
 cp env/dist/etc/modules/mod_animus_forge.conf.dist env/dist/etc/modules/mod_animus_forge.conf
@@ -383,12 +381,13 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | Key | Default | Purpose |
 |---|---|---|
 | `AnimusForge.Enable` | `1` | `0` turns the module off entirely (no bots, no socket, hooks return immediately) |
-| `AnimusForge.Scenario` | `warrior_dummy` | Scenario started automatically when the server starts |
+| `AnimusForge.Queue` | the whole curriculum | Scenarios trained one after another, starting when the server starts |
+| `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per queued scenario before moving on |
 | `AnimusForge.Envs` | `64` | Parallel envs (one instance map each) |
 | `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
-| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`never_hs`, `hs_at_threshold`) |
-| `AnimusForge.HsRageThreshold` | `15` | Rage threshold for `hs_at_threshold` |
+| `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`, `rotation`, ...) |
+| `AnimusForge.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
 | `AnimusForge.ReportEpisodes` | `256` | Log mean episode stats every N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
@@ -397,60 +396,63 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.ClassRoles` | `""` | Class/roles the class/role scenarios play; empty = all 18 |
 | `AnimusForge.Arena.*` | Old Hillsbrad entrance | Dungeon map and position for the arena |
 
-Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_SCENARIO=warrior_dummy`.
+Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=class_role_duel`.
 
 For best throughput set `MapUpdate.Threads` to the number of physical cores.
 
-### Docker: use the dev server
+### Docker
 
-The auto-started learner needs Python, torch and the GPU wherever the worldserver runs. The stock
-`ac-worldserver` image has none of them, so train in `ac-dev-server`: it bind-mounts this
-repository, and the local `docker-compose.override.yml` gives it `/dev/kfd` and `/dev/dri` and
-removes its host ports. Those ports would clash with `ac-authserver` and `ac-worldserver`, and the
-sim does not listen on them anyway.
+The forge core's `docker-compose.yml` runs training in the `ac-worldserver` service. Everything is named
+`ac-animus-forge` (compose project, containers, volumes, network, images) and uses its own host ports
+(database `13306`, TensorBoard `127.0.0.1:16006`), so it runs next to a stock AzerothCore.
 
 ```
-docker compose --profile dev up -d ac-dev-server        # dev server + database only
-docker compose exec ac-dev-server bash
+./forge.sh                                          # start everything and attach to the worldserver console
+./forge.sh attach                                   # attach again later (detach: Ctrl+P Ctrl+Q)
+docker compose --profile dev up -d ac-dev-server    # dev container, alongside the running training
 ```
 
-One-time Python setup, inside the container. The venv lives on the bind mount, so it survives
-container rebuilds. It must be created inside the container, not on the host: it points at the
-container's Python.
+`docker compose up` works too, but it only streams logs: Compose does not forward the keyboard to a container,
+so the console needs `docker compose attach ac-worldserver` (which `forge.sh` runs). Ctrl+C in the console stops
+the server; the learner saves a checkpoint first.
 
-```
-sudo apt-get update && sudo apt-get install -y python3-venv
-cd /azerothcore/modules/mod-animus-forge/python
-python3 -m venv .venv
-.venv/bin/pip install torch --index-url https://download.pytorch.org/whl/rocm6.4
-.venv/bin/pip install -e '.[dev,tensorboard]'
-.venv/bin/python -c "import torch; print(torch.cuda.is_available(), [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])"
-```
-
-Only the discrete RX 7900 XTX is passed into the container (by PCI path, so it survives device
-renumbering between boots), and `configs/warrior_dummy.yaml` trains on it (`train_device: cuda`).
-The torch check above should list a single device. Then build and run the worldserver in the
-container as usual; the learner starts by itself.
+- **Training server (`ac-worldserver`):** runs the worldserver built from the bind-mounted source tree, because
+  the learner needs this module's `python/` directory. On its first start it builds the worldserver and creates
+  `python/.venv` (torch, the learner and TensorBoard) inside the container, then starts TensorBoard and the sim;
+  the sim starts the learner.
+- **torch build:** the first-start venv installs torch from PyPI (NVIDIA CUDA builds). Set
+  `ANIMUS_TORCH_INDEX_URL` before the first start for another build, e.g.
+  `https://download.pytorch.org/whl/rocm6.4` for AMD GPUs.
+- **GPU:** passthrough is machine-specific; `docker-compose.yml` has commented NVIDIA and AMD blocks to copy
+  into `docker-compose.override.yml`. Check it from the container:
+  `modules/mod-animus-forge/python/.venv/bin/python -c "import torch; print(torch.cuda.is_available())"`.
+- **Dev container (`ac-dev-server`, profile `dev`):** the same image and build volumes, no ports, for VS Code
+  (`.devcontainer`) or a shell. After changing C++, build there and restart training:
+  `docker compose exec ac-dev-server ./acore.sh compiler build`, then `docker compose restart ac-worldserver`
+  (a restart retrains the queue from scratch). Don't start a second training worldserver in it: both would
+  train into the same `runs/`.
 
 ## Baselines (no Python)
 
 Set a scripted policy and read the `Episodes N (mean): ...` lines in the worldserver log:
 
 ```
-AnimusForge.Policy = "never_hs"          # white swings only
-AnimusForge.Policy = "hs_at_threshold"   # try HsRageThreshold = 15, 30, 60
+AnimusForge.Policy = "greedy"            # class/role scenarios: first usable spell or trinket
+AnimusForge.Policy = "fight"             # class/role duel stage on: close in, fight, eat, drink, heal
+AnimusForge.Policy = "white_only"        # warrior_dummy_20: white swings only
+AnimusForge.Policy = "rotation"          # warrior_dummy_20: levelling priority
 AnimusForge.Policy = "random"
 ```
 
-These are the DPS numbers the learner has to match or beat. They double as a mechanics check. With
-`never_hs`, `white_hits` per episode should be roughly `EpisodeSeconds / weapon speed` (minus
-misses and dodges), and `special_hits` should be 0.
+These are the numbers the learner has to match or beat. They double as a mechanics check. With
+`white_only`, `white_hits` per episode should be roughly `EpisodeSeconds / weapon speed` (minus
+misses and dodges). Set `AnimusForge.Queue.LocalEpisodes` to baseline every queued scenario in one run.
 
 ## Training
 
 With `AnimusForge.Policy = "remote"` and `AnimusForge.Learner.AutoStart = 1` (the defaults), the
-worldserver starts the learner itself once the envs are built, for the scenario in
-`AnimusForge.Scenario`:
+worldserver starts the learner itself once the envs are built, for the current scenario of
+`AnimusForge.Queue`:
 
 ```
 <WorkDir>/.venv/bin/python -u -m animus.train --config configs/<scenario>.yaml \
@@ -503,7 +505,7 @@ To run the learner yourself, set `AnimusForge.Learner.AutoStart = 0`, then from 
 
 ```
 pytest                                                    # protocol, GAE and trainer tests
-python -m animus.train --config configs/warrior_dummy.yaml
+python -m animus.train --config configs/class_role.yaml --run-name class_role
 python -m animus.evaluate --checkpoint runs/class_role/best.pt --episodes 128 --seed 1000 --baseline greedy
 ```
 
@@ -527,7 +529,7 @@ python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported
 Copying exported models to a server that plays them is also done by hand.
 
 It writes one model per layout: `warrior_dps_duel.amdl`, `priest_heal_duel.amdl`, ... (a single-layout scenario
-such as `warrior_dummy` writes `warrior_dummy.amdl`). Each is the layout's input adapter, the shared trunk and the
+such as `warrior_dummy_20` writes `warrior_dummy_20.amdl`). Each is the layout's input adapter, the shared trunk and the
 layout's action head, in the plain MLP format below.
 
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
@@ -560,7 +562,7 @@ observation and mask rows are padded to the largest. A `STEP` carries, for every
    `Reset` restarts an episode in place, and `Observe` / `ApplyActions` / `Reward` define the MDP.
    `IsTerminal` is optional.
 2. Add one row to the registry in `src/Scenario/Scenario.cpp`.
-3. Set `AnimusForge.Scenario` to its name and write a learner config under `python/configs/`.
+3. Add its name to `AnimusForge.Queue` and write a learner config under `python/configs/`.
 
 The protocol and learner are shape-generic. A multi-agent scenario sets `AgentsPerEnv > 1` and
 provides a real global `State`, and MAPPO's shared actor and centralized critic handle it.
@@ -588,7 +590,7 @@ Bots also reuse a fixed pair of player GUIDs per env, because the core keeps som
 ## Known limits
 
 - **Cooldowns and the GCD** use the game clock, which the core is being moved onto the sim tick
-  (separate work). `warrior_dummy` does not depend on it: Heroic Strike has no cooldown and no GCD.
+  (separate work).
 - **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 7's enemy player are
   scripts; the party's other members and stage 8's opponent are learned.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.

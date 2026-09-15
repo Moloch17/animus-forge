@@ -21,7 +21,6 @@
 #include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
 #include "WarriorDummy20Scenario.h"
-#include "WarriorDummyScenario.h"
 #include <functional>
 #include <utility>
 
@@ -29,7 +28,7 @@ namespace
 {
     using ScenarioFactory = std::function<std::unique_ptr<AnimusForge::Scenario>(AnimusForge::ForgeConfig const&)>;
 
-    /// Every scenario the module can run, by the name used in AnimusForge.Scenario.
+    /// Every scenario the module can run, by the name used in AnimusForge.Queue.
     /// Adding a scenario = implementing AnimusForge::Scenario and adding one row here; class/role
     /// scenarios come from ClassRoleProfiles().
     std::vector<std::pair<std::string, ScenarioFactory>> const& Registry()
@@ -38,13 +37,6 @@ namespace
         {
             std::vector<std::pair<std::string, ScenarioFactory>> scenarios =
             {
-                {
-                    "warrior_dummy",
-                    [](AnimusForge::ForgeConfig const& config)
-                    {
-                        return std::make_unique<AnimusForge::WarriorDummyScenario>(config);
-                    }
-                },
                 {
                     "warrior_dummy_20",
                     [](AnimusForge::ForgeConfig const& config)

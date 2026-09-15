@@ -1,6 +1,6 @@
 """Train a MAPPO policy against a running Animus Forge sim.
 
-    python -m animus.train --config configs/warrior_dummy.yaml
+    python -m animus.train --config configs/class_role.yaml --run-name class_role
 
 The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1. Run by hand, the client retries
 until the sim's socket appears. Every start trains from scratch: an earlier run in runs/<run_name>/ is archived

@@ -24,7 +24,7 @@ rollout_length: 128
 log_every: 1
 checkpoint_every: 25
 
-# Updates run on the GPU ("cuda" is PyTorch ROCm's name for AMD GPUs; the dev server exposes only
+# Updates run on the GPU ("cuda" is PyTorch ROCm's name for AMD GPUs; the training server exposes only
 # the discrete card). Rollouts stay on the CPU: one forward pass per decision is faster there.
 rollout_device: cpu
 train_device: cuda

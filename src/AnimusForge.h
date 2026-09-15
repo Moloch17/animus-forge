@@ -50,7 +50,7 @@ namespace AnimusForge
         bool Start();
         void Fail(char const* reason);
 
-        /// The running scenario belongs to AnimusForge.Queue and its auto-started learner finished.
+        /// The running scenario's auto-started learner finished, so the queue can move on.
         [[nodiscard]] bool QueueScenarioFinished() const;
 
         /// Tear down the finished scenario and start the next one in the queue (or idle at the end).

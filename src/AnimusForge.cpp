@@ -46,6 +46,13 @@ void AnimusForge::Forge::OnStartup()
 
 bool AnimusForge::Forge::Start()
 {
+    if (_config.Queue.empty())
+    {
+        LOG_ERROR("module.animus", "AnimusForge.Queue is empty: list the scenarios to train");
+        Fail("nothing to train");
+        return false;
+    }
+
     _scenario = CreateScenario(_config);
     if (!_scenario)
     {
@@ -106,7 +113,7 @@ bool AnimusForge::Forge::Start()
 
 bool AnimusForge::Forge::QueueScenarioFinished() const
 {
-    return !_config.Queue.empty() && _config.IsRemote() && _config.LearnerAutoStart && _learner.FinishedCleanly();
+    return _config.IsRemote() && _config.LearnerAutoStart && _learner.FinishedCleanly();
 }
 
 void AnimusForge::Forge::AdvanceQueue()
@@ -176,8 +183,7 @@ void AnimusForge::Forge::LocalDecision()
     _pool->Collect();
 
     // A queue under a local policy (smoke tests, baselines) moves on after a fixed number of episodes.
-    if (!_config.Queue.empty() && _config.QueueLocalEpisodes
-        && _pool->CompletedEpisodes() >= _config.QueueLocalEpisodes)
+    if (_config.QueueLocalEpisodes && _pool->CompletedEpisodes() >= _config.QueueLocalEpisodes)
     {
         AdvanceQueue();
         return;

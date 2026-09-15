@@ -12,18 +12,23 @@
 #        Default:     1 - (Enabled)
 #                     0 - (Disabled)
 
-AnimusForge.Enable = 0
+AnimusForge.Enable = 1
 
 ###################################################################################################
 # SCENARIO
 #
-#    AnimusForge.Scenario
-#        Description: Training scenario started automatically when the server starts. Every env
-#                     in the pool runs the same scenario. An unknown name stops the server at
-#                     startup and logs the list of available scenarios. Like any config key it can
-#                     also be set from the environment: AC_ANIMUS_FORGE_SCENARIO.
-#        Values:      "warrior_dummy"    - level 1 human warrior maximising DPS on a training dummy
-#                     "warrior_dummy_20" - level 20 Arms human warrior in level 16-20 gear with the
+#    AnimusForge.Queue
+#        Description: Comma-separated scenarios to train one after another, starting when the server
+#                     starts. Every env in the pool runs the current scenario. Each runs until its
+#                     auto-started learner finishes (its evaluation score plateaus or it reaches
+#                     total_env_steps, and it exits cleanly), then the next one starts; when the last
+#                     one finishes the sim idles. Moving on needs AnimusForge.Policy = "remote" and
+#                     AnimusForge.Learner.AutoStart = 1 (see AnimusForge.Queue.LocalEpisodes for local
+#                     policies). A restart starts the queue over from its first scenario. An unknown
+#                     name stops the server at startup and logs the list of available scenarios. Each
+#                     scenario trains in runs/<scenario>/. Like any config key it can also be set from
+#                     the environment: AC_ANIMUS_FORGE_QUEUE.
+#        Values:      "warrior_dummy_20" - level 20 Arms human warrior in level 16-20 gear with the
 #                                          full level 20 trainer kit on a training dummy; a new
 #                                          random Arms talent build (one of all valid 11-point
 #                                          builds) every episode
@@ -49,25 +54,12 @@ AnimusForge.Enable = 0
 #                                                and the scripted owner against elite-heavy pulls
 #                       "class_role_pvp"       - one-on-one against a scripted enemy player
 #                       "class_role_arena"     - self-play one-on-one: two learned seats of any classes
-#        Default:     "warrior_dummy"
-
-AnimusForge.Scenario = "warrior_dummy"
-
-#
-#    AnimusForge.Queue
-#        Description: Comma-separated scenarios to train one after another, overriding
-#                     AnimusForge.Scenario. Each runs until its auto-started learner finishes
-#                     (reaches total_env_steps and exits cleanly), then the next one starts. After a
-#                     restart the finished scenarios' learners exit at once and the queue moves on.
-#                     When the last one finishes the sim idles. Needs AnimusForge.Policy = "remote"
-#                     and AnimusForge.Learner.AutoStart = 1. Each scenario trains in runs/<scenario>/
-#                     and publishes <scenario>.amdl. Can be set from the environment:
-#                     AC_ANIMUS_FORGE_QUEUE.
-#        Example:     "class_role, class_role_duel, class_role_pack, class_role_gauntlet,
+#        Example:     "class_role_duel" - (train a single scenario)
+#        Default:     "class_role, class_role_duel, class_role_pack, class_role_gauntlet,
 #                      class_role_companion, class_role_party, class_role_pvp, class_role_arena"
-#        Default:     "" - (run AnimusForge.Scenario only)
+#                     - (the whole class/role curriculum)
 
-AnimusForge.Queue = ""
+AnimusForge.Queue = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, class_role_companion, class_role_party, class_role_pvp, class_role_arena"
 
 #
 #    AnimusForge.ClassRoles
@@ -121,9 +113,8 @@ AnimusForge.EpisodeSeconds = 60
 #        Description: Who chooses actions.
 #        Values:      "remote"          - lock-step with the Python learner over AnimusForge.Socket
 #                     "random"          - uniform over unmasked actions
-#                     "never_hs"        - (warrior_dummy) white swings only
 #                     "white_only"      - (warrior_dummy_20) white swings only
-#                     "hs_at_threshold" - (both) queue Heroic Strike at AnimusForge.HsRageThreshold
+#                     "hs_at_threshold" - (warrior_dummy_20) queue Heroic Strike at AnimusForge.HsRageThreshold
 #                                         rage or more
 #                     "rotation"        - (warrior_dummy_20) levelling priority: Battle Shout,
 #                                         Bloodrage, Overpower, Rend, Thunder Clap, Mocking Blow,
@@ -164,13 +155,14 @@ AnimusForge.Socket = "/tmp/animus-forge.sock"
 #
 #    AnimusForge.Learner.AutoStart
 #        Description: With AnimusForge.Policy = "remote", start the Python learner automatically
-#                     once the sim is ready, for the selected scenario:
+#                     once the sim is ready, for the current queued scenario:
 #                         <Python> -u -m animus.train --config <Config> --socket <AnimusForge.Socket>
 #                     run in <WorkDir>. Every start trains from scratch: whatever runs/<scenario>/ held is
 #                     moved to runs/_archive/<scenario>-<time>/ first (nothing is deleted, and nothing is
 #                     resumed). The learner is stopped (and saves latest.pt) when the server shuts down.
-#                     Requires Python and the learner's packages where the worldserver runs: a
-#                     native build or the dev-server container, not the ac-worldserver image.
+#                     Requires Python and the learner's packages where the worldserver runs, and the
+#                     module source tree: a native build, or the Docker ac-worldserver service, which
+#                     runs the build from the bind-mounted source tree.
 #        Default:     1 - (Enabled)
 #                     0 - (Disabled, start the learner yourself)
 

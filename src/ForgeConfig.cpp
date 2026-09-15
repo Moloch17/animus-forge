@@ -26,9 +26,13 @@
 
 namespace
 {
+    /// AnimusForge.Queue when the key is missing: the whole class/role curriculum, in stage order.
+    constexpr char const* DEFAULT_QUEUE = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, "
+        "class_role_companion, class_role_party, class_role_pvp, class_role_arena";
+
     /// This module's python/ directory, from the path the compiler saw for this source file
     /// (<module>/src/ForgeConfig.cpp). Valid wherever the module source tree still exists at the
-    /// path it was built from: native builds and the dev-server container, not the runtime images.
+    /// path it was built from: native builds and the bind-mounted Docker services, not the runtime images.
     std::filesystem::path DefaultLearnerWorkDir()
     {
         return std::filesystem::path(__FILE__).parent_path().parent_path() / "python";
@@ -39,10 +43,8 @@ void AnimusForge::ForgeConfig::Load()
 {
     Enable = sConfigMgr->GetOption<bool>("AnimusForge.Enable", true);
 
-    Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Scenario", "warrior_dummy");
-
     Queue.clear();
-    std::string const queue = sConfigMgr->GetOption<std::string>("AnimusForge.Queue", "");
+    std::string const queue = sConfigMgr->GetOption<std::string>("AnimusForge.Queue", DEFAULT_QUEUE);
     for (std::string_view name : Acore::Tokenize(queue, ',', false))
     {
         std::string entry(name);
@@ -53,8 +55,7 @@ void AnimusForge::ForgeConfig::Load()
             Queue.push_back(entry);
     }
 
-    if (!Queue.empty())
-        Scenario = Queue.front();
+    Scenario = Queue.empty() ? std::string() : Queue.front();
 
     ClassRoles.clear();
     std::string const classRoles = sConfigMgr->GetOption<std::string>("AnimusForge.ClassRoles", "");

@@ -74,7 +74,7 @@ namespace AnimusForge::ClassRole
     /// One trained model: a class in one role, over every spec that plays the role.
     struct ClassRoleProfile
     {
-        std::string ScenarioName;       // "<class>_<role>", the AnimusForge.Scenario name
+        std::string ScenarioName;       // "<class>_<role>", the layout (and model) name
         uint8 Class = 0;
         Role PlayRole = Role::Dps;
         std::vector<SpecProfile> Specs;

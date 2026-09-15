@@ -31,11 +31,10 @@ namespace AnimusForge
     {
         bool Enable = true;
 
-        /// Scenario currently running: AnimusForge.Scenario, or the current entry of Queue.
+        /// Scenario currently running: the current entry of Queue.
         std::string Scenario;
 
         /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes.
-        /// Empty = run Scenario only.
         std::vector<std::string> Queue;
 
         /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per queued scenario (0 = run the
