@@ -87,6 +87,7 @@ namespace
     constexpr float FOLLOW_TANK_DISTANCE = 4.0f;
     constexpr float FOLLOW_TANK_MIN_DISTANCE = 8.0f;
     constexpr uint32 CALL_BEAST_GCD_MS = 1500;
+    constexpr uint32 SPELL_RECENTLY_BANDAGED = 11196;
     constexpr uint8 HUNTER_PET_LEVEL = 10;
 
     constexpr uint32 IMMOBILE_STATES = UNIT_STATE_ROOT | UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING;
@@ -153,10 +154,11 @@ namespace
         return result == SPELL_CAST_OK;
     }
 
-    /// CanCast with an explicit friendly unit target (heals on an ally).
-    bool CanCastOn(Player* bot, SpellInfo const* info, Unit* target)
+    /// CanCast with an explicit friendly unit target (heals on an ally, revives, the soulstone).
+    bool CanCastOn(Player* bot, SpellInfo const* info, Unit* target, Item* castItem = nullptr)
     {
         Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
+        spell->m_CastItem = castItem;
         spell->LoadScripts();
 
         SpellCastTargets targets;
@@ -237,6 +239,104 @@ namespace
             return nullptr;
 
         return sSpellMgr->GetSpellInfo(proto->Spells[0].SpellId);
+    }
+
+    /// Whether the bot can use its `entry` item (a potion, healthstone, bandage or soulstone) on `target` now.
+    bool CanUseItemOn(Player* bot, uint32 entry, Unit* target)
+    {
+        SpellInfo const* info = entry ? UseSpell(entry) : nullptr;
+        Item* item = info ? bot->GetItemByEntry(entry) : nullptr;
+        if (!item || !target || !bot->IsAlive() || bot->HasSpellCooldown(info->Id) || CastInProgress(bot))
+            return false;
+
+        // Server-driven movement does not set the movement flags CheckCast looks at.
+        if (!bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
+            return false;
+
+        return CanCastOn(bot, info, target, item);
+    }
+
+    /// Use the bot's `entry` item on `target`, as the client does. True if one was used up.
+    bool UseItemOn(Player* bot, uint32 entry, Unit* target)
+    {
+        Item* item = entry ? bot->GetItemByEntry(entry) : nullptr;
+        if (!item || !target)
+            return false;
+
+        uint32 const before = bot->GetItemCount(entry);
+        SpellCastTargets targets;
+        targets.SetUnitTarget(target);
+        bot->CastItemUseSpell(item, targets, 1, 0);
+        return bot->GetItemCount(entry) < before;
+    }
+
+    float ItemCooldownFraction(Player const* bot, uint32 entry)
+    {
+        SpellInfo const* info = entry ? UseSpell(entry) : nullptr;
+        return info ? CooldownFraction(bot, info) : 0.0f;
+    }
+
+    /// A revive (resurrection spell on a dead ally, or the soulstone on a living one) that can be used on `ally` now.
+    bool CanRevive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally)
+    {
+        Player* bot = view.Bot;
+        if (!ally || !bot->IsAlive() || !ally->IsInMap(bot))
+            return false;
+
+        if (revive.Type == ActionCatalog::Kind::Soulstone)
+        {
+            SpellInfo const* info = view.Supplies.Soulstone ? UseSpell(view.Supplies.Soulstone) : nullptr;
+            return info && ally->IsAlive() && !ally->HasAura(info->Id)
+                && CanUseItemOn(bot, view.Supplies.Soulstone, ally);
+        }
+
+        return !ally->IsAlive() && !ally->isResurrectRequested() && CanHeal(bot, revive, ally);
+    }
+
+    void Revive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally, SeatActionResult& result)
+    {
+        if (!CanRevive(view, revive, ally))
+            return;
+
+        if (revive.Type == ActionCatalog::Kind::Soulstone)
+        {
+            if (UseItemOn(view.Bot, view.Supplies.Soulstone, ally))
+                ++result.ConsumablesUsed;
+            return;
+        }
+
+        SpellInfo const* info = ActionCatalog::KnownRank(view.Bot, revive.FirstRank);
+        SpellCastTargets targets;
+        targets.SetUnitTarget(ally);
+        Spell* spell = new Spell(view.Bot, info, TRIGGERED_NONE);
+        if (spell->prepare(&targets) == SPELL_CAST_OK)
+        {
+            ++result.SpellCasts;
+            ++result.Revives;
+        }
+    }
+
+    /// Revive observation: known (a spell the bot knows, or a soulstone in its bags) and cooldown.
+    void ObserveRevives(SeatView const& view, float* features)
+    {
+        Player* bot = view.Bot;
+        std::vector<ActionCatalog::Action> const& revives = view.L->AllyRevives;
+        for (uint32 i = 0; i < revives.size(); ++i)
+        {
+            if (revives[i].Type == ActionCatalog::Kind::Soulstone)
+            {
+                if (view.Supplies.Soulstone && bot->GetItemCount(view.Supplies.Soulstone))
+                {
+                    features[i * 2] = 1.0f;
+                    features[i * 2 + 1] = ItemCooldownFraction(bot, view.Supplies.Soulstone);
+                }
+            }
+            else if (SpellInfo const* info = ActionCatalog::KnownRank(bot, revives[i].FirstRank))
+            {
+                features[i * 2] = 1.0f;
+                features[i * 2 + 1] = CooldownFraction(bot, info);
+            }
+        }
     }
 
     /// The enemy slot of `unit`, or -1.
@@ -371,16 +471,40 @@ namespace
     {
         Player* bot = view.Bot;
         Unit* opponent = view.Target;
+
+        // Dead: only its own resurrection (Soulstone, Reincarnation), as the release dialog offers it.
+        if (duelAction == LayoutConstants::DUEL_ACTION_SELF_RESURRECT)
+            return view.SelfResurrectAllowed && !bot->IsAlive() && bot->GetUInt32Value(PLAYER_SELF_RES_SPELL)
+                && !bot->HasPreventResurectionAura();
+
         if (!bot->IsAlive())
             return false;
 
         bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
 
         // No target needed (between gauntlet pulls too).
-        if (duelAction == LayoutConstants::DUEL_ACTION_STOP_CASTING)
-            return casting;
-        if (duelAction == LayoutConstants::DUEL_ACTION_CANCEL_FORM)
-            return CancellableForm(bot) != nullptr;
+        switch (duelAction)
+        {
+            case LayoutConstants::DUEL_ACTION_STOP_CASTING:
+                return casting;
+            case LayoutConstants::DUEL_ACTION_CANCEL_FORM:
+                return CancellableForm(bot) != nullptr;
+            case LayoutConstants::DUEL_ACTION_HEALTH_POTION:
+                return CanUseItemOn(bot, view.Supplies.HealthPotion, bot);
+            case LayoutConstants::DUEL_ACTION_MANA_POTION:
+                return CanUseItemOn(bot, view.Supplies.ManaPotion, bot);
+            case LayoutConstants::DUEL_ACTION_HEALTHSTONE:
+                return CanUseItemOn(bot, view.Supplies.Healthstone, bot);
+            case LayoutConstants::DUEL_ACTION_BANDAGE:
+                return CanUseItemOn(bot, view.Supplies.Bandage, bot);
+            case LayoutConstants::DUEL_ACTION_SOULSTONE_SELF:
+            {
+                SpellInfo const* info = view.Supplies.Soulstone ? UseSpell(view.Supplies.Soulstone) : nullptr;
+                return info && !bot->HasAura(info->Id) && CanUseItemOn(bot, view.Supplies.Soulstone, bot);
+            }
+            default:
+                break;
+        }
 
         if (!opponent || !opponent->IsAlive())
             return false;
@@ -421,6 +545,40 @@ namespace
 
         Player* bot = view.Bot;
         Unit* opponent = view.Target;
+
+        auto const useItem = [bot, &result](uint32 entry)
+        {
+            if (UseItemOn(bot, entry, bot))
+                ++result.ConsumablesUsed;
+        };
+
+        switch (duelAction)
+        {
+            case LayoutConstants::DUEL_ACTION_SELF_RESURRECT:
+                // As CMSG_SELF_RES.
+                bot->CastSpell(bot, bot->GetUInt32Value(PLAYER_SELF_RES_SPELL));
+                bot->SetUInt32Value(PLAYER_SELF_RES_SPELL, 0);
+                result.SelfResurrected = bot->IsAlive();
+                return;
+            case LayoutConstants::DUEL_ACTION_HEALTH_POTION:
+                useItem(view.Supplies.HealthPotion);
+                return;
+            case LayoutConstants::DUEL_ACTION_MANA_POTION:
+                useItem(view.Supplies.ManaPotion);
+                return;
+            case LayoutConstants::DUEL_ACTION_HEALTHSTONE:
+                useItem(view.Supplies.Healthstone);
+                return;
+            case LayoutConstants::DUEL_ACTION_BANDAGE:
+                useItem(view.Supplies.Bandage);
+                return;
+            case LayoutConstants::DUEL_ACTION_SOULSTONE_SELF:
+                useItem(view.Supplies.Soulstone);
+                return;
+            default:
+                break;
+        }
+
         float x = 0.0f;
         float y = 0.0f;
         float z = 0.0f;
@@ -495,6 +653,23 @@ namespace
 
         duel[LayoutConstants::DUEL_OBS_SHAPESHIFTED] = CancellableForm(bot) ? 1.0f : 0.0f;
         duel[LayoutConstants::DUEL_OBS_COMBAT_TIME] = view.CombatTime;
+
+        BattleSupplies const& supplies = view.Supplies;
+        auto const carried = [bot](uint32 entry, float full)
+        {
+            return entry ? std::min(1.0f, float(bot->GetItemCount(entry)) / full) : 0.0f;
+        };
+        float const stack = float(LayoutConstants::CONSUMABLE_COUNT);
+        duel[LayoutConstants::DUEL_OBS_HEALTH_POTIONS] = carried(supplies.HealthPotion, stack);
+        duel[LayoutConstants::DUEL_OBS_MANA_POTIONS] = carried(supplies.ManaPotion, stack);
+        duel[LayoutConstants::DUEL_OBS_HEALTHSTONES] = carried(supplies.Healthstone, 1.0f);
+        duel[LayoutConstants::DUEL_OBS_BANDAGES] = carried(supplies.Bandage, stack);
+        duel[LayoutConstants::DUEL_OBS_POTION_COOLDOWN] = std::max(ItemCooldownFraction(bot, supplies.HealthPotion),
+            ItemCooldownFraction(bot, supplies.ManaPotion));
+        duel[LayoutConstants::DUEL_OBS_HEALTHSTONE_COOLDOWN] = ItemCooldownFraction(bot, supplies.Healthstone);
+        duel[LayoutConstants::DUEL_OBS_RECENTLY_BANDAGED] = bot->HasAura(SPELL_RECENTLY_BANDAGED) ? 1.0f : 0.0f;
+        duel[LayoutConstants::DUEL_OBS_SOULSTONE_ON_BOT] = view.SelfResurrectAllowed
+            && bot->GetResurrectionSpellId() ? 1.0f : 0.0f;
 
         // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
         for (uint32 slot = 0; slot < view.StableCount && slot < LayoutConstants::STABLE_SLOTS; ++slot)
@@ -752,12 +927,19 @@ namespace
                 heals[i * 2 + 1] = CooldownFraction(bot, info);
             }
         }
+
+        ObserveRevives(view, heals + layout.AllyHeals.size() * 2);
     }
 
     bool IsCompanionActionAllowed(SeatView const& view, uint32 companionAction)
     {
         Player* bot = view.Bot;
         Player* owner = view.Owner;
+        uint32 const heals = uint32(view.L->AllyHeals.size());
+        if (companionAction >= LayoutConstants::COMPANION_ACTION_HEAL_FIRST + heals)
+            return CanRevive(view,
+                view.L->AllyRevives[companionAction - LayoutConstants::COMPANION_ACTION_HEAL_FIRST - heals], owner);
+
         if (!owner || !owner->IsAlive() || !bot->IsAlive() || !owner->IsInMap(bot))
             return false;
 
@@ -788,6 +970,13 @@ namespace
 
         Player* bot = view.Bot;
         Player* owner = view.Owner;
+        uint32 const heals = uint32(view.L->AllyHeals.size());
+        if (companionAction >= LayoutConstants::COMPANION_ACTION_HEAL_FIRST + heals)
+        {
+            Revive(view, view.L->AllyRevives[companionAction - LayoutConstants::COMPANION_ACTION_HEAL_FIRST - heals],
+                owner, result);
+            return;
+        }
 
         switch (companionAction)
         {
@@ -920,6 +1109,14 @@ namespace
 
         uint32 const heals = uint32(view.L->AllyHeals.size());
         uint32 const index = partyAction - LayoutConstants::PARTY_ACTION_HEAL_FIRST;
+        if (index >= LayoutConstants::PARTY_MEMBERS * heals)
+        {
+            uint32 const revives = uint32(view.L->AllyRevives.size());
+            uint32 const reviveIndex = index - LayoutConstants::PARTY_MEMBERS * heals;
+            return revives && CanRevive(view, view.L->AllyRevives[reviveIndex % revives],
+                view.Teammates[reviveIndex / revives].Bot);
+        }
+
         Player* teammate = heals ? view.Teammates[index / heals].Bot : nullptr;
         if (!teammate || !teammate->IsAlive())
             return false;
@@ -960,6 +1157,14 @@ namespace
 
         uint32 const heals = uint32(view.L->AllyHeals.size());
         uint32 const index = partyAction - LayoutConstants::PARTY_ACTION_HEAL_FIRST;
+        if (index >= LayoutConstants::PARTY_MEMBERS * heals)
+        {
+            uint32 const revives = uint32(view.L->AllyRevives.size());
+            uint32 const reviveIndex = index - LayoutConstants::PARTY_MEMBERS * heals;
+            Revive(view, view.L->AllyRevives[reviveIndex % revives], view.Teammates[reviveIndex / revives].Bot, result);
+            return;
+        }
+
         Heal(bot, view.L->AllyHeals[index % heals], view.Teammates[index / heals].Bot, result);
     }
 
@@ -1163,6 +1368,15 @@ void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* o
         if (layout.Has(Stage::Pvp))
             ObservePvp(view, obs);
     }
+    else if (bot && !bot->IsAlive() && layout.Has(Stage::Duel))
+    {
+        // Dead: whether it can resurrect itself, and the action that does.
+        float* duel = obs + layout.DuelObsFirst;
+        duel[DUEL_OBS_DEAD] = 1.0f;
+        bool const selfResurrect = IsDuelActionAllowed(view, DUEL_ACTION_SELF_RESURRECT);
+        duel[DUEL_OBS_SELF_RESURRECT] = selfResurrect ? 1.0f : 0.0f;
+        mask[layout.DuelActionFirst + DUEL_ACTION_SELF_RESURRECT] = selfResurrect ? 1 : 0;
+    }
 
     if (view.Build)
     {
@@ -1183,6 +1397,12 @@ void AnimusForge::ClassRole::SeatEncoder::Apply(SeatView& view, int32 action, Se
 
     Layout const& layout = *view.L;
     Unit* target = view.Target;
+
+    if (layout.Has(Stage::Duel) && action == int32(layout.DuelActionFirst + DUEL_ACTION_SELF_RESURRECT))
+    {
+        ApplyDuelAction(view, DUEL_ACTION_SELF_RESURRECT, result);
+        return;
+    }
 
     // Only the gauntlet has moments without a target (between pulls).
     if (!target && !layout.Has(Stage::Gauntlet))

@@ -227,7 +227,7 @@ void AnimusForge::ClassRoleScenario::UpdatePack(Env& env)
 
     Player* owner = HasCompanion() ? FindOwner(data) : nullptr;
     if (HasGauntlet() && env.Targets.empty() && anyoneAlive && (!HasCompanion() || (owner && owner->IsAlive()))
-        && env.EpisodeElapsedMs >= data.NextPullMs)
+        && !data.AwaitingRevive && env.EpisodeElapsedMs >= data.NextPullMs)
         if (Map* map = env.FindMap())
             SpawnPull(env, map);
 }
@@ -262,19 +262,33 @@ void AnimusForge::ClassRoleScenario::Recover(Env& env)
         }
     }
 
+    data.AwaitingRevive = false;
     if (!env.Targets.empty())
         return;
 
-    // Between pulls: the dead stand up with half their health and mana, and their deaths can be paid for again.
-    auto const recover = [](Player* player)
+    // Between pulls the dead wait a while for a resurrection they can get -- their own Soulstone or Reincarnation, or
+    // a living seat's resurrection spell -- and then stand up with half their health and mana. Resurrecting them is
+    // the party's to learn; standing up is only the fallback that keeps the episode going.
+    bool resurrector = false;
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        resurrector |= SeatCanResurrect(data, seat);
+
+    bool const graceOver = env.EpisodeElapsedMs >= data.QuietSinceMs + REVIVE_GRACE_MS;
+    auto const recover = [&](Player* player, bool selfResurrect)
     {
+        if (!graceOver && (resurrector || selfResurrect))
+        {
+            data.AwaitingRevive = true;
+            return false;
+        }
+
         player->ResurrectPlayer(RECOVER_HEALTH);
         player->SetPower(POWER_MANA, uint32(float(player->GetMaxPower(POWER_MANA)) * RECOVER_HEALTH));
+        return true;
     };
 
-    if (owner && !owner->IsAlive())
+    if (owner && !owner->IsAlive() && recover(owner, false))
     {
-        recover(owner);
         data.OwnerDeathCounted = false;
         for (uint32 seat = 0; seat < _seatCount; ++seat)
             data.Seats[seat].OwnerDeathSeen = false;
@@ -283,10 +297,9 @@ void AnimusForge::ClassRoleScenario::Recover(Env& env)
     for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
     {
         Player* bot = SeatBot(data, seat);
-        if (!bot || bot->IsAlive())
+        if (!bot || bot->IsAlive() || !recover(bot, bot->GetUInt32Value(PLAYER_SELF_RES_SPELL) != 0))
             continue;
 
-        recover(bot);
         data.Seats[seat].DeathCounted = false;
         for (uint32 other = 0; other < _seatCount; ++other)
             data.Seats[other].TeammateDeathSeen[seat] = false;
@@ -442,6 +455,7 @@ float AnimusForge::ClassRoleScenario::PackReward(Env& env, uint32 seatIndex, Pla
     {
         seat.DeathCounted = true;
         seat.Died = true;
+        seat.DeathMs = env.EpisodeElapsedMs;
         ++seat.Deaths;
         reward -= HasGauntlet() ? GAUNTLET_DEATH : PACK_DEATH;
     }

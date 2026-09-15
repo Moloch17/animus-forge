@@ -18,22 +18,27 @@
 
 #include "GearBuilder.h"
 #include "ClassKit.h"
+#include "CreatureData.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
+#include "GearStats.h"
 #include "Item.h"
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "QuestDef.h"
 #include "Random.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include <algorithm>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
 namespace
 {
     using AnimusForge::ClassRole::StatProfile;
+    using namespace AnimusForge::ClassRole::GearStats;
 
     constexpr uint32 EQUIP_ATTEMPTS = 6;
     constexpr uint32 AMMO_COUNT = 1000;
@@ -73,6 +78,12 @@ namespace
     /// out. Elsewhere the bands would reach the previous expansion's raid epics (level 72: Black Temple, Sunwell).
     constexpr std::array<uint8, 2> EPIC_LEVELS = { 70, 80 };
 
+    /// How often a candidate is picked, by where it comes from: players gear up mostly in dungeons and from quests,
+    /// much less from world drops, vendors and crafting.
+    constexpr uint8 WEIGHT_DUNGEON = 4;
+    constexpr uint8 WEIGHT_QUEST = 3;
+    constexpr uint8 WEIGHT_OTHER = 1;
+
     /// How far below the band's low end a slot may reach when nothing in the band fits, in order.
     constexpr std::array<uint16, 4> ITEM_LEVEL_WIDENING = { 0, 10, 25, 1000 };
 
@@ -107,151 +118,6 @@ namespace
                 return true;
 
         return false;
-    }
-
-    /// Stat preference of a profile: 1 wanted, -1 never on this spec's gear, 0 indifferent.
-    int32 StatPreference(StatProfile profile, uint32 stat)
-    {
-        bool const physical = profile == StatProfile::StrengthMelee || profile == StatProfile::AgilityMelee;
-        bool const spell = profile == StatProfile::Caster || profile == StatProfile::Healer;
-
-        switch (stat)
-        {
-            case ITEM_MOD_STRENGTH:
-                return physical || profile == StatProfile::Tank ? 1 : (profile == StatProfile::Ranged ? 0 : -1);
-            case ITEM_MOD_AGILITY:
-                return spell ? -1 : 1;
-            case ITEM_MOD_STAMINA:
-                return profile == StatProfile::Tank ? 1 : 0;
-            case ITEM_MOD_INTELLECT:
-                // Enhancement mail is agility and intellect (154 of the 157 level 80 agility mail pieces).
-                return spell ? 1 : (profile == StatProfile::Ranged || profile == StatProfile::AgilityMelee ? 0 : -1);
-            case ITEM_MOD_SPIRIT:
-                return profile == StatProfile::Healer ? 1 : (profile == StatProfile::Caster ? 0 : -1);
-            case ITEM_MOD_ATTACK_POWER:
-            case ITEM_MOD_ARMOR_PENETRATION_RATING:
-                return spell ? -1 : (profile == StatProfile::Tank ? 0 : 1);
-            case ITEM_MOD_RANGED_ATTACK_POWER:
-            case ITEM_MOD_HIT_RANGED_RATING:
-            case ITEM_MOD_CRIT_RANGED_RATING:
-            case ITEM_MOD_HASTE_RANGED_RATING:
-                return profile == StatProfile::Ranged ? 1 : (spell ? -1 : 0);
-            case ITEM_MOD_HIT_MELEE_RATING:
-            case ITEM_MOD_CRIT_MELEE_RATING:
-            case ITEM_MOD_HASTE_MELEE_RATING:
-                return spell ? -1 : (profile == StatProfile::Tank && stat != ITEM_MOD_HIT_MELEE_RATING ? 0 : 1);
-            case ITEM_MOD_EXPERTISE_RATING:
-                return spell || profile == StatProfile::Ranged ? -1 : 1;
-            case ITEM_MOD_HIT_RATING:
-                return profile == StatProfile::Healer ? -1 : 1;
-            case ITEM_MOD_CRIT_RATING:
-            case ITEM_MOD_HASTE_RATING:
-                return profile == StatProfile::Tank ? 0 : 1;
-            case ITEM_MOD_HIT_SPELL_RATING:
-                return profile == StatProfile::Caster ? 1 : -1;
-            case ITEM_MOD_CRIT_SPELL_RATING:
-            case ITEM_MOD_HASTE_SPELL_RATING:
-            case ITEM_MOD_SPELL_POWER:
-            case ITEM_MOD_SPELL_DAMAGE_DONE:
-            case ITEM_MOD_SPELL_HEALING_DONE:
-            case ITEM_MOD_SPELL_PENETRATION:
-                return spell ? 1 : -1;
-            case ITEM_MOD_MANA_REGENERATION:
-                return profile == StatProfile::Healer ? 1 : (profile == StatProfile::Caster ? 0 : -1);
-            case ITEM_MOD_DEFENSE_SKILL_RATING:
-            case ITEM_MOD_DODGE_RATING:
-            case ITEM_MOD_PARRY_RATING:
-            case ITEM_MOD_BLOCK_RATING:
-            case ITEM_MOD_BLOCK_VALUE:
-                return profile == StatProfile::Tank ? 1 : -1;
-            default:
-                return 0;
-        }
-    }
-
-    struct StatVerdict
-    {
-        bool Wanted = false;
-        bool Forbidden = false;
-
-        void Add(StatProfile profile, uint32 stat)
-        {
-            int32 const preference = StatPreference(profile, stat);
-            Wanted |= preference > 0;
-            Forbidden |= preference < 0;
-        }
-
-        [[nodiscard]] bool Suits() const { return Wanted && !Forbidden; }
-    };
-
-    StatVerdict EnchantmentVerdict(StatProfile profile,
-        std::array<uint32, MAX_ITEM_ENCHANTMENT_EFFECTS> const& enchantments)
-    {
-        StatVerdict verdict;
-        for (uint32 enchantmentId : enchantments)
-        {
-            SpellItemEnchantmentEntry const* enchantment = sSpellItemEnchantmentStore.LookupEntry(enchantmentId);
-            if (!enchantment)
-                continue;
-
-            for (uint8 i = 0; i < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++i)
-                if (enchantment->type[i] == ITEM_ENCHANTMENT_TYPE_STAT)
-                    verdict.Add(profile, enchantment->spellid[i]);
-        }
-
-        return verdict;
-    }
-
-    /// Items a player can actually get: loot, vendors, quest rewards and crafting. Loaded once.
-    std::unordered_set<uint32> const& ObtainableItems()
-    {
-        static std::unordered_set<uint32> const items = []()
-        {
-            std::unordered_set<uint32> result;
-
-            // Column types differ between tables (npc_vendor.item is signed: negative = vendor reference),
-            // so every id is read as a signed 64-bit value.
-            for (char const* sql :
-            {
-                "SELECT CAST(Item AS SIGNED) FROM creature_loot_template WHERE Reference = 0",
-                "SELECT CAST(Item AS SIGNED) FROM reference_loot_template WHERE Reference = 0",
-                "SELECT CAST(Item AS SIGNED) FROM gameobject_loot_template WHERE Reference = 0",
-                "SELECT CAST(Item AS SIGNED) FROM item_loot_template WHERE Reference = 0",
-                "SELECT CAST(item AS SIGNED) FROM npc_vendor",
-                "SELECT CAST(RewardItem1 AS SIGNED) FROM quest_template UNION SELECT CAST(RewardItem2 AS SIGNED) FROM "
-                    "quest_template UNION SELECT CAST(RewardItem3 AS SIGNED) FROM quest_template UNION SELECT "
-                    "CAST(RewardItem4 AS SIGNED) FROM quest_template",
-                "SELECT CAST(RewardChoiceItemID1 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID2 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID3 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID4 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID5 AS SIGNED) FROM quest_template "
-                    "UNION SELECT CAST(RewardChoiceItemID6 AS SIGNED) FROM quest_template",
-            })
-            {
-                if (QueryResult query = WorldDatabase.Query(sql))
-                {
-                    do
-                    {
-                        int64 const itemId = query->Fetch()[0].Get<int64>();
-                        if (itemId > 0)
-                            result.insert(uint32(itemId));
-                    } while (query->NextRow());
-                }
-            }
-
-            for (uint32 spellId = 0; spellId < sSpellMgr->GetSpellInfoStoreSize(); ++spellId)
-                if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
-                    for (SpellEffectInfo const& effect : info->GetEffects())
-                        if ((effect.Effect == SPELL_EFFECT_CREATE_ITEM || effect.Effect == SPELL_EFFECT_CREATE_ITEM_2)
-                            && effect.ItemType)
-                            result.insert(effect.ItemType);
-
-            LOG_INFO("module.animus", "Gear: {} obtainable items", result.size());
-            return result;
-        }();
-
-        return items;
     }
 
     /// item_enchantment_template: random property / suffix group -> ids. Loaded once.
@@ -306,31 +172,327 @@ namespace
     }
 }
 
+int32 AnimusForge::ClassRole::GearStats::StatPreference(StatProfile profile, uint32 stat)
+{
+    bool const physical = profile == StatProfile::StrengthMelee || profile == StatProfile::AgilityMelee;
+    bool const spell = profile == StatProfile::Caster || profile == StatProfile::Healer;
+
+    switch (stat)
+    {
+        case ITEM_MOD_STRENGTH:
+            return physical || profile == StatProfile::Tank ? 1 : (profile == StatProfile::Ranged ? 0 : -1);
+        case ITEM_MOD_AGILITY:
+            return spell ? -1 : 1;
+        case ITEM_MOD_STAMINA:
+            return profile == StatProfile::Tank ? 1 : 0;
+        case ITEM_MOD_INTELLECT:
+            // Enhancement mail is agility and intellect (154 of the 157 level 80 agility mail pieces).
+            return spell ? 1 : (profile == StatProfile::Ranged || profile == StatProfile::AgilityMelee ? 0 : -1);
+        case ITEM_MOD_SPIRIT:
+            return profile == StatProfile::Healer ? 1 : (profile == StatProfile::Caster ? 0 : -1);
+        case ITEM_MOD_ATTACK_POWER:
+        case ITEM_MOD_ARMOR_PENETRATION_RATING:
+            return spell ? -1 : (profile == StatProfile::Tank ? 0 : 1);
+        case ITEM_MOD_RANGED_ATTACK_POWER:
+        case ITEM_MOD_HIT_RANGED_RATING:
+        case ITEM_MOD_CRIT_RANGED_RATING:
+        case ITEM_MOD_HASTE_RANGED_RATING:
+            return profile == StatProfile::Ranged ? 1 : (spell ? -1 : 0);
+        case ITEM_MOD_HIT_MELEE_RATING:
+        case ITEM_MOD_CRIT_MELEE_RATING:
+        case ITEM_MOD_HASTE_MELEE_RATING:
+            return spell ? -1 : (profile == StatProfile::Tank && stat != ITEM_MOD_HIT_MELEE_RATING ? 0 : 1);
+        case ITEM_MOD_EXPERTISE_RATING:
+            return spell || profile == StatProfile::Ranged ? -1 : 1;
+        case ITEM_MOD_HIT_RATING:
+            return profile == StatProfile::Healer ? -1 : 1;
+        case ITEM_MOD_CRIT_RATING:
+        case ITEM_MOD_HASTE_RATING:
+            return profile == StatProfile::Tank ? 0 : 1;
+        case ITEM_MOD_HIT_SPELL_RATING:
+            return profile == StatProfile::Caster ? 1 : -1;
+        case ITEM_MOD_CRIT_SPELL_RATING:
+        case ITEM_MOD_HASTE_SPELL_RATING:
+        case ITEM_MOD_SPELL_POWER:
+        case ITEM_MOD_SPELL_DAMAGE_DONE:
+        case ITEM_MOD_SPELL_HEALING_DONE:
+        case ITEM_MOD_SPELL_PENETRATION:
+            return spell ? 1 : -1;
+        case ITEM_MOD_MANA_REGENERATION:
+            return profile == StatProfile::Healer ? 1 : (profile == StatProfile::Caster ? 0 : -1);
+        case ITEM_MOD_DEFENSE_SKILL_RATING:
+        case ITEM_MOD_DODGE_RATING:
+        case ITEM_MOD_PARRY_RATING:
+        case ITEM_MOD_BLOCK_RATING:
+        case ITEM_MOD_BLOCK_VALUE:
+            return profile == StatProfile::Tank ? 1 : -1;
+        default:
+            return 0;
+    }
+}
+
+
+namespace
+{
+    /// Well-known weapon and armor procs, by enchantment name, that suit a profile.
+    bool ProcSuits(AnimusForge::ClassRole::StatProfile profile, std::string_view name)
+    {
+        using AnimusForge::ClassRole::StatProfile;
+
+        auto const any = [name](std::initializer_list<std::string_view> names)
+        {
+            return std::any_of(names.begin(), names.end(), [name](std::string_view n) { return name == n; });
+        };
+
+        switch (profile)
+        {
+            case StatProfile::StrengthMelee:
+            case StatProfile::AgilityMelee:
+                return any({ "Crusader", "Mongoose", "Berserking", "Executioner", "Fiery Weapon", "Icebreaker",
+                    "Lifestealing", "Unholy Weapon", "Battlemaster" });
+            case StatProfile::Tank:
+                return any({ "Mongoose", "Blade Ward", "Blood Draining", "Crusader" });
+            case StatProfile::Caster:
+                return any({ "Black Magic", "Deathfrost", "Spellsurge" });
+            case StatProfile::Healer:
+                return any({ "Spellsurge", "Lifeward" });
+            case StatProfile::Ranged:
+                return false;
+        }
+
+        return false;
+    }
+}
+
+AnimusForge::ClassRole::GearStats::StatVerdict AnimusForge::ClassRole::GearStats::EnchantmentVerdict(
+    StatProfile profile, SpellItemEnchantmentEntry const* enchantment)
+{
+    StatVerdict verdict;
+    if (!enchantment)
+        return verdict;
+
+    bool const physical = profile == StatProfile::StrengthMelee || profile == StatProfile::AgilityMelee
+        || profile == StatProfile::Ranged || profile == StatProfile::Tank;
+
+    for (uint8 i = 0; i < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++i)
+    {
+        switch (enchantment->type[i])
+        {
+            case ITEM_ENCHANTMENT_TYPE_NONE:
+                break;
+            case ITEM_ENCHANTMENT_TYPE_STAT:
+                verdict.Add(profile, enchantment->spellid[i]);
+                break;
+            case ITEM_ENCHANTMENT_TYPE_DAMAGE:
+                (physical ? verdict.Wanted : verdict.Forbidden) = true;
+                break;
+            case ITEM_ENCHANTMENT_TYPE_RESISTANCE:
+                // spellid is the school: 0 armor.
+                (profile == StatProfile::Tank && enchantment->spellid[i] == 0
+                    ? verdict.Wanted : verdict.Forbidden) = true;
+                break;
+            case ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL:
+            case ITEM_ENCHANTMENT_TYPE_EQUIP_SPELL:
+                (ProcSuits(profile, enchantment->description[LOCALE_enUS]) ? verdict.Wanted : verdict.Forbidden) = true;
+                break;
+            default:
+                verdict.Forbidden = true;
+                break;
+        }
+    }
+
+    return verdict;
+}
+
+AnimusForge::ClassRole::GearStats::StatVerdict AnimusForge::ClassRole::GearStats::RandomEnchantmentVerdict(
+    StatProfile profile, std::array<uint32, 5> const& enchantments)
+{
+    StatVerdict verdict;
+    for (uint32 enchantmentId : enchantments)
+    {
+        SpellItemEnchantmentEntry const* enchantment = sSpellItemEnchantmentStore.LookupEntry(enchantmentId);
+        if (!enchantment)
+            continue;
+
+        for (uint8 i = 0; i < MAX_SPELL_ITEM_ENCHANTMENT_EFFECTS; ++i)
+            if (enchantment->type[i] == ITEM_ENCHANTMENT_TYPE_STAT)
+                verdict.Add(profile, enchantment->spellid[i]);
+    }
+
+    return verdict;
+}
+
+std::unordered_map<uint32, uint8> const& AnimusForge::ClassRole::GearStats::ItemSources()
+{
+    static std::unordered_map<uint32, uint8> const sources = []()
+    {
+        std::unordered_map<uint32, uint8> result;
+
+        // Creatures spawned in five-player dungeons, by loot id.
+        std::unordered_set<uint32> dungeonLoot;
+        if (QueryResult query = WorldDatabase.Query("SELECT DISTINCT id, map FROM creature"))
+        {
+            do
+            {
+                Field* fields = query->Fetch();
+                MapEntry const* map = sMapStore.LookupEntry(fields[1].Get<uint32>());
+                CreatureTemplate const* creature = sObjectMgr->GetCreatureTemplate(fields[0].Get<uint32>());
+                if (map && map->IsNonRaidDungeon() && creature && creature->lootid)
+                    dungeonLoot.insert(creature->lootid);
+            } while (query->NextRow());
+        }
+
+        // Their loot, one level of references deep (boss loot lives in reference tables).
+        std::unordered_set<uint32> references;
+        if (QueryResult query = WorldDatabase.Query("SELECT Entry, Item, Reference FROM creature_loot_template"))
+        {
+            do
+            {
+                Field* fields = query->Fetch();
+                if (!dungeonLoot.contains(fields[0].Get<uint32>()))
+                    continue;
+
+                if (uint32 const reference = fields[2].Get<uint32>())
+                    references.insert(reference);
+                else
+                    result[fields[1].Get<uint32>()] |= SOURCE_DUNGEON;
+            } while (query->NextRow());
+        }
+
+        if (QueryResult query = WorldDatabase.Query(
+            "SELECT Entry, Item FROM reference_loot_template WHERE Reference = 0"))
+        {
+            do
+            {
+                Field* fields = query->Fetch();
+                if (references.contains(fields[0].Get<uint32>()))
+                    result[fields[1].Get<uint32>()] |= SOURCE_DUNGEON;
+            } while (query->NextRow());
+        }
+
+        for (auto const& [questId, quest] : sObjectMgr->GetQuestTemplates())
+        {
+            for (uint32 item : quest->RewardItemId)
+                if (item)
+                    result[item] |= SOURCE_QUEST;
+            for (uint32 item : quest->RewardChoiceItemId)
+                if (item)
+                    result[item] |= SOURCE_QUEST;
+        }
+
+        LOG_INFO("module.animus", "Gear: {} items from dungeons and quests", result.size());
+        return result;
+    }();
+
+    return sources;
+}
+
+std::unordered_set<uint32> const& AnimusForge::ClassRole::GearStats::ObtainableItems()
+{
+    static std::unordered_set<uint32> const items = []()
+    {
+        std::unordered_set<uint32> result;
+
+        // Column types differ between tables (npc_vendor.item is signed: negative = vendor reference),
+        // so every id is read as a signed 64-bit value.
+        for (char const* sql :
+        {
+            "SELECT CAST(Item AS SIGNED) FROM creature_loot_template WHERE Reference = 0",
+            "SELECT CAST(Item AS SIGNED) FROM reference_loot_template WHERE Reference = 0",
+            "SELECT CAST(Item AS SIGNED) FROM gameobject_loot_template WHERE Reference = 0",
+            "SELECT CAST(Item AS SIGNED) FROM item_loot_template WHERE Reference = 0",
+            "SELECT CAST(item AS SIGNED) FROM npc_vendor",
+            "SELECT CAST(RewardItem1 AS SIGNED) FROM quest_template UNION SELECT CAST(RewardItem2 AS SIGNED) FROM "
+                "quest_template UNION SELECT CAST(RewardItem3 AS SIGNED) FROM quest_template UNION SELECT "
+                "CAST(RewardItem4 AS SIGNED) FROM quest_template",
+            "SELECT CAST(RewardChoiceItemID1 AS SIGNED) FROM quest_template "
+                "UNION SELECT CAST(RewardChoiceItemID2 AS SIGNED) FROM quest_template "
+                "UNION SELECT CAST(RewardChoiceItemID3 AS SIGNED) FROM quest_template "
+                "UNION SELECT CAST(RewardChoiceItemID4 AS SIGNED) FROM quest_template "
+                "UNION SELECT CAST(RewardChoiceItemID5 AS SIGNED) FROM quest_template "
+                "UNION SELECT CAST(RewardChoiceItemID6 AS SIGNED) FROM quest_template",
+        })
+        {
+            if (QueryResult query = WorldDatabase.Query(sql))
+            {
+                do
+                {
+                    int64 const itemId = query->Fetch()[0].Get<int64>();
+                    if (itemId > 0)
+                        result.insert(uint32(itemId));
+                } while (query->NextRow());
+            }
+        }
+
+        for (uint32 spellId = 0; spellId < sSpellMgr->GetSpellInfoStoreSize(); ++spellId)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+                for (SpellEffectInfo const& effect : info->GetEffects())
+                    if ((effect.Effect == SPELL_EFFECT_CREATE_ITEM || effect.Effect == SPELL_EFFECT_CREATE_ITEM_2)
+                        && effect.ItemType)
+                        result.insert(effect.ItemType);
+
+        LOG_INFO("module.animus", "Gear: {} obtainable items", result.size());
+        return result;
+    }();
+
+    return items;
+}
+
+
 AnimusForge::ClassRole::GearBuilder::GearBuilder(ClassRoleProfile const& profile, ClassKit const& kit)
     : _kit(kit), _class(profile.Class)
 {
     for (SpecProfile const& spec : profile.Specs)
-        if (!_pools.contains(spec.Stats))
-            BuildPools(spec.Stats);
-
-    if (_class == CLASS_HUNTER)
     {
-        std::unordered_set<uint32> const& obtainable = ObtainableItems();
-        for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
+        if (!_pools.contains(spec.Stats))
         {
-            if (proto.Class != ITEM_CLASS_PROJECTILE || !obtainable.contains(itemId)
-                || proto.Quality > ITEM_QUALITY_EPIC)
-                continue;
+            BuildPools(spec.Stats);
+            BuildEnhancements(spec.Stats);
+        }
+    }
 
+    if (_class != CLASS_HUNTER && _class != CLASS_ROGUE)
+        return;
+
+    std::unordered_set<uint32> const& obtainable = ObtainableItems();
+    for (auto const& [itemId, proto] : *sObjectMgr->GetItemTemplateStore())
+    {
+        if (!obtainable.contains(itemId) || proto.Quality > ITEM_QUALITY_EPIC || proto.RequiredSkill)
+            continue;
+
+        if (_class == CLASS_HUNTER && proto.Class == ITEM_CLASS_PROJECTILE)
+        {
             if (proto.SubClass == ITEM_SUBCLASS_ARROW)
                 _arrows.emplace_back(RequiredLevelOf(&proto), itemId);
             else if (proto.SubClass == ITEM_SUBCLASS_BULLET)
                 _bullets.emplace_back(RequiredLevelOf(&proto), itemId);
         }
+        else if (_class == CLASS_HUNTER && proto.Class == ITEM_CLASS_QUIVER
+            && (proto.SubClass == ITEM_SUBCLASS_QUIVER || proto.SubClass == ITEM_SUBCLASS_AMMO_POUCH))
+            _quivers.emplace_back(RequiredLevelOf(&proto), itemId);
+        else if (_class == CLASS_ROGUE && proto.Class == ITEM_CLASS_CONSUMABLE)
+        {
+            // Rogue poisons, by name: the enchant their use spell puts on a weapon.
+            bool const instant = proto.Name1.starts_with("Instant Poison");
+            if (!instant && !proto.Name1.starts_with("Deadly Poison"))
+                continue;
 
-        std::sort(_arrows.begin(), _arrows.end());
-        std::sort(_bullets.begin(), _bullets.end());
+            for (_Spell const& spell : proto.Spells)
+            {
+                SpellInfo const* info = spell.SpellId > 0 ? sSpellMgr->GetSpellInfo(spell.SpellId) : nullptr;
+                if (!info)
+                    continue;
+
+                for (SpellEffectInfo const& effect : info->GetEffects())
+                    if (effect.Effect == SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY && effect.MiscValue > 0)
+                        (instant ? _instantPoisons : _deadlyPoisons).emplace_back(RequiredLevelOf(&proto),
+                            uint32(effect.MiscValue));
+            }
+        }
     }
+
+    for (auto* list : { &_arrows, &_bullets, &_quivers, &_instantPoisons, &_deadlyPoisons })
+        std::sort(list->begin(), list->end());
 }
 
 void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
@@ -380,6 +542,7 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
                     targets = { POOL_SHIELD };
                 break;
             case INVTYPE_HOLDABLE:  targets = { POOL_HELD }; break;
+            case INVTYPE_RELIC:     if (armor) targets = { POOL_RELIC }; break;
             case INVTYPE_2HWEAPON:
                 if (weapon && proto.SubClass != ITEM_SUBCLASS_WEAPON_FISHING_POLE)
                     targets = { POOL_TWO_HAND };
@@ -408,6 +571,10 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
         candidate.SubClass = proto.SubClass;
         candidate.Pvp = HasResilience(proto);
         candidate.Epic = proto.Quality == ITEM_QUALITY_EPIC;
+        if (auto const source = ItemSources().find(itemId); source != ItemSources().end())
+            candidate.Weight = (source->second & SOURCE_DUNGEON) ? WEIGHT_DUNGEON : WEIGHT_QUEST;
+        else
+            candidate.Weight = WEIGHT_OTHER;
 
         StatVerdict fixed;
         for (uint32 i = 0; i < proto.StatsCount && i < MAX_ITEM_PROTO_STATS; ++i)
@@ -430,10 +597,10 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
                     if (proto.RandomProperty)
                     {
                         if (ItemRandomPropertiesEntry const* property = sItemRandomPropertiesStore.LookupEntry(id))
-                            verdict = EnchantmentVerdict(stats, property->Enchantment);
+                            verdict = RandomEnchantmentVerdict(stats, property->Enchantment);
                     }
                     else if (ItemRandomSuffixEntry const* suffix = sItemRandomSuffixStore.LookupEntry(id))
-                        verdict = EnchantmentVerdict(stats, suffix->Enchantment);
+                        verdict = RandomEnchantmentVerdict(stats, suffix->Enchantment);
 
                     if (verdict.Suits())
                         candidate.RandomIds.push_back(proto.RandomProperty ? int32(id) : -int32(id));
@@ -445,11 +612,11 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
             [](_Spell const& spell) { return spell.SpellId > 0; });
 
         candidate.Stats = fixed.Wanted || !candidate.RandomIds.empty()
-            || (proto.InventoryType == INVTYPE_TRINKET && onUse);
+            || ((proto.InventoryType == INVTYPE_TRINKET || proto.InventoryType == INVTYPE_RELIC) && onUse);
 
         // Jewelry and trinkets are only worth their stats or effects.
         bool const statsOnly = proto.InventoryType == INVTYPE_NECK || proto.InventoryType == INVTYPE_FINGER
-            || proto.InventoryType == INVTYPE_TRINKET;
+            || proto.InventoryType == INVTYPE_TRINKET || proto.InventoryType == INVTYPE_RELIC;
         if (statsOnly && !candidate.Stats)
             continue;
 
@@ -514,7 +681,17 @@ bool AnimusForge::ClassRole::GearBuilder::EquipFromPool(Player* bot, uint8 slot,
             std::vector<Candidate const*> candidates = Window(pool, level, stats, armorSubclass, needStats, pvp);
             for (uint32 attempt = 0; attempt < EQUIP_ATTEMPTS && !candidates.empty(); ++attempt)
             {
-                uint32 const pick = urand(0, uint32(candidates.size()) - 1);
+                // Weighted by source, and by closeness to the middle of the level's band: most characters wear
+                // typical gear for their level, few the best or worst of it.
+                auto const [low, high] = ItemLevelBand(level);
+                float const center = (float(low) + float(high)) / 2.0f;
+                float const halfWidth = std::max(1.0f, (float(high) - float(low)) / 2.0f);
+                std::vector<double> weights;
+                weights.reserve(candidates.size());
+                for (Candidate const* c : candidates)
+                    weights.push_back(c->Weight / (1.0 + std::abs(float(c->ItemLevel) - center) / halfWidth));
+
+                uint32 const pick = urandweighted(weights.size(), weights.data());
                 Candidate const* candidate = candidates[pick];
                 candidates.erase(candidates.begin() + pick);
 
@@ -638,8 +815,14 @@ void AnimusForge::ClassRole::GearBuilder::Equip(Player* bot, SpecProfile const& 
     if (spec.Wand && !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
         EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_WAND, stats, pvp);
 
+    // Paladins, shamans, druids and death knights carry a relic in the ranged slot.
+    if (!bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
+        EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_RELIC, stats, pvp);
+
+    EquipQuiver(bot);
     StoreAmmo(bot);
     _kit.StoreReagents(bot);
+    Enhance(bot, spec);
 }
 
 void AnimusForge::ClassRole::GearBuilder::StoreAmmo(Player* bot) const

@@ -75,6 +75,8 @@ namespace AnimusForge
             DUEL_INFO_CANCELLED_MOVED   = 12,   // ... the bot was moving
             DUEL_INFO_CANCELLED_TARGET  = 13,   // ... the target died or is gone
             DUEL_INFO_CANCELLED_OTHER   = 14,   // ... interrupts, silences, stuns, form changes, death
+            DUEL_INFO_CONSUMABLES_USED  = 15,   // potions, healthstones, bandages and soulstones used
+            DUEL_INFO_SELF_RESURRECTIONS = 16,  // Soulstone or Reincarnation after dying
             DUEL_INFO_COUNT
         };
 
@@ -108,6 +110,7 @@ namespace AnimusForge
             COMPANION_INFO_OWNER_ROLE       = 6,    // 0 damage, 1 tank, 2 healer
             COMPANION_INFO_OWNER_DEATHS     = 7,    // the owner stands up again after the pull
             COMPANION_INFO_WIPES            = 8,    // pulls that killed everyone and were cleared away
+            COMPANION_INFO_REVIVES          = 9,    // dead allies (owner, teammates) the seat resurrected
             COMPANION_INFO_COUNT
         };
 
@@ -150,6 +153,11 @@ namespace AnimusForge
 
         /// Learned agents per env: 1, an arena's 2 or a party's 4.
         static constexpr uint32 MAX_SEATS = 4;
+
+        /// How long the dead wait, after they die or the pull ends, for a resurrection they can get (their own
+        /// Soulstone or Reincarnation, a living ally's resurrection spell) before the episode moves on without them:
+        /// solo stages end, owner stages stand them up.
+        static constexpr uint32 REVIVE_GRACE_MS = 20000;
 
         /// Class-agnostic critic state (BuildState), per seat and per enemy slot.
         enum StateGlobal : uint32
@@ -272,6 +280,14 @@ namespace AnimusForge
             bool Died = false;                          // died at least once
             uint32 Deaths = 0;
             bool DeathCounted = false;                  // the current death has been paid for
+            uint32 DeathMs = 0;                         // episode time of the current death
+
+            // What the character brought (potions, bandages, stones), and what it did with it.
+            BattleSupplies Supplies;
+            uint32 ConsumablesUsed = 0;
+            uint32 SelfResurrections = 0;
+            uint32 Revives = 0;
+            bool StepRevivedAlly = false;               // an ally the seat resurrected stood up this decision
 
             // Pack on.
             uint32 TargetSlot = 0;
@@ -316,6 +332,7 @@ namespace AnimusForge
             uint32 Kills = 0;
             uint32 PullStartMs = 0;
             bool PullCleared = false;                   // decided once per decision, before the seats' rewards
+            bool AwaitingRevive = false;                // someone dead is waiting for a resurrection (Recover)
             uint32 NewKills = 0;                        // ... and the kills since the last decision
 
             // Gauntlet on.
@@ -385,6 +402,14 @@ namespace AnimusForge
 
         // Duel stage (ClassRoleDuel.cpp).
         void StartDuel(Player* bot, Seat& seat) const;
+        /// Every seat's potions, bandages, stones and flask for the episode (after the owner is built).
+        void StockSeats(Env& env);
+        /// Dead players with a resurrection request accept it, as a client does; the reviver is credited.
+        void AcceptResurrections(Env& env);
+        /// Whether seat `seat` is dead with no resurrection of its own left to wait for.
+        [[nodiscard]] bool DeadForGood(Env const& env, uint32 seat) const;
+        /// Whether a living seat bot knows a resurrection spell.
+        [[nodiscard]] bool SeatCanResurrect(EnvData const& data, uint32 seat) const;
         /// `opponentDead` defaults to whether `opponent` is dead.
         [[nodiscard]] float DuelReward(Env const& env, uint32 seat, Player* bot, Unit* opponent,
             int8 opponentDead = -1);

@@ -46,6 +46,7 @@ namespace AnimusForge::ClassRole
             CancelQueued,       // cancel a queued on-next-swing ability
             Spell,
             Trinket,
+            Soulstone,          // warlocks: use the soulstone in the bags on a friendly player
         };
 
         struct Action
@@ -69,6 +70,10 @@ namespace AnimusForge::ClassRole
         /// actions. Used from the gauntlet stage on.
         [[nodiscard]] std::vector<Action> const& Sustain() const { return _sustain; }
 
+        /// Resurrection spells that take a dead friendly player as their target (Resurrection, Redemption, Ancestral
+        /// Spirit, Revive, Rebirth), then, for warlocks, the soulstone. Used from the companion stage on.
+        [[nodiscard]] std::vector<Action> const& Revives() const { return _revives; }
+
         /// Highest rank of a spell action the bot knows, or nullptr.
         [[nodiscard]] static SpellInfo const* KnownRank(Player const* bot, uint32 firstRank);
 
@@ -84,6 +89,7 @@ namespace AnimusForge::ClassRole
         std::vector<Action> _actions;
         std::vector<Action> _tactical;
         std::vector<Action> _sustain;
+        std::vector<Action> _revives;
     };
 }
 

@@ -146,8 +146,18 @@ namespace AnimusForge::ClassRole
             DUEL_OBS_CAST_PROGRESS      = 17,   // fraction of the current cast time done; 0 when not casting
             DUEL_OBS_CAST_REMAINING     = 18,   // seconds left of the current cast / 3
             DUEL_OBS_SHAPESHIFTED       = 19,   // in a form the bot can cancel
-            DUEL_OBS_STABLE_FIRST       = 20,   // hunters' stable: per slot STABLE_FEATURES
-            DUEL_OBS_COUNT_WITHOUT_STABLE = 20
+            DUEL_OBS_HEALTH_POTIONS     = 20,   // carried / CONSUMABLE_COUNT
+            DUEL_OBS_MANA_POTIONS       = 21,
+            DUEL_OBS_HEALTHSTONES       = 22,   // carried (at most 1)
+            DUEL_OBS_BANDAGES           = 23,   // carried / CONSUMABLE_COUNT
+            DUEL_OBS_POTION_COOLDOWN    = 24,   // the shared potion cooldown left, as a fraction
+            DUEL_OBS_HEALTHSTONE_COOLDOWN = 25,
+            DUEL_OBS_RECENTLY_BANDAGED  = 26,   // no bandage can be used yet
+            DUEL_OBS_SOULSTONE_ON_BOT   = 27,   // the bot will be able to resurrect itself if it dies
+            DUEL_OBS_DEAD               = 28,
+            DUEL_OBS_SELF_RESURRECT     = 29,   // dead, and able to resurrect itself (Soulstone, Reincarnation)
+            DUEL_OBS_STABLE_FIRST       = 30,   // hunters' stable: per slot STABLE_FEATURES
+            DUEL_OBS_COUNT_WITHOUT_STABLE = 30
         };
 
         /// Hunters' stable: beasts per episode, and features per beast (offered, family / 50,
@@ -167,8 +177,14 @@ namespace AnimusForge::ClassRole
             DUEL_ACTION_PET_ATTACK      = 6,    // send pets and guardians at the opponent
             DUEL_ACTION_STOP_CASTING    = 7,    // cancel the current cast or channel
             DUEL_ACTION_CANCEL_FORM     = 8,    // leave the current shapeshift form, as right-clicking it does
-            DUEL_ACTION_CALL_BEAST_FIRST = 9,   // hunters: call stable slot 0..STABLE_SLOTS-1
-            DUEL_ACTION_COUNT_WITHOUT_STABLE = 9
+            DUEL_ACTION_HEALTH_POTION   = 9,    // drink a healing potion
+            DUEL_ACTION_MANA_POTION     = 10,
+            DUEL_ACTION_HEALTHSTONE     = 11,
+            DUEL_ACTION_BANDAGE         = 12,   // bandage itself (a channel, broken by damage)
+            DUEL_ACTION_SOULSTONE_SELF  = 13,   // warlocks: soulstone itself
+            DUEL_ACTION_SELF_RESURRECT  = 14,   // dead: use its Soulstone or Reincarnation (not in the PvP stages)
+            DUEL_ACTION_CALL_BEAST_FIRST = 15,  // hunters: call stable slot 0..STABLE_SLOTS-1
+            DUEL_ACTION_COUNT_WITHOUT_STABLE = 15
         };
 
         /// Pack enemies observed, and features per enemy slot.
@@ -231,8 +247,8 @@ namespace AnimusForge::ClassRole
 
         static constexpr uint32 CONSUMABLE_COUNT = 5;
 
-        /// Companion observation features, after all of stage 3's, then per owner-heal action: known,
-        /// cooldown.
+        /// Companion observation features, after all of stage 3's, then per owner-heal action and per revive action:
+        /// known, cooldown.
         enum CompanionObs : uint32
         {
             COMPANION_OBS_OWNER_PRESENT     = 0,
@@ -253,8 +269,9 @@ namespace AnimusForge::ClassRole
             COMPANION_OBS_GLOBAL_COUNT      = 30
         };
 
-        /// Companion actions, after all of stage 3's: follow, assist, guard, then one "cast on the owner"
-        /// action per single-target heal.
+        /// Companion actions, after all of stage 3's: follow, assist, guard, then one "cast on the owner" action per
+        /// single-target heal, then one per revive (resurrection spells on the dead owner; a warlock's soulstone on the
+        /// living owner).
         enum CompanionAction : uint32
         {
             COMPANION_ACTION_FOLLOW         = 0,    // run to just behind the owner
@@ -297,7 +314,7 @@ namespace AnimusForge::ClassRole
         };
 
         /// Party actions, after all of stage 4's: follow the tank, then per teammate assist and guard, then per
-        /// teammate one "cast on it" action per ally heal.
+        /// teammate one "cast on it" action per ally heal, then per teammate one per revive.
         enum PartyAction : uint32
         {
             PARTY_ACTION_FOLLOW_TANK    = 0,
@@ -355,6 +372,7 @@ namespace AnimusForge::ClassRole
         uint32 PartyActionCount = 0;
         uint32 PvpObsFirst = 0;
         std::vector<ActionCatalog::Action> AllyHeals;   // single-target heals that can be cast on an ally
+        std::vector<ActionCatalog::Action> AllyRevives; // resurrections and the soulstone (Catalog().Revives())
 
         /// The layout of `profile` at `stage` (Index 0). Builds the profile's assets on first use.
         [[nodiscard]] static Layout Build(ClassRoleProfile const& profile, Stage stage);

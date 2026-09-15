@@ -151,9 +151,13 @@ float AnimusForge::ClassRoleScenario::DuelReward(Env const& env, uint32 seatInde
         reward += KILL + FAST_KILL * timeLeft + HEALTH_KEPT * healthKept;
     }
 
-    if (!seat.Died && !bot->IsAlive())
+    // Every death costs, including one after resurrecting itself.
+    if (!seat.DeathCounted && !bot->IsAlive())
     {
+        seat.DeathCounted = true;
         seat.Died = true;
+        seat.DeathMs = env.EpisodeElapsedMs;
+        ++seat.Deaths;
         reward -= DEATH;
     }
 
@@ -200,4 +204,6 @@ void AnimusForge::ClassRoleScenario::DuelEpisodeInfo(Env const& env, uint32 seat
     info[DUEL_INFO_CANCELLED_MOVED] = float(seat.CastsMoved);
     info[DUEL_INFO_CANCELLED_TARGET] = float(seat.CastsTargetLost);
     info[DUEL_INFO_CANCELLED_OTHER] = float(seat.CastsOther);
+    info[DUEL_INFO_CONSUMABLES_USED] = float(seat.ConsumablesUsed);
+    info[DUEL_INFO_SELF_RESURRECTIONS] = float(seat.SelfResurrections);
 }

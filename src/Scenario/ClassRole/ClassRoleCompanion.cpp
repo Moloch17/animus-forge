@@ -226,6 +226,11 @@ float AnimusForge::ClassRoleScenario::CompanionReward(Env& env, uint32 seatIndex
 
     if (owner->IsAlive())
     {
+        // Standing again (resurrected, or recovered after a pull): its next death is paid for again.
+        seat.OwnerDeathSeen = false;
+        if (seatIndex == 0)
+            data.OwnerDeathCounted = false;
+
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
         // tank pulls first by design).
         if (bot->IsInCombat() && !owner->IsInCombat() && !(IsParty() && role == Role::Tank))
@@ -271,4 +276,5 @@ void AnimusForge::ClassRoleScenario::CompanionEpisodeInfo(Env const& env, uint32
     info[COMPANION_INFO_OWNER_ROLE] = float(uint32(data.OwnerRole));
     info[COMPANION_INFO_OWNER_DEATHS] = float(data.OwnerDeaths);
     info[COMPANION_INFO_WIPES] = float(data.Wipes);
+    info[COMPANION_INFO_REVIVES] = float(seat.Revives);
 }

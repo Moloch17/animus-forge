@@ -55,12 +55,13 @@ namespace
         uint8 ReqLevel;
     };
 
-    constexpr std::array<ClassReagent, 7> CLASS_REAGENTS =
+    constexpr std::array<ClassReagent, 8> CLASS_REAGENTS =
     {{
         { CLASS_SHAMAN,         5175,   1,  1 },    // Earth Totem
         { CLASS_SHAMAN,         5176,   1,  1 },    // Fire Totem
         { CLASS_SHAMAN,         5177,   1,  1 },    // Water Totem
         { CLASS_SHAMAN,         5178,   1,  1 },    // Air Totem
+        { CLASS_SHAMAN,         17030,  5,  30 },   // Ankh (Reincarnation)
         { CLASS_WARLOCK,        6265,   20, 1 },    // Soul Shard
         { CLASS_DEATH_KNIGHT,   37201,  20, 55 },   // Corpse Dust (Raise Dead without a corpse)
         { CLASS_ROGUE,          5140,   20, 22 },   // Flash Powder (Vanish)

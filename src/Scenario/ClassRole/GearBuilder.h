@@ -24,7 +24,9 @@
 #include <map>
 #include <vector>
 
+class Item;
 class Player;
+class SpellInfo;
 
 namespace AnimusForge::ClassRole
 {
@@ -39,6 +41,11 @@ namespace AnimusForge::ClassRole
     /// item level is in the band players of level L wear (levelling gear, then dungeon gear at 80), reaching
     /// further below the band when the slot has nothing in it, never above. Epics are worn only at the level caps
     /// (70, 80), and PvP gear (resilience) only in the PvP stages.
+    ///
+    /// The set is then finished as players finish theirs (GearEnhancements.cpp): enchants and gems that suit the
+    /// spec and that a player of the level could buy (every slot at the level caps, about half of them while
+    /// levelling; gems matching socket colors for the socket bonus), a relic for the classes that use one, death
+    /// knight runes, rogue poisons, and a hunter's quiver or ammo pouch.
     class GearBuilder
     {
     public:
@@ -47,7 +54,7 @@ namespace AnimusForge::ClassRole
         /// Grants every weapon and armor skill the bot's race and class can have, at the level's value.
         static void LearnProficiencies(Player* bot);
 
-        /// Destroys everything equipped or in the backpack and equips a new set for the bot's level.
+        /// Destroys everything equipped or in the backpack and equips a new, enchanted set for the bot's level.
         void Equip(Player* bot, SpecProfile const& spec, bool pvp) const;
 
     private:
@@ -72,6 +79,7 @@ namespace AnimusForge::ClassRole
             POOL_HELD,
             POOL_RANGED,        // bows, guns, crossbows
             POOL_WAND,
+            POOL_RELIC,         // librams, idols, totems, sigils
             POOL_COUNT
         };
 
@@ -83,13 +91,41 @@ namespace AnimusForge::ClassRole
             uint32 SubClass = 0;
             bool Pvp = false;               // has resilience
             bool Epic = false;
+            uint8 Weight = 1;               // how often it is picked, by where it comes from
             bool Stats = false;             // has stats the profile wants (fixed or rolled)
             std::vector<int32> RandomIds;   // allowed random property (>0) / suffix (<0) ids
         };
 
         using Pools = std::array<std::vector<Candidate>, POOL_COUNT>;
 
+        /// A permanent enchant a player can buy: an enchanting recipe or an enchanting item (armor kits, leg armor,
+        /// arcanums, inscriptions), suited to a profile.
+        struct EnchantCandidate
+        {
+            SpellInfo const* Spell = nullptr;
+            uint32 EnchantId = 0;
+            uint16 Skill = 0;               // enchanting skill it takes (items: the skill of their level)
+        };
+
+        struct GemCandidate
+        {
+            uint32 EnchantId = 0;
+            uint32 Color = 0;               // SOCKET_COLOR_* bits
+            uint8 ReqLevel = 0;
+            uint16 ItemLevel = 0;
+            uint8 Quality = 0;
+        };
+
         void BuildPools(StatProfile stats);
+        void BuildEnhancements(StatProfile stats);
+
+        /// Enchants, gems, runes and poisons on the equipped set, then the quiver (GearEnhancements.cpp).
+        void Enhance(Player* bot, SpecProfile const& spec) const;
+        void EnchantItem(Player* bot, Item* item, StatProfile stats) const;
+        void SocketItem(Player* bot, Item* item, StatProfile stats, std::vector<std::pair<Item*, uint8>>& metas) const;
+        void Runeforge(Player* bot, SpecProfile const& spec) const;
+        void ApplyPoisons(Player* bot) const;
+        void EquipQuiver(Player* bot) const;
 
         /// Candidates for the level from a pool, reaching below the level's item level band as needed.
         [[nodiscard]] std::vector<Candidate const*> Window(Pool pool, uint8 level, StatProfile stats,
@@ -105,6 +141,11 @@ namespace AnimusForge::ClassRole
         std::map<StatProfile, Pools> _pools;
         std::vector<std::pair<uint8, uint32>> _arrows;     // (required level, item), sorted
         std::vector<std::pair<uint8, uint32>> _bullets;
+        std::map<StatProfile, std::vector<EnchantCandidate>> _enchants;
+        std::map<StatProfile, std::vector<GemCandidate>> _gems;
+        std::vector<std::pair<uint8, uint32>> _quivers;     // hunters: quivers and ammo pouches, sorted
+        std::vector<std::pair<uint8, uint32>> _instantPoisons;  // rogues: (required level, item), sorted
+        std::vector<std::pair<uint8, uint32>> _deadlyPoisons;
     };
 }
 

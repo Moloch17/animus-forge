@@ -12,7 +12,7 @@ from .mappo.trainer import MappoConfig
 REPORT_COLUMNS = (
     "dps", "killed", "died", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
     "owner_deaths", "owner_healing", "casts_completed", "casts_cancelled", "cancelled_stopped", "cancelled_moved",
-    "cancelled_target", "cancelled_other", "cast_seconds_wasted",
+    "cancelled_target", "cancelled_other", "cast_seconds_wasted", "consumables_used", "self_resurrections", "revives",
 )
 
 

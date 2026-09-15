@@ -30,6 +30,7 @@
 namespace AnimusForge
 {
     using AnimusForge::ClassRole::ActionCatalog;
+    using AnimusForge::ClassRole::BattleSupplies;
     using AnimusForge::ClassRole::CallHunterBeast;
     using AnimusForge::ClassRole::ClassKit;
     using AnimusForge::ClassRole::ClassRoleAssets;
@@ -46,6 +47,7 @@ namespace AnimusForge
     using AnimusForge::ClassRole::SpecProfile;
     using AnimusForge::ClassRole::StablePool;
     using AnimusForge::ClassRole::StatProfile;
+    using AnimusForge::ClassRole::StockBattleSupplies;
     using AnimusForge::ClassRole::StockConsumables;
     using AnimusForge::ClassRole::TalentBuilder;
     using AnimusForge::ClassRole::WeaponLayout;

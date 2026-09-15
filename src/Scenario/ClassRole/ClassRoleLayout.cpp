@@ -38,6 +38,8 @@ namespace
                 return R"({"kind":"cancel_queued"})";
             case ActionCatalog::Kind::Trinket:
                 return Acore::StringFormat(R"({{"kind":"trinket","slot":{}}})", action.EquipmentSlot);
+            case ActionCatalog::Kind::Soulstone:
+                return R"({"kind":"soulstone"})";
             case ActionCatalog::Kind::Spell:
                 break;
         }
@@ -141,11 +143,14 @@ AnimusForge::ClassRole::Layout AnimusForge::ClassRole::Layout::Build(ClassRolePr
                 info && info->IsPositive() && info->NeedsExplicitUnitTarget())
                 layout.AllyHeals.push_back(heal);
 
+        layout.AllyRevives = catalog.Revives();
+
         uint32 const heals = uint32(layout.AllyHeals.size());
+        uint32 const revives = uint32(layout.AllyRevives.size());
         layout.CompanionObsFirst = layout.ObsDim;
-        layout.ObsDim += COMPANION_OBS_GLOBAL_COUNT + heals * 2;
+        layout.ObsDim += COMPANION_OBS_GLOBAL_COUNT + (heals + revives) * 2;
         layout.CompanionActionFirst = layout.NumActions;
-        layout.CompanionActionCount = COMPANION_ACTION_HEAL_FIRST + heals;
+        layout.CompanionActionCount = COMPANION_ACTION_HEAL_FIRST + heals + revives;
         layout.NumActions += layout.CompanionActionCount;
     }
 
@@ -154,7 +159,8 @@ AnimusForge::ClassRole::Layout AnimusForge::ClassRole::Layout::Build(ClassRolePr
         layout.PartyObsFirst = layout.ObsDim;
         layout.ObsDim += PARTY_OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES;
         layout.PartyActionFirst = layout.NumActions;
-        layout.PartyActionCount = PARTY_ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size());
+        layout.PartyActionCount = PARTY_ACTION_HEAL_FIRST
+            + PARTY_MEMBERS * uint32(layout.AllyHeals.size() + layout.AllyRevives.size());
         layout.NumActions += layout.PartyActionCount;
     }
 
@@ -192,15 +198,15 @@ std::string AnimusForge::ClassRole::Layout::Manifest() const
     specs += "]";
 
     return Acore::StringFormat(
-        R"({{"format":2,"model":"{}","scenario":"{}","class_role":"{}","class":{},"role":"{}","obs_dim":{},)"
+        R"({{"format":3,"model":"{}","scenario":"{}","class_role":"{}","class":{},"role":"{}","obs_dim":{},)"
         R"("num_actions":{},"blocks":{{"action_obs":{},"talent_obs":{},"tree_obs":{},"duel_obs":{},"duel_actions":[{},{}],)"
         R"("pack_obs":{},"pack_actions":[{},{}],"gauntlet_obs":{},"gauntlet_actions":[{},{}],"companion_obs":{},)"
         R"("companion_actions":[{},{}],"party_obs":{},"party_actions":[{},{}],"pvp_obs":{}}},"specs":{},)"
-        R"("actions":{},"tactical":{},"sustain":{},"ally_heals":{},"talents":{}}})",
+        R"("actions":{},"tactical":{},"sustain":{},"ally_heals":{},"ally_revives":{},"talents":{}}})",
         ModelName(), StageScenarioName(StageId), Profile->ScenarioName, Profile->Class, RoleName(PlayRole()), ObsDim,
         NumActions, ActionObsFirst, TalentObsFirst, TreeObsFirst, DuelObsFirst, DuelActionFirst, DuelActionCount,
         PackObsFirst, PackActionFirst, PackActionCount, GauntletObsFirst, GauntletActionFirst, GauntletActionCount,
         CompanionObsFirst, CompanionActionFirst, CompanionActionCount, PartyObsFirst, PartyActionFirst,
         PartyActionCount, PvpObsFirst, specs, actions, SpellList(Catalog().Tactical()), SpellList(Catalog().Sustain()),
-        SpellList(AllyHeals), talents);
+        SpellList(AllyHeals), SpellList(AllyRevives), talents);
 }
