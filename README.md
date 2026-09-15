@@ -691,7 +691,7 @@ A stage ends on two questions (`animus/stage.py`), not on a fixed episode count:
 
 | Converged, target passed | Converged, below target | `total_env_steps` reached |
 | --- | --- | --- |
-| exit 0, the queue moves on (`converged`) | restart; once restarts run out, exit 3 and the queue halts (`below_target`) | target passed: exit 0 (`total_env_steps`); below it: exit 3 (`budget_below_target`) |
+| exit 0, the plan moves on (`converged`) | restart; once restarts run out, exit 3 and the plan halts (`below_target`) | target passed: exit 0 (`total_env_steps`); below it: exit 3 (`budget_below_target`) |
 
 A bad target is caught at startup (a metric the scenario does not report, a baseline gate without
 `eval.baseline`), not at the end of the stage. `finished.json` records the reason, the restarts and the gate
