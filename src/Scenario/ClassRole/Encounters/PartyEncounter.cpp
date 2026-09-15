@@ -90,8 +90,15 @@ bool AnimusForge::ClassRole::PartyEncounter::Build(Env& env, Map* /*map*/, uint8
 
     // The owner stands in for the player whose party the companions join: it leads.
     Player* owner = _scenario.Owner(env);
+    if (!owner)
+    {
+        // The party stage always has an owner; it has to be built first (see the build order in ClassRoleScenario).
+        LOG_ERROR("module.animus", "{}: env {} builds its party group before its owner", _scenario.Name(), env.Index);
+        return false;
+    }
+
     EnvParty& party = _envs[env.Index];
-    if (!owner || party.PartyGroup)
+    if (party.PartyGroup)
         return true;
 
     Group* group = new Group();

@@ -98,6 +98,9 @@ namespace AnimusForge::ClassRole
         /// Seat `seat` (or RECOVERED_OWNER) stood up again after a pull: its death can be paid for again.
         virtual void OnRecovered(Env& /*env*/, int32 /*who*/) { }
 
+        /// A new pull is about to spawn (the pulls encounter announces it; see ClassRoleScenario::NotifyPullStarting).
+        virtual void OnPullStarting(Env& /*env*/) { }
+
         /// Once at shutdown: remove what the encounter spawned.
         virtual void Teardown(Env& /*env*/) { }
 

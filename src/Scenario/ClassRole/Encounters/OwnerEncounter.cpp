@@ -42,16 +42,6 @@ Player* AnimusForge::ClassRole::OwnerEncounter::Find(Env const& env) const
     return _envs[env.Index].Bot.Active();
 }
 
-AnimusForge::ClassRole::Role AnimusForge::ClassRole::OwnerEncounter::RoleOf(Env const& env) const
-{
-    return _envs[env.Index].PlayRole;
-}
-
-AnimusForge::ClassRole::ScriptedPlayer::State& AnimusForge::ClassRole::OwnerEncounter::StateOf(Env const& env)
-{
-    return _envs[env.Index].Script;
-}
-
 std::vector<AnimusForge::ClassRole::RewardTerm> AnimusForge::ClassRole::OwnerEncounter::RewardTerms() const
 {
     return { RewardTerm::OwnerDamageTaken, RewardTerm::OwnerHealing, RewardTerm::TankDamageRefund, RewardTerm::Threat,
@@ -171,6 +161,36 @@ void AnimusForge::ClassRole::OwnerEncounter::View(Env const& env, uint32 /*seat*
     view.Owner = Find(env);
 }
 
+void AnimusForge::ClassRole::OwnerEncounter::BeforeRewards(Env& env)
+{
+    // The env's owner totals, once per decision before any seat is rewarded (not while rewarding one of the seats).
+    EnvOwner& state = _envs[env.Index];
+    state.StepEnemiesOnOwner = 0;
+    Player* owner = Find(env);
+    if (!owner)
+        return;
+
+    // The owner is ally 0; every agent's step stats carry its damage taken alike.
+    if (!env.StepStats.empty())
+        state.DamageTaken += env.StepStats.front().AllyDamageTakenBy[0];
+
+    for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
+        if (Unit* enemy = env.FindTargetUnit(slot); enemy && enemy->IsAlive() && enemy->IsInCombat()
+            && enemy->GetVictim() == owner)
+            ++state.StepEnemiesOnOwner;
+    state.ThreatOnOwner += state.StepEnemiesOnOwner;
+
+    // Standing again (resurrected, or recovered after a pull): its next death is counted again.
+    if (owner->IsAlive())
+        state.DeathCounted = false;
+    else if (!state.DeathCounted)
+    {
+        state.DeathCounted = true;
+        state.Died = true;
+        ++state.Deaths;
+    }
+}
+
 void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, Player* bot, RewardLedger& ledger)
 {
     EnvOwner& state = _envs[env.Index];
@@ -194,9 +214,6 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
     Role const role = seat.L->PlayRole();
     float const ownerHealth = float(std::max<uint32>(1, owner->GetMaxHealth()));
 
-    // The owner is ally 0. Its damage taken is the env's: every seat's step stats carry it; count it once.
-    if (seatIndex == 0)
-        state.DamageTaken += step.AllyDamageTakenBy[0];
     seatOwner.Healing += step.AllyHealingBy[0];
 
     bool const ownerTanks = state.PlayRole == Role::Tank;
@@ -210,22 +227,15 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
     if (role == Role::Tank)
         ledger.Add(RewardTerm::TankDamageRefund, tuning.TankDamageRefund * seat.LastStepDamageTaken);
 
-    // Who the enemies are fighting.
+    // Who the enemies are fighting (those on the owner were counted in BeforeRewards).
     uint32 onBot = 0;
-    uint32 onOwner = 0;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
-    {
-        Unit* enemy = env.FindTargetUnit(slot);
-        if (!enemy || !enemy->IsAlive() || !enemy->IsInCombat())
-            continue;
+        if (Unit* enemy = env.FindTargetUnit(slot); enemy && enemy->IsAlive() && enemy->IsInCombat()
+            && enemy->GetVictim() == bot)
+            ++onBot;
 
-        onBot += enemy->GetVictim() == bot ? 1 : 0;
-        onOwner += enemy->GetVictim() == owner ? 1 : 0;
-    }
-
+    uint32 const onOwner = state.StepEnemiesOnOwner;
     seatOwner.ThreatOnBot += onBot;
-    if (seatIndex == 0)
-        state.ThreatOnOwner += onOwner;
 
     if (role == Role::Tank)
         ledger.Add(RewardTerm::Threat,
@@ -237,8 +247,6 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
     {
         // Standing again (resurrected, or recovered after a pull): its next death is paid for again.
         seatOwner.DeathSeen = false;
-        if (seatIndex == 0)
-            state.DeathCounted = false;
 
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
         // tank pulls first by design).
@@ -257,14 +265,8 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
     }
     else if (!seatOwner.DeathSeen)
     {
-        // Every seat pays for each of the owner's deaths, once.
+        // Every seat pays for each of the owner's deaths, once (BeforeRewards counted the death for the env).
         seatOwner.DeathSeen = true;
-        state.Died = true;
-        if (!state.DeathCounted)
-        {
-            state.DeathCounted = true;
-            ++state.Deaths;
-        }
         ledger.Add(RewardTerm::OwnerDeath, -tuning.Death);
     }
 }
@@ -295,6 +297,23 @@ void AnimusForge::ClassRole::OwnerEncounter::OnRecovered(Env& env, int32 who)
     state.DeathCounted = false;
     for (SeatOwner& seat : state.Seats)
         seat.DeathSeen = false;
+}
+
+void AnimusForge::ClassRole::OwnerEncounter::OnPullStarting(Env& env)
+{
+    Player* owner = Find(env);
+    if (!owner)
+        return;
+
+    // The owner walks over to a new pull after a moment (in a party, after the tank has had time to pull). A tank
+    // owner always starts the pull, and any other owner sometimes does, as a player who pulls without waiting.
+    EnvOwner& state = _envs[env.Index];
+    ClassRoleTuning::PullTuning const& tuning = _scenario.Tuning().Pulls;
+    bool const ownerPulls = state.PlayRole == Role::Tank || roll_chance_i(tuning.OwnerPullsChance);
+    state.Script.EngageMs = env.EpisodeElapsedMs
+        + (ownerPulls ? urand(tuning.OwnerPullsMinMs, tuning.OwnerPullsMaxMs)
+        : _scenario.Stage().PartyGroup ? urand(tuning.PartyOwnerEngageMinMs, tuning.PartyOwnerEngageMaxMs)
+        : urand(tuning.OwnerEngageMinMs, tuning.OwnerEngageMaxMs));
 }
 
 void AnimusForge::ClassRole::OwnerEncounter::Teardown(Env& env)

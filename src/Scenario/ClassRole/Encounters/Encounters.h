@@ -120,8 +120,6 @@ namespace AnimusForge::ClassRole
         OwnerEncounter(ClassRoleScenario& scenario, uint32 envs);
 
         [[nodiscard]] Player* Find(Env const& env) const;
-        [[nodiscard]] Role RoleOf(Env const& env) const;
-        [[nodiscard]] ScriptedPlayer::State& StateOf(Env const& env);
 
         [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
         void AddEpisodeInfo(EpisodeInfoTable& table) override;
@@ -129,9 +127,11 @@ namespace AnimusForge::ClassRole
         bool Build(Env& env, Map* map, uint8 level) override;
         void Update(Env& env) override;
         void View(Env const& env, uint32 seat, SeatView& view) const override;
+        void BeforeRewards(Env& env) override;
         void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
         void WriteState(Env const& env, float* state) const override;
         void OnRecovered(Env& env, int32 who) override;
+        void OnPullStarting(Env& env) override;
         void Teardown(Env& env) override;
 
     private:
@@ -153,6 +153,7 @@ namespace AnimusForge::ClassRole
             bool DeathCounted = false;
             uint64 DamageTaken = 0;
             uint64 ThreatOnOwner = 0;
+            uint32 StepEnemiesOnOwner = 0;      // living enemies in combat attacking the owner, this decision
             std::array<SeatOwner, MAX_SEATS> Seats;
         };
 

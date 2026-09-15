@@ -122,7 +122,6 @@ void AnimusForge::ClassRole::CombatReward::OneOnOne(ClassRoleScenario& scenario,
     ledger.Add(RewardTerm::DamageDealt, tuning.DamageDealt * float(step.Damage) / opponentHealth);
 
     tally.DamageTaken += step.DamageTaken;
-    seat.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
     ledger.Add(RewardTerm::DamageTaken, -tuning.DamageTaken * seat.LastStepDamageTaken);
 
     Casting(bot, step, tally, scenario.Tuning().Casting, ledger);

@@ -21,6 +21,7 @@
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "Env.h"
+#include "Log.h"
 #include "Map.h"
 #include "Opponents.h"
 #include "Player.h"
@@ -116,6 +117,13 @@ bool AnimusForge::ClassRole::PullsEncounter::Build(Env& env, Map* map, uint8 /*l
     EnvState& data = _scenario.Data(env);
     EnvPulls& pulls = _envs[env.Index];
 
+    // Pulls spawn around the owner: it has to be built first (see the build order in ClassRoleScenario).
+    if (_scenario.Stage().Owner && !_scenario.Owner(env))
+    {
+        LOG_ERROR("module.animus", "{}: env {} builds its pulls before its owner", _scenario.Name(), env.Index);
+        return false;
+    }
+
     for (uint32 seatIndex = 0; seatIndex < data.ActiveSeats; ++seatIndex)
     {
         SeatState& seat = data.Seats[seatIndex];
@@ -191,19 +199,10 @@ bool AnimusForge::ClassRole::PullsEncounter::SpawnPull(Env& env, Map* map)
                 entries.push_back(entry);
     }
 
-    // With an owner, pulls spawn around the owner, who walks over to them after a moment (in a party, after the tank
-    // has had time to pull). A tank owner always starts the pull, and any other owner sometimes does, as a player who
-    // pulls without waiting for the companions.
-    OwnerEncounter* ownerPart = _scenario.OwnerPart();
-    Player* anchor = ownerPart ? ownerPart->Find(env) : nullptr;
-    if (anchor)
-    {
-        bool const ownerPulls = ownerPart->RoleOf(env) == Role::Tank || roll_chance_i(tuning.OwnerPullsChance);
-        ownerPart->StateOf(env).EngageMs = env.EpisodeElapsedMs
-            + (ownerPulls ? urand(tuning.OwnerPullsMinMs, tuning.OwnerPullsMaxMs)
-            : stage.PartyGroup ? urand(tuning.PartyOwnerEngageMinMs, tuning.PartyOwnerEngageMaxMs)
-            : urand(tuning.OwnerEngageMinMs, tuning.OwnerEngageMaxMs));
-    }
+    // With an owner, pulls spawn around the owner; whoever takes part hears of the pull first (the owner decides when
+    // it walks over).
+    Player* anchor = _scenario.Owner(env);
+    _scenario.NotifyPullStarting(env);
 
     std::vector<Creature*> pack = Opponents::SpawnPack(anchor ? anchor : lead, map, entries, level);
     if (pack.empty())
@@ -259,8 +258,8 @@ void AnimusForge::ClassRole::PullsEncounter::UpdateEnemies(Env& env)
 
 void AnimusForge::ClassRole::PullsEncounter::Update(Env& env)
 {
-    OwnerEncounter* ownerPart = _scenario.OwnerPart();
-    if (ownerPart)
+    bool const hasOwner = _scenario.Stage().Owner;
+    if (hasOwner)
         Recover(env);
 
     if (!Gauntlet() || !env.Targets.empty() || env.EpisodeElapsedMs < _envs[env.Index].NextPullMs)
@@ -272,8 +271,8 @@ void AnimusForge::ClassRole::PullsEncounter::Update(Env& env)
         if (Player* bot = env.FindBot(seat); bot && bot->IsAlive())
             anyoneAlive = true;
 
-    Player* owner = ownerPart ? ownerPart->Find(env) : nullptr;
-    if (anyoneAlive && (!ownerPart || (owner && owner->IsAlive())) && !_envs[env.Index].AwaitingRevive)
+    Player* owner = _scenario.Owner(env);
+    if (anyoneAlive && (!hasOwner || (owner && owner->IsAlive())) && !_envs[env.Index].AwaitingRevive)
         if (Map* map = env.FindMap())
             SpawnPull(env, map);
 }
@@ -452,7 +451,6 @@ void AnimusForge::ClassRole::PullsEncounter::Reward(Env& env, uint32 seatIndex, 
 
     tally.DamageTaken += step.DamageTaken;
     pull.PullDamageTaken += step.DamageTaken;
-    seat.LastStepDamageTaken = float(step.DamageTaken) / botHealth;
     ledger.Add(RewardTerm::DamageTaken,
         -(Gauntlet() ? tuning.GauntletDamageTaken : tuning.DamageTaken) * seat.LastStepDamageTaken);
 

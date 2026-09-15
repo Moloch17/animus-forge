@@ -177,6 +177,9 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
         return raw;
     };
 
+    // Build order matters: the owner comes before the party group (which it leads) and the pulls (which spawn around
+    // it); both check it. Rewards do not depend on each other's order: what several read (a seat's damage taken, the
+    // owner's totals) is computed before any encounter's Reward.
     if (_stage.Against == Opposition::ScriptedPlayer || _stage.Against == Opposition::MirrorSeat)
         opponent = add(std::make_unique<OpponentEncounter>(*this, envs, _stage.Against == Opposition::MirrorSeat));
     if (_stage.Owner)
@@ -188,7 +191,7 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
     if (_stage.Against == Opposition::Creature)
         creature = add(std::make_unique<CreatureEncounter>(*this));
 
-    // Pulls record the step's damage taken before the owner's tank refund reads it.
+    // The order episode info columns and reward terms are listed in.
     for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, _owner, _party, opponent })
         if (encounter)
             _rewardOrder.push_back(encounter);
@@ -785,6 +788,12 @@ void AnimusForge::ClassRole::ClassRoleScenario::NotifyRecovered(Env& env, int32 
         encounter->OnRecovered(env, who);
 }
 
+void AnimusForge::ClassRole::ClassRoleScenario::NotifyPullStarting(Env& env)
+{
+    for (auto const& encounter : _encounters)
+        encounter->OnPullStarting(env);
+}
+
 void AnimusForge::ClassRole::ClassRoleScenario::ApplyActions(Env& env, int32 const* actions)
 {
     // Env upkeep first (linked pulls, the owner, the next pull, the scripted opponent), so the targets below are
@@ -949,6 +958,10 @@ float AnimusForge::ClassRole::ClassRoleScenario::SeatReward(Env& env, uint32 sea
 
     Player* bot = env.FindBot(seatIndex);
     seat.LastStepDamage = float(env.StepStats[seatIndex].Damage) / seat.DamageScale;
+
+    // Before any encounter's reward: several read it (the pulls' and duel's damage taken, the owner's tank refund).
+    seat.LastStepDamageTaken = bot
+        ? float(env.StepStats[seatIndex].DamageTaken) / float(std::max<uint32>(1, bot->GetMaxHealth())) : 0.0f;
 
     // Standing again (resurrected, or recovered after a pull): the next death is paid for again.
     if (bot && bot->IsAlive())

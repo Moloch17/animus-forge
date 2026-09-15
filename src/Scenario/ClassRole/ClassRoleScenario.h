@@ -136,9 +136,6 @@ namespace AnimusForge::ClassRole
         /// Seat `seat`'s bot, in or out of the world (see BotSlot::Active).
         [[nodiscard]] Player* SeatBot(Env const& env, uint32 seat) const;
 
-        /// The owner encounter, or null when the stage has no owner.
-        [[nodiscard]] OwnerEncounter* OwnerPart() const { return _owner; }
-
         /// The scripted owner, or null (no owner in this stage, or none built).
         [[nodiscard]] Player* Owner(Env const& env) const;
 
@@ -150,6 +147,9 @@ namespace AnimusForge::ClassRole
 
         /// Every seat, and the owner, stood up again after a pull: tell every encounter (see Encounter::OnRecovered).
         void NotifyRecovered(Env& env, int32 who);
+
+        /// A pull is about to spawn: tell every encounter (see Encounter::OnPullStarting).
+        void NotifyPullStarting(Env& env);
 
         /// Whether seat `seat` is dead with no resurrection of its own left to wait for (Tuning().Resurrection).
         [[nodiscard]] bool DeadForGood(Env const& env, uint32 seat) const;
