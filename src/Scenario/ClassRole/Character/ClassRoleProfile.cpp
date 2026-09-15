@@ -88,9 +88,9 @@ std::vector<AnimusForge::ClassRole::ClassRoleProfile> const& AnimusForge::ClassR
             Spec("survival", 2, SP::Ranged, Ranged, { TwoHandRanged }) } },
 
         { "rogue_dps", CLASS_ROGUE, Role::Dps, {
-            Spec("assassination", 0, SP::AgilityMelee, Melee, { DualWield }),
-            Spec("combat", 1, SP::AgilityMelee, Melee, { DualWield }),
-            Spec("subtlety", 2, SP::AgilityMelee, Melee, { DualWield }) } },
+            Spec("assassination", 0, SP::AgilityMelee, Melee, { DualWieldDaggers, DualWield, OneHand }),
+            Spec("combat", 1, SP::AgilityMelee, Melee, { DualWield, OneHand }),
+            Spec("subtlety", 2, SP::AgilityMelee, Melee, { DualWieldDaggers, DualWield, OneHand }) } },
 
         { "priest_heal", CLASS_PRIEST, Role::Heal, {
             Spec("discipline", 0, SP::Healer, Ranged, { Staff, OneHandHeld }, true),

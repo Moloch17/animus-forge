@@ -80,6 +80,8 @@ namespace AnimusForge::ClassRole
     {
         TwoHand,            // one two-handed melee weapon
         DualWield,          // two one-handed weapons (needs the dual wield skill)
+        DualWieldDaggers,   // two daggers (Mutilate, Backstab and Ambush need them)
+        OneHand,            // a main-hand weapon alone (before dual wield is learned)
         OneHandShield,
         OneHandHeld,        // one-hander plus a held-in-off-hand item
         Staff,

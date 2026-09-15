@@ -151,7 +151,7 @@ bool AnimusForge::ClassRole::OpponentEncounter::RebuildScripted(Env& env, Player
         return false;
 
     enemy->InitTalentForLevel();
-    ScriptedPlayer::Configure(enemy, assets, opponent.Script);
+    ScriptedPlayer::Configure(enemy, assets, opponent.Script, true);
     opponent.Script.EngageMs = env.EpisodeElapsedMs + urand(0, tuning.EngageMaxMs);
     MakeEnemies(bot, enemy);
 

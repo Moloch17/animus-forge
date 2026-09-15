@@ -616,7 +616,7 @@ void AnimusForge::ClassRole::ClassRoleScenario::Configure(Player* bot, SeatState
     seat.UnspentTalentPoints = assets.Talents->Apply(bot, seat.Build);
 
     assets.Kit->Learn(bot);
-    assets.Gear->Equip(bot, spec);
+    assets.Gear->Equip(bot, spec, _stage.Has(BlockId::Pvp));
 
     seat.EquippedItems = 0;
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)

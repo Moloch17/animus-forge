@@ -135,7 +135,7 @@ bool AnimusForge::ClassRole::OwnerEncounter::Build(Env& env, Map* map, uint8 lev
         return false;
 
     bot->InitTalentForLevel();
-    ScriptedPlayer::Configure(bot, assets, owner.Script);
+    ScriptedPlayer::Configure(bot, assets, owner.Script, false);
 
     // Either faction's races can be paired: give the owner the seats' faction so they are friends (heals and buffs
     // land, neither can attack the other).

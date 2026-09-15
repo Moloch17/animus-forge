@@ -52,8 +52,8 @@ namespace AnimusForge::ClassRole::ScriptedPlayer
     };
 
     /// Dress a placed bot of the assets' class and role: proficiencies, a random build of one of the role's specs,
-    /// trainer spells for its level, gear. Fills state's repertoire and role.
-    void Configure(Player* player, ClassRoleAssets const& assets, State& state);
+    /// trainer spells for its level, gear (PvP gear too when `pvp`). Fills state's repertoire and role.
+    void Configure(Player* player, ClassRoleAssets const& assets, State& state, bool pvp);
 
     /// One decision of a scripted party member (see State::PlayRole):
     /// - tank: engages first, goes for enemies attacking someone else and taunts them off;

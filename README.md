@@ -165,11 +165,16 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
 - **Gear:** random level-appropriate items for every slot including both trinkets, drawn from
   every obtainable item (loot, vendors, quest rewards, crafted) the class can use and whose stats
   suit the spec (strength melee, agility melee, ranged, caster, healer or tank). Items with random
-  stats roll only suffixes that suit it. A slot takes an item required at the bot's level or up to
-  4 below, widening the window (9, 19, any) and falling back to lighter armor, then stat-less
-  items, when nothing closer exists. Armor is plate/mail/leather/cloth by class and level; weapons
-  follow the spec's layouts (two-hander, dual wield when the bot can, one-hander with shield or
-  off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or relics.
+  stats roll only suffixes that suit it. A slot takes an item the bot may wear whose item level is in
+  the band players of its level wear (`ITEM_LEVEL_ANCHORS` in `GearBuilder.cpp`: a few item levels
+  above the level while levelling, Outland gear from 58, Northrend gear from 70, heroic-dungeon gear
+  180-213 at 80), reaching 10, 25, then any number of item levels below the band -- never above it --
+  and falling back to lighter armor, then stat-less items, when nothing fits. Epics only at levels 70
+  and 80 (heroic and badge gear); resilience (PvP) gear only in the PvP stages. Armor is
+  plate/mail/leather/cloth by class and level; weapons follow the spec's layouts (two-hander, dual
+  wield when the bot can -- daggers for assassination and subtlety -- a one-hander before that,
+  one-hander with shield or off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or
+  relics.
 - **Core actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
   chain of every combat spell a level 80 character of any of the class's races knows (trainer,
   starting and racial spells, active talents of all three trees), casting the highest rank the bot

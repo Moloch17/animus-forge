@@ -35,9 +35,79 @@ namespace
 {
     using AnimusForge::ClassRole::StatProfile;
 
-    constexpr std::array<uint32, 4> LEVEL_WINDOWS = { 4, 9, 19, 99 };
     constexpr uint32 EQUIP_ATTEMPTS = 6;
     constexpr uint32 AMMO_COUNT = 1000;
+
+    struct ItemLevelAnchor
+    {
+        uint8 Level;
+        uint16 Low;
+        uint16 High;
+    };
+
+    /// The item levels a player of a level wears, between anchors linearly: while levelling, quest and dungeon
+    /// gear a few item levels above the level; Outland greens and blues from 58 to 70; Northrend gear from 70;
+    /// heroic-dungeon gear at 80 (normal dungeon blues to the first heroic and badge pieces). Raid and top-end PvP
+    /// gear sits above these bands.
+    constexpr std::array<ItemLevelAnchor, 16> ITEM_LEVEL_ANCHORS =
+    {{
+        {  1,   1,   8 },
+        { 10,   8,  20 },
+        { 20,  18,  30 },
+        { 30,  28,  38 },
+        { 40,  38,  50 },
+        { 50,  48,  60 },
+        { 57,  55,  66 },
+        { 58,  58,  88 },
+        { 60,  78,  96 },
+        { 65,  92, 110 },
+        { 68, 105, 125 },
+        { 70, 110, 130 },
+        { 72, 135, 160 },
+        { 75, 150, 175 },
+        { 78, 165, 190 },
+        { 80, 180, 213 },
+    }};
+
+    /// Levels at which epics are worn: the expansion level caps, where heroic dungeons and badge vendors hand them
+    /// out. Elsewhere the bands would reach the previous expansion's raid epics (level 72: Black Temple, Sunwell).
+    constexpr std::array<uint8, 2> EPIC_LEVELS = { 70, 80 };
+
+    /// How far below the band's low end a slot may reach when nothing in the band fits, in order.
+    constexpr std::array<uint16, 4> ITEM_LEVEL_WIDENING = { 0, 10, 25, 1000 };
+
+    std::pair<uint16, uint16> ItemLevelBand(uint8 level)
+    {
+        ItemLevelAnchor const* below = &ITEM_LEVEL_ANCHORS.front();
+        for (ItemLevelAnchor const& anchor : ITEM_LEVEL_ANCHORS)
+        {
+            if (anchor.Level == level)
+                return { anchor.Low, anchor.High };
+
+            if (anchor.Level > level)
+            {
+                float const t = float(level - below->Level) / float(anchor.Level - below->Level);
+                auto const lerp = [t](uint16 a, uint16 b)
+                {
+                    return uint16(float(a) + (float(b) - float(a)) * t + 0.5f);
+                };
+                return { lerp(below->Low, anchor.Low), lerp(below->High, anchor.High) };
+            }
+
+            below = &anchor;
+        }
+
+        return { ITEM_LEVEL_ANCHORS.back().Low, ITEM_LEVEL_ANCHORS.back().High };
+    }
+
+    bool HasResilience(ItemTemplate const& proto)
+    {
+        for (uint32 i = 0; i < proto.StatsCount && i < MAX_ITEM_PROTO_STATS; ++i)
+            if (proto.ItemStat[i].ItemStatType == ITEM_MOD_RESILIENCE_RATING && proto.ItemStat[i].ItemStatValue > 0)
+                return true;
+
+        return false;
+    }
 
     /// Stat preference of a profile: 1 wanted, -1 never on this spec's gear, 0 indifferent.
     int32 StatPreference(StatProfile profile, uint32 stat)
@@ -333,7 +403,10 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
         Candidate candidate;
         candidate.ItemId = itemId;
         candidate.ReqLevel = RequiredLevelOf(&proto);
+        candidate.ItemLevel = uint16(proto.ItemLevel);
         candidate.SubClass = proto.SubClass;
+        candidate.Pvp = HasResilience(proto);
+        candidate.Epic = proto.Quality == ITEM_QUALITY_EPIC;
 
         StatVerdict fixed;
         for (uint32 i = 0; i < proto.StatsCount && i < MAX_ITEM_PROTO_STATS; ++i)
@@ -388,22 +461,27 @@ void AnimusForge::ClassRole::GearBuilder::BuildPools(StatProfile stats)
         pools[POOL_CHEST].size(), pools[POOL_TRINKET].size());
 }
 
-std::vector<AnimusForge::ClassRole::GearBuilder::Candidate const*> AnimusForge::ClassRole::GearBuilder::Window(Pool pool, uint8 level,
-    StatProfile stats, int32 subclass, bool needStats) const
+std::vector<AnimusForge::ClassRole::GearBuilder::Candidate const*> AnimusForge::ClassRole::GearBuilder::Window(
+    Pool pool, uint8 level, StatProfile stats, int32 subclass, bool needStats, bool pvp) const
 {
     std::vector<Candidate const*> found;
     auto const pools = _pools.find(stats);
     if (pools == _pools.end())
         return found;
 
-    for (uint32 window : LEVEL_WINDOWS)
+    // The level's item level band first, then reaching further below it. Never above the band: a character of
+    // the level does not wear raid or top-end PvP gear.
+    auto const [low, high] = ItemLevelBand(level);
+    bool const epics = std::find(EPIC_LEVELS.begin(), EPIC_LEVELS.end(), level) != EPIC_LEVELS.end();
+    for (uint16 widening : ITEM_LEVEL_WIDENING)
     {
         for (Candidate const& candidate : pools->second[pool])
         {
-            if (candidate.ReqLevel > level || candidate.ReqLevel + window < level)
+            if (candidate.ReqLevel > level || candidate.ItemLevel > high || candidate.ItemLevel + widening < low)
                 continue;
 
-            if ((subclass >= 0 && candidate.SubClass != uint32(subclass)) || (needStats && !candidate.Stats))
+            if ((subclass >= 0 && candidate.SubClass != uint32(subclass)) || (needStats && !candidate.Stats)
+                || (candidate.Pvp && !pvp) || (candidate.Epic && !epics))
                 continue;
 
             found.push_back(&candidate);
@@ -417,7 +495,7 @@ std::vector<AnimusForge::ClassRole::GearBuilder::Candidate const*> AnimusForge::
 }
 
 bool AnimusForge::ClassRole::GearBuilder::EquipFromPool(Player* bot, uint8 slot, Pool pool, StatProfile stats,
-    int32 subclass) const
+    bool pvp, int32 subclass) const
 {
     uint8 const level = bot->GetLevel();
 
@@ -432,7 +510,7 @@ bool AnimusForge::ClassRole::GearBuilder::EquipFromPool(Player* bot, uint8 slot,
     {
         for (int32 armorSubclass : subclasses)
         {
-            std::vector<Candidate const*> candidates = Window(pool, level, stats, armorSubclass, needStats);
+            std::vector<Candidate const*> candidates = Window(pool, level, stats, armorSubclass, needStats, pvp);
             for (uint32 attempt = 0; attempt < EQUIP_ATTEMPTS && !candidates.empty(); ++attempt)
             {
                 uint32 const pick = urand(0, uint32(candidates.size()) - 1);
@@ -477,35 +555,43 @@ void AnimusForge::ClassRole::GearBuilder::LearnProficiencies(Player* bot)
     bot->UpdateSkillsToMaxSkillsForLevel();
 }
 
-bool AnimusForge::ClassRole::GearBuilder::EquipWeapons(Player* bot, SpecProfile const& spec, WeaponLayout layout) const
+bool AnimusForge::ClassRole::GearBuilder::EquipWeapons(Player* bot, SpecProfile const& spec, WeaponLayout layout,
+    bool pvp) const
 {
     StatProfile const stats = spec.Stats;
 
     switch (layout)
     {
         case WeaponLayout::TwoHand:
-            return EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats);
+            return EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats, pvp);
         case WeaponLayout::Staff:
-            return EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats, ITEM_SUBCLASS_WEAPON_STAFF);
+            return EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats, pvp, ITEM_SUBCLASS_WEAPON_STAFF);
         case WeaponLayout::DualWield:
-            if (!bot->CanDualWield() || !EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats))
+        case WeaponLayout::DualWieldDaggers:
+        {
+            int32 const subclass = layout == WeaponLayout::DualWieldDaggers ? int32(ITEM_SUBCLASS_WEAPON_DAGGER) : -1;
+            if (!bot->CanDualWield()
+                || !EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats, pvp, subclass))
                 return false;
-            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_OFF_HAND, stats);
+            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_OFF_HAND, stats, pvp, subclass);
             return true;
+        }
+        case WeaponLayout::OneHand:
+            return EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats, pvp);
         case WeaponLayout::OneHandShield:
-            if (!EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats))
+            if (!EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats, pvp))
                 return false;
-            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_SHIELD, stats);
+            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_SHIELD, stats, pvp);
             return true;
         case WeaponLayout::OneHandHeld:
-            if (!EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats))
+            if (!EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_MAIN_HAND, stats, pvp))
                 return false;
-            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_HELD, stats);
+            EquipFromPool(bot, EQUIPMENT_SLOT_OFFHAND, POOL_HELD, stats, pvp);
             return true;
         case WeaponLayout::TwoHandRanged:
         {
-            bool const ranged = EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_RANGED, stats);
-            bool const melee = EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats);
+            bool const ranged = EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_RANGED, stats, pvp);
+            bool const melee = EquipFromPool(bot, EQUIPMENT_SLOT_MAINHAND, POOL_TWO_HAND, stats, pvp);
             return ranged || melee;
         }
     }
@@ -513,7 +599,7 @@ bool AnimusForge::ClassRole::GearBuilder::EquipWeapons(Player* bot, SpecProfile 
     return false;
 }
 
-void AnimusForge::ClassRole::GearBuilder::Equip(Player* bot, SpecProfile const& spec) const
+void AnimusForge::ClassRole::GearBuilder::Equip(Player* bot, SpecProfile const& spec, bool pvp) const
 {
     // Starting outfit, the previous episode's set, bags and backpack contents.
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
@@ -523,24 +609,24 @@ void AnimusForge::ClassRole::GearBuilder::Equip(Player* bot, SpecProfile const& 
     StatProfile const stats = spec.Stats;
     int32 const armor = int32(_kit.ArmorSubclass(bot->GetLevel()));
 
-    EquipFromPool(bot, EQUIPMENT_SLOT_HEAD, POOL_HEAD, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_NECK, POOL_NECK, stats);
-    EquipFromPool(bot, EQUIPMENT_SLOT_SHOULDERS, POOL_SHOULDERS, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_CHEST, POOL_CHEST, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_WAIST, POOL_WAIST, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_LEGS, POOL_LEGS, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_FEET, POOL_FEET, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_WRISTS, POOL_WRISTS, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_HANDS, POOL_HANDS, stats, armor);
-    EquipFromPool(bot, EQUIPMENT_SLOT_FINGER1, POOL_FINGER, stats);
-    EquipFromPool(bot, EQUIPMENT_SLOT_FINGER2, POOL_FINGER, stats);
-    EquipFromPool(bot, EQUIPMENT_SLOT_TRINKET1, POOL_TRINKET, stats);
-    EquipFromPool(bot, EQUIPMENT_SLOT_TRINKET2, POOL_TRINKET, stats);
-    EquipFromPool(bot, EQUIPMENT_SLOT_BACK, POOL_BACK, stats);
+    EquipFromPool(bot, EQUIPMENT_SLOT_HEAD, POOL_HEAD, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_NECK, POOL_NECK, stats, pvp);
+    EquipFromPool(bot, EQUIPMENT_SLOT_SHOULDERS, POOL_SHOULDERS, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_CHEST, POOL_CHEST, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_WAIST, POOL_WAIST, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_LEGS, POOL_LEGS, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_FEET, POOL_FEET, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_WRISTS, POOL_WRISTS, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_HANDS, POOL_HANDS, stats, pvp, armor);
+    EquipFromPool(bot, EQUIPMENT_SLOT_FINGER1, POOL_FINGER, stats, pvp);
+    EquipFromPool(bot, EQUIPMENT_SLOT_FINGER2, POOL_FINGER, stats, pvp);
+    EquipFromPool(bot, EQUIPMENT_SLOT_TRINKET1, POOL_TRINKET, stats, pvp);
+    EquipFromPool(bot, EQUIPMENT_SLOT_TRINKET2, POOL_TRINKET, stats, pvp);
+    EquipFromPool(bot, EQUIPMENT_SLOT_BACK, POOL_BACK, stats, pvp);
 
     for (WeaponLayout layout : spec.Weapons)
     {
-        if (EquipWeapons(bot, spec, layout))
+        if (EquipWeapons(bot, spec, layout, pvp))
             break;
 
         for (uint8 slot : { EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_OFFHAND, EQUIPMENT_SLOT_RANGED })
@@ -549,7 +635,7 @@ void AnimusForge::ClassRole::GearBuilder::Equip(Player* bot, SpecProfile const& 
     }
 
     if (spec.Wand && !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
-        EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_WAND, stats);
+        EquipFromPool(bot, EQUIPMENT_SLOT_RANGED, POOL_WAND, stats, pvp);
 
     StoreAmmo(bot);
     _kit.StoreReagents(bot);
