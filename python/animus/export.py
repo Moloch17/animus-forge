@@ -24,7 +24,7 @@ Every layer but the last is followed by tanh. The policy is the argmax of the fi
 
 The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
-its own model, <model name>.amdl. A class/role stage's stage.json names each layout's model (warrior_dps at
+its own model, <model name>.amdl. A curriculum stage's stage.json names each layout's model (warrior_dps at
 stage1_duel -> warrior_dps_duel); a scenario without one keeps its own name (one layout) or appends the layout's.
 num_agents is 1, with a zero-weight agent column (the format has at least one).
 """

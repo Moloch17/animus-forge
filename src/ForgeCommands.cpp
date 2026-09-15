@@ -249,7 +249,7 @@ bool AnimusForge::Forge::CommandStart(std::vector<std::string> scenarios, LineSi
         return false;
     }
 
-    // Without names: AnimusForge.Queue (every class/role stage when empty), leaving out the stages that already
+    // Without names: AnimusForge.Queue (every curriculum stage when empty), leaving out the stages that already
     // advanced (AnimusForge.Queue.SkipFinished), so a restarted server carries on where training stopped. Named
     // scenarios always train.
     bool const fromQueue = scenarios.empty();

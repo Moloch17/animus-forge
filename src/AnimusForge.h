@@ -143,7 +143,7 @@ namespace AnimusForge
         /// The running scenario's auto-started learner stopped below its stage target after its restarts (exit 3).
         [[nodiscard]] bool LearnerHalted() const;
 
-        /// AnimusForge.Queue, or every class/role stage in order when it is empty.
+        /// AnimusForge.Queue, or every curriculum stage in order when it is empty.
         [[nodiscard]] std::vector<std::string> DefaultQueue() const;
 
         /// The run of `scenario` finished and moved on (<RunsDir>/<scenario>/finished.json with "advanced": true, or

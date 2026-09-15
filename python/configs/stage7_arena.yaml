@@ -1,4 +1,4 @@
-# Stage 7 of the class/role curriculum: self-play one-on-one. Two learned agents of random classes and roles fight in
+# Stage 7 of the curriculum: self-play one-on-one. Two learned agents of random classes and roles fight in
 # each env, both played by this policy, so both sides of every fight are training data, across class matchups.
 #
 # Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides improve

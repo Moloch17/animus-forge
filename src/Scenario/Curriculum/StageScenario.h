@@ -1,0 +1,204 @@
+/*
+ * This file is part of the Animus Forge project, based on AzerothCore.
+ * See AUTHORS file for Copyright information.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#ifndef MOD_ANIMUS_FORGE_CURRICULUM_STAGE_SCENARIO_H
+#define MOD_ANIMUS_FORGE_CURRICULUM_STAGE_SCENARIO_H
+
+#include "CurriculumTuning.h"
+#include "Encounter.h"
+#include "EpisodeInfoTable.h"
+#include "Layout.h"
+#include "Position.h"
+#include "Scenario.h"
+#include "StageState.h"
+#include <memory>
+
+namespace AnimusForge::Curriculum
+{
+    class OwnerEncounter;
+    class PartyEncounter;
+    struct StageDefinition;
+
+    /// One curriculum stage (see StageDefinition) for every class/role of AnimusForge.ClassRoles, as layouts of one
+    /// policy.
+    ///
+    /// Each learned agent of an env is a seat: every episode it becomes a new character of a class/role -- a race the
+    /// class allows, random gender, level (1-80, 55-80 for death knights), one of the role's specs with its standard
+    /// talent build and glyphs, the trainer spells of the level, random level-appropriate gear including trinkets,
+    /// enchants and gems, and potions, bandages and stones it must learn to use. A seat's layout is its class/role's (see Layout), padded to the
+    /// largest layout's on the wire; the learner shares one trunk between all layouts.
+    ///
+    /// The scenario builds the seats and drives the stage's encounters (see Encounter); the critic state is
+    /// class-agnostic (every seat's and enemy's essentials, the owner and the pull timing).
+    class StageScenario final : public Scenario
+    {
+    public:
+        /// Class-agnostic critic state, per seat and per enemy slot.
+        enum StateGlobal : uint32
+        {
+            STATE_EPISODE_TIME          = 0,
+            STATE_PULL_ACTIVE           = 1,
+            STATE_PULLS_CLEARED         = 2,    // / 10
+            STATE_NEXT_PULL             = 3,    // time until the next pull / 20 s
+            STATE_ELITE_PULL            = 4,
+            STATE_LINKED_PULL           = 5,
+            STATE_OWNER_PRESENT         = 6,
+            STATE_OWNER_ALIVE           = 7,
+            STATE_OWNER_HEALTH          = 8,
+            STATE_OWNER_MANA            = 9,
+            STATE_OWNER_X               = 10,   // relative to the spawn point, / 40
+            STATE_OWNER_Y               = 11,
+            STATE_OWNER_IN_COMBAT       = 12,
+            STATE_GLOBAL_COUNT          = 13
+        };
+
+        enum StateSeat : uint32
+        {
+            STATE_SEAT_PRESENT          = 0,
+            STATE_SEAT_ALIVE            = 1,
+            STATE_SEAT_HEALTH           = 2,
+            STATE_SEAT_MANA             = 3,
+            STATE_SEAT_OTHER_POWER      = 4,    // rage, energy or runic power as a fraction
+            STATE_SEAT_LEVEL            = 5,    // / 80
+            STATE_SEAT_ROLE_FIRST       = 6,    // one-hot: damage, tank, healer
+            STATE_SEAT_CLASS_FIRST      = 9,    // one-hot over PLAYABLE_CLASSES
+            STATE_SEAT_IN_COMBAT        = 19,
+            STATE_SEAT_CASTING          = 20,
+            STATE_SEAT_X                = 21,   // relative to the spawn point, / 40
+            STATE_SEAT_Y                = 22,
+            STATE_SEAT_FEATURES         = 23
+        };
+
+        enum StateEnemy : uint32
+        {
+            STATE_ENEMY_PRESENT         = 0,
+            STATE_ENEMY_ALIVE           = 1,
+            STATE_ENEMY_HEALTH          = 2,
+            STATE_ENEMY_X               = 3,
+            STATE_ENEMY_Y               = 4,
+            STATE_ENEMY_CASTING         = 5,
+            STATE_ENEMY_ELITE           = 6,
+            STATE_ENEMY_LEVEL_DIFF      = 7,    // (its level - seat 0's) / 5
+            STATE_ENEMY_IN_COMBAT       = 8,
+            STATE_ENEMY_ON_OWNER        = 9,    // its victim is the owner
+            STATE_ENEMY_ON_SEAT_FIRST   = 10,   // one-hot: its victim is seat s (MAX_SEATS columns)
+            STATE_ENEMY_FEATURES        = 10 + MAX_SEATS
+        };
+
+        StageScenario(ForgeConfig const& config, StageDefinition const& stage);
+        ~StageScenario() override;
+
+        [[nodiscard]] char const* Name() const override;
+        [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        [[nodiscard]] ScenarioSpec Spec() const override { return _spec; }
+
+        bool Setup(Env& env) override;
+        void Reset(Env& env) override;
+        void ApplyActions(Env& env, int32 const* actions) override;
+        void Observe(Env& env, float* obs, float* state, uint8* mask) override;
+        void AgentLayouts(Env const& env, uint16* layout) const override;
+        void AgentPresence(Env const& env, uint8* present) const override;
+        void Reward(Env& env, float* reward) override;
+        void EpisodeInfo(Env const& env, float* info) const override;
+        [[nodiscard]] std::vector<std::string> EpisodeInfoNames() const override { return _info.Names(); }
+        bool ScriptedAction(std::string const& policy, float const* obs, uint8 const* mask, uint16 layout,
+            int32& action) const override;
+        void Teardown(Env& env) override;
+
+        // For the encounters.
+        [[nodiscard]] StageDefinition const& Stage() const { return _stage; }
+        [[nodiscard]] CurriculumTuning const& Tuning() const { return _tuning; }
+        [[nodiscard]] Position const& SpawnPoint() const { return _spawnPoint; }
+        [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
+        [[nodiscard]] uint32 SeatCount() const { return _seatCount; }
+        /// Decision interval / 50 ms: per-decision reward terms are tuned per 50 ms and scaled by this, so they mean
+        /// the same per second at any AnimusForge.DecisionTicks.
+        [[nodiscard]] float DecisionScale() const { return _decisionScale; }
+
+        [[nodiscard]] EnvState& Data(Env const& env);
+        [[nodiscard]] EnvState const& Data(Env const& env) const;
+
+        /// Seat `seat`'s bot, in or out of the world (see BotSlot::Active).
+        [[nodiscard]] Player* SeatBot(Env const& env, uint32 seat) const;
+
+        /// The scripted owner, or null (no owner in this stage, or none built).
+        [[nodiscard]] Player* Owner(Env const& env) const;
+
+        /// The party's living tank seat, or null (no party in this stage).
+        [[nodiscard]] Player* PartyTank(Env const& env) const;
+
+        /// Get a seat's bot ready to fight something that fights back: no XP, a hunter's stable, a warrior's stance.
+        void PrepareFighter(Player* bot, SeatState& seat) const;
+
+        /// Every seat, and the owner, stood up again after a pull: tell every encounter (see Encounter::OnRecovered).
+        void NotifyRecovered(Env& env, int32 who);
+
+        /// A pull is about to spawn: tell every encounter (see Encounter::OnPullStarting).
+        void NotifyPullStarting(Env& env);
+
+        /// Whether seat `seat` is dead with no resurrection of its own left to wait for (Tuning().Resurrection).
+        [[nodiscard]] bool DeadForGood(Env const& env, uint32 seat) const;
+
+        /// Whether seat `seat`'s bot is alive and knows a resurrection spell it could cast on an ally.
+        [[nodiscard]] bool SeatCanResurrect(Env const& env, uint32 seat) const;
+
+    private:
+        [[nodiscard]] Layout const& PickLayout(Role role) const;
+        void AddCoreEpisodeInfo();
+        void WriteStageFiles(ForgeConfig const& config) const;
+
+        bool Rebuild(Env& env);
+        /// Create and place seat `seat`'s next character (its layout is set). `map` is null for the env's first bot.
+        Player* BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start);
+        void Configure(Player* bot, SeatState& seat) const;
+        /// Every seat's potions, bandages, stones and flask for the episode (after the encounters are built).
+        void StockSeats(Env& env);
+        /// Dead players with a resurrection request accept it, as a client does; the reviving seat is credited.
+        void AcceptResurrections(Env& env);
+
+        /// What the seat's actions aim at: the dummy or creature, the selected pack enemy, the enemy player. Null
+        /// between gauntlet pulls.
+        [[nodiscard]] Unit* CurrentTarget(Env const& env, uint32 seat);
+        [[nodiscard]] SeatView ViewSeat(Env const& env, uint32 seat, Player* bot, Unit* target) const;
+        void ApplySeatAction(Env& env, uint32 seat, int32 action);
+        void ObserveSeat(Env& env, uint32 seat, float* obs, uint8* mask);
+        [[nodiscard]] float SeatReward(Env& env, uint32 seat);
+        void WriteState(Env const& env, float* state) const;
+
+        StageDefinition const& _stage;
+        CurriculumTuning _tuning;
+        uint32 _spawnMapId;
+        Position _spawnPoint;
+        uint32 _seatCount = 1;
+        float _decisionScale = 1.0f;
+
+        std::vector<Layout> _layouts;
+        ScenarioSpec _spec;
+        EpisodeInfoTable _info;
+        std::vector<EnvState> _data;
+
+        /// In build order: opponent, owner, party group, pulls, creature, dummy.
+        std::vector<std::unique_ptr<Encounter>> _encounters;
+        /// The same encounters in reward order: a reward may read what an earlier one recorded this decision.
+        std::vector<Encounter*> _rewardOrder;
+        OwnerEncounter* _owner = nullptr;
+        PartyEncounter* _party = nullptr;
+    };
+}
+
+#endif

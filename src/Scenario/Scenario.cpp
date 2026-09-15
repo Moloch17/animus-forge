@@ -17,20 +17,19 @@
  */
 
 #include "Scenario.h"
-#include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
 #include "StageDefinition.h"
+#include "StageScenario.h"
 
 /*
- * Every scenario the module can run, by the name used in AnimusForge.Queue: the class/role curriculum's stages
- * (ClassRoleStages). Adding a standalone scenario = implementing Scenario, one branch in CreateScenario and its name in
- * ScenarioNames.
+ * Every scenario the module can run, by the name used in AnimusForge.Queue: the curriculum's stages (CurriculumStages).
+ * Adding a standalone scenario = implementing Scenario, one branch in CreateScenario and its name in ScenarioNames.
  */
 
 std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(std::string const& name, ForgeConfig const& config)
 {
-    if (ClassRole::StageDefinition const* stage = ClassRole::FindStage(name))
-        return std::make_unique<ClassRole::ClassRoleScenario>(config, *stage);
+    if (Curriculum::StageDefinition const* stage = Curriculum::FindStage(name))
+        return std::make_unique<Curriculum::StageScenario>(config, *stage);
 
     return nullptr;
 }
@@ -38,7 +37,7 @@ std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(std::string c
 std::vector<std::string> AnimusForge::ScenarioNames()
 {
     std::vector<std::string> names;
-    for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
+    for (Curriculum::StageDefinition const& stage : Curriculum::CurriculumStages())
         names.push_back(stage.Name);
 
     return names;

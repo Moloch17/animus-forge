@@ -31,13 +31,13 @@ namespace AnimusForge
     constexpr uint32 SIM_TICK_MS = 50;
 
     /// Module settings, read once at startup (mod_animus_forge.conf.dist documents every key). Only settings: what is
-    /// running lives in Forge. The class/role curriculum's tuning is ClassRoleTuning.
+    /// running lives in Forge. The curriculum's tuning is CurriculumTuning.
     struct ForgeConfig
     {
         bool Enable = true;
 
         /// AnimusForge.Queue: the scenarios `forge start` trains, one after another, when given none. Empty =
-        /// every class/role stage, first to last.
+        /// every curriculum stage, first to last.
         std::vector<std::string> Queue;
 
         /// AnimusForge.Queue.SkipFinished: `forge start` without scenarios skips those whose run already finished

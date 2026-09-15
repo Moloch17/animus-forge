@@ -383,7 +383,7 @@ std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
         return _config.Queue;
 
     std::vector<std::string> stages;
-    for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
+    for (Curriculum::StageDefinition const& stage : Curriculum::CurriculumStages())
         stages.push_back(stage.Name);
 
     return stages;
@@ -407,7 +407,7 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
     // tree (or starts from scratch) unless that base already advanced in an earlier run.
     for (std::size_t index = 0; index < scenarios.size(); ++index)
     {
-        ClassRole::StageDefinition const* stage = ClassRole::FindStage(scenarios[index]);
+        Curriculum::StageDefinition const* stage = Curriculum::FindStage(scenarios[index]);
         if (!stage || stage->Extends.empty())
             continue;
 

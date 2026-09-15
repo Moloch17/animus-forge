@@ -1,4 +1,4 @@
-# Learner config for stage1_duel, stage 1 of the class/role curriculum, and the root every later stage extends: one
+# Learner config for stage1_duel, stage 1 of the curriculum, and the root every later stage extends: one
 # policy for every class/role of AnimusForge.ClassRoles (all 18 by default). Each class/role is a layout: its own input
 # adapter and action head around a shared trunk. The run trains in <runs_dir>/stage1_duel/; export writes one model
 # per class/role (warrior_dps_duel.amdl, ...).

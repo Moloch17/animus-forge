@@ -41,7 +41,7 @@ AnimusForge.OutputDir = ""
 #                     name and lists the available scenarios. Each scenario trains in
 #                     <OutputDir>/runs/<scenario>/. Like any config key it can also be set from the
 #                     environment: AC_ANIMUS_FORGE_QUEUE.
-#        Values:      Class/role curriculum: one policy for every class/role of AnimusForge.ClassRoles,
+#        Values:      Curriculum: one policy for every class/role of AnimusForge.ClassRoles,
 #                     one scenario per stage. Every episode each learned seat is a new character of a
 #                     class/role: a random race the class allows, gender, level (1-80; 55-80 for death
 #                     knights), one of the role's specs with its standard talent build and glyphs, the
@@ -62,7 +62,7 @@ AnimusForge.OutputDir = ""
 #                                            the duel)
 #                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
 #        Example:     "stage1_duel" - (train a single scenario)
-#        Default:     "" - (the whole class/role curriculum, first stage to last)
+#        Default:     "" - (the whole curriculum, first stage to last)
 
 AnimusForge.Queue = ""
 
@@ -90,7 +90,7 @@ AnimusForge.Queue.LocalEpisodes = 0
 
 #
 #    AnimusForge.ClassRoles
-#        Description: Comma-separated class/roles the class/role scenarios play (their layouts). A subset
+#        Description: Comma-separated class/roles the curriculum stages play (their layouts). A subset
 #                     trains a policy for just those, e.g. "warrior_dps, priest_heal". Changing the list
 #                     changes the layouts: models of the earlier list do not fit the new one.
 #                     Available: warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
@@ -147,8 +147,8 @@ AnimusForge.SpawnPoint.O     = 2.96
 #        Description: Who chooses actions.
 #        Values:      "remote"          - lock-step with the Python learner over AnimusForge.Socket
 #                     "random"          - uniform over unmasked actions
-#                     "greedy"          - (class/role stages) first usable spell or trinket
-#                     "fight"           - (class/role stages with the duel block) start attacking, run
+#                     "greedy"          - (curriculum stages) first usable spell or trinket
+#                     "fight"           - (curriculum stages with the duel block) start attacking, run
 #                                         to the target, first usable spell; eat and drink between
 #                                         gauntlet pulls; heal a hurt owner or teammate
 #        Default:     "remote"
@@ -320,213 +320,213 @@ AnimusForge.ModelDir = ""
 AnimusForge.Progress.Interval = 60
 
 ###################################################################################################
-# CLASS/ROLE TUNING
+# CURRICULUM TUNING
 #
-# What the class/role curriculum trains on and what it is paid for: the characters, parties, pulls
+# What the curriculum trains on and what it is paid for: the characters, parties, pulls
 # and scripted players it meets, and the reward weights. Every key is optional; a missing one keeps
 # the default shown. The effective values are written to <OutputDir>/layouts/<stage>/stage.json and
 # copied into every run directory. Per-decision reward terms are tuned per 50 ms decision and scaled
 # with AnimusForge.DecisionTicks.
 
 #
-#    AnimusForge.ClassRole.Characters.*
+#    AnimusForge.Curriculum.Characters.*
 #        The seat characters.
 
 #   levels at or above this are "high"
-AnimusForge.ClassRole.Characters.HighLevelFirst = 61
+AnimusForge.Curriculum.Characters.HighLevelFirst = 61
 #   percent of characters drawn from the high levels
-AnimusForge.ClassRole.Characters.HighLevelChance = 50
+AnimusForge.Curriculum.Characters.HighLevelChance = 50
 
 #
-#    AnimusForge.ClassRole.Party.*
+#    AnimusForge.Curriculum.Party.*
 #        Which party seats have a character, and their roles.
 
 #   relative chance of 1, 2, 3 or 4 seats with a character
-AnimusForge.ClassRole.Party.SizeWeight1 = 20
-AnimusForge.ClassRole.Party.SizeWeight2 = 20
-AnimusForge.ClassRole.Party.SizeWeight3 = 20
-AnimusForge.ClassRole.Party.SizeWeight4 = 40
+AnimusForge.Curriculum.Party.SizeWeight1 = 20
+AnimusForge.Curriculum.Party.SizeWeight2 = 20
+AnimusForge.Curriculum.Party.SizeWeight3 = 20
+AnimusForge.Curriculum.Party.SizeWeight4 = 40
 #   percent: tank, healer, damage dealers instead of drawn roles
-AnimusForge.ClassRole.Party.ClassicChance = 50
+AnimusForge.Curriculum.Party.ClassicChance = 50
 #   drawn roles: percent tanks, healers, the rest damage dealers
-AnimusForge.ClassRole.Party.RoleTankChance = 25
-AnimusForge.ClassRole.Party.RoleHealerChance = 25
+AnimusForge.Curriculum.Party.RoleTankChance = 25
+AnimusForge.Curriculum.Party.RoleHealerChance = 25
 #   damage dealers: a non-tank teammate's damage taken
-AnimusForge.ClassRole.Party.TeammateDamageTakenDps = 0.5
+AnimusForge.Curriculum.Party.TeammateDamageTakenDps = 0.5
 #   tanks and healers
-AnimusForge.ClassRole.Party.TeammateDamageTakenProtector = 1.0
+AnimusForge.Curriculum.Party.TeammateDamageTakenProtector = 1.0
 #   healers: effective healing, fraction of its health
-AnimusForge.ClassRole.Party.TeammateHealing = 2.0
+AnimusForge.Curriculum.Party.TeammateHealing = 2.0
 #   tanks: per enemy on a non-tank teammate, per decision
-AnimusForge.ClassRole.Party.TankLoseTeammate = 0.02
-AnimusForge.ClassRole.Party.TeammateDeath = 3.0
+AnimusForge.Curriculum.Party.TankLoseTeammate = 0.02
+AnimusForge.Curriculum.Party.TeammateDeath = 3.0
 
 #
-#    AnimusForge.ClassRole.Duel.*
+#    AnimusForge.Curriculum.Duel.*
 #        One-on-one fights against a creature (the duel) or a player (PvP).
 
 #   fraction of the opponent's health: a kill is worth this in damage
-AnimusForge.ClassRole.Duel.DamageDealt = 2.0
+AnimusForge.Curriculum.Duel.DamageDealt = 2.0
 #   fraction of the bot's health
-AnimusForge.ClassRole.Duel.DamageTaken = 1.0
+AnimusForge.Curriculum.Duel.DamageTaken = 1.0
 #   shaping toward the spec's range, per 40 yd closed
-AnimusForge.ClassRole.Duel.Approach = 0.5
-AnimusForge.ClassRole.Duel.StealthOpener = 0.5
+AnimusForge.Curriculum.Duel.Approach = 0.5
+AnimusForge.Curriculum.Duel.StealthOpener = 0.5
 #   per decision
-AnimusForge.ClassRole.Duel.StepCost = 0.0002
-AnimusForge.ClassRole.Duel.Kill = 2.0
+AnimusForge.Curriculum.Duel.StepCost = 0.0002
+AnimusForge.Curriculum.Duel.Kill = 2.0
 #   times the fraction of the episode still left
-AnimusForge.ClassRole.Duel.FastKill = 3.0
+AnimusForge.Curriculum.Duel.FastKill = 3.0
 #   times the fraction of the bot's health not lost
-AnimusForge.ClassRole.Duel.HealthKept = 2.0
-AnimusForge.ClassRole.Duel.Death = 3.0
+AnimusForge.Curriculum.Duel.HealthKept = 2.0
+AnimusForge.Curriculum.Duel.Death = 3.0
 #   the range the approach shaping aims for, melee specs
-AnimusForge.ClassRole.Duel.MeleeRange = 3.5
+AnimusForge.Curriculum.Duel.MeleeRange = 3.5
 #   ... ranged specs
-AnimusForge.ClassRole.Duel.RangedRange = 25.0
+AnimusForge.Curriculum.Duel.RangedRange = 25.0
 
 #
-#    AnimusForge.ClassRole.Casting.*
+#    AnimusForge.Curriculum.Casting.*
 #        Cast-time spells, from the duel stage on.
 
 #   per second spent on a cast that did not finish
-AnimusForge.ClassRole.Casting.TimeWasted = 0.03
+AnimusForge.Curriculum.Casting.TimeWasted = 0.03
 #   per second of cast time of a cast that finished, in combat
-AnimusForge.ClassRole.Casting.TimeCompleted = 0.03
+AnimusForge.Curriculum.Casting.TimeCompleted = 0.03
 
 #
-#    AnimusForge.ClassRole.Pulls.*
+#    AnimusForge.Curriculum.Pulls.*
 #        Packs and the gauntlet's pull after pull.
 
 #   percent of pulls whose members aggro together
-AnimusForge.ClassRole.Pulls.LinkedChance = 70
+AnimusForge.Curriculum.Pulls.LinkedChance = 70
 #   gauntlet: a single elite instead of a pack
-AnimusForge.ClassRole.Pulls.EliteChance = 15
+AnimusForge.Curriculum.Pulls.EliteChance = 15
 #   gauntlet: a pack 1-3 levels above the bot
-AnimusForge.ClassRole.Pulls.HigherLevelChance = 25
+AnimusForge.Curriculum.Pulls.HigherLevelChance = 25
 #   party: per pack member
-AnimusForge.ClassRole.Pulls.PartyEliteChance = 50
+AnimusForge.Curriculum.Pulls.PartyEliteChance = 50
 #   gauntlet: the break between pulls
-AnimusForge.ClassRole.Pulls.NextPullMinMs = 8000
-AnimusForge.ClassRole.Pulls.NextPullMaxMs = 20000
+AnimusForge.Curriculum.Pulls.NextPullMinMs = 8000
+AnimusForge.Curriculum.Pulls.NextPullMaxMs = 20000
 #   with an owner: when it walks over to a new pull
-AnimusForge.ClassRole.Pulls.OwnerEngageMinMs = 1500
-AnimusForge.ClassRole.Pulls.OwnerEngageMaxMs = 5000
+AnimusForge.Curriculum.Pulls.OwnerEngageMinMs = 1500
+AnimusForge.Curriculum.Pulls.OwnerEngageMaxMs = 5000
 #   ... in a party, after the tank has had time to pull
-AnimusForge.ClassRole.Pulls.PartyOwnerEngageMinMs = 4000
-AnimusForge.ClassRole.Pulls.PartyOwnerEngageMaxMs = 7000
+AnimusForge.Curriculum.Pulls.PartyOwnerEngageMinMs = 4000
+AnimusForge.Curriculum.Pulls.PartyOwnerEngageMaxMs = 7000
 #   ... when the owner starts the pull itself
-AnimusForge.ClassRole.Pulls.OwnerPullsMinMs = 500
-AnimusForge.ClassRole.Pulls.OwnerPullsMaxMs = 1500
+AnimusForge.Curriculum.Pulls.OwnerPullsMinMs = 500
+AnimusForge.Curriculum.Pulls.OwnerPullsMaxMs = 1500
 #   percent of pulls a damage dealer or healer owner starts (tanks: all)
-AnimusForge.ClassRole.Pulls.OwnerPullsChance = 30
+AnimusForge.Curriculum.Pulls.OwnerPullsChance = 30
 #   owner stages: health and mana the dead stand up with after a pull
-AnimusForge.ClassRole.Pulls.RecoverFraction = 0.5
+AnimusForge.Curriculum.Pulls.RecoverFraction = 0.5
 #   fraction of the pull's total health
-AnimusForge.ClassRole.Pulls.DamageDealt = 2.0
+AnimusForge.Curriculum.Pulls.DamageDealt = 2.0
 #   pack: fraction of the bot's health
-AnimusForge.ClassRole.Pulls.DamageTaken = 1.0
+AnimusForge.Curriculum.Pulls.DamageTaken = 1.0
 #   gauntlet on: surviving many pulls matters more than any one
-AnimusForge.ClassRole.Pulls.GauntletDamageTaken = 1.5
-AnimusForge.ClassRole.Pulls.Approach = 0.5
-AnimusForge.ClassRole.Pulls.StealthOpener = 0.5
-AnimusForge.ClassRole.Pulls.Interrupt = 0.3
-AnimusForge.ClassRole.Pulls.Kill = 0.5
+AnimusForge.Curriculum.Pulls.GauntletDamageTaken = 1.5
+AnimusForge.Curriculum.Pulls.Approach = 0.5
+AnimusForge.Curriculum.Pulls.StealthOpener = 0.5
+AnimusForge.Curriculum.Pulls.Interrupt = 0.3
+AnimusForge.Curriculum.Pulls.Kill = 0.5
 #   per decision
-AnimusForge.ClassRole.Pulls.StepCost = 0.0002
-AnimusForge.ClassRole.Pulls.Clear = 2.0
+AnimusForge.Curriculum.Pulls.StepCost = 0.0002
+AnimusForge.Curriculum.Pulls.Clear = 2.0
 #   pack: times the fraction of the episode still left
-AnimusForge.ClassRole.Pulls.FastClear = 3.0
+AnimusForge.Curriculum.Pulls.FastClear = 3.0
 #   gauntlet: times 1 - pull time / 60 s
-AnimusForge.ClassRole.Pulls.FastPull = 2.0
+AnimusForge.Curriculum.Pulls.FastPull = 2.0
 #   times the fraction of the bot's health not lost this pull
-AnimusForge.ClassRole.Pulls.HealthKept = 2.0
-AnimusForge.ClassRole.Pulls.PackDeath = 3.0
-AnimusForge.ClassRole.Pulls.GauntletDeath = 5.0
+AnimusForge.Curriculum.Pulls.HealthKept = 2.0
+AnimusForge.Curriculum.Pulls.PackDeath = 3.0
+AnimusForge.Curriculum.Pulls.GauntletDeath = 5.0
 #   owner stages: kills and clears count this many times
-AnimusForge.ClassRole.Pulls.OwnerClearScale = 2.0
+AnimusForge.Curriculum.Pulls.OwnerClearScale = 2.0
 
 #
-#    AnimusForge.ClassRole.Owner.*
+#    AnimusForge.Curriculum.Owner.*
 #        The scripted owner of the companion and party stages.
 
 #   its level: the bot's plus or minus this
-AnimusForge.ClassRole.Owner.LevelSpread = 2
+AnimusForge.Curriculum.Owner.LevelSpread = 2
 #   percent tanks, healers, the rest damage dealers
-AnimusForge.ClassRole.Owner.TankChance = 25
-AnimusForge.ClassRole.Owner.HealerChance = 25
+AnimusForge.Curriculum.Owner.TankChance = 25
+AnimusForge.Curriculum.Owner.HealerChance = 25
 #   damage dealers: the owner's damage taken, fraction of its health
-AnimusForge.ClassRole.Owner.DamageTakenDps = 1.0
+AnimusForge.Curriculum.Owner.DamageTakenDps = 1.0
 #   tanks and healers exist to prevent it
-AnimusForge.ClassRole.Owner.DamageTakenProtector = 2.0
+AnimusForge.Curriculum.Owner.DamageTakenProtector = 2.0
 #   a tank owner is hit by design: its damage taken counts this much
-AnimusForge.ClassRole.Owner.TankOwnerDamageShare = 0.25
+AnimusForge.Curriculum.Owner.TankOwnerDamageShare = 0.25
 #   healers: effective healing, fraction of the owner's health
-AnimusForge.ClassRole.Owner.Healing = 2.0
+AnimusForge.Curriculum.Owner.Healing = 2.0
 #   tanks: soften the pulls' damage taken
-AnimusForge.ClassRole.Owner.TankDamageRefund = 0.5
+AnimusForge.Curriculum.Owner.TankDamageRefund = 0.5
 #   tanks: per enemy on the tank, per decision
-AnimusForge.ClassRole.Owner.TankHold = 0.002
+AnimusForge.Curriculum.Owner.TankHold = 0.002
 #   tanks: per enemy on the owner, per decision
-AnimusForge.ClassRole.Owner.TankLose = 0.02
+AnimusForge.Curriculum.Owner.TankLose = 0.02
 #   damage dealers and healers: per enemy on the bot, per decision
-AnimusForge.ClassRole.Owner.PulledThreat = 0.004
+AnimusForge.Curriculum.Owner.PulledThreat = 0.004
 #   per decision in combat while the owner is not
-AnimusForge.ClassRole.Owner.SoloFight = 0.01
+AnimusForge.Curriculum.Owner.SoloFight = 0.01
 #   per decision out of combat beyond FollowFarDistance
-AnimusForge.ClassRole.Owner.FollowFar = 0.002
+AnimusForge.Curriculum.Owner.FollowFar = 0.002
 #   per decision out of combat within FollowNearDistance
-AnimusForge.ClassRole.Owner.FollowNear = 0.0005
-AnimusForge.ClassRole.Owner.FollowFarDistance = 25.0
-AnimusForge.ClassRole.Owner.FollowNearDistance = 12.0
-AnimusForge.ClassRole.Owner.Death = 6.0
+AnimusForge.Curriculum.Owner.FollowNear = 0.0005
+AnimusForge.Curriculum.Owner.FollowFarDistance = 25.0
+AnimusForge.Curriculum.Owner.FollowNearDistance = 12.0
+AnimusForge.Curriculum.Owner.Death = 6.0
 
 #
-#    AnimusForge.ClassRole.Resurrection.*
+#    AnimusForge.Curriculum.Resurrection.*
 #        Resurrecting: a seat's own Soulstone or Reincarnation, and revives on allies (companion
 #        and party stages). Nobody is revived automatically while a resurrection is possible.
 
 #   the dead wait this long (ms) for a resurrection they can get before solo stages end and
 #   owner stages stand them up (the next pull waits too)
-AnimusForge.ClassRole.Resurrection.GraceMs = 20000
+AnimusForge.Curriculum.Resurrection.GraceMs = 20000
 #   a dead ally the seat resurrected stood up
-AnimusForge.ClassRole.Resurrection.ReviveAlly = 1.5
+AnimusForge.Curriculum.Resurrection.ReviveAlly = 1.5
 
 #
-#    AnimusForge.ClassRole.Opponent.*
+#    AnimusForge.Curriculum.Opponent.*
 #        The scripted enemy player of the PvP stage.
 
-AnimusForge.ClassRole.Opponent.LevelSpread = 1
+AnimusForge.Curriculum.Opponent.LevelSpread = 1
 #   it starts fighting up to this long into the episode
-AnimusForge.ClassRole.Opponent.EngageMaxMs = 3000
-AnimusForge.ClassRole.Opponent.HealerChance = 20
-AnimusForge.ClassRole.Opponent.TankChance = 20
+AnimusForge.Curriculum.Opponent.EngageMaxMs = 3000
+AnimusForge.Curriculum.Opponent.HealerChance = 20
+AnimusForge.Curriculum.Opponent.TankChance = 20
 
 #
-#    AnimusForge.ClassRole.ScriptedPlayers.*
+#    AnimusForge.Curriculum.ScriptedPlayers.*
 #        How the scripted players (owner, PvP opponent) play.
 
 #   time between damage spells
-AnimusForge.ClassRole.ScriptedPlayers.SpellMinMs = 2000
-AnimusForge.ClassRole.ScriptedPlayers.SpellMaxMs = 4000
+AnimusForge.Curriculum.ScriptedPlayers.SpellMinMs = 2000
+AnimusForge.Curriculum.ScriptedPlayers.SpellMaxMs = 4000
 #   time between heals
-AnimusForge.ClassRole.ScriptedPlayers.HealMinMs = 1500
-AnimusForge.ClassRole.ScriptedPlayers.HealMaxMs = 2500
+AnimusForge.Curriculum.ScriptedPlayers.HealMinMs = 1500
+AnimusForge.Curriculum.ScriptedPlayers.HealMaxMs = 2500
 #   between pulls: time between wander steps
-AnimusForge.ClassRole.ScriptedPlayers.WanderMinMs = 6000
-AnimusForge.ClassRole.ScriptedPlayers.WanderMaxMs = 12000
+AnimusForge.Curriculum.ScriptedPlayers.WanderMinMs = 6000
+AnimusForge.Curriculum.ScriptedPlayers.WanderMaxMs = 12000
 #   of max health and mana per second, out of combat
-AnimusForge.ClassRole.ScriptedPlayers.RegenFraction = 0.04
+AnimusForge.Curriculum.ScriptedPlayers.RegenFraction = 0.04
 #   healers heal party members under this health fraction
-AnimusForge.ClassRole.ScriptedPlayers.HealBelow = 0.85
+AnimusForge.Curriculum.ScriptedPlayers.HealBelow = 0.85
 #   PvP healers heal themselves under this
-AnimusForge.ClassRole.ScriptedPlayers.SelfHealBelow = 0.6
+AnimusForge.Curriculum.ScriptedPlayers.SelfHealBelow = 0.6
 #   healers stay this close to the tank
-AnimusForge.ClassRole.ScriptedPlayers.HealerRange = 30.0
-AnimusForge.ClassRole.ScriptedPlayers.TauntRange = 25.0
+AnimusForge.Curriculum.ScriptedPlayers.HealerRange = 30.0
+AnimusForge.Curriculum.ScriptedPlayers.TauntRange = 25.0
 #   PvP: a ranged spec backs off inside half this ...
-AnimusForge.ClassRole.ScriptedPlayers.RangedMin = 20.0
+AnimusForge.Curriculum.ScriptedPlayers.RangedMin = 20.0
 #   ... and closes in beyond this
-AnimusForge.ClassRole.ScriptedPlayers.RangedMax = 30.0
+AnimusForge.Curriculum.ScriptedPlayers.RangedMax = 30.0
 
 ###################################################################################################

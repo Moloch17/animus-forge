@@ -1,4 +1,4 @@
-# Stage 5 of the class/role curriculum: up to four learned agents per env -- a tank, a healer and damage dealers of
+# Stage 5 of the curriculum: up to four learned agents per env -- a tank, a healer and damage dealers of
 # random classes -- with the scripted owner as the fifth player, against elite-heavy packs. Every agent assists,
 # guards and heals its teammates; tanks hold the pull, healers keep the party up, damage dealers stay off the threat
 # table. Like the gauntlet, give it episodes of several minutes. Env steps count every agent's decisions.

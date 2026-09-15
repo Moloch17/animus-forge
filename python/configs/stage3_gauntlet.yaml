@@ -1,4 +1,4 @@
-# Stage 3 of the class/role curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with
+# Stage 3 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with
 # breaks between, until the bot dies or the episode ends. Heals, food and drink are there for recovering between pulls.
 # Each cleared pull pays for speed and health kept. Give it long episodes (AnimusForge.EpisodeSeconds of several
 # minutes) so there are many pulls.

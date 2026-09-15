@@ -1,6 +1,6 @@
 """The sim's stage descriptions.
 
-When the worldserver builds a class/role stage it writes ``<layouts_dir>/<scenario>/stage.json`` beside the stage's
+When the worldserver builds a curriculum stage it writes ``<layouts_dir>/<scenario>/stage.json`` beside the stage's
 layout manifests: the stage's blocks, the stages it seeds from (``seed_chain``, closest first), the model name of
 every layout, its episode info columns and the effective tuning. The learner copies it into the run directory, seeds
 from it, and export names models from it.
@@ -19,7 +19,7 @@ def stage_dir(layouts_dir: str | Path, scenario: str) -> Path:
 
 
 def load_stage(layouts_dir: str | Path, scenario: str) -> dict | None:
-    """The scenario's stage.json, or None for a scenario without one (not a class/role stage, or not built yet)."""
+    """The scenario's stage.json, or None for a scenario without one (not a curriculum stage, or not built yet)."""
     path = stage_dir(layouts_dir, scenario) / STAGE_FILE
     return json.loads(path.read_text()) if path.is_file() else None
 
