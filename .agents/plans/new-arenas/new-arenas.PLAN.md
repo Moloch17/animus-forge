@@ -1,6 +1,23 @@
 # new-arenas: PvE and PvP in one branching curriculum, up to raids and battlegrounds
 
-Branch: `new-arenas` (from `master` at f33267c). Status: plan only, no code yet.
+Branch: `new-arenas` (from `master` at f33267c). Status: plan; only the renames below are done.
+
+## Naming (done on this branch)
+
+| Before | Now | Why |
+|---|---|---|
+| `src/Scenario/ClassRole/`, `AnimusForge::ClassRole` | `src/Scenario/Curriculum/`, `AnimusForge::Curriculum` | it is the whole curriculum; class/role is only the layout axis |
+| `ClassRoleScenario`, `ClassRoleState.h` | `StageScenario`, `StageState.h` | one scenario plays one stage (and, with this plan, its arenas) |
+| `ClassRoleTuning`, `ClassRoleStages()` | `CurriculumTuning`, `CurriculumStages()` | |
+| `AnimusForge.ClassRole.<Group>.<Name>` | `AnimusForge.Curriculum.<Group>.<Name>` | this plan's `AnimusForge.Curriculum.Arena.*` keys fit next to them |
+| `warrior_dummy_20`, `WarriorDummy20Scenario` | `bench_arms_warrior_20`, `Bench::ArmsWarriorBenchScenario` | a fixed benchmark and mechanics check, not a stage |
+| `AnimusForge.WarriorDummy20.HsRageThreshold` | `AnimusForge.Bench.ArmsWarrior20.HsRageThreshold` | |
+| `TrainingDummy::ClearSpawnArea` | `SpawnArea::Clear` | used by every scenario, nothing to do with dummies |
+| `TrainingDummy::Spawn` | `Bench::TrainingDummy::Spawn` | only the bench uses it |
+
+Kept: `ClassRoleProfile`, `ClassRoleAssets`, `AnimusForge.ClassRoles`, the manifest `class_role` key and layout names
+(`warrior_dps`), so exported models and manifests are unchanged. mod-animus gets the matching rename on its own
+`new-arenas` branch.
 
 ## 1. Goal
 
@@ -27,15 +44,15 @@ everything.
 
 | Piece | Where | Relevant fact |
 |---|---|---|
-| Stage tree | `src/Scenario/ClassRole/Stages/Stages.cpp` | `duel ─┬─ pack ─ gauntlet ─ companion ─ party` / `└─ pvp ─ arena`; one `Extends` per stage |
+| Stage tree | `src/Scenario/Curriculum/Stages/Stages.cpp` | `duel ─┬─ pack ─ gauntlet ─ companion ─ party` / `└─ pvp ─ arena`; one `Extends` per stage |
 | Stage shape | `Stages/StageDefinition.h` | `Seats`, `Against`, `Schedule`, `Owner`, `PartyGroup` are **per stage** |
 | Blocks | `Layout/Block.h`, `Blocks/*` | Stateless. They write zeros when their `SeatView` part is null (`PvpBlock` returns without an opponent, `CompanionBlock` reads `view.Owner`) |
 | Fixed sizes | `Block.h` | `MAX_SEATS=4`, `PARTY_MEMBERS=3`, `PACK_SLOTS=4`, `STABLE_SLOTS=4` |
 | Encounters | `Encounters/Encounters.h` | Per-env state, created from the stage. `PullsEncounter` and `OwnerEncounter` read `_scenario.Stage()` (`PullsEncounter.cpp:97,145,488,556`, `OwnerEncounter.cpp:252`) |
-| Stage-wide PvP switches | `ClassRoleScenario.cpp:630,719,790` | Resilience gear and no self-resurrection come from `_stage.Has(BlockId::Pvp)` |
-| Seat plan | `ClassRoleScenario.cpp:503-558` | Party draws 1-4 active seats; **empty seats already work** (layout 0, no-op only, reward 0) |
+| Stage-wide PvP switches | `StageScenario.cpp:630,719,790` | Resilience gear and no self-resurrection come from `_stage.Has(BlockId::Pvp)` |
+| Seat plan | `StageScenario.cpp:503-558` | Party draws 1-4 active seats; **empty seats already work** (layout 0, no-op only, reward 0) |
 | Episode length | `ForgeConfig.cpp:74`, `EnvPool.cpp:34,47` | One global `EpisodeSeconds`, but `Env::EpisodeLengthMs` is per env |
-| Critic state | `ClassRoleScenario.cpp:170,920-986` | `STATE_GLOBAL + MAX_SEATS*seat + PACK_SLOTS*enemy`, fixed slots |
+| Critic state | `StageScenario.cpp:170,920-986` | `STATE_GLOBAL + MAX_SEATS*seat + PACK_SLOTS*enemy`, fixed slots |
 | Eval seeds | `EnvPool.cpp:285-300` | Seed index *i* goes to **whichever env resets next**, so anything drawn in `Rebuild` after the reseed is seed-determined |
 | Seeding | `python/animus/bootstrap.py`, `config.py:117` | One checkpoint: trunk copied; kept blocks remapped by `stage.json` spans; sizes must match per block |
 | Network | `python/animus/mappo/networks.py` | Per-layout adapter/head around a shared trunk; the critic sums a state encoder with the layout adapter |
@@ -79,7 +96,7 @@ Rejected alternative: two `EnvPool`s and two learners in one sim. It doubles the
 struct ArenaDefinition
 {
     std::string Name;               // "party", "arena_1v1", "ambush" (episode info, eval tables, tuning keys)
-    uint32 Weight = 1;              // share of episodes; AnimusForge.ClassRole.Arena.<stage>.<name>.Weight overrides
+    uint32 Weight = 1;              // share of episodes; AnimusForge.Curriculum.Arena.<stage>.<name>.Weight overrides
     SeatPlan Seats = SeatPlan::Solo;
     Opposition Against = Opposition::Creature;
     PullSchedule Schedule = PullSchedule::None;
@@ -103,7 +120,7 @@ struct StageDefinition
   Every name in `Extends` is an earlier valid stage.
 - **Existing stages** get a single arena whose fields are their current `Seats`/`Against`/... Stages 1-7 behave
   exactly as now and keep their scenario names.
-- **Per-episode arena draw**: `EnvState::Arena`, drawn at the top of `ClassRoleScenario::Rebuild`. `EnvPool` has
+- **Per-episode arena draw**: `EnvState::Arena`, drawn at the top of `StageScenario::Rebuild`. `EnvPool` has
   already reseeded by then, so evaluation seed *i* always gets the same arena whatever the env count.
 - **Stage reads become arena reads**: `_stage.Seats/Against/Schedule/Owner/PartyGroup/Has(Pvp)` →
   `ArenaOf(env).X`, at the lines listed in §3. `Encounter` gets
@@ -184,7 +201,7 @@ distill:
 ### 5.6 Rewards and values across arenas
 
 - Return scales differ a lot (a 60 s duel vs a 10 min gauntlet with owner penalties). Add
-  `AnimusForge.ClassRole.Arena.<stage>.<name>.RewardScale` (default 1) and report `reward_per_decision` per arena in
+  `AnimusForge.Curriculum.Arena.<stage>.<name>.RewardScale` (default 1) and report `reward_per_decision` per arena in
   eval tables. Tune scales so per-arena mean |return| lands within about 3x of each other.
 - Shared `ValueNorm` first, with the critic reading the arena one-hot. If value loss is dominated by one arena, add
   **per-arena value heads**: `LayoutCritic.head` becomes `heads[arena]` indexed by the STEP arena id, with a
