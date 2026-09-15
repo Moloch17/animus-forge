@@ -112,6 +112,10 @@ namespace AnimusForge::ClassRole
 
     [[nodiscard]] char const* RoleName(Role role);
 
+    /// A random role: tank with `tankChance` percent, healer with `healerChance`, a damage dealer otherwise (one roll
+    /// from the world thread's random numbers, so seeded episodes draw the same role).
+    [[nodiscard]] Role RollRole(int32 tankChance, int32 healerChance);
+
     /// Per-decision damage scale of a level: roughly how a well-geared character's damage grows with level, so damage
     /// features and rewards have a similar size at every level (about 16 at level 1, 230 at 40, 3500 at 80).
     [[nodiscard]] float DamageScale(uint8 level);

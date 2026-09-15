@@ -17,6 +17,7 @@
  */
 
 #include "ClassRoleProfile.h"
+#include "Random.h"
 #include <cmath>
 
 namespace
@@ -51,6 +52,12 @@ char const* AnimusForge::ClassRole::RoleName(Role role)
     }
 
     return "dps";
+}
+
+AnimusForge::ClassRole::Role AnimusForge::ClassRole::RollRole(int32 tankChance, int32 healerChance)
+{
+    int32 const roll = irand(0, 99);
+    return roll < tankChance ? Role::Tank : roll < tankChance + healerChance ? Role::Heal : Role::Dps;
 }
 
 float AnimusForge::ClassRole::DamageScale(uint8 level)

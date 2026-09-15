@@ -98,9 +98,7 @@ bool AnimusForge::ClassRole::OwnerEncounter::Build(Env& env, Map* map, uint8 lev
         DEFAULT_MAX_LEVEL));
 
     // The owner stands in for a player of any role.
-    int32 const roll = irand(0, 99);
-    Role role = roll < tuning.TankChance ? Role::Tank : roll < tuning.TankChance + tuning.HealerChance ? Role::Heal
-        : Role::Dps;
+    Role role = RollRole(tuning.TankChance, tuning.HealerChance);
     std::vector<uint8> classes = ClassRoleAssets::ClassesForRole(ownerLevel, role);
     if (classes.empty())
     {
