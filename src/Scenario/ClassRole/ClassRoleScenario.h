@@ -158,7 +158,7 @@ namespace AnimusForge::ClassRole
         [[nodiscard]] bool SeatCanResurrect(Env const& env, uint32 seat) const;
 
     private:
-        [[nodiscard]] Layout const& PickLayout(Role role, uint8 maxMinLevel) const;
+        [[nodiscard]] Layout const& PickLayout(Role role) const;
         void AddCoreEpisodeInfo();
         void WriteStageFiles(ForgeConfig const& config) const;
 

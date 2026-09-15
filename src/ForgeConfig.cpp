@@ -17,7 +17,9 @@
  */
 
 #include "ForgeConfig.h"
+#include "BotAccounts.h"
 #include "Config.h"
+#include "Log.h"
 #include "Tokenize.h"
 #include <algorithm>
 #include <cctype>
@@ -70,6 +72,12 @@ void AnimusForge::ForgeConfig::Load()
     ClassRoles = GetList("AnimusForge.ClassRoles");
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
+    if (Envs > BotAccounts::MAX_ENVS)
+    {
+        LOG_ERROR("module.animus", "AnimusForge.Envs = {} is more than bot account ids allow; using {}", Envs,
+            BotAccounts::MAX_ENVS);
+        Envs = BotAccounts::MAX_ENVS;
+    }
     DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 2));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 

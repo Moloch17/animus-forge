@@ -49,6 +49,8 @@ namespace
     using namespace AnimusForge::SpellChecks;
     using Encoding::RelativePosition;
 
+    static_assert(MAX_SEATS <= AnimusForge::BotAccounts::SEATS_PER_ENV, "every seat needs its own bot accounts");
+
     constexpr float PARTY_SPACING = 3.0f;
     constexpr float REWARD_TUNING_MS = 50.0f;       // per-decision reward terms are tuned for this decision interval
     constexpr float MAX_COMBAT_TIME_MS = 60000.0f;
@@ -421,13 +423,12 @@ Player* AnimusForge::ClassRole::ClassRoleScenario::PartyTank(Env const& env) con
     return _party ? _party->Tank(env) : nullptr;
 }
 
-AnimusForge::ClassRole::Layout const& AnimusForge::ClassRole::ClassRoleScenario::PickLayout(Role role,
-    uint8 maxMinLevel) const
+AnimusForge::ClassRole::Layout const& AnimusForge::ClassRole::ClassRoleScenario::PickLayout(Role role) const
 {
     // A class/role of the role if the run has one; any otherwise (AnimusForge.ClassRoles may leave roles out).
     std::vector<Layout const*> candidates;
     for (Layout const& layout : _layouts)
-        if (layout.PlayRole() == role && layout.Assets->Kit->MinLevel() <= maxMinLevel)
+        if (layout.PlayRole() == role)
             candidates.push_back(&layout);
 
     if (candidates.empty())
@@ -547,7 +548,7 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
     uint8 minLevel = 1;
     for (uint32 seat = 0; seat < _seatCount; ++seat)
     {
-        data.Seats[seat].L = seat < data.ActiveSeats ? &PickLayout(roles[seat], DEFAULT_MAX_LEVEL) : nullptr;
+        data.Seats[seat].L = seat < data.ActiveSeats ? &PickLayout(roles[seat]) : nullptr;
         if (data.Seats[seat].L)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
     }

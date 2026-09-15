@@ -37,6 +37,10 @@ namespace AnimusForge::BotAccounts
     constexpr uint32 OWNER_OFFSET = 100000;
     constexpr uint32 OPPONENT_OFFSET = 300000;
 
+    /// Most envs whose seat accounts stay below the owner range (the owner and opponent ranges hold more).
+    constexpr uint32 MAX_ENVS = OWNER_OFFSET / (SEATS_PER_ENV * SESSIONS_PER_BOT);
+    static_assert(MAX_ENVS * SESSIONS_PER_BOT <= OPPONENT_OFFSET - OWNER_OFFSET, "owner accounts overlap opponents'");
+
     /// A learned agent's bot: env, seat, session slot.
     [[nodiscard]] constexpr uint32 Seat(uint32 env, uint32 seat, uint8 session)
     {

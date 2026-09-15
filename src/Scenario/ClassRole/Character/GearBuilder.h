@@ -83,6 +83,25 @@ namespace AnimusForge::ClassRole
             POOL_COUNT
         };
 
+        /// Head, shoulders, chest, waist, legs, feet, wrists and hands: the pools of cloth to plate armor.
+        [[nodiscard]] static bool IsBodyArmorPool(Pool pool)
+        {
+            switch (pool)
+            {
+                case POOL_HEAD:
+                case POOL_SHOULDERS:
+                case POOL_CHEST:
+                case POOL_WAIST:
+                case POOL_LEGS:
+                case POOL_FEET:
+                case POOL_WRISTS:
+                case POOL_HANDS:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         struct Candidate
         {
             uint32 ItemId = 0;

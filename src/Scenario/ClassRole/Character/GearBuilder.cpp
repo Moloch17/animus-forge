@@ -680,30 +680,32 @@ bool AnimusForge::ClassRole::GearBuilder::EquipFromPool(Player* bot, uint8 slot,
     // Body armor falls back to lighter armor types; everything falls back to items without the
     // profile's stats before leaving the slot empty.
     std::vector<int32> subclasses = { subclass };
-    if (subclass > ITEM_SUBCLASS_ARMOR_CLOTH && pool <= POOL_HANDS && pool != POOL_NECK)
+    if (subclass > ITEM_SUBCLASS_ARMOR_CLOTH && IsBodyArmorPool(pool))
         for (int32 lighter = subclass - 1; lighter >= int32(ITEM_SUBCLASS_ARMOR_CLOTH); --lighter)
             subclasses.push_back(lighter);
+
+    // Candidates are weighted by source, and by closeness to the middle of the level's band: most characters wear
+    // typical gear for their level, few the best or worst of it.
+    auto const [low, high] = ItemLevelBand(level);
+    float const center = (float(low) + float(high)) / 2.0f;
+    float const halfWidth = std::max(1.0f, (float(high) - float(low)) / 2.0f);
 
     for (bool needStats : { true, false })
     {
         for (int32 armorSubclass : subclasses)
         {
             std::vector<Candidate const*> candidates = Window(pool, level, stats, armorSubclass, needStats, pvp);
+            std::vector<double> weights;
+            weights.reserve(candidates.size());
+            for (Candidate const* c : candidates)
+                weights.push_back(c->Weight / (1.0 + std::abs(float(c->ItemLevel) - center) / halfWidth));
+
             for (uint32 attempt = 0; attempt < EQUIP_ATTEMPTS && !candidates.empty(); ++attempt)
             {
-                // Weighted by source, and by closeness to the middle of the level's band: most characters wear
-                // typical gear for their level, few the best or worst of it.
-                auto const [low, high] = ItemLevelBand(level);
-                float const center = (float(low) + float(high)) / 2.0f;
-                float const halfWidth = std::max(1.0f, (float(high) - float(low)) / 2.0f);
-                std::vector<double> weights;
-                weights.reserve(candidates.size());
-                for (Candidate const* c : candidates)
-                    weights.push_back(c->Weight / (1.0 + std::abs(float(c->ItemLevel) - center) / halfWidth));
-
                 uint32 const pick = urandweighted(weights.size(), weights.data());
                 Candidate const* candidate = candidates[pick];
                 candidates.erase(candidates.begin() + pick);
+                weights.erase(weights.begin() + pick);
 
                 int32 const randomId = candidate->RandomIds.empty() ? 0
                     : candidate->RandomIds[urand(0, uint32(candidate->RandomIds.size()) - 1)];
