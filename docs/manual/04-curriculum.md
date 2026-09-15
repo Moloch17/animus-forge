@@ -1,28 +1,34 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. It has eight stages that train one policy for all 18 class/roles, starting from a
-one-on-one fight and ending with a stage that mixes PvE and PvP.
+`src/Scenario/Curriculum/`. It has eleven stages that train one policy for all 18 class/roles, starting from a
+one-on-one fight. One branch ends with a stage that mixes PvE and PvP; another teaches getting somewhere (riding,
+flying) and plays Warsong Gulch's rules.
 
 ```
 stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
-             └─ stage6_pvp ─ stage7_arena ────────────────────────────────────────┘
+             ├─ stage6_pvp ─ stage7_arena ─┬──────────────────────────────────────┘
+             │                             └─ stage11_flag
+             └─ stage9_travel ─┬─ stage10_flight      (stage11_flag also merges stage9_travel)
 ```
 
 | # | Stage | Extends (merges) | Blocks | Seats | Opposition | Episode |
 |---|---|---|---|---|---|---|
-| 1 | `stage1_duel` | none | core, duel | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
+| 1 | `stage1_duel` | none | core, duel, pet | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
 | 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear or death |
 | 3 | `stage3_gauntlet` | stage2 | + gauntlet | 1 | Pull after pull with breaks | Runs until death or the time limit |
 | 4 | `stage4_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
 | 5 | `stage5_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
-| 6 | `stage6_pvp` | stage1 | core, duel, pvp | 1 | A scripted enemy player | Ends when either dies |
-| 7 | `stage7_arena` | stage6 | core, duel, pvp | 2 (self-play) | The other seat | Ends when either dies |
-| 8 | `stage8_crossroads` | stage5 (stage7, 6, 4, 3, 1) | all nine | up to 4 | Eight arenas, including ambushes | Per arena |
-| - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pvp | 1 | Duel or scripted player, half and half | Per arena |
+| 6 | `stage6_pvp` | stage1 | core, duel, pet, pvp | 1 | A scripted enemy player | Ends when either dies |
+| 7 | `stage7_arena` | stage6 | core, duel, pet, pvp | 2 (self-play) | The other seat | Ends when either dies |
+| 8 | `stage8_crossroads` | stage5 (stage7, 6, 4, 3, 1) | the PvE and PvP ten | up to 4 | Eight arenas, including ambushes | Per arena |
+| 9 | `stage9_travel` | stage1 | core, duel, pet, travel | 1 | A place 60-320 yd away by path, level 20+ | Ends on arriving or death |
+| 10 | `stage10_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
+| 11 | `stage11_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
+| - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pet, pvp | 1 | Duel or scripted player, half and half | Per arena |
 
-`mix_duel_pvp` is not in the default queue. It exists to test arena mixing, merge seeding and distillation on a small
-problem. Train it by name.
+`mix_duel_pvp` is not in the default queue of `forge start`. It exists to test arena mixing, merge seeding and
+distillation on a small problem. Train it by name; a plain `forge fast` trains it with every other stage.
 
 ## 4.1 Defining a stage
 
@@ -47,13 +53,19 @@ An `ArenaDefinition` describes one situation:
 | `Name` | Unique within the stage. Used in episode info, `stage.json`, tuning keys and per-arena gates |
 | `Weight` | Share of episodes, overridable with `<TuningPrefix>Arena.<stage>.<arena>.Weight` |
 | `Seats` | `Solo` (1), `Party` (4 slots, 1-4 filled each episode), `Mirror` (2 that fight each other) |
-| `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush` |
+| `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
 | `Owner` | A scripted owner the seats fight for |
 | `PartyGroup` | The owner and seats form a core group |
 | `Pvp` | Resilience gear, no self-resurrection |
 | `EpisodeSeconds` | 0 = the host's `EpisodeSeconds` |
 | `Ambushers` | 0-2 scripted enemy players who attack the owner |
+| `Flying` | Travel: the objective is far enough that flying beats riding |
+
+A `StageDefinition` may also name its own `MapId` and `SpawnPoints` (0 = the host's `SpawnMapId` and `SpawnPosition`)
+and a `MinLevel` that raises every character's level, a fixed host level included. On a continent (a map that isn't
+instanceable, like Outland for `stage10_flight`) every env shares the map: each env's seats take one of the spawn
+points by env index and live in their own phase (`StageScenario::EnvPhase`), so no env sees another's.
 
 **Validation.** `CurriculumStages()` checks each definition in order and leaves out (with an error log) any stage
 that:
@@ -68,7 +80,9 @@ that:
   - pulls without `pack`, or a gauntlet without `gauntlet`
   - an owner without pulls or an ambush, or without `companion`
   - a party group without an owner, party seats and `party`
-  - mirror seats without `MirrorSeat`, or `MirrorSeat` without mirror seats
+  - mirror seats without `MirrorSeat` or `Flag`, or either without mirror seats
+  - travel without `travel` or other than one seat on its own (no owner, PvP or ambushers), `Flying` without travel,
+    or a flag match without `travel` and `flag`
   - more than 2 ambushers, ambushers without an owner and `pack`, or an `Ambush` arena with other than exactly one
     ambusher
   - fighting a player without `pvp`, a one-on-one against a player that isn't `Pvp`, or `Pvp` without a player
@@ -238,7 +252,12 @@ The same function builds training seats and live companions, so a model gets in 
 - **Enchants and gems** (`GearEnhancements`). At 70 and 80 every item is enhanced, and half of them while levelling:
   the best suitable enchant a player of that level could buy (enchanting skill 5 per level, reaching 300 at 60 and 450
   at 80; weapon procs by name), a matching gem per socket (the socket bonus when all match, meta gems last, epic gems
-  only at 80), death knight runeforges, and rogue poisons. No profession-only enchants or gems.
+  only at 80), death knight runeforges, rogue poisons, and shaman weapon imbues (enhancement: Windfury and
+  Flametongue; elemental: Flametongue; restoration: Earthliving; the highest rank known). No profession-only enchants
+  or gems.
+- **Riding** (`TravelBlock::LearnRiding`, layouts with the travel block). The level's riding as players learn it
+  (Apprentice at 20, Journeyman at 40, Expert at 60, Cold Weather Flying at 68, Artisan at 70) and the side's mounts
+  of each speed (60% and 100% ground, 150% and 280% flying).
 - **Supplies** (`Supplies`, applied by `StockSeats`). Five of the best healing potions, five mana potions (for mana
   users), five bandages with the level's First Aid skill, a healthstone and soulstone for warlocks, and at 70 and 80 a
   suitable flask (half the time an elixir while levelling). Gauntlet stages add five of the best vendor food and, for
@@ -255,16 +274,24 @@ The same function builds training seats and live companions, so a model gets in 
 - **one action per rank chain of every combat spell** a level-80 character of any of the class's races knows (trainer,
   starting and racial spells, active talents of all three trees). The action casts the highest rank the bot knows. A
   spell counts as combat if it deals damage, applies a damage-relevant buff, debuff or DoT, generates resources,
-  shapeshifts or summons. Movement, travel, crafting, pure heals and utility are excluded,
+  shapeshifts or summons, or if it is what separates a player from a rotation: charges and leaps (Charge, Intercept,
+  Intervene, Blink, Disengage), threat redirects (Misdirection, Tricks of the Trade), Spellsteal, and survival auras
+  (speed; mechanic and school immunity such as the PvP trinket, Every Man for Himself, Will of the Forsaken, Hand of
+  Freedom and Fear Ward; dodge, parry, block, reflection; Feign Death, Fade and invisibility). Mounts, teleports,
+  crafting, pure heals and charm are excluded,
 - one action per trinket slot.
 
 The catalog also provides three more lists that later blocks use:
 
 - `Tactical()` (pack block): interrupts, stuns (Sap included), silences, fears, roots, polymorphs, knockbacks, taunts,
-  Distract and offensive dispels.
+  snares, disarms, traps, Distract and offensive dispels.
 - `Sustain()` (gauntlet block): heals, HoTs, absorbs and friendly dispels.
 - `Revives()` (companion and party blocks): Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth, and a
   warlock's soulstone.
+
+A layout's **ally spells** (companion and party blocks, `Layout::AllySpells`) are every positive spell of the sustain
+list and the catalog that takes a friendly unit target: its heals first (`AllyHealCount`), then shields, Hands,
+Innervate, Misdirection, Tricks of the Trade, Earth Shield, Power Infusion, blessings and the like.
 
 Every action is masked each decision by the core's own `Spell::CheckCast`, run without casting (race, level, talent,
 cooldown, GCD, power, stance, range, reagents). As on a client, **no spell or item can start while a cast is in its cast
@@ -278,14 +305,17 @@ Casting goes through `ApplySpellAction`, which builds the `SpellCastTargets` a c
 | Block | Observation (summary) | Actions |
 |---|---|---|
 | `core` | 61 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
-| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, 4 call-beast actions (hunter) |
-| `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
+| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
+| `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
+| `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
 | `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left; each sustain spell's known and cooldown | Eat, drink; sustain spells |
-| `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally heal's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one heal-on-owner per ally heal, one revive-on-owner per revive |
-| `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, heals, revives |
-| `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; the opponent hidden (then only class, role, level and the cooldowns are written) | none |
+| `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally spell's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one cast-on-owner per ally spell, one revive-on-owner per revive |
+| `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, ally spells, revives |
+| `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
+| `travel` (16) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing and height; at the objective; in combat; speed; moving | Mount the fastest ground mount, mount the fastest flying mount, dismount, move to the objective (by path, or straight in the air), climb 15 yd, descend 15 yd |
+| `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 
 The core block's 61 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
@@ -295,7 +325,10 @@ last-step power change. All are normalised (see `Blocks/CoreBlock.h` for the sca
 
 Movement and casting constrain each other: movement actions are masked while casting, and cast-time or channelled
 spells are masked while running. The bot turns to face its target whenever it isn't running. Stop casting and cancel
-form need no target, so they stay available between pulls.
+form need no target, so they stay available between pulls. Layouts with the travel block act without a target too.
+
+Anyone in the air without flight (a dismount, a cast that took the mount away) falls to the ground with a player's fall
+damage (`MoveFall`, `Player::HandleFall`).
 
 With the pack block, every spell, movement and pet action aims at the **selected enemy**. When it dies, the nearest
 living enemy becomes the selection.
@@ -353,22 +386,47 @@ teammates (the other seats, in order) and is rewarded for them.
 healer 20%), its spec, talents, kit and resilience gear, spawned 40-50 yd away. It engages within `EngageMaxMs` (3 s).
 Melee specs fight in melee, ranged specs keep 10-30 yd (`RangedMin/Max`), and healers heal themselves below
 `SelfHealBelow`. A rogue sneaks up in Stealth `ScriptedPlayers.StealthChance` (50) percent of the time and opens with
-a stealth opener. Scripted enemy players see no more than a player: one that can neither see nor detect its enemy
-stops attacking, goes to where it last saw it and searches around there. In a mirror arena the "opponent" is the other
-seat. Both players get opposing factions and the PvP flag. Against a scripted player the episode is terminal when the seat dies or kills it. In a mirror arena it is
-terminal when either seat dies. PvP arenas allow no self-resurrection.
+a stealth opener. `ScriptedPlayers.TacticsChance` (75) percent of engagements it plays its kit: it interrupts the
+enemy's casts, crowd controls it every `ControlMin/MaxMs` (8-15 s) when it isn't already controlled, snares or roots a
+melee enemy before backing off (ranged specs), breaks crowd control under `BreakBelow` (60%) health and uses a
+defensive under `DefensiveBelow` (35%). Scripted enemy players see no more than a player: one that can neither see nor
+detect its enemy stops attacking, goes to where it last saw it and searches around there. In a mirror arena the
+"opponent" is the other seat. Both players get opposing factions and the PvP flag. Against a scripted player the
+episode is terminal when the seat dies or kills it. In a mirror arena it is terminal when either seat dies, except in
+a flag match. PvP arenas allow no self-resurrection.
 
 **`AmbushEncounter`** (`Ambushers > 0`). One or two scripted enemy players with the opponent's class, role and gear
 rules.
 
 - Beside pulls (`ambush` arena), they arrive `Ambush.MinMs`-`MaxMs` (20-120 s) into the episode, engage within
-  `EngageMaxMs`, attack the owner while it lives and then the nearest seat they can see (a hidden one only when they see none). They take enemy slots the pulls leave free
-  (a pull has at most 4 minus the arena's ambushers creatures). Every seat earns `Ambush.Kill` (3) per ambusher killed,
+  `EngageMaxMs`, attack the owner while it lives and then the nearest seat they can see (a hidden one only when they
+  see none). They take enemy slots the pulls leave free (a pull has at most 4 minus the arena's ambushers creatures). Every seat earns `Ambush.Kill` (3) per ambusher killed,
   and the pulls and owner rewards pay the rest.
 - Alone (`escort_duel`, `Opposition::Ambush`), exactly one ambusher is the whole fight from the start, paid as a
   one-on-one against it.
 
 The pvp block observes the first living ambusher.
+
+**`TravelEncounter`** (`Opposition::Travel`). An objective the seat has to reach: on the ground a place
+`Travel.ObjectiveMin`-`Max` (60-320) yd away that it can walk to by a path at most 1.8 times the straight line, not in
+water; in a `Flying` arena a place `FlyingMin`-`Max` (350-700) yd away. It arrives within 6 yd, on the ground. The
+episode is terminal on arriving or death with no resurrection left.
+
+**`FlagEncounter`** (`Opposition::Flag`, mirror seats). Warsong Gulch's rules between the two seats. The first seat's
+base is where it starts; the other's is a place `Flag.BaseMin`-`Max` (100-180) yd away by path, where it is teleported.
+
+- Touching (within `TouchDistance`, 4 yd) the other side's flag at its base or dropped takes it, and a carrier can't
+  ride (it is dismounted, and every decision after). Touching one's own dropped flag returns it. Bringing the other's
+  flag home while one's own is there captures it.
+- A carrier who dies drops the flag where it fell. A dropped flag goes home on its own after `DroppedReturnMs` (10 s).
+- The dead stand up at their base with full health after `RespawnMs` (15 s), like a graveyard wave.
+- The seat's travel objective follows the flags: take the other's flag home, return one's own, chase the carrier of
+  one's own flag, take the other's flag, pick it up where it lies.
+- The episode is terminal at `CapturesToWin` (3).
+
+Real battleground instances (Warsong Gulch's map, arenas with pillars) aren't used: their lifecycle (queues, a
+premature end when a side is short, players teleported out at the end, one instance per match) doesn't fit an env
+that keeps one instance for its lifetime.
 
 ## 4.6 Rewards
 
@@ -379,10 +437,10 @@ each term's episode total. Every term that any encounter of the stage pays becom
 `reward_<term>`, so TensorBoard shows exactly what the stage pays for.
 
 Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stealth_opener`, `stealth_utility`,
-`interrupt`, `kill`,
-`clear`, `health_kept`, `death`, `owner_damage_taken`, `owner_healing`, `tank_damage_refund`, `threat`, `solo_fight`,
-`follow`, `owner_death`, `teammate_damage_taken`, `teammate_healing`, `teammate_threat`, `teammate_death`, `revive`,
-`player_kill`.
+`interrupt`, `kill`, `clear`, `health_kept`, `death`, `owner_damage_taken`, `owner_healing`, `tank_damage_refund`,
+`threat`, `solo_fight`, `follow`, `owner_death`, `teammate_damage_taken`, `teammate_healing`, `teammate_threat`,
+`teammate_death`, `revive`, `player_kill`, `progress`, `arrive`, `flag_capture`, `flag_pickup`, `flag_return`,
+`carrier_kill`, `flag_lost`.
 
 ### Scales
 
@@ -434,18 +492,31 @@ and healers), healers' effective healing on teammates x2, tanks -0.02 per enemy 
 
 **Ambush**: +3 per ambusher killed, for every seat.
 
+**Travel** (`Travel.*`): potential-based shaping on the distance left to the objective (+1 per 100 yd closed, taken
+back for leaving), arriving +3 plus up to +3 for the share of the episode left, damage taken x1 (falls, what it rode
+past), death -3, step cost 0.0002. Nothing pays for mounting: a mount is worth its cast time only on a long enough
+trip, and the policy learns which.
+
+**Flag match** (`Flag.*`, instead of the one-on-one terms): capture +5, the other side capturing the seat's flag -3,
+taking the other's flag +1, returning its own +1, killing the carrier of its own flag +1.5, death -1, step cost 0.0002,
+and potential-based shaping toward the seat's current objective (+0.5 per 100 yd), started over whenever the
+objective changes, so a flag changing hands pays nothing by itself.
+
 ## 4.7 Scripted baselines
 
 `Baselines::Choose` reads a seat's row through its layout, so the baselines follow layout changes automatically.
 
 - **`greedy`**: the first allowed spell or trinket in catalog order. Every layout supports it.
 - **`fight`** (layouts with the duel block), first match wins:
-  1. with the gauntlet block and no target: eat when health is low, drink when mana is low,
-  2. with the companion block and ally heals: heal a living, hurt owner (cancel a form first if needed),
-  3. with the party block: heal the first hurt, living teammate a heal can reach,
-  4. start auto-attack,
-  5. move to a living target that is far away while not already moving,
-  6. otherwise `greedy`.
+  1. with the travel block and an objective: dismount at it; far from it and not mounted, a flying mount where one
+     flies, else a ground mount; on a flying mount climb to 20 yd, land at the objective; otherwise head for it (and
+     wait while moving, rather than cast something that would dismount),
+  2. with the gauntlet block and no target: eat when health is low, drink when mana is low,
+  3. with the companion block and ally heals: heal a living, hurt owner (cancel a form first if needed),
+  4. with the party block: heal the first hurt, living teammate a heal can reach,
+  5. start auto-attack,
+  6. move to a living target that is far away while not already moving,
+  7. otherwise `greedy`.
 
 They are the reference numbers a trained policy has to beat (evaluation baseline) and a mechanics smoke test
 (`forge run <stage> fight`).
@@ -480,7 +551,9 @@ writing. Min/max pairs are put in order on load.
 | `Resurrection.*` | Grace period, revive reward |
 | `Opponent.*` | Level spread, engage time, role chances |
 | `Ambush.*` | Arrival window, engage time, kill reward |
-| `ScriptedPlayers.*` | Spell and heal intervals, wandering, regeneration, heal thresholds, ranges |
+| `ScriptedPlayers.*` | Spell and heal intervals, wandering, regeneration, heal thresholds, ranges; PvP stealth and tactics chances, crowd control interval, defensive and break thresholds |
+| `Travel.*` | Objective distances on the ground and in the air, travel reward weights |
+| `Flag.*` | Base distance, captures to win, respawn and dropped-flag timers, touch distance, flag match reward weights |
 | `Arena.<stage>.<arena>.Weight` | Arena weights (read by `StageScenario`, not `Visit`) |
 
 The effective values are written into `stage.json` under `tuning` and copied into each run directory. To watch a stage
@@ -495,8 +568,8 @@ Every stage reports these **core columns** per seat:
 - `level`, `race`, `spec`, `class`, `role`, `unspent_talent_points`, `equipped_items`
 - `spell_casts`, `trinket_uses`
 - `present` (0 for an empty party seat; ignore that row), `arena` (index into `stage.json` arenas), `opponent_seat`
-- `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `stealth_utility_casts`, `pet_summoned`, `opponent` (creature
-  entry)
+- `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `stealth_utility_casts`,
+  `pet_summoned`, `opponent` (creature entry)
 - `casts_completed`, `casts_cancelled`, `cast_seconds_wasted`, `cancelled_stopped`, `cancelled_moved`,
   `cancelled_target`, `cancelled_other`
 - `consumables_used`, `self_resurrections`
@@ -510,6 +583,8 @@ Encounters then add their own columns:
 - party: `seat`, `teammates_died`, `teammate_damage_taken`, `teammate_healing`, `threat_on_teammates`
 - opponent: `won`, `opponent_class`, `opponent_role`
 - ambush: `ambushers`, `ambushers_killed`
+- travel: `arrived`, `travel_seconds`, `start_distance`, `mounted_fraction`, `flying_fraction`
+- flag: `flag_captures`, `flag_pickups`, `flag_returns`, `carrier_kills`, `flag_deaths`, `match_won`
 
 Then come the `reward_<term>` columns. Columns of encounters an episode's arena doesn't use read 0. The exact list for a
 stage is `episode_info` in its `stage.json`.
@@ -576,7 +651,7 @@ training data for both sides. A policy's score against itself doesn't track prog
 
 Both branches join. It extends `stage5_party` (trunk and PvE blocks) and merges `stage7_arena` (the pvp block),
 `stage6_pvp`, `stage4_companion`, `stage3_gauntlet` and `stage1_duel`, and adds `context` and `hostiles`. Its layouts
-contain all nine blocks.
+contain the ten PvE and PvP blocks (the pet block included).
 
 | Arena | Weight | Episode | Situation |
 |---|---|---|---|
@@ -593,6 +668,29 @@ Learner: distilled with `teachers: auto` (each earlier arena is taught by the fi
 arenas learn from reward alone), coef 1.0 halving every 50M steps. 256 evaluation episodes every 25M steps, the
 arena_1v1 seat scored against `fight`. Budget 1B, at least 100M steps. Per-arena targets: +10% over baseline for the six
 inherited arenas, at least baseline for `ambush` and `escort_duel`, each with at least 16 episodes.
+
+### Stage 9: `stage9_travel`
+
+Getting somewhere, off the duel. A character of level 20 or more, with its level's riding and its side's mounts, starts
+in Old Hillsbrad (which allows mounts) with a place 60-320 yd away by path. A mount's cast time only pays on a long
+trip, and arriving on foot is what lets it fight at the end. Blocks: core, duel, pet, travel. 150 s episodes. Config:
+budget 150M, at least 20M steps, a travel report.
+
+### Stage 10: `stage10_flight`
+
+Flying, off travel. Characters of level 60 or more (Expert Riding, and Artisan with a fast flying mount from 70) start
+in Outland's Nagrand, where flying mounts fly, at one of eight spawn points, each env in its own phase. The place is
+350-700 yd away: flying is several times faster and passes over everything, but dismounting in the air falls with a
+player's fall damage, so the policy learns to take off, keep a height, land and dismount. Battlegrounds never allow
+flying mounts (the zone must be Outland or Northrend, `SpellInfo::CheckLocation`), so this is for the open world.
+180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 150M.
+
+### Stage 11: `stage11_flag`
+
+Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
+between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
+episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
+flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
 
 ### Pilot: `mix_duel_pvp`
 

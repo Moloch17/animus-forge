@@ -100,9 +100,11 @@ Before a long run, or after changing a scenario, the learner or a config:
 forge fast
 ```
 
-It trains `stage1_duel`, `stage6_pvp` and `mix_duel_pvp` with 32 envs, four class/roles at level 20, and quick
-convergence settings, into `<OutputDir>/fast/`. Typing `forge fast` again trains only what hasn't finished.
-`forge fast stage2_pack` trains one stage, seeded from the fast `stage1_duel` run.
+It trains every curriculum stage in order (the `mix_duel_pvp` pilot included), each from scratch, with 32 envs,
+four class/roles at level 20 (raised to a stage's minimum level: 20 for travel and the flag match, 60 for flight), and
+quick convergence settings, into `<OutputDir>/fast/`. Nothing is skipped, so typing it again runs the whole
+curriculum again. `forge fast stage2_pack` trains one stage, seeded from the fast `stage1_duel` run. Set
+`AnimusForge.Fast.Queue` to train a shorter list.
 
 What to check, in `fast/runs/<stage>/`:
 

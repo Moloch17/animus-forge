@@ -213,7 +213,7 @@ from an in-game administrator's chat.
 | `forge status` | The progress report while something runs. When idle, the settings and the last plan's outcome. Also shows a running export and pending requests |
 | `forge scenarios` | Every scenario with its run: finished and why, resumable checkpoint, steps, best score; exported model count |
 | `forge start [scenario ...]` | Refused unless idle. Without names: `AnimusForge.Queue` (every default-queue stage when empty), leaving out stages whose `finished.json` says `"advanced": true` (`Queue.SkipFinished`). Named scenarios are never skipped. Warns about stages listed before their parents, or whose parents have no finished run. Every scenario trains from scratch, and the learner archives an earlier run to `runs/_archive/<scenario>-<time>/` |
-| `forge fast [scenario ...]` | Like `start` with the fast profile (5.8). Without names: `Fast.Queue` minus stages with a finished fast run. Named stages train again |
+| `forge fast [scenario ...]` | Like `start` with the fast profile (5.8). Without names: `Fast.Queue`, or every curriculum stage in order when it is empty, each trained again from scratch (nothing is skipped) |
 | `forge resume [scenario ...]` | **Paused:** continue. **Waiting on a crashed learner:** restart it with `--resume`. **Idle, with names:** a new plan whose first entry resumes from `runs/<first>/latest.pt` and the rest train from scratch. **Idle, without names:** the last plan, from the entry where it stopped (resuming it). Refused if the policy isn't remote or there is no `latest.pt` |
 | `forge pause` | Freeze after the current decision |
 | `forge cancel` | End the plan. The learner saves `latest.pt` first |
@@ -241,8 +241,8 @@ problem so a change can be checked in minutes. `ForgeConfig::FastProfile()` copi
 Decision interval, episode lengths and rewards stay the real ones. `configs/fast.yaml` is merged over each stage's
 config: 3M-step safety cap, evaluation of 64 episodes every 100k steps, convergence after 4 evaluations without a
 new best but not before 500k steps, no stage target (so a fast plan never halts), 1 restart with a 200k half-life. The
-default `Fast.Queue` is `stage1_duel, stage6_pvp, mix_duel_pvp`: a stage from scratch, a seeded stage with a scripted
-player, and an arena mix with merge seeding and distillation.
+default `Fast.Queue` is empty: every curriculum stage in order, the `mix_duel_pvp` pilot included, so a plain
+`forge fast` is a full run of the curriculum with no stage skipped. A stage's `MinLevel` raises `Fast.Level`.
 
 A fast run never archives, seeds from or overwrites a real run, because everything lives under `fast/`. `pause`,
 `cancel`, `skip`, `resume` and `export` without arguments act on the fast plan while it runs.

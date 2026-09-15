@@ -29,7 +29,7 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Learner.Config` | `""` = `configs/<scenario>.yaml` | One config for every scenario |
 | `AnimusForge.Learner.Args` | `""` | Extra arguments for every learner (`--set key=value ...`) |
 | `AnimusForge.Learner.LogFile` | `""` = `<LogsDir>/animus-learner.log` | Learner output |
-| `AnimusForge.Fast.Queue` | `"stage1_duel, stage6_pvp, mix_duel_pvp"` | What `forge fast` trains |
+| `AnimusForge.Fast.Queue` | `""` | What `forge fast` trains without names; empty = every curriculum stage in order |
 | `AnimusForge.Fast.Envs` | `32` | Fast profile envs |
 | `AnimusForge.Fast.Level` | `20` | Fast profile level (0 = random) |
 | `AnimusForge.Fast.ClassRoles` | `"warrior_tank, priest_heal, rogue_dps, hunter_dps"` | Fast profile class/roles |
@@ -137,6 +137,28 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `ScriptedPlayers.RangedMin` | 20.0 |
 | | | | `ScriptedPlayers.RangedMax` | 30.0 |
 | | | | `ScriptedPlayers.StealthChance` | 50 |
+| | | | `ScriptedPlayers.TacticsChance` | 75 |
+| | | | `ScriptedPlayers.ControlMinMs` | 8000 |
+| | | | `ScriptedPlayers.ControlMaxMs` | 15000 |
+| | | | `ScriptedPlayers.DefensiveBelow` | 0.35 |
+| | | | `ScriptedPlayers.BreakBelow` | 0.6 |
+
+| Key | Default | | Key | Default |
+|---|---|---|---|---|
+| `Travel.ObjectiveMin` | 60.0 | | `Flag.BaseMin` | 100.0 |
+| `Travel.ObjectiveMax` | 320.0 | | `Flag.BaseMax` | 180.0 |
+| `Travel.FlyingMin` | 350.0 | | `Flag.CapturesToWin` | 3 |
+| `Travel.FlyingMax` | 700.0 | | `Flag.RespawnMs` | 15000 |
+| `Travel.Progress` | 1.0 | | `Flag.DroppedReturnMs` | 10000 |
+| `Travel.Arrive` | 3.0 | | `Flag.TouchDistance` | 4.0 |
+| `Travel.FastArrive` | 3.0 | | `Flag.Capture` | 5.0 |
+| `Travel.DamageTaken` | 1.0 | | `Flag.Pickup` | 1.0 |
+| `Travel.Death` | 3.0 | | `Flag.Return` | 1.0 |
+| `Travel.StepCost` | 0.0002 | | `Flag.CarrierKill` | 1.5 |
+| | | | `Flag.Lost` | 3.0 |
+| | | | `Flag.Progress` | 0.5 |
+| | | | `Flag.Death` | 1.0 |
+| | | | `Flag.StepCost` | 0.0002 |
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
 

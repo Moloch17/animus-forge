@@ -572,5 +572,54 @@ AnimusForge.Curriculum.ScriptedPlayers.RangedMin = 20.0
 AnimusForge.Curriculum.ScriptedPlayers.RangedMax = 30.0
 #   PvP: percent of engagements a rogue sneaks up in stealth
 AnimusForge.Curriculum.ScriptedPlayers.StealthChance = 50
+#   PvP: percent of engagements it plays its kit: interrupts, crowd control, snares, defensives, breaks
+AnimusForge.Curriculum.ScriptedPlayers.TacticsChance = 75
+#   ... time between crowd control attempts
+AnimusForge.Curriculum.ScriptedPlayers.ControlMinMs = 8000
+AnimusForge.Curriculum.ScriptedPlayers.ControlMaxMs = 15000
+#   ... a defensive when its health is under this
+AnimusForge.Curriculum.ScriptedPlayers.DefensiveBelow = 0.35
+#   ... breaks crowd control when its health is under this
+AnimusForge.Curriculum.ScriptedPlayers.BreakBelow = 0.6
+
+#   Travel arenas. Ground: a place this many yards away by path
+AnimusForge.Curriculum.Travel.ObjectiveMin = 60.0
+AnimusForge.Curriculum.Travel.ObjectiveMax = 320.0
+#   flying arenas: yards from the start
+AnimusForge.Curriculum.Travel.FlyingMin = 350.0
+AnimusForge.Curriculum.Travel.FlyingMax = 700.0
+#   potential shaping: per 100 yd closed (taken back for leaving)
+AnimusForge.Curriculum.Travel.Progress = 1.0
+AnimusForge.Curriculum.Travel.Arrive = 3.0
+#   times the fraction of the episode still left
+AnimusForge.Curriculum.Travel.FastArrive = 3.0
+#   fraction of the bot's health (falls, what it rode past)
+AnimusForge.Curriculum.Travel.DamageTaken = 1.0
+AnimusForge.Curriculum.Travel.Death = 3.0
+#   per decision
+AnimusForge.Curriculum.Travel.StepCost = 0.0002
+
+#   Flag match (Warsong Gulch's rules). Yards between the bases, by path
+AnimusForge.Curriculum.Flag.BaseMin = 100.0
+AnimusForge.Curriculum.Flag.BaseMax = 180.0
+AnimusForge.Curriculum.Flag.CapturesToWin = 3
+#   the dead stand up at their base after this (a graveyard wave)
+AnimusForge.Curriculum.Flag.RespawnMs = 15000
+#   a dropped flag goes home on its own after this
+AnimusForge.Curriculum.Flag.DroppedReturnMs = 10000
+#   yards to pick up, return or capture
+AnimusForge.Curriculum.Flag.TouchDistance = 4.0
+AnimusForge.Curriculum.Flag.Capture = 5.0
+AnimusForge.Curriculum.Flag.Pickup = 1.0
+AnimusForge.Curriculum.Flag.Return = 1.0
+#   killing the one carrying the seat's flag
+AnimusForge.Curriculum.Flag.CarrierKill = 1.5
+#   the other side captured the seat's flag
+AnimusForge.Curriculum.Flag.Lost = 3.0
+#   potential shaping toward the seat's current objective, per 100 yd
+AnimusForge.Curriculum.Flag.Progress = 0.5
+AnimusForge.Curriculum.Flag.Death = 1.0
+#   per decision
+AnimusForge.Curriculum.Flag.StepCost = 0.0002
 
 ###################################################################################################

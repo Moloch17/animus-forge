@@ -251,11 +251,16 @@ Placement:
 
 - `PlaceInNewInstance(bot, mapId, pos)`: `sMapMgr->CreateMap(mapId, bot)` gives a groupless player with no bind a new
   dungeon instance.
+- `PlaceOnContinent(bot, mapId, pos)`: onto a continent's shared base map (`CreateBaseMap`), its grid loaded first.
+  `BotSlot::CreateNext` picks this or a new instance by whether the map is instanceable; the scenario puts each env of
+  a continent stage in its own phase.
 - `PlaceInMap(bot, map, pos)`: reset the map `Player::Create` chose (the race's start zone), relocate, set the map and
   fall information, register with `ObjectAccessor`, `AddPlayerToMap`.
 - `PlaceNear(bot, owner)`, `TeleportNear(bot, owner)`: beside a player in the open world, for companions. The teleport
   is completed by calling the session's own `HandleMoveTeleportAck` or `HandleMoveWorldportAck`, as the absent client
   would.
+- `TeleportWithinMap(bot, pos)`: anywhere on the bot's own map, an instance included (the flag match's bases), with
+  the same acknowledgement.
 
 `Destroy(bot, keepSession)` resurrects a dead bot (otherwise logout would repop it at a graveyard, which is a far
 teleport), removes its pet without saving (`PET_SAVE_AS_DELETED`) along with totems and guardians, deletes the cache

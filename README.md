@@ -9,8 +9,9 @@ a training run:
 - observation, action and reward encoding
 - a lock-step bridge to a Python MAPPO learner
 
-Its main work is the curriculum: eight stages that train one policy for every class and role,
-from a one-on-one duel up to parties and self-play arenas, joined in stage 8 into one policy for PvE and PvP.
+Its main work is the curriculum: eleven stages that train one policy for every class and role,
+from a one-on-one duel up to parties and self-play arenas, joined in stage 8 into one policy for PvE and PvP, and a
+branch for getting somewhere: riding, flying, and Warsong Gulch's rules.
 
 The curriculum itself -- stages, blocks, layouts, encounters, characters, env pools and bots -- lives in
 [animus-lib](https://github.com/Moloch17/animus-lib) (`modules/mod-animus-lib`), which mod-animus shares: a
@@ -58,9 +59,9 @@ List the scenarios to train in `AnimusForge.Queue` (see
 
 ### The curriculum: one policy for every class and role
 
-Eight stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
-`stage6_pvp`, `stage7_arena`, `stage8_crossroads` -- each train **one policy for every class/role** of `AnimusForge.ClassRoles` (all 18
-by default). Each stage is its own scenario, so every
+Eleven stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
+`stage6_pvp`, `stage7_arena`, `stage8_crossroads`, `stage9_travel`, `stage10_flight`, `stage11_flag` -- each train
+**one policy for every class/role** of `AnimusForge.ClassRoles` (all 18 by default). Each stage is its own scenario, so every
 earlier stage stays repeatable.
 
 - **Seats:** each learned agent of an env is a seat. Every episode each seat becomes a new character of a
@@ -440,6 +441,19 @@ context, hostiles.
   `fight`, and every arena gated on its own episodes.
 - **Episode info:** the union of every arena's columns, plus `ambushers` and `ambushers_killed`; `reward_player_kill`.
 
+#### Stages 9-11: travel, flight and the flag match
+
+- **`stage9_travel`** (from the duel): a character of level 20+ with its level's riding and mounts gets to a place
+  60-320 yd away by path in Old Hillsbrad. A mount's cast time pays only on a long trip; arriving on foot lets it fight.
+- **`stage10_flight`** (from travel): level 60+ in Outland's Nagrand, a place 350-700 yd away. Take off, keep a height,
+  land, dismount; falling off a mount in the air hurts. The envs share the continent, each in its own phase.
+  Battlegrounds never allow flying mounts, so flying is for the open world.
+- **`stage11_flag`** (from the arena, merging travel): Warsong Gulch's rules between two learned seats with bases
+  100-180 yd apart: take the other side's flag home, return one's own, stop the carrier (who can't ride); the dead
+  stand up at their base after 15 s; first to three captures.
+
+See the manual, chapter 4, for the blocks (`pet`, `travel`, `flag`), encounters and rewards.
+
 #### Arena mix pilot (`mix_duel_pvp`)
 
 Not part of the curriculum and left out of an empty `AnimusForge.Queue`: train it by name (`forge start mix_duel_pvp`).
@@ -580,7 +594,7 @@ and prints its settings; nothing trains until you say so.
 | `forge status` | The progress report below, or the idle settings and the last plan's outcome |
 | `forge scenarios` | Every scenario with its run: finished (and why: converged, below_target, ...), resumable checkpoint, steps, best score |
 | `forge start [scenario ...]` | Train these from scratch, in order. Without names: `AnimusForge.Queue` (every stage when empty), minus the stages that already advanced (`Queue.SkipFinished`). Earlier runs are archived; a stage listed before the stage it extends is warned about |
-| `forge fast [scenario ...]` | A quick training run of these on an easier problem, in the fast output directory (default: `AnimusForge.Fast.Queue` minus the stages with a finished fast run), to see training work before a long run (see [Fast test run](#fast-test-run-forge-fast)) |
+| `forge fast [scenario ...]` | A quick training run of these on an easier problem, in the fast output directory (default: `AnimusForge.Fast.Queue`, or every curriculum stage when it is empty, none skipped), to see training work before a long run (see [Fast test run](#fast-test-run-forge-fast)) |
 | `forge resume [scenario ...]` | Unpause; or continue the first scenario from its `latest.pt`, then train the rest. Without names: where the last plan stopped. With a crashed learner: restart it from its checkpoint |
 | `forge pause` | Freeze after the current decision: maps, episode clocks and the learner all wait |
 | `forge cancel` | Stop the plan; the learner saves `latest.pt` first, so `forge resume` can continue it |
@@ -644,19 +658,18 @@ Forge: stage2_pack (2 of 4) | training | update 412 | 3h 12m
 
 A real stage trains for hours before its first stage decision. `forge fast` trains stages on an easier problem that
 learns in minutes, through the same pipeline, to see that a change to a scenario, the learner or the configs still
-trains -- and learns -- before a long run. Stages can be trained one at a time, each on top of the last:
+trains -- and learns -- before a long run:
 
 ```
-forge fast                       # AnimusForge.Fast.Queue, minus stages whose fast run already finished
-forge fast                       # again: the next stage (nothing left: name one, or `forge clean fast`)
+forge fast                       # every curriculum stage in order, each from scratch: a full run, nothing skipped
 forge fast stage2_pack           # just this stage, seeded from the fast run of stage1_duel; trains it again if done
 ```
 
 - **Sim (`AnimusForge.Fast.*`):** 32 envs and four class/roles (`warrior_tank, priest_heal, rogue_dps, hunter_dps`: a
   tank and a healer for the party, energy, rage, mana and a pet), every character at level 20 (`Fast.Level`; 0 = the
-  usual random levels). The decision interval, episode lengths and rewards are the real ones. Without names it trains
-  `Fast.Queue` (`stage1_duel, stage6_pvp, mix_duel_pvp`: a stage from scratch, a seeded one, a scripted enemy player,
-  and an arena mix with merge seeding and distillation).
+  usual random levels; a stage's minimum level raises it). The decision interval, episode lengths and rewards are the
+  real ones. Without names it trains `Fast.Queue`, which is empty by default: every curriculum stage in order, the
+  `mix_duel_pvp` pilot included.
 - **Learner (`configs/fast.yaml`):** merged over each stage's config with `--overlay`. A stage ends when its score
   stops improving: an evaluation of 64 seeded episodes every 100k env steps, done after 4 evaluations without a new
   best but not before 500k, with 3M as a safety cap. Stage targets (per-arena ones included) are off, so the plan never
