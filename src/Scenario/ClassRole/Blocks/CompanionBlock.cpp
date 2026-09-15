@@ -125,7 +125,7 @@ void AnimusForge::ClassRole::CompanionBlock::Observe(SeatView const& view, float
     Encoding::WriteRevives(view, obs + OBS_GLOBAL_COUNT + view.L->AllyHeals.size() * 2);
 
     uint32 const actions = view.L->Slice(BlockId::Companion).ActionCount;
-    for (uint32 action = 0; action < actions; ++action)
+    for (uint32 action = 0; mask && action < actions; ++action)
         mask[action] = IsAllowed(view, action) ? 1 : 0;
 }
 

@@ -73,7 +73,8 @@ namespace AnimusForge
         /// misbehaving client and must be ignored safely.
         virtual void ApplyActions(Env& env, int32 const* actions) = 0;
 
-        /// obs: [AgentsPerEnv * ObsDim], state: [StateDim], mask: [AgentsPerEnv * NumActions].
+        /// obs: [AgentsPerEnv * ObsDim], state: [StateDim], mask: [AgentsPerEnv * NumActions]. `mask` is null for an
+        /// ended episode's final observation, which needs no actions: skip the (costly) cast checks then.
         virtual void Observe(Env& env, float* obs, float* state, uint8* mask) = 0;
 
         /// layout: [AgentsPerEnv] index into Spec().Layouts of each agent's current layout. Called after Observe,

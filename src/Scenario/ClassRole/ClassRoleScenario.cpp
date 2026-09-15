@@ -888,7 +888,7 @@ void AnimusForge::ClassRole::ClassRoleScenario::ApplySeatAction(Env& env, uint32
 void AnimusForge::ClassRole::ClassRoleScenario::Observe(Env& env, float* obs, float* state, uint8* mask)
 {
     for (uint32 seat = 0; seat < _seatCount; ++seat)
-        ObserveSeat(env, seat, obs + seat * _spec.ObsDim, mask + seat * _spec.NumActions);
+        ObserveSeat(env, seat, obs + seat * _spec.ObsDim, mask ? mask + seat * _spec.NumActions : nullptr);
 
     WriteState(env, state);
 }
@@ -910,8 +910,11 @@ void AnimusForge::ClassRole::ClassRoleScenario::AgentPresence(Env const& env, ui
 void AnimusForge::ClassRole::ClassRoleScenario::ObserveSeat(Env& env, uint32 seatIndex, float* obs, uint8* mask)
 {
     std::fill(obs, obs + _spec.ObsDim, 0.0f);
-    std::fill(mask, mask + _spec.NumActions, 0);
-    mask[0] = 1;
+    if (mask)
+    {
+        std::fill(mask, mask + _spec.NumActions, 0);
+        mask[0] = 1;
+    }
 
     SeatState& seat = Data(env).Seats[seatIndex];
     if (!seat.L)

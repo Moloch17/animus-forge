@@ -154,7 +154,7 @@ void AnimusForge::ClassRole::PartyBlock::Observe(SeatView const& view, float* ob
     obs[OBS_LOWEST_HEALTH] = lowest;
 
     uint32 const actions = view.L->Slice(BlockId::Party).ActionCount;
-    for (uint32 action = 0; action < actions; ++action)
+    for (uint32 action = 0; mask && action < actions; ++action)
         mask[action] = IsAllowed(view, action) ? 1 : 0;
 }
 

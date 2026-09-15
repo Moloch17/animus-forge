@@ -79,7 +79,7 @@ void AnimusForge::ClassRole::GauntletBlock::Observe(SeatView const& view, float*
     Encoding::WriteKnownCooldowns(bot, view.L->Catalog().Sustain(), obs + OBS_GLOBAL_COUNT);
 
     uint32 const actions = view.L->Slice(BlockId::Gauntlet).ActionCount;
-    for (uint32 action = 0; action < actions; ++action)
+    for (uint32 action = 0; mask && action < actions; ++action)
         mask[action] = IsAllowed(view, action) ? 1 : 0;
 }
 

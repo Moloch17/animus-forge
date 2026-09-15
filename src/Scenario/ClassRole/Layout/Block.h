@@ -96,6 +96,7 @@ namespace AnimusForge::ClassRole
         virtual void DescribeManifest(Layout const& /*layout*/, JsonWriter& /*json*/) const { }
 
         /// Write the block's features and action mask for a living bot: `obs` and `mask` point at the block's slice.
+        /// `mask` is null when no mask is wanted (an ended episode's final observation): skip the cast checks.
         virtual void Observe(SeatView const& view, float* obs, uint8* mask) const = 0;
 
         /// Before an action of a layout with this block is applied (whichever block the action belongs to).

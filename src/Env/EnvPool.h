@@ -143,8 +143,6 @@ namespace AnimusForge
         /// _agents.
         std::unordered_map<uint32, uint32> _envByInstance;
 
-        std::vector<uint8> _scratchMask;
-
         bool _evaluating = false;
         uint32 _evalSeedBase = 0;
         uint32 _evalEpisodes = 0;

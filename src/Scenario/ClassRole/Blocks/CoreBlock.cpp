@@ -230,7 +230,7 @@ void AnimusForge::ClassRole::CoreBlock::Observe(SeatView const& view, float* obs
                 obs[OBS_GCD] = std::min(1.0f, float(bot->GetGlobalCooldownMgr().GetGlobalCooldown(info)) / GCD_MS);
         }
 
-        if (action > 0)
+        if (mask && action > 0)
             mask[action] = IsActionAllowed(view, action) ? 1 : 0;
     }
 }

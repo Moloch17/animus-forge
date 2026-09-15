@@ -26,8 +26,14 @@ void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* o
 {
     Layout const& layout = *view.L;
     std::fill(obs, obs + layout.ObsDim, 0.0f);
-    std::fill(mask, mask + layout.NumActions, 0);
-    mask[0] = 1;
+    if (mask)
+    {
+        std::fill(mask, mask + layout.NumActions, 0);
+        mask[0] = 1;
+    }
+
+    // A block's slice of the mask, or null when no mask is wanted.
+    auto const blockMask = [mask](BlockSlice const& slice) { return mask ? mask + slice.ActionFirst : nullptr; };
 
     CoreBlock::ObserveCharacter(view, obs);
 
@@ -38,7 +44,7 @@ void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* o
         if (layout.Has(BlockId::Duel))
         {
             BlockSlice const& duel = layout.Slice(BlockId::Duel);
-            DuelBlock::ObserveDead(view, obs + duel.ObsFirst, mask + duel.ActionFirst);
+            DuelBlock::ObserveDead(view, obs + duel.ObsFirst, blockMask(duel));
         }
         return;
     }
@@ -49,11 +55,12 @@ void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* o
     for (BlockId id : layout.Blocks)
     {
         BlockSlice const& slice = layout.Slice(id);
-        GetBlock(id).Observe(view, obs + slice.ObsFirst, mask + slice.ActionFirst);
+        GetBlock(id).Observe(view, obs + slice.ObsFirst, blockMask(slice));
     }
 
     // The no-op stays allowed whatever the core block decided.
-    mask[0] = 1;
+    if (mask)
+        mask[0] = 1;
 }
 
 void AnimusForge::ClassRole::SeatEncoder::Apply(SeatView& view, int32 action, SeatActionResult& result)

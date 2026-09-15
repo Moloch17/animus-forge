@@ -91,6 +91,8 @@ void AnimusForge::ClassRole::PackBlock::Observe(SeatView const& view, float* obs
 
     std::vector<ActionCatalog::Action> const& tactical = view.L->Catalog().Tactical();
     Encoding::WriteKnownCooldowns(bot, tactical, obs + OBS_GLOBAL_COUNT + PACK_SLOTS * SLOT_FEATURES);
+    if (!mask)
+        return;
 
     for (uint32 slot = 0; slot < PACK_SLOTS; ++slot)
         mask[slot] = IsSlotAllowed(view, slot) ? 1 : 0;

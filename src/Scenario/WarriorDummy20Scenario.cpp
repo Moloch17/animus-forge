@@ -554,8 +554,11 @@ void AnimusForge::WarriorDummy20Scenario::ApplyActions(Env& env, int32 const* ac
 void AnimusForge::WarriorDummy20Scenario::Observe(Env& env, float* obs, float* state, uint8* mask)
 {
     std::fill(obs, obs + _spec.ObsDim, 0.0f);
-    std::fill(mask, mask + _spec.NumActions, 0);
-    mask[ACTION_NOOP] = 1;
+    if (mask)
+    {
+        std::fill(mask, mask + _spec.NumActions, 0);
+        mask[ACTION_NOOP] = 1;
+    }
 
     EnvData const& data = _data[env.Index];
     Player* bot = env.FindBot(0);
@@ -598,7 +601,7 @@ void AnimusForge::WarriorDummy20Scenario::Observe(Env& env, float* obs, float* s
         obs[OBS_LAST_STEP_DAMAGE] = data.LastStepDamage;
         obs[OBS_LAST_STEP_RAGE_DELTA] = data.LastStepRageDelta;
 
-        for (int32 action = ACTION_NOOP + 1; action < int32(_actions.size()); ++action)
+        for (int32 action = ACTION_NOOP + 1; mask && action < int32(_actions.size()); ++action)
             mask[action] = IsActionAllowed(bot, dummy, action) ? 1 : 0;
     }
 

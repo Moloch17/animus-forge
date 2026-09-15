@@ -63,8 +63,6 @@ AnimusForge::EnvPool::EnvPool(Scenario& scenario, ForgeConfig const& config)
     EpisodeSeed.assign(envs, NO_EPISODE_SEED);
     _envSeed.assign(envs, NO_EPISODE_SEED);
     Actions.assign(agents, 0);
-
-    _scratchMask.assign(_spec.AgentsPerEnv * _spec.NumActions, 0);
     _reportInfoSum.assign(_spec.EpisodeInfoDim, 0.0);
 }
 
@@ -153,8 +151,9 @@ void AnimusForge::EnvPool::Collect()
 
         if (done)
         {
+            // No mask: nothing acts on the final observation.
             _scenario.Observe(env, &FinalObs[e * agentsPerEnv * _spec.ObsDim], &FinalState[e * _spec.StateDim],
-                _scratchMask.data());
+                nullptr);
             _scenario.EpisodeInfo(env, &EpisodeInfo[e * agentsPerEnv * _spec.EpisodeInfoDim]);
             EpisodeSeed[e] = _envSeed[e];
 
@@ -180,13 +179,14 @@ bool AnimusForge::EnvPool::ChooseLocalActions(std::string const& policy)
 {
     uint32 const agents = NumEnvs() * _spec.AgentsPerEnv;
     uint32 const numActions = _spec.NumActions;
+    bool const random = policy == "random";
 
     for (uint32 i = 0; i < agents; ++i)
     {
         float const* obs = &Obs[i * _spec.ObsDim];
         uint8 const* mask = &Mask[i * numActions];
 
-        if (policy == "random")
+        if (random)
         {
             uint32 allowed = 0;
             for (uint32 a = 0; a < numActions; ++a)

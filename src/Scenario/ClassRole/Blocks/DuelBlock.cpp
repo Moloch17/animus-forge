@@ -218,7 +218,7 @@ void AnimusForge::ClassRole::DuelBlock::Observe(SeatView const& view, float* obs
     }
 
     uint32 const actions = view.L->Slice(BlockId::Duel).ActionCount;
-    for (uint32 action = 0; action < actions; ++action)
+    for (uint32 action = 0; mask && action < actions; ++action)
         mask[action] = IsAllowed(view, action) ? 1 : 0;
 }
 
@@ -227,7 +227,8 @@ void AnimusForge::ClassRole::DuelBlock::ObserveDead(SeatView const& view, float*
     obs[OBS_DEAD] = 1.0f;
     bool const selfResurrect = IsAllowed(view, ACTION_SELF_RESURRECT);
     obs[OBS_SELF_RESURRECT] = selfResurrect ? 1.0f : 0.0f;
-    mask[ACTION_SELF_RESURRECT] = selfResurrect ? 1 : 0;
+    if (mask)
+        mask[ACTION_SELF_RESURRECT] = selfResurrect ? 1 : 0;
 }
 
 void AnimusForge::ClassRole::DuelBlock::BeforeApply(SeatView& view) const
