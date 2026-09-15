@@ -38,9 +38,9 @@ namespace AnimusForge::ClassRole
     /// policy.
     ///
     /// Each learned agent of an env is a seat: every episode it becomes a new character of a class/role -- a race the
-    /// class allows, random gender, level (1-80, 55-80 for death knights), one of the role's specs with a random
-    /// talent build that fills the spec's tree to its capstone first, the trainer spells of the level, and random
-    /// level-appropriate gear including trinkets. A seat's layout is its class/role's (see Layout), padded to the
+    /// class allows, random gender, level (1-80, 55-80 for death knights), one of the role's specs with its standard
+    /// talent build and glyphs, the trainer spells of the level, random level-appropriate gear including trinkets,
+    /// enchants and gems, and potions, bandages and stones it must learn to use. A seat's layout is its class/role's (see Layout), padded to the
     /// largest layout's on the wire; the learner shares one trunk between all layouts.
     ///
     /// The scenario builds the seats and drives the stage's encounters (see Encounter); the critic state is
@@ -150,6 +150,12 @@ namespace AnimusForge::ClassRole
         /// Every seat, and the owner, stood up again after a pull: tell every encounter (see Encounter::OnRecovered).
         void NotifyRecovered(Env& env, int32 who);
 
+        /// Whether seat `seat` is dead with no resurrection of its own left to wait for (Tuning().Resurrection).
+        [[nodiscard]] bool DeadForGood(Env const& env, uint32 seat) const;
+
+        /// Whether seat `seat`'s bot is alive and knows a resurrection spell it could cast on an ally.
+        [[nodiscard]] bool SeatCanResurrect(Env const& env, uint32 seat) const;
+
     private:
         [[nodiscard]] Layout const& PickLayout(Role role, uint8 maxMinLevel) const;
         void AddCoreEpisodeInfo();
@@ -159,6 +165,10 @@ namespace AnimusForge::ClassRole
         /// Create and place seat `seat`'s next character (its layout is set). `map` is null for the env's first bot.
         Player* BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start);
         void Configure(Player* bot, SeatState& seat) const;
+        /// Every seat's potions, bandages, stones and flask for the episode (after the encounters are built).
+        void StockSeats(Env& env);
+        /// Dead players with a resurrection request accept it, as a client does; the reviving seat is credited.
+        void AcceptResurrections(Env& env);
 
         /// What the seat's actions aim at: the dummy or creature, the selected pack enemy, the enemy player. Null
         /// between gauntlet pulls.

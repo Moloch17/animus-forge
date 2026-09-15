@@ -62,8 +62,14 @@ namespace
 
         uint32 const heals = uint32(view.L->AllyHeals.size());
         uint32 const index = action - PartyBlock::ACTION_HEAL_FIRST;
-        if (!heals || index / heals >= PARTY_MEMBERS)
-            return false;
+        if (index >= PARTY_MEMBERS * heals)
+        {
+            uint32 const revives = uint32(view.L->AllyRevives.size());
+            uint32 const reviveIndex = index - PARTY_MEMBERS * heals;
+            return revives && reviveIndex / revives < PARTY_MEMBERS
+                && Encoding::CanRevive(view, view.L->AllyRevives[reviveIndex % revives],
+                    view.Teammates[reviveIndex / revives].Bot);
+        }
 
         Player* teammate = view.Teammates[index / heals].Bot;
         return teammate && teammate->IsAlive() && Encoding::CanHeal(bot, view.L->AllyHeals[index % heals], teammate);
@@ -73,7 +79,7 @@ namespace
 AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::PartyBlock::Size(Layout const& layout) const
 {
     return { OBS_GLOBAL_COUNT + PARTY_MEMBERS * MEMBER_FEATURES,
-        ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size()) };
+        ACTION_HEAL_FIRST + PARTY_MEMBERS * uint32(layout.AllyHeals.size() + layout.AllyRevives.size()) };
 }
 
 void AnimusForge::ClassRole::PartyBlock::DescribeManifest(Layout const& /*layout*/, JsonWriter& json) const
@@ -184,5 +190,14 @@ void AnimusForge::ClassRole::PartyBlock::Apply(SeatView& view, uint32 local, Sea
 
     uint32 const heals = uint32(view.L->AllyHeals.size());
     uint32 const index = local - ACTION_HEAL_FIRST;
+    if (index >= PARTY_MEMBERS * heals)
+    {
+        uint32 const revives = uint32(view.L->AllyRevives.size());
+        uint32 const reviveIndex = index - PARTY_MEMBERS * heals;
+        Encoding::Revive(view, view.L->AllyRevives[reviveIndex % revives], view.Teammates[reviveIndex / revives].Bot,
+            result);
+        return;
+    }
+
     Encoding::Heal(bot, view.L->AllyHeals[index % heals], view.Teammates[index / heals].Bot, result);
 }

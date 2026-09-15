@@ -48,6 +48,8 @@ namespace
         {
             case ActionCatalog::Kind::Noop:
                 return true;
+            case ActionCatalog::Kind::Soulstone:
+                return false;       // a revive (companion and party blocks), never a core action
             case ActionCatalog::Kind::CancelQueued:
                 return bot->GetCurrentSpell(CURRENT_MELEE_SPELL) != nullptr;
             case ActionCatalog::Kind::Trinket:
@@ -100,6 +102,9 @@ void AnimusForge::ClassRole::CoreBlock::DescribeManifest(Layout const& layout, J
                 break;
             case ActionCatalog::Kind::Trinket:
                 out.Key("kind").Value("trinket").Key("slot").Value(action.EquipmentSlot);
+                break;
+            case ActionCatalog::Kind::Soulstone:
+                out.Key("kind").Value("soulstone");
                 break;
             case ActionCatalog::Kind::Spell:
                 out.Key("kind").Value("spell").Key("first_rank").Value(action.FirstRank)
@@ -240,6 +245,7 @@ void AnimusForge::ClassRole::CoreBlock::Apply(SeatView& view, uint32 local, Seat
     switch (def.Type)
     {
         case ActionCatalog::Kind::Noop:
+        case ActionCatalog::Kind::Soulstone:
             return;
         case ActionCatalog::Kind::CancelQueued:
             if (bot->GetCurrentSpell(CURRENT_MELEE_SPELL))

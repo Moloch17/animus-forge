@@ -226,6 +226,102 @@ namespace AnimusForge::ClassRole::Encoding
         return sSpellMgr->GetSpellInfo(proto->Spells[0].SpellId);
     }
 
+    bool CanUseItemOn(Player* bot, uint32 entry, Unit* target)
+    {
+        SpellInfo const* info = entry ? UseSpell(entry) : nullptr;
+        Item* item = info ? bot->GetItemByEntry(entry) : nullptr;
+        if (!item || !target || !bot->IsAlive() || bot->HasSpellCooldown(info->Id) || CastInProgress(bot))
+            return false;
+
+        // Server-driven movement does not set the movement flags CheckCast looks at.
+        if (!bot->movespline->Finalized() && (info->CalcCastTime(bot) || info->IsChanneled()))
+            return false;
+
+        SpellCastTargets targets;
+        targets.SetUnitTarget(target);
+        return CheckCast(bot, info, targets, item);
+    }
+
+    bool UseItemOn(Player* bot, uint32 entry, Unit* target)
+    {
+        Item* item = entry ? bot->GetItemByEntry(entry) : nullptr;
+        if (!item || !target)
+            return false;
+
+        uint32 const before = bot->GetItemCount(entry);
+        SpellCastTargets targets;
+        targets.SetUnitTarget(target);
+        bot->CastItemUseSpell(item, targets, 1, 0);
+        return bot->GetItemCount(entry) < before;
+    }
+
+    float ItemCooldownFraction(Player const* bot, uint32 entry)
+    {
+        SpellInfo const* info = entry ? UseSpell(entry) : nullptr;
+        return info ? CooldownFraction(bot, info) : 0.0f;
+    }
+
+    bool CanRevive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally)
+    {
+        Player* bot = view.Bot;
+        if (!ally || !bot->IsAlive() || !ally->IsInMap(bot))
+            return false;
+
+        if (revive.Type == ActionCatalog::Kind::Soulstone)
+        {
+            SpellInfo const* info = view.Supplies.Soulstone ? UseSpell(view.Supplies.Soulstone) : nullptr;
+            return info && ally->IsAlive() && !ally->HasAura(info->Id)
+                && CanUseItemOn(bot, view.Supplies.Soulstone, ally);
+        }
+
+        return !ally->IsAlive() && !ally->isResurrectRequested() && CanHeal(bot, revive, ally);
+    }
+
+    void Revive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally, SeatActionResult& result)
+    {
+        if (!CanRevive(view, revive, ally))
+            return;
+
+        if (revive.Type == ActionCatalog::Kind::Soulstone)
+        {
+            if (UseItemOn(view.Bot, view.Supplies.Soulstone, ally))
+                ++result.ConsumablesUsed;
+            return;
+        }
+
+        SpellInfo const* info = ActionCatalog::KnownRank(view.Bot, revive.FirstRank);
+        SpellCastTargets targets;
+        targets.SetUnitTarget(ally);
+        Spell* spell = new Spell(view.Bot, info, TRIGGERED_NONE);
+        if (spell->prepare(&targets) == SPELL_CAST_OK)
+        {
+            ++result.SpellCasts;
+            ++result.Revives;
+        }
+    }
+
+    void WriteRevives(SeatView const& view, float* out)
+    {
+        Player* bot = view.Bot;
+        std::vector<ActionCatalog::Action> const& revives = view.L->AllyRevives;
+        for (uint32 i = 0; i < revives.size(); ++i)
+        {
+            if (revives[i].Type == ActionCatalog::Kind::Soulstone)
+            {
+                if (view.Supplies.Soulstone && bot->GetItemCount(view.Supplies.Soulstone))
+                {
+                    out[i * 2] = 1.0f;
+                    out[i * 2 + 1] = ItemCooldownFraction(bot, view.Supplies.Soulstone);
+                }
+            }
+            else if (SpellInfo const* info = ActionCatalog::KnownRank(bot, revives[i].FirstRank))
+            {
+                out[i * 2] = 1.0f;
+                out[i * 2 + 1] = CooldownFraction(bot, info);
+            }
+        }
+    }
+
     Unit* FirstPet(Player* bot)
     {
         if (Pet* pet = bot->GetPet())

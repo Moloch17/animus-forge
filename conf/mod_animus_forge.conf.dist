@@ -403,6 +403,17 @@ AnimusForge.ClassRole.Owner.FollowNearDistance = 12.0
 AnimusForge.ClassRole.Owner.Death = 6.0
 
 #
+#    AnimusForge.ClassRole.Resurrection.*
+#        Resurrecting: a seat's own Soulstone or Reincarnation, and revives on allies (companion
+#        and party stages). Nobody is revived automatically while a resurrection is possible.
+
+#   the dead wait this long (ms) for a resurrection they can get before solo stages end and
+#   owner stages stand them up (the next pull waits too)
+AnimusForge.ClassRole.Resurrection.GraceMs = 20000
+#   a dead ally the seat resurrected stood up
+AnimusForge.ClassRole.Resurrection.ReviveAlly = 1.5
+
+#
 #    AnimusForge.ClassRole.Opponent.*
 #        The scripted enemy player of the PvP stage.
 

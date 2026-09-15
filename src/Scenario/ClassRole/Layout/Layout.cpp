@@ -63,12 +63,17 @@ AnimusForge::ClassRole::Layout AnimusForge::ClassRole::Layout::Build(ClassRolePr
     layout.Assets = &ClassRoleAssets::For(profile);
     layout.Blocks = stage.Blocks;
 
-    // Heals that take a friendly unit target can be cast on an ally (companion and party blocks).
+    // Heals that take a friendly unit target, resurrections and the soulstone can be cast on an ally (companion and
+    // party blocks).
     if (stage.Has(BlockId::Companion) || stage.Has(BlockId::Party))
+    {
         for (ActionCatalog::Action const& heal : layout.Catalog().Sustain())
             if (SpellInfo const* info = sSpellMgr->GetSpellInfo(heal.FirstRank);
                 info && info->IsPositive() && info->NeedsExplicitUnitTarget())
                 layout.AllyHeals.push_back(heal);
+
+        layout.AllyRevives = layout.Catalog().Revives();
+    }
 
     // Each block starts where the previous one ended.
     for (BlockId id : layout.Blocks)

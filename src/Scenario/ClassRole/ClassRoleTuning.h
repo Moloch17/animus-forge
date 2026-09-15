@@ -140,6 +140,14 @@ namespace AnimusForge::ClassRole
             float Death = 6.0f;
         } Owner;
 
+        /// Resurrecting: a seat's own Soulstone or Reincarnation, and revives on allies (companion and party stages).
+        struct ResurrectionTuning
+        {
+            uint32 GraceMs = 20000;             // the dead wait this long for a resurrection they can get before solo
+                                                // stages end and owner stages stand them up (the next pull waits too)
+            float ReviveAlly = 1.5f;            // a dead ally the seat resurrected stood up
+        } Resurrection;
+
         /// The scripted enemy player of the PvP stage.
         struct OpponentTuning
         {
@@ -249,6 +257,9 @@ namespace AnimusForge::ClassRole
             f("Owner.FollowFarDistance", tuning.Owner.FollowFarDistance);
             f("Owner.FollowNearDistance", tuning.Owner.FollowNearDistance);
             f("Owner.Death", tuning.Owner.Death);
+
+            f("Resurrection.GraceMs", tuning.Resurrection.GraceMs);
+            f("Resurrection.ReviveAlly", tuning.Resurrection.ReviveAlly);
 
             f("Opponent.LevelSpread", tuning.Opponent.LevelSpread);
             f("Opponent.EngageMaxMs", tuning.Opponent.EngageMaxMs);

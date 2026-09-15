@@ -99,6 +99,7 @@ namespace AnimusForge::ClassRole
             uint32 NextPullMs = 0;              // spawn the next pull at this episode time
             bool EliteOrHigher = false;
             uint32 Wipes = 0;                   // owner stages: pulls that killed everyone and were cleared away
+            bool AwaitingRevive = false;        // owner stages: someone dead waits for a resurrection (Recover)
             std::array<SeatPull, MAX_SEATS> Seats;
         };
 

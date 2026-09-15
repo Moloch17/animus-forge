@@ -346,8 +346,23 @@ AnimusForge::ClassRole::ActionCatalog::ActionCatalog(uint8 playerClass, ClassKit
     for (uint32 firstRank : sustainChains)
         _sustain.push_back(spellAction(firstRank));
 
-    LOG_INFO("module.animus", "Class {}: {} actions, {} tactical, {} sustain, from {} candidate spells", playerClass,
-        _actions.size(), _tactical.size(), _sustain.size(), candidates.size());
+    std::set<uint32> reviveChains;
+    for (uint32 spellId : candidates)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (info && !info->IsPassive() && info->NeedsExplicitUnitTarget()
+            && (info->HasEffect(SPELL_EFFECT_RESURRECT) || info->HasEffect(SPELL_EFFECT_RESURRECT_NEW)))
+            reviveChains.insert(chainOf(info));
+    }
+
+    for (uint32 firstRank : reviveChains)
+        _revives.push_back(spellAction(firstRank));
+
+    if (playerClass == CLASS_WARLOCK)
+        _revives.push_back({ Kind::Soulstone, "soulstone" });
+
+    LOG_INFO("module.animus", "Class {}: {} actions, {} tactical, {} sustain, {} revives, from {} candidate spells",
+        playerClass, _actions.size(), _tactical.size(), _sustain.size(), _revives.size(), candidates.size());
 }
 
 bool AnimusForge::ClassRole::ActionCatalog::IsTacticalSpell(SpellInfo const* info)

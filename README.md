@@ -152,16 +152,20 @@ gear until the companion and party stages give them their jobs):
 The table lives in `src/Scenario/ClassRole/Character/ClassRoleProfile.cpp`, with each spec's stat profile,
 range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
 
-- **Race and level:** a random race the class allows (`playercreateinfo`), random gender, level
-  1-80 (55-80 for death knights).
-- **Talents:** one of the role's specs, then a random build spent one point at a time on a uniformly
-  chosen learnable talent: the spec's tree first until it holds 51 points (the capstone row) or the
-  points run out, then the other two trees. Row and prerequisite rules follow `Player::LearnTalent`.
+- **Race and level:** a random race the class allows (`playercreateinfo`), random gender; half the characters
+  are level 61-80 and the rest any level 1-80 (55-80 for death knights), since most players are high level
+  (`Characters.HighLevelFirst`, `Characters.HighLevelChance`).
+- **Talents and glyphs:** one of the role's specs with its standard 3.3.5 build (`Character/SpecBuilds.cpp`, 31
+  specs: the talents players take, in the order they take them; generated from `tools/spec_builds/builds.py`, which
+  `validate.py` checks). Each point goes to the first talent in that order that still wants ranks and can take one
+  (row and prerequisite rules follow `Player::LearnTalent`), so a low-level character has the talents players pick
+  first; every build spends exactly 71 points at 80. The glyph slots the level has opened get the spec's standard
+  major and minor glyphs the level can use.
 - **Kit:** every spell of the class trainers up to the level (`trainer`/`trainer_spell`, learn-spells
   resolved), talent-gated ranks when the talent was taken, and class-quest spells trainers do not
   teach (stances, Bear Form, warlock demons, Raise Dead). Weapon and armor skills are the ones the
-  race and class may have, maxed for the level. Reagents: totems, soul shards, corpse dust, flash
-  powder; hunters get ammo for their ranged weapon.
+  race and class may have, maxed for the level. Reagents: totems, Ankhs (Reincarnation), soul shards,
+  corpse dust, flash powder; hunters get ammo for their ranged weapon, in a quiver or ammo pouch.
 - **Gear:** random level-appropriate items for every slot including both trinkets, drawn from
   every obtainable item (loot, vendors, quest rewards, crafted) the class can use and whose stats
   suit the spec (strength melee, agility melee, ranged, caster, healer or tank). Items with random
@@ -169,12 +173,24 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   the band players of its level wear (`ITEM_LEVEL_ANCHORS` in `GearBuilder.cpp`: a few item levels
   above the level while levelling, Outland gear from 58, Northrend gear from 70, heroic-dungeon gear
   180-213 at 80), reaching 10, 25, then any number of item levels below the band -- never above it --
-  and falling back to lighter armor, then stat-less items, when nothing fits. Epics only at levels 70
-  and 80 (heroic and badge gear); resilience (PvP) gear only in the PvP stages. Armor is
-  plate/mail/leather/cloth by class and level; weapons follow the spec's layouts (two-hander, dual
-  wield when the bot can -- daggers for assassination and subtlety -- a one-hander before that,
-  one-hander with shield or off-hand item, staff, bow/gun + stat stick, wand). No enchants, gems or
-  relics.
+  and falling back to lighter armor, then stat-less items, when nothing fits. Within the band, dungeon
+  drops are picked 4 times and quest rewards 3 times as often as other items, and items near the band's
+  middle more often than its edges. Epics only at levels 70 and 80 (heroic and badge gear); resilience (PvP)
+  gear only in the PvP stages. Armor is plate/mail/leather/cloth by class and level; weapons follow the
+  spec's layouts (two-hander, dual wield when the bot can -- daggers for assassination and subtlety -- a
+  one-hander before that, one-hander with shield or off-hand item, staff, bow/gun + stat stick, wand);
+  paladins, shamans, druids and death knights carry a relic.
+- **Enchants and gems** (`Character/GearEnhancements.cpp`): every item at levels 70 and 80, half of them while
+  levelling, gets the best enchant that suits the spec and that a player of the level could buy (enchanting
+  recipes and items such as leg armor and arcanums, by the enchanting skill they take: 5 per level to 300 at
+  60, 450 at 80; weapon procs by name: Berserking, Mongoose, Black Magic, ...), and every socket a gem of its
+  color that suits the spec (the socket bonus when all match; meta gems last; epic gems only at 80). Death
+  knights runeforge (Fallen Crusader, Razorice in the off hand, Stoneskin Gargoyle for tanks), rogues carry
+  Instant and Deadly Poison for their level. No profession-only enchants or gems.
+- **Supplies:** 5 of the best healing potions, 5 mana potions (mana users) and 5 bandages (with the First Aid
+  skill of the level); warlocks carry a healthstone (and hand one to every seat of their party) and a
+  soulstone. At levels 70 and 80 the character has drunk a flask that suits its spec; while levelling, half of
+  the time, an elixir.
 - **Core actions:** fixed per class, built at startup: no-op, cancel queued swing, one action per rank
   chain of every combat spell a level 80 character of any of the class's races knows (trainer,
   starting and racial spells, active talents of all three trees), casting the highest rank the bot
@@ -215,15 +231,20 @@ stage: its networks start from scratch.
 - **Actions:** the core actions, then: move to the opponent, move behind it, move to casting range
   (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, stop casting (the current cast
   or channel, as the client's cancel-cast), cancel form (a shapeshift the client could cancel: druid
-  forms, Shadowform, Ghost Wolf, Stealth; not stances or presences), and (hunters) the 4 `call_beast`
-  actions. The bot turns to face the opponent whenever it is not running. Movement is masked while
+  forms, Shadowform, Ghost Wolf, Stealth; not stances or presences), drink a healing or mana potion, use a
+  healthstone, bandage itself, soulstone itself (warlocks), resurrect itself when dead (Soulstone or
+  Reincarnation; not in the PvP stages), and (hunters) the 4 `call_beast` actions. Item actions are masked by
+  the core's cast checks (the shared potion cooldown, Recently Bandaged, combat). The bot turns to face the
+  opponent whenever it is not running. Movement is masked while
   casting, and cast-time or channeled spells while running. Stop casting and cancel form need no
   target, so they stay available between pulls in later stages.
 - **Observation:** the core observation, then: distance, bearing to the opponent, whether the bot is behind it
   and whether it faces the bot, the opponent's combat, target and casting state, the bot's movement,
   combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
   episode time, the current cast's progress and time left (casts and channels), whether the bot is in
-  a form it can cancel, and (hunters) the stable.
+  a form it can cancel, potions, healthstones and bandages carried, the potion and healthstone cooldowns,
+  Recently Bandaged, whether it will be able to resurrect itself, and (hunters) the stable. A dead bot sees
+  only that it is dead and whether it can resurrect itself -- the one action it has.
 - **Reward** (defaults; every weight is an `AnimusForge.ClassRole.Duel.*` key): per decision, damage dealt as a
   fraction of the opponent's health (x2) minus damage taken as a fraction of the bot's (x1), potential-based
   shaping toward the spec's range (melee 3.5 yd or 25 yd), +0.5 for a stealth-only opener from stealth, and a
@@ -232,10 +253,12 @@ stage: its networks start from scratch.
   is in combat earns 0.03 per second of its cast time. Nothing forces a cast to finish; cutting one short stays the
   policy's call when something else is worth more. Channels are paid by their ticks. Later stages keep this term.
   On the kill: +2, plus up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health
-  it did not lose. Death: -3. The episode ends on the kill or the bot's death.
+  it did not lose. Death: -3 (every death, including one after resurrecting itself). The episode ends on the kill
+  or the bot's death -- unless it can resurrect itself, when it has 20 s to do it (`Resurrection.GraceMs`).
 - **Episode info:** the core columns, then killed, died, time to kill, damage taken, health left,
   stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled and
-  seconds of cast time wasted, and the reward terms.
+  seconds of cast time wasted, why casts were cancelled (stopped by the bot, while moving, target died or gone,
+  anything else), consumables used and self-resurrections, and the reward terms.
 
 **Bootstrapping:** every stage after the first has `init_from: auto`: the learner reads the stage's `stage.json`,
 whose `seed_chain` lists the stages it extends, closest first, and seeds from the first of those that has been
@@ -287,7 +310,7 @@ Stage 3: sustained combat.
   and only self-cast actions are allowed.
 - **Reward:** the pack stage's per-step terms (damage taken weighs x1.5). Each cleared pull: +2, up
   to +2 for clearing it within a minute, up to +2 for the health kept during that pull. Death -5 and
-  ends the episode.
+  ends the episode (after the 20 s a bot that can resurrect itself has to do it).
 - **Episode info:** the pack stage's, then pulls cleared, food used, drinks used, sustain casts, deaths.
 
 Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
@@ -298,17 +321,19 @@ Stage 4: the gauntlet fought beside an owner, as a companion fights beside a pla
 
 - **Owner:** a scripted player bot within 2 levels of the companion, of a random role (tank 25%, healer 25%,
   damage dealer 50%) and a class that can fill it, dressed like the companion: one of the role's specs with a
-  random build, its trainer spells and level-appropriate gear. It gets the companion's faction so either
+  standard build and glyphs, its trainer spells and level-appropriate gear. It gets the companion's faction so either
   faction's races can be paired. Between pulls it wanders near the spawn point and recovers health and mana; each
   pull spawns around it. A tank owner starts every pull and taunts enemies off others; a healer owner heals the most
   hurt party member; a damage dealer walks in after 1.5-5 s (and starts the pull itself 30% of the time) and
   fights. It casts one of its own spells every 2-4 s. Linked packs join in on whoever their engaged member fights.
   Everything here is `AnimusForge.ClassRole.Owner.*`, `Pulls.*` and `ScriptedPlayers.*` tuning.
 - **Actions:** the gauntlet's, then follow the owner, assist (target the owner's target), guard (target an
-  enemy attacking the owner), and one "cast on the owner" action per single-target heal.
+  enemy attacking the owner), one "cast on the owner" action per single-target heal, and one per **revive**:
+  each resurrection spell (Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth) on the dead owner, and
+  a warlock's soulstone on the living owner.
 - **Observation:** the gauntlet's, then the owner's presence, health, mana, distance, bearing, combat,
   movement, level difference and class, how many enemies attack it, which enemy slot it attacks, which
-  enemies attack it, and each owner heal's known/cooldown.
+  enemies attack it, and each owner heal's and revive's known/cooldown.
 - **Reward:** the gauntlet's, with kills and clears counting double, plus, by role (defaults of
   `AnimusForge.ClassRole.Owner.*`):
   - everyone: the owner's damage taken (fraction of its health; x1 for damage dealers, x2 for tanks and
@@ -318,12 +343,19 @@ Stage 4: the gauntlet fought beside an owner, as a companion fights beside a pla
     half of the gauntlet's damage-taken penalty back);
   - healers: effective healing on the owner (x2, fraction of its health; the core's heal hook reports the
     health actually gained, so overhealing earns nothing);
-  - damage dealers and healers: -0.004 per enemy attacking them, per decision.
-  Nobody's death ends the episode: after the pull everyone who died stands up with half their health and mana,
-  and a pull that killed everyone is cleared away (a wipe), so letting the owner die is never a way out of the
-  penalties. Episodes end at their length.
+  - damage dealers and healers: -0.004 per enemy attacking them, per decision;
+  - everyone: +1.5 each time a dead ally it resurrected stands up (`Resurrection.ReviveAlly`; resurrect requests
+    are accepted at once, as a player would).
+- **Deaths do not end the episode, and resurrecting is learned.** After each pull the dead wait up to 20 s
+  (`Resurrection.GraceMs`) -- and the next pull waits with them -- for a resurrection they can get: their own
+  Soulstone or Reincarnation, or a living seat's resurrection spell. Only then does whoever is still dead -- the
+  companion or the owner -- stand up with half health and mana, so the fallback keeps the episode going without
+  doing the party's job. Every death is paid for once, again after standing up. A pull that kills everyone is
+  cleared away (a wipe) and the next comes after the usual break. The episode runs its full length, so letting the
+  owner die is never a way out of the penalties that follow.
 - **Episode info:** the gauntlet's, then wipes, the owner's class and role, whether and how often it died, its
-  damage taken, the companion's healing on it, and enemy-decisions spent on the companion and on the owner.
+  damage taken, the companion's healing on it, enemy-decisions spent on the companion and on the owner, and the
+  allies the seat resurrected.
 
 #### Stage 5 (`stage5_party`): the party
 
@@ -340,16 +372,17 @@ no-op.
   (`Group::SetSimGroup`): it lives only in memory -- no group or member rows, no character cache entries, and
   joining, leaving or disbanding never touches instance binds or homebind timers -- so rebuilding it every
   episode writes nothing to the database. It is disbanded before its members are replaced.
-- **Actions:** the companion stage's, then follow the tank, then per teammate assist, guard, and one "cast on
-  it" action per single-target heal.
+- **Actions:** the companion stage's, then follow the tank, then per teammate assist, guard, one "cast on
+  it" action per single-target heal, and one per revive.
 - **Observation:** the companion stage's, then living party size, the most hurt ally's health, whether a
   living tank and healer are present, and per teammate presence, health, mana, distance, bearing, combat, role,
   class, attackers, target slot and which enemies attack it.
 - **Reward:** per seat, the companion stage's (its own damage, threat and survival, the owner's), plus per
   teammate: its damage taken (not for a tank teammate; x0.5 for a damage dealer, x1 otherwise), effective
-  healing on it for healers (x2), -0.02 per enemy on a non-tank teammate per decision for tanks, and -3 when it
-  dies. Kills and clears are shared by the party. A tank is not charged for fighting before the owner joins.
-  As in the companion stage, the dead stand up after the pull and episodes end at their length.
+  healing on it for healers (x2), -0.02 per enemy on a non-tank teammate per decision for tanks, and -3 each time
+  it dies. Kills and clears are shared by the party. A tank is not charged for fighting before the owner joins.
+  As in the companion stage, the dead wait for a resurrection after the pull before they stand up, and the
+  episode runs its full length.
 - **Episode info:** per seat, the companion stage's, then the seat, teammates died, teammate damage taken, its
   healing on teammates, and enemy-decisions spent on non-tank teammates.
 

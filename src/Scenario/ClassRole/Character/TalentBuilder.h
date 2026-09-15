@@ -21,18 +21,21 @@
 
 #include "Define.h"
 #include <array>
+#include <map>
+#include <string>
 #include <vector>
 
 class Player;
 
 namespace AnimusForge::ClassRole
 {
-    /// A class's three talent trees and random builds over them.
+    /// A class's three talent trees, the standard builds and glyphs of its specs (SpecBuilds), and random builds.
     ///
-    /// A build spends points one at a time, each on a uniformly chosen talent that can take a point
-    /// right now (row requirement: 5 points per row in the tree; prerequisite talent at its required
-    /// rank). The spec's tree gets points until it holds SPEC_TREE_POINTS (the capstone row) or the
-    /// level's points run out; every remaining point goes to the other two trees the same way.
+    /// A standard build spends points one at a time, each on the first talent of the spec's list that still wants
+    /// ranks and can take a point right now (row requirement: 5 points per row in the tree; prerequisite talent at
+    /// its required rank), so a low-level character has the talents players take first. A random build spends each
+    /// point on a uniformly chosen talent that can take one: the spec's tree until it holds SPEC_TREE_POINTS (the
+    /// capstone row), then the other two trees. Points a standard build cannot place are spent randomly.
     class TalentBuilder
     {
     public:
@@ -46,6 +49,7 @@ namespace AnimusForge::ClassRole
             uint32 Row = 0;
             uint8 MaxRank = 0;
             std::array<uint32, 5> RankSpells{};
+            std::string Name;                       // the first rank's spell name
             int32 DependsOn = -1;                   // index into Talents()
             uint8 DependsOnRanks = 0;               // ranks the prerequisite needs
         };
@@ -70,14 +74,41 @@ namespace AnimusForge::ClassRole
 
         [[nodiscard]] Build Random(uint8 specTab, uint32 points) const;
 
+        /// The spec's standard build (SpecBuilds) for `points`; random for a spec without one.
+        [[nodiscard]] Build Standard(std::string const& spec, uint8 specTab, uint32 points) const;
+
+        /// Fills the bot's unlocked glyph slots with the spec's glyphs its level may use, best first.
+        void ApplyGlyphs(Player* bot, std::string const& spec) const;
+
         /// Learns the build on a bot with no talents. Returns the points left unspent (0 when the build
         /// and Player::LearnTalent agree).
         uint32 Apply(Player* bot, Build const& build) const;
 
     private:
+        struct Pick
+        {
+            uint32 Index = 0;                       // into Talents()
+            uint8 Ranks = 0;
+        };
+
+        struct Glyph
+        {
+            uint32 PropertiesId = 0;                // GlyphProperties.dbc
+            uint8 ReqLevel = 0;                     // the glyph item's
+        };
+
+        struct SpecData
+        {
+            std::vector<Pick> Picks;
+            std::vector<Glyph> Majors;
+            std::vector<Glyph> Minors;
+        };
+
         void Spend(Build& build, uint32 treeMask, uint32 points) const;
+        [[nodiscard]] bool CanTake(Build const& build, uint32 index) const;
 
         std::vector<Talent> _talents;               // by tab, row, column
+        std::map<std::string, SpecData> _specs;     // by SpecProfile::Name
     };
 }
 

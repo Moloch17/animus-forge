@@ -46,6 +46,7 @@ namespace AnimusForge::ClassRole
         std::vector<BlockId> Blocks;                // the stage's blocks, in layout order
         std::array<BlockSlice, BLOCK_COUNT> Slices{};
         std::vector<ActionCatalog::Action> AllyHeals;   // single-target heals that can be cast on an ally
+        std::vector<ActionCatalog::Action> AllyRevives; // resurrections and the soulstone (Catalog().Revives())
 
         /// The layout of `profile` at `stage` (Index 0). Builds the profile's assets on first use.
         [[nodiscard]] static Layout Build(ClassRoleProfile const& profile, StageDefinition const& stage);

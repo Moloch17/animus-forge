@@ -51,6 +51,7 @@ namespace AnimusForge::ClassRole
         TeammateHealing,
         TeammateThreat,
         TeammateDeath,
+        Revive,
         Count
     };
 

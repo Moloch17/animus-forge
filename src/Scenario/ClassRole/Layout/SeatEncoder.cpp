@@ -18,6 +18,7 @@
 
 #include "SeatEncoder.h"
 #include "CoreBlock.h"
+#include "DuelBlock.h"
 #include "Player.h"
 #include <algorithm>
 
@@ -31,7 +32,18 @@ void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* o
     CoreBlock::ObserveCharacter(view, obs);
 
     Player* bot = view.Bot;
-    if (!bot || !bot->IsAlive() || (!view.Target && !ActsWithoutTarget(layout)))
+    if (bot && !bot->IsAlive())
+    {
+        // Dead: whether it can resurrect itself, and the action that does.
+        if (layout.Has(BlockId::Duel))
+        {
+            BlockSlice const& duel = layout.Slice(BlockId::Duel);
+            DuelBlock::ObserveDead(view, obs + duel.ObsFirst, mask + duel.ActionFirst);
+        }
+        return;
+    }
+
+    if (!bot || (!view.Target && !ActsWithoutTarget(layout)))
         return;
 
     for (BlockId id : layout.Blocks)
@@ -50,6 +62,16 @@ void AnimusForge::ClassRole::SeatEncoder::Apply(SeatView& view, int32 action, Se
         return;
 
     Layout const& layout = *view.L;
+
+    // Dead: only its own resurrection.
+    if (!view.Bot->IsAlive())
+    {
+        BlockSlice const* duel = layout.Has(BlockId::Duel) ? &layout.Slice(BlockId::Duel) : nullptr;
+        if (duel && action == int32(duel->ActionFirst + DuelBlock::ACTION_SELF_RESURRECT))
+            GetBlock(BlockId::Duel).Apply(view, DuelBlock::ACTION_SELF_RESURRECT, result);
+        return;
+    }
+
     if (!view.Target && !ActsWithoutTarget(layout))
         return;
 

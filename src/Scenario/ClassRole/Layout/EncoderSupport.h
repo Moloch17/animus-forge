@@ -73,8 +73,24 @@ namespace AnimusForge::ClassRole::Encoding
     /// The on-use spell of an item (a trinket), or null.
     [[nodiscard]] SpellInfo const* TrinketSpell(Item const* item);
 
-    /// The on-use spell of an item entry (food, drink), or null.
+    /// The on-use spell of an item entry (food, drink, potions, stones), or null.
     [[nodiscard]] SpellInfo const* UseSpell(uint32 itemEntry);
+
+    /// Whether the bot can use its `entry` item (a potion, healthstone, bandage or soulstone) on `target` now, and
+    /// using it as the client does (true if one was used up).
+    [[nodiscard]] bool CanUseItemOn(Player* bot, uint32 entry, Unit* target);
+    bool UseItemOn(Player* bot, uint32 entry, Unit* target);
+
+    /// The remaining cooldown of an item's on-use spell as a fraction; 0 without the item.
+    [[nodiscard]] float ItemCooldownFraction(Player const* bot, uint32 entry);
+
+    /// A revive (a resurrection spell on a dead ally, or a warlock's soulstone on a living one) usable on `ally` now,
+    /// and using it.
+    [[nodiscard]] bool CanRevive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally);
+    void Revive(SeatView const& view, ActionCatalog::Action const& revive, Player* ally, SeatActionResult& result);
+
+    /// Revive features, two per revive: known (a spell the bot knows, or a soulstone in its bags) and cooldown.
+    void WriteRevives(SeatView const& view, float* out);
 
     /// The bot's pet, or its first living controlled unit other than a totem.
     [[nodiscard]] Unit* FirstPet(Player* bot);

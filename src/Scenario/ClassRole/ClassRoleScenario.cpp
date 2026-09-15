@@ -201,6 +201,7 @@ AnimusForge::ClassRole::ClassRoleScenario::ClassRoleScenario(ForgeConfig const& 
 
     if (_stage.Against == Opposition::Creature || _stage.Against == Opposition::Pulls)
         Opponents::OpponentPool::Instance();    // load it at startup rather than on the first episode
+    ConsumablePool::Instance();
 
     AddCoreEpisodeInfo();
     for (Encounter* encounter : _rewardOrder)
@@ -325,6 +326,14 @@ void AnimusForge::ClassRole::ClassRoleScenario::AddCoreEpisodeInfo()
         return float(tally(env, index).CastsTargetLost);
     });
     _info.Add("cancelled_other", [tally](Env const& env, uint32 index) { return float(tally(env, index).CastsOther); });
+    _info.Add("consumables_used", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).ConsumablesUsed);
+    });
+    _info.Add("self_resurrections", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).SelfResurrections);
+    });
 }
 
 void AnimusForge::ClassRole::ClassRoleScenario::WriteStageFiles(ForgeConfig const& config) const
@@ -570,6 +579,7 @@ bool AnimusForge::ClassRole::ClassRoleScenario::Rebuild(Env& env)
         if (!encounter->Build(env, map, level))
             return false;
 
+    StockSeats(env);
     return true;
 }
 
@@ -612,10 +622,11 @@ void AnimusForge::ClassRole::ClassRoleScenario::Configure(Player* bot, SeatState
 
     GearBuilder::LearnProficiencies(bot);
 
-    seat.Build = assets.Talents->Random(spec.TabPage, bot->GetFreeTalentPoints());
+    seat.Build = assets.Talents->Standard(spec.Name, spec.TabPage, bot->GetFreeTalentPoints());
     seat.UnspentTalentPoints = assets.Talents->Apply(bot, seat.Build);
 
     assets.Kit->Learn(bot);
+    assets.Talents->ApplyGlyphs(bot, spec.Name);
     assets.Gear->Equip(bot, spec, _stage.Has(BlockId::Pvp));
 
     seat.EquippedItems = 0;
@@ -645,6 +656,84 @@ void AnimusForge::ClassRole::ClassRoleScenario::PrepareFighter(Player* bot, Seat
             ? SPELL_DEFENSIVE_STANCE : SPELL_BATTLE_STANCE, true);
 }
 
+void AnimusForge::ClassRole::ClassRoleScenario::StockSeats(Env& env)
+{
+    EnvState& data = Data(env);
+
+    // Warlocks hand out healthstones to the party they are in.
+    Player* owner = Owner(env);
+    bool warlockInParty = owner && owner->getClass() == CLASS_WARLOCK;
+    if (_stage.PartyGroup)
+        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+            if (data.Seats[seat].L && data.Seats[seat].L->Profile->Class == CLASS_WARLOCK)
+                warlockInParty = true;
+
+    ConsumablePool const& pool = ConsumablePool::Instance();
+    for (uint32 seatIndex = 0; seatIndex < data.ActiveSeats; ++seatIndex)
+    {
+        SeatState& seat = data.Seats[seatIndex];
+        Player* bot = SeatBot(env, seatIndex);
+        if (!bot || !seat.L)
+            continue;
+
+        seat.Supplies = pool.Supplies(seat.Level, bot->GetMaxPower(POWER_MANA) > 0,
+            seat.L->Profile->Class == CLASS_WARLOCK, warlockInParty);
+        StockBattleSupplies(bot, seat.Supplies, seat.L->Profile->Specs[seat.Spec].Stats);
+    }
+}
+
+void AnimusForge::ClassRole::ClassRoleScenario::AcceptResurrections(Env& env)
+{
+    EnvState& data = Data(env);
+
+    std::vector<Player*> players;
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        players.push_back(SeatBot(env, seat));
+    players.push_back(Owner(env));
+
+    for (Player* player : players)
+    {
+        if (!player || player->IsAlive() || !player->isResurrectRequested())
+            continue;
+
+        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        {
+            if (Player* reviver = SeatBot(env, seat); reviver && player->isResurrectRequestedBy(reviver->GetGUID()))
+            {
+                data.Seats[seat].StepRevivedAlly = true;
+                ++data.Seats[seat].Revives;
+            }
+        }
+
+        player->ResurectUsingRequestData();
+    }
+}
+
+bool AnimusForge::ClassRole::ClassRoleScenario::DeadForGood(Env const& env, uint32 seatIndex) const
+{
+    CombatTally const& tally = Data(env).Seats[seatIndex].Combat;
+    Player* bot = env.FindBot(seatIndex);
+    if (!tally.Died || (bot && bot->IsAlive()))
+        return false;
+
+    bool const canResurrect = bot && !_stage.Has(BlockId::Pvp) && bot->GetUInt32Value(PLAYER_SELF_RES_SPELL);
+    return !canResurrect || env.EpisodeElapsedMs >= tally.DeathMs + _tuning.Resurrection.GraceMs;
+}
+
+bool AnimusForge::ClassRole::ClassRoleScenario::SeatCanResurrect(Env const& env, uint32 seatIndex) const
+{
+    SeatState const& seat = Data(env).Seats[seatIndex];
+    Player* bot = SeatBot(env, seatIndex);
+    if (!bot || !bot->IsAlive() || !seat.L)
+        return false;
+
+    std::vector<ActionCatalog::Action> const& revives = seat.L->AllyRevives;
+    return std::any_of(revives.begin(), revives.end(), [bot](ActionCatalog::Action const& revive)
+    {
+        return revive.Type == ActionCatalog::Kind::Spell && ActionCatalog::KnownRank(bot, revive.FirstRank);
+    });
+}
+
 void AnimusForge::ClassRole::ClassRoleScenario::NotifyRecovered(Env& env, int32 who)
 {
     if (who >= 0)
@@ -662,6 +751,8 @@ void AnimusForge::ClassRole::ClassRoleScenario::ApplyActions(Env& env, int32 con
         encounter->UpdateEnemies(env);
     for (auto const& encounter : _encounters)
         encounter->Update(env);
+
+    AcceptResurrections(env);
 
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         ApplySeatAction(env, seat, actions[seat]);
@@ -695,6 +786,8 @@ AnimusForge::ClassRole::SeatView AnimusForge::ClassRole::ClassRoleScenario::View
     view.LastStepDamageTaken = seat.LastStepDamageTaken;
     view.CombatTime = seat.InCombat
         ? std::min(1.0f, float(env.EpisodeElapsedMs - seat.CombatStartMs) / MAX_COMBAT_TIME_MS) : 0.0f;
+    view.Supplies = seat.Supplies;
+    view.SelfResurrectAllowed = !_stage.Has(BlockId::Pvp);
 
     view.StableCount = uint32(std::min<std::size_t>(seat.Stable.size(), STABLE_SLOTS));
     std::copy_n(seat.Stable.begin(), view.StableCount, view.Stable.begin());
@@ -731,6 +824,8 @@ void AnimusForge::ClassRole::ClassRoleScenario::ApplySeatAction(Env& env, uint32
     seat.TargetSlot = view.TargetSlot;
     seat.SpellCasts += result.SpellCasts;
     seat.TrinketUses += result.TrinketUses;
+    seat.ConsumablesUsed += result.ConsumablesUsed;
+    seat.SelfResurrections += result.SelfResurrected ? 1 : 0;
 
     if (result.StealthOpener)
     {
@@ -802,6 +897,10 @@ float AnimusForge::ClassRole::ClassRoleScenario::SeatReward(Env& env, uint32 sea
 
     Player* bot = env.FindBot(seatIndex);
     seat.LastStepDamage = float(env.StepStats[seatIndex].Damage) / seat.DamageScale;
+
+    // Standing again (resurrected, or recovered after a pull): the next death is paid for again.
+    if (bot && bot->IsAlive())
+        seat.Combat.DeathCounted = false;
 
     for (Encounter* encounter : _rewardOrder)
         encounter->Reward(env, seatIndex, bot, seat.Rewards);

@@ -22,6 +22,7 @@
 #include "Block.h"
 #include "ClassRoleProfile.h"
 #include "ObjectGuid.h"
+#include "Supplies.h"
 #include "TalentBuilder.h"
 #include <array>
 
@@ -50,8 +51,11 @@ namespace AnimusForge::ClassRole
         float LastStepPowerDelta = 0.0f;            // primary power change, as a fraction of max
         float LastStepDamageTaken = 0.0f;           // / the bot's max health
 
-        // Duel: time in combat, and a hunter's beasts on offer.
+        // Duel: time in combat, what the bot brought (potions, bandages, stones), whether it may resurrect itself, and
+        // a hunter's beasts on offer.
         float CombatTime = 0.0f;                    // time in combat / 60 s, clamped; 0 out of combat
+        BattleSupplies Supplies;
+        bool SelfResurrectAllowed = true;           // not in the PvP stages
         std::array<uint32, STABLE_SLOTS> Stable{};
         uint32 StableCount = 0;
 
@@ -100,6 +104,9 @@ namespace AnimusForge::ClassRole
         bool StealthOpener = false;                 // a stealth opener at the target started
         ObjectGuid PendingInterrupt;                // an interrupt was cast at this casting enemy
         uint32 CallBeast = 0;                       // hunters: call this stable beast (the scenario creates the pet)
+        uint32 ConsumablesUsed = 0;                 // potions, healthstones, bandages, soulstones
+        bool SelfResurrected = false;
+        uint32 Revives = 0;                         // resurrection spells started on a dead ally
     };
 }
 

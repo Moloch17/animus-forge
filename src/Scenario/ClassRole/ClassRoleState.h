@@ -22,6 +22,7 @@
 #include "Block.h"
 #include "BotSlot.h"
 #include "RewardLedger.h"
+#include "Supplies.h"
 #include "TalentBuilder.h"
 #include <array>
 #include <vector>
@@ -43,7 +44,8 @@ namespace AnimusForge::ClassRole
         uint32 KillTimeMs = 0;
         bool Died = false;                      // died at least once
         uint32 Deaths = 0;
-        bool DeathCounted = false;              // the current death has been paid for
+        bool DeathCounted = false;              // the current death has been paid for (again after standing up)
+        uint32 DeathMs = 0;                     // episode time of the current death
         uint32 StealthOpeners = 0;
         bool StepStealthOpener = false;         // one started since the last reward
         bool PetSummoned = false;
@@ -81,6 +83,13 @@ namespace AnimusForge::ClassRole
         uint32 CombatStartMs = 0;               // episode time the bot entered its current combat
         uint32 TargetSlot = 0;                  // the selected enemy (pulls)
 
+        // What the character brought (potions, bandages, stones), and what it did with it.
+        BattleSupplies Supplies;
+        uint32 ConsumablesUsed = 0;
+        uint32 SelfResurrections = 0;
+        uint32 Revives = 0;                     // dead allies (owner, teammates) the seat resurrected
+        bool StepRevivedAlly = false;           // an ally the seat resurrected stood up this decision
+
         CombatTally Combat;
         RewardLedger Rewards;
 
@@ -95,6 +104,11 @@ namespace AnimusForge::ClassRole
             InCombat = false;
             CombatStartMs = 0;
             TargetSlot = 0;
+            Supplies = BattleSupplies();
+            ConsumablesUsed = 0;
+            SelfResurrections = 0;
+            Revives = 0;
+            StepRevivedAlly = false;
             Combat = CombatTally();
             Rewards.ResetEpisode();
         }

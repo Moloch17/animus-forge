@@ -49,6 +49,7 @@ std::string_view AnimusForge::ClassRole::RewardTermName(RewardTerm term)
         case RewardTerm::TeammateHealing:       return "teammate_healing";
         case RewardTerm::TeammateThreat:        return "teammate_threat";
         case RewardTerm::TeammateDeath:         return "teammate_death";
+        case RewardTerm::Revive:                return "revive";
         case RewardTerm::Count:                 break;
     }
 
@@ -146,9 +147,13 @@ void AnimusForge::ClassRole::CombatReward::OneOnOne(ClassRoleScenario& scenario,
         ledger.Add(RewardTerm::HealthKept, tuning.HealthKept * healthKept);
     }
 
-    if (!tally.Died && !bot->IsAlive())
+    // Every death costs, including one after resurrecting itself.
+    if (!tally.DeathCounted && !bot->IsAlive())
     {
+        tally.DeathCounted = true;
         tally.Died = true;
+        tally.DeathMs = env.EpisodeElapsedMs;
+        ++tally.Deaths;
         ledger.Add(RewardTerm::Death, -tuning.Death);
     }
 }

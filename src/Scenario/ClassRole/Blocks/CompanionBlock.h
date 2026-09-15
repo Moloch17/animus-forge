@@ -23,8 +23,9 @@
 
 namespace AnimusForge::ClassRole
 {
-    /// The player the bot fights for: its health, position, class, target and attackers, and the class's ally heals.
-    /// Actions: follow, assist (its target), guard (an enemy on it), cast an ally heal on it.
+    /// The player the bot fights for: its health, position, class, target and attackers, and the class's ally heals and
+    /// revives. Actions: follow, assist (its target), guard (an enemy on it), cast an ally heal on it, revive it
+    /// (resurrection spells on the dead owner, a warlock's soulstone on the living one).
     class CompanionBlock final : public Block
     {
     public:
@@ -47,7 +48,7 @@ namespace AnimusForge::ClassRole
             OBS_SLOT_ON_OWNER_FIRST     = 26,   // per enemy slot: attacking the owner
             OBS_GLOBAL_COUNT            = 30
 
-            // Then per ally heal: known, cooldown.
+            // Then per ally heal, then per revive: known, cooldown.
         };
 
         enum Action : uint32
@@ -55,7 +56,7 @@ namespace AnimusForge::ClassRole
             ACTION_FOLLOW               = 0,    // run to just behind the owner
             ACTION_ASSIST               = 1,    // target the owner's target
             ACTION_GUARD                = 2,    // target an enemy attacking the owner
-            ACTION_HEAL_FIRST           = 3     // one per ally heal
+            ACTION_HEAL_FIRST           = 3     // one per ally heal, then one per revive
         };
 
         [[nodiscard]] BlockId Id() const override { return BlockId::Companion; }

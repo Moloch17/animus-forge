@@ -274,7 +274,7 @@ void AnimusForge::ClassRole::PullsEncounter::Update(Env& env)
             anyoneAlive = true;
 
     Player* owner = ownerPart ? ownerPart->Find(env) : nullptr;
-    if (anyoneAlive && (!ownerPart || (owner && owner->IsAlive())))
+    if (anyoneAlive && (!ownerPart || (owner && owner->IsAlive())) && !_envs[env.Index].AwaitingRevive)
         if (Map* map = env.FindMap())
             SpawnPull(env, map);
 }
@@ -314,30 +314,41 @@ void AnimusForge::ClassRole::PullsEncounter::Recover(Env& env)
         EndPull(env, pulls);
     }
 
+    pulls.AwaitingRevive = false;
     if (!env.Targets.empty())
         return;
 
-    // Between pulls: the dead stand up with part of their health and mana, and their deaths can be paid for again.
+    // Between pulls the dead wait a while for a resurrection they can get -- their own Soulstone or Reincarnation, or
+    // a living seat's resurrection spell -- and then stand up with part of their health and mana, and their deaths can
+    // be paid for again. Resurrecting them is the party's to learn; standing up only keeps the episode going.
+    bool resurrector = false;
+    for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+        resurrector |= _scenario.SeatCanResurrect(env, seat);
+
+    bool const graceOver = env.EpisodeElapsedMs >= pulls.QuietSinceMs + _scenario.Tuning().Resurrection.GraceMs;
     float const fraction = _scenario.Tuning().Pulls.RecoverFraction;
-    auto const recover = [fraction](Player* player)
+    auto const recover = [&](Player* player, bool selfResurrect)
     {
+        if (!graceOver && (resurrector || selfResurrect))
+        {
+            pulls.AwaitingRevive = true;
+            return false;
+        }
+
         player->ResurrectPlayer(fraction);
         player->SetPower(POWER_MANA, uint32(float(player->GetMaxPower(POWER_MANA)) * fraction));
+        return true;
     };
 
-    if (owner && !owner->IsAlive())
-    {
-        recover(owner);
+    if (owner && !owner->IsAlive() && recover(owner, false))
         _scenario.NotifyRecovered(env, RECOVERED_OWNER);
-    }
 
     for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
     {
         Player* bot = _scenario.SeatBot(env, seat);
-        if (!bot || bot->IsAlive())
+        if (!bot || bot->IsAlive() || !recover(bot, bot->GetUInt32Value(PLAYER_SELF_RES_SPELL) != 0))
             continue;
 
-        recover(bot);
         _scenario.NotifyRecovered(env, int32(seat));
     }
 }
@@ -507,6 +518,7 @@ void AnimusForge::ClassRole::PullsEncounter::Reward(Env& env, uint32 seatIndex, 
     {
         tally.DeathCounted = true;
         tally.Died = true;
+        tally.DeathMs = env.EpisodeElapsedMs;
         ++tally.Deaths;
         ledger.Add(RewardTerm::Death, -(Gauntlet() ? tuning.GauntletDeath : tuning.PackDeath));
     }
@@ -539,12 +551,11 @@ void AnimusForge::ClassRole::PullsEncounter::WriteState(Env const& env, float* s
 
 bool AnimusForge::ClassRole::PullsEncounter::IsTerminal(Env const& env) const
 {
-    CombatTally const& tally = _scenario.Data(env).Seats[0].Combat;
-
     // With an owner nobody's death ends the episode (they stand up after the pull), so letting the owner die is
-    // never a way out of the penalties.
+    // never a way out of the penalties. Alone, a death ends it once no resurrection of its own is left to wait for.
     if (_scenario.Stage().Owner)
         return false;
 
-    return Gauntlet() ? tally.Died : tally.Killed || tally.Died;
+    bool const dead = _scenario.DeadForGood(env, 0);
+    return Gauntlet() ? dead : _scenario.Data(env).Seats[0].Combat.Killed || dead;
 }

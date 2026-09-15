@@ -53,6 +53,6 @@ void AnimusForge::ClassRole::CreatureEncounter::Reward(Env& env, uint32 seat, Pl
 
 bool AnimusForge::ClassRole::CreatureEncounter::IsTerminal(Env const& env) const
 {
-    CombatTally const& tally = _scenario.Data(env).Seats[0].Combat;
-    return tally.Killed || tally.Died;
+    // A death ends it once no resurrection of its own is left to wait for.
+    return _scenario.Data(env).Seats[0].Combat.Killed || _scenario.DeadForGood(env, 0);
 }

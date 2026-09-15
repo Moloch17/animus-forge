@@ -60,7 +60,7 @@ AnimusForge::ClassRole::ScriptedPlayer::State& AnimusForge::ClassRole::OwnerEnco
 std::vector<AnimusForge::ClassRole::RewardTerm> AnimusForge::ClassRole::OwnerEncounter::RewardTerms() const
 {
     return { RewardTerm::OwnerDamageTaken, RewardTerm::OwnerHealing, RewardTerm::TankDamageRefund, RewardTerm::Threat,
-        RewardTerm::SoloFight, RewardTerm::Follow, RewardTerm::OwnerDeath };
+        RewardTerm::SoloFight, RewardTerm::Follow, RewardTerm::OwnerDeath, RewardTerm::Revive };
 }
 
 void AnimusForge::ClassRole::OwnerEncounter::AddEpisodeInfo(EpisodeInfoTable& table)
@@ -79,6 +79,7 @@ void AnimusForge::ClassRole::OwnerEncounter::AddEpisodeInfo(EpisodeInfoTable& ta
         return float(_envs[env.Index].Seats[seat].ThreatOnBot);
     });
     table.Add("threat_on_owner", [this](Env const& env, uint32) { return float(_envs[env.Index].ThreatOnOwner); });
+    table.Add("revives", [this](Env const& env, uint32 seat) { return float(_scenario.Data(env).Seats[seat].Revives); });
 }
 
 void AnimusForge::ClassRole::OwnerEncounter::ResetEpisode(Env& env)
@@ -181,6 +182,14 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
 {
     EnvOwner& state = _envs[env.Index];
     Player* owner = Find(env);
+
+    // A dead ally (the owner, a teammate) the seat resurrected stood up: revives exist only beside an owner.
+    if (SeatState& reviver = _scenario.Data(env).Seats[seatIndex]; reviver.StepRevivedAlly)
+    {
+        ledger.Add(RewardTerm::Revive, _scenario.Tuning().Resurrection.ReviveAlly);
+        reviver.StepRevivedAlly = false;
+    }
+
     if (!bot || !owner)
         return;
 
@@ -233,6 +242,11 @@ void AnimusForge::ClassRole::OwnerEncounter::Reward(Env& env, uint32 seatIndex, 
 
     if (owner->IsAlive())
     {
+        // Standing again (resurrected, or recovered after a pull): its next death is paid for again.
+        seatOwner.DeathSeen = false;
+        if (seatIndex == 0)
+            state.DeathCounted = false;
+
         // Fighting on its own: the companion pulled something, or kept fighting after the owner stopped (a party's
         // tank pulls first by design).
         if (bot->IsInCombat() && !owner->IsInCombat() && !(_scenario.Stage().PartyGroup && role == Role::Tank))

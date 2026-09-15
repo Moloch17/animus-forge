@@ -38,6 +38,7 @@ namespace
     enum DuelSpells : uint32
     {
         SPELL_CALL_PET          = 883,      // its GCD is applied to calling a stabled beast
+        SPELL_RECENTLY_BANDAGED = 11196,
     };
 
     constexpr uint32 DUEL_MOVE_POINT_ID = 1;
@@ -51,16 +52,41 @@ namespace
     {
         Player* bot = view.Bot;
         Unit* target = view.Target;
+
+        // Dead: only its own resurrection (Soulstone, Reincarnation), as the release dialog offers it.
+        if (action == DuelBlock::ACTION_SELF_RESURRECT)
+            return view.SelfResurrectAllowed && !bot->IsAlive() && bot->GetUInt32Value(PLAYER_SELF_RES_SPELL)
+                && !bot->HasPreventResurectionAura();
+
         if (!bot->IsAlive())
             return false;
 
         bool const casting = bot->IsNonMeleeSpellCast(false, false, true);
 
         // No target needed (between gauntlet pulls too).
-        if (action == DuelBlock::ACTION_STOP_CASTING)
-            return casting;
-        if (action == DuelBlock::ACTION_CANCEL_FORM)
-            return Encoding::CancellableForm(bot) != nullptr;
+        switch (action)
+        {
+            case DuelBlock::ACTION_STOP_CASTING:
+                return casting;
+            case DuelBlock::ACTION_CANCEL_FORM:
+                return Encoding::CancellableForm(bot) != nullptr;
+            case DuelBlock::ACTION_HEALTH_POTION:
+                return Encoding::CanUseItemOn(bot, view.Supplies.HealthPotion, bot);
+            case DuelBlock::ACTION_MANA_POTION:
+                return Encoding::CanUseItemOn(bot, view.Supplies.ManaPotion, bot);
+            case DuelBlock::ACTION_HEALTHSTONE:
+                return Encoding::CanUseItemOn(bot, view.Supplies.Healthstone, bot);
+            case DuelBlock::ACTION_BANDAGE:
+                return Encoding::CanUseItemOn(bot, view.Supplies.Bandage, bot);
+            case DuelBlock::ACTION_SOULSTONE_SELF:
+            {
+                uint32 const soulstone = view.Supplies.Soulstone;
+                SpellInfo const* info = soulstone ? Encoding::UseSpell(soulstone) : nullptr;
+                return info && !bot->HasAura(info->Id) && Encoding::CanUseItemOn(bot, soulstone, bot);
+            }
+            default:
+                break;
+        }
 
         if (!target || !target->IsAlive())
             return false;
@@ -132,6 +158,23 @@ void AnimusForge::ClassRole::DuelBlock::Observe(SeatView const& view, float* obs
     obs[OBS_SHAPESHIFTED] = Encoding::CancellableForm(bot) ? 1.0f : 0.0f;
     obs[OBS_COMBAT_TIME] = view.CombatTime;
 
+    // What it carries, with or without a target.
+    BattleSupplies const& supplies = view.Supplies;
+    auto const carried = [bot](uint32 entry, float full)
+    {
+        return entry ? std::min(1.0f, float(bot->GetItemCount(entry)) / full) : 0.0f;
+    };
+    float const stack = float(CONSUMABLE_COUNT);
+    obs[OBS_HEALTH_POTIONS] = carried(supplies.HealthPotion, stack);
+    obs[OBS_MANA_POTIONS] = carried(supplies.ManaPotion, stack);
+    obs[OBS_HEALTHSTONES] = carried(supplies.Healthstone, 1.0f);
+    obs[OBS_BANDAGES] = carried(supplies.Bandage, stack);
+    obs[OBS_POTION_COOLDOWN] = std::max(Encoding::ItemCooldownFraction(bot, supplies.HealthPotion),
+        Encoding::ItemCooldownFraction(bot, supplies.ManaPotion));
+    obs[OBS_HEALTHSTONE_COOLDOWN] = Encoding::ItemCooldownFraction(bot, supplies.Healthstone);
+    obs[OBS_RECENTLY_BANDAGED] = bot->HasAura(SPELL_RECENTLY_BANDAGED) ? 1.0f : 0.0f;
+    obs[OBS_SOULSTONE_ON_BOT] = view.SelfResurrectAllowed && bot->GetResurrectionSpellId() ? 1.0f : 0.0f;
+
     // Hunters: what each stable slot offers, so the policy can find the pet it prefers.
     for (uint32 slot = 0; slot < view.StableCount && slot < STABLE_SLOTS; ++slot)
     {
@@ -179,6 +222,14 @@ void AnimusForge::ClassRole::DuelBlock::Observe(SeatView const& view, float* obs
         mask[action] = IsAllowed(view, action) ? 1 : 0;
 }
 
+void AnimusForge::ClassRole::DuelBlock::ObserveDead(SeatView const& view, float* obs, uint8* mask)
+{
+    obs[OBS_DEAD] = 1.0f;
+    bool const selfResurrect = IsAllowed(view, ACTION_SELF_RESURRECT);
+    obs[OBS_SELF_RESURRECT] = selfResurrect ? 1.0f : 0.0f;
+    mask[ACTION_SELF_RESURRECT] = selfResurrect ? 1 : 0;
+}
+
 void AnimusForge::ClassRole::DuelBlock::BeforeApply(SeatView& view) const
 {
     // Face the target whenever not running somewhere: casts and swings need it, and turning is not a decision worth
@@ -196,6 +247,40 @@ void AnimusForge::ClassRole::DuelBlock::Apply(SeatView& view, uint32 local, Seat
 
     Player* bot = view.Bot;
     Unit* target = view.Target;
+
+    auto const useItem = [bot, &result](uint32 entry)
+    {
+        if (Encoding::UseItemOn(bot, entry, bot))
+            ++result.ConsumablesUsed;
+    };
+
+    switch (local)
+    {
+        case ACTION_SELF_RESURRECT:
+            // As CMSG_SELF_RES.
+            bot->CastSpell(bot, bot->GetUInt32Value(PLAYER_SELF_RES_SPELL));
+            bot->SetUInt32Value(PLAYER_SELF_RES_SPELL, 0);
+            result.SelfResurrected = bot->IsAlive();
+            return;
+        case ACTION_HEALTH_POTION:
+            useItem(view.Supplies.HealthPotion);
+            return;
+        case ACTION_MANA_POTION:
+            useItem(view.Supplies.ManaPotion);
+            return;
+        case ACTION_HEALTHSTONE:
+            useItem(view.Supplies.Healthstone);
+            return;
+        case ACTION_BANDAGE:
+            useItem(view.Supplies.Bandage);
+            return;
+        case ACTION_SOULSTONE_SELF:
+            useItem(view.Supplies.Soulstone);
+            return;
+        default:
+            break;
+    }
+
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;

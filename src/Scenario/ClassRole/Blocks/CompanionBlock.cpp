@@ -36,6 +36,13 @@ namespace
     {
         Player* bot = view.Bot;
         Player* owner = view.Owner;
+        uint32 const heals = uint32(view.L->AllyHeals.size());
+        if (action >= CompanionBlock::ACTION_HEAL_FIRST + heals)
+        {
+            uint32 const revive = action - CompanionBlock::ACTION_HEAL_FIRST - heals;
+            return revive < view.L->AllyRevives.size() && Encoding::CanRevive(view, view.L->AllyRevives[revive], owner);
+        }
+
         if (!owner || !owner->IsAlive() || !bot->IsAlive() || !owner->IsInMap(bot))
             return false;
 
@@ -55,21 +62,22 @@ namespace
                 break;
         }
 
-        uint32 const heal = action - CompanionBlock::ACTION_HEAL_FIRST;
-        return heal < view.L->AllyHeals.size() && Encoding::CanHeal(bot, view.L->AllyHeals[heal], owner);
+        return Encoding::CanHeal(bot, view.L->AllyHeals[action - CompanionBlock::ACTION_HEAL_FIRST], owner);
     }
 }
 
 AnimusForge::ClassRole::BlockSize AnimusForge::ClassRole::CompanionBlock::Size(Layout const& layout) const
 {
-    uint32 const heals = uint32(layout.AllyHeals.size());
-    return { OBS_GLOBAL_COUNT + heals * 2, ACTION_HEAL_FIRST + heals };
+    uint32 const allyActions = uint32(layout.AllyHeals.size() + layout.AllyRevives.size());
+    return { OBS_GLOBAL_COUNT + allyActions * 2, ACTION_HEAL_FIRST + allyActions };
 }
 
 void AnimusForge::ClassRole::CompanionBlock::DescribeManifest(Layout const& layout, JsonWriter& json) const
 {
     json.Key("ally_heals");
     WriteSpellList(json, layout.AllyHeals);
+    json.Key("ally_revives");
+    WriteSpellList(json, layout.AllyRevives);
 }
 
 void AnimusForge::ClassRole::CompanionBlock::Observe(SeatView const& view, float* obs, uint8* mask) const
@@ -114,6 +122,7 @@ void AnimusForge::ClassRole::CompanionBlock::Observe(SeatView const& view, float
     }
 
     Encoding::WriteKnownCooldowns(bot, view.L->AllyHeals, obs + OBS_GLOBAL_COUNT);
+    Encoding::WriteRevives(view, obs + OBS_GLOBAL_COUNT + view.L->AllyHeals.size() * 2);
 
     uint32 const actions = view.L->Slice(BlockId::Companion).ActionCount;
     for (uint32 action = 0; action < actions; ++action)
@@ -127,6 +136,12 @@ void AnimusForge::ClassRole::CompanionBlock::Apply(SeatView& view, uint32 local,
 
     Player* bot = view.Bot;
     Player* owner = view.Owner;
+    uint32 const heals = uint32(view.L->AllyHeals.size());
+    if (local >= ACTION_HEAL_FIRST + heals)
+    {
+        Encoding::Revive(view, view.L->AllyRevives[local - ACTION_HEAL_FIRST - heals], owner, result);
+        return;
+    }
 
     switch (local)
     {

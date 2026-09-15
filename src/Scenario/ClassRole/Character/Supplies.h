@@ -19,15 +19,17 @@
 #ifndef MOD_ANIMUS_FORGE_CLASS_ROLE_SUPPLIES_H
 #define MOD_ANIMUS_FORGE_CLASS_ROLE_SUPPLIES_H
 
+#include "ClassRoleProfile.h"
 #include "Define.h"
+#include <map>
 #include <utility>
 #include <vector>
 
 class Player;
 
 /*
- * What a class/role character carries beyond its kit and gear: food and drink for its level, and a hunter's stable
- * of beasts to call.
+ * What a class/role character carries beyond its kit and gear: food and drink, potions, bandages, a warlock's
+ * healthstones and soulstone, the flask or elixir it drank before the fight, and a hunter's stable of beasts to call.
  */
 namespace AnimusForge::ClassRole
 {
@@ -37,7 +39,19 @@ namespace AnimusForge::ClassRole
     /// Hunters get Tame Beast and Call Pet at this level.
     constexpr uint8 HUNTER_PET_LEVEL = 10;
 
-    /// Vendor-sold food (health regeneration) and drink (mana regeneration) by required level.
+    /// What a character brings to a fight, by item entry (0: none).
+    struct BattleSupplies
+    {
+        uint32 HealthPotion = 0;
+        uint32 ManaPotion = 0;
+        uint32 Healthstone = 0;
+        uint32 Bandage = 0;
+        uint32 Soulstone = 0;
+    };
+
+    /// Consumables a player can get, by the level (or First Aid skill) they need: vendor-sold food (health
+    /// regeneration) and drink (mana regeneration), healing and mana potions, bandages, warlock healthstones and
+    /// soulstones, and flasks and elixirs.
     class ConsumablePool
     {
     public:
@@ -47,13 +61,39 @@ namespace AnimusForge::ClassRole
         [[nodiscard]] uint32 Food(uint8 level) const { return Best(_food, level); }
         [[nodiscard]] uint32 Drink(uint8 level) const { return Best(_drink, level); }
 
+        /// The best potions, bandage (for the First Aid skill of the level) and conjured stones of `level`. Mana
+        /// potions only for mana users, healthstones for warlocks and the parties they are in, soulstones for
+        /// warlocks.
+        [[nodiscard]] BattleSupplies Supplies(uint8 level, bool usesMana, bool warlock, bool warlockInParty) const;
+
+        /// The spell of the flask (at the level caps) or elixir (while levelling, now and then) a character of
+        /// `level` with `stats` gear drinks before a fight, or 0.
+        [[nodiscard]] uint32 BuffSpell(uint8 level, StatProfile stats) const;
+
+        /// The First Aid skill a character of `level` has (as a player who kept it up would).
+        [[nodiscard]] static uint16 FirstAidSkill(uint8 level);
+
     private:
+        struct Buff
+        {
+            uint8 ReqLevel = 0;
+            uint16 ItemLevel = 0;
+            uint32 SpellId = 0;
+            bool Flask = false;
+        };
+
         ConsumablePool();
 
         [[nodiscard]] static uint32 Best(std::vector<std::pair<uint8, uint32>> const& items, uint8 level);
 
         std::vector<std::pair<uint8, uint32>> _food;     // (required level, item), sorted
         std::vector<std::pair<uint8, uint32>> _drink;
+        std::vector<std::pair<uint8, uint32>> _healthPotions;
+        std::vector<std::pair<uint8, uint32>> _manaPotions;
+        std::vector<std::pair<uint8, uint32>> _healthstones;
+        std::vector<std::pair<uint8, uint32>> _soulstones;
+        std::vector<std::pair<uint16, uint32>> _bandages;   // (First Aid skill, item), sorted
+        std::map<StatProfile, std::vector<Buff>> _buffs;
     };
 
     /// Tameable, non-exotic beasts spawned somewhere in the world, by family.
@@ -74,6 +114,10 @@ namespace AnimusForge::ClassRole
 
     /// Top the bot's food and drink up to CONSUMABLE_COUNT each; 0 skips one.
     void StockConsumables(Player* bot, uint32 food, uint32 drink);
+
+    /// Put the supplies in the bot's bags (potions and bandages CONSUMABLE_COUNT each, one healthstone and one
+    /// soulstone), teach it the First Aid its bandage needs, and drink its flask or elixir.
+    void StockBattleSupplies(Player* bot, BattleSupplies const& supplies, StatProfile stats);
 
     /// Hunters: bring the stabled beast `entry` out as the bot's pet (Call Pet for a pet that only exists in memory;
     /// Call Pet itself loads pets from the database). Needs level 10 and no pet out. Returns false if no pet was

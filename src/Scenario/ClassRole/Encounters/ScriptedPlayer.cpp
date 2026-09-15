@@ -268,8 +268,9 @@ void AnimusForge::ClassRole::ScriptedPlayer::Configure(Player* player, ClassRole
     SpecProfile const& spec = assets.Profile->Specs[urand(0, uint32(assets.Profile->Specs.size()) - 1)];
 
     GearBuilder::LearnProficiencies(player);
-    assets.Talents->Apply(player, assets.Talents->Random(spec.TabPage, player->GetFreeTalentPoints()));
+    assets.Talents->Apply(player, assets.Talents->Standard(spec.Name, spec.TabPage, player->GetFreeTalentPoints()));
     assets.Kit->Learn(player);
+    assets.Talents->ApplyGlyphs(player, spec.Name);
     assets.Gear->Equip(player, spec, pvp);
 
     player->SetPlayerFlag(PLAYER_FLAGS_NO_XP_GAIN);

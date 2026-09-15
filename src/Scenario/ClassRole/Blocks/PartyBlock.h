@@ -24,7 +24,8 @@
 namespace AnimusForge::ClassRole
 {
     /// The other learned party members: PARTY_MEMBERS teammate slots (the owner has the companion block). Actions:
-    /// follow the tank, assist and guard each teammate, cast each ally heal on each teammate.
+    /// follow the tank, assist and guard each teammate, cast each ally heal on each teammate, then each revive on each
+    /// teammate.
     class PartyBlock final : public Block
     {
     public:
@@ -63,7 +64,8 @@ namespace AnimusForge::ClassRole
             ACTION_FOLLOW_TANK          = 0,
             ACTION_ASSIST_FIRST         = 1,                        // + member
             ACTION_GUARD_FIRST          = 1 + PARTY_MEMBERS,        // + member
-            ACTION_HEAL_FIRST           = 1 + 2 * PARTY_MEMBERS     // + member * ally heals + heal
+            ACTION_HEAL_FIRST           = 1 + 2 * PARTY_MEMBERS     // + member * ally heals + heal, then
+                                                                    // + member * revives + revive
         };
 
         [[nodiscard]] BlockId Id() const override { return BlockId::Party; }
