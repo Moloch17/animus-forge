@@ -41,6 +41,8 @@ std::string_view AnimusForge::Curriculum::BlockName(BlockId id)
         case BlockId::Companion: return "companion";
         case BlockId::Party:     return "party";
         case BlockId::Pvp:       return "pvp";
+        case BlockId::Context:   return "context";
+        case BlockId::Hostiles:  return "hostiles";
         case BlockId::Count:     break;
     }
 

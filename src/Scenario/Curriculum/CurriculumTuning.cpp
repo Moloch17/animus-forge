@@ -91,6 +91,7 @@ AnimusForge::Curriculum::CurriculumTuning AnimusForge::Curriculum::CurriculumTun
     order(tuning.Pulls.OwnerEngageMinMs, tuning.Pulls.OwnerEngageMaxMs);
     order(tuning.Pulls.PartyOwnerEngageMinMs, tuning.Pulls.PartyOwnerEngageMaxMs);
     order(tuning.Pulls.OwnerPullsMinMs, tuning.Pulls.OwnerPullsMaxMs);
+    order(tuning.Ambush.MinMs, tuning.Ambush.MaxMs);
     order(tuning.ScriptedPlayers.SpellMinMs, tuning.ScriptedPlayers.SpellMaxMs);
     order(tuning.ScriptedPlayers.HealMinMs, tuning.ScriptedPlayers.HealMaxMs);
     order(tuning.ScriptedPlayers.WanderMinMs, tuning.ScriptedPlayers.WanderMaxMs);

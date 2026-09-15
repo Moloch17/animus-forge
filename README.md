@@ -10,7 +10,7 @@ a training run:
 - a lock-step bridge to a Python MAPPO learner
 
 Its main work is the curriculum: eight stages that train one policy for every class and role,
-from a one-on-one duel up to parties and self-play arenas.
+from a one-on-one duel up to parties and self-play arenas, joined in stage 8 into one policy for PvE and PvP.
 
 ## How it fits together
 
@@ -47,8 +47,8 @@ List the scenarios to train in `AnimusForge.Queue` (see
 
 ### The curriculum: one policy for every class and role
 
-Seven stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
-`stage6_pvp`, `stage7_arena` -- each train **one policy for every class/role** of `AnimusForge.ClassRoles` (all 18
+Eight stage scenarios -- `stage1_duel`, `stage2_pack`, `stage3_gauntlet`, `stage4_companion`, `stage5_party`,
+`stage6_pvp`, `stage7_arena`, `stage8_crossroads` -- each train **one policy for every class/role** of `AnimusForge.ClassRoles` (all 18
 by default). Each stage is its own scenario, so every
 earlier stage stays repeatable.
 
@@ -82,14 +82,15 @@ A stage is one entry in `src/Scenario/Curriculum/Stages/Stages.cpp` (`StageDefin
   adds its own; several stages can extend the same base, so the curriculum is a tree:
 
   ```
-  duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
-        └─ pvp ─ arena                               (PvP: core, duel, pvp)
+  duel ─┬─ pack ─ gauntlet ─ companion ─ party ─┬─ crossroads   (PvE ...
+        └─ pvp ─ arena ─────────────────────────┘                ... and PvP joined: every block)
   ```
 
   The sim checks each definition at startup (the base exists and comes earlier, no block twice, every part has the
   blocks it needs) and leaves out a stage that breaks a rule.
 - **Arenas** (`ArenaDefinition`): what its episodes are -- the seats (one, a party, a mirror pair), what they fight
-  (a creature, pulls on a pack or gauntlet schedule, a scripted or mirror enemy player), whether there is an owner and
+  (a creature, pulls on a pack or gauntlet schedule, a scripted or mirror enemy player, an ambush of the owner by
+  enemy players beside pulls or on its own), whether there is an owner and
   a party group, whether it is PvP (resilience gear, no resurrecting oneself) and its episode length. Every episode
   draws one of the stage's arenas by weight (`AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight`, default the
   definition's), after the evaluation reseed, so a seed always gets the same arena. A stage's blocks are the union of
@@ -401,6 +402,32 @@ player factions and the PvP flag, which players need to attack each other.
 progress, so `configs/stage7_arena.yaml` evaluates with `eval.opponent_baseline`: the `fight` baseline plays the
 second seat, the score is the learner's seat against it, and the baseline score is `fight` against `fight` on the
 same seeds. Convergence and the target then work as in any stage.
+
+#### Stage 8 (`stage8_crossroads`): the crossroads
+
+Both branches join in one policy, the model that fights monsters and players alike. It extends `stage5_party` (the
+trunk and the PvE blocks), merges `stage7_arena` (the pvp block), `stage6_pvp`, `stage4_companion`, `stage3_gauntlet`
+and `stage1_duel`, and adds two blocks. Its layouts are every block: core, duel, pack, gauntlet, companion, party, pvp,
+context, hostiles.
+
+- **Arenas** (weight, episode length): `companion` (20, 300 s), `party` (20, 300 s), `arena_1v1` (15, 60 s),
+  `pvp_scripted` (10, 60 s), `gauntlet` (10, 300 s), `duel` (5, 60 s), and two that need PvE and PvP at once:
+  - `ambush` (15, 300 s): the companion's gauntlet, and 1-2 scripted enemy players (the PvP opponent's classes, roles
+    and gear) arrive 20-120 s in (`Ambush.MinMs/MaxMs`) and attack the owner while it lives, then the nearest seat.
+    They take enemy slots the pulls leave free (a pull has at most 4 minus the arena's ambushers creatures); the pulls
+    still clear, pay and schedule on their creatures only. Every seat earns `Ambush.Kill` (3) per ambusher killed;
+    the owner's rewards pay for protecting it.
+  - `escort_duel` (5, 90 s): the owner and one enemy player, no pulls, paid as the duel against it.
+- **`context` block** (12 features, no actions): owner present and alive, living teammates, living enemy players and
+  creatures in the enemy slots, the nearest enemy player's distance, whether a player attacks the bot or the owner,
+  PvP flag, battleground/arena or dungeon/raid map, self-resurrection allowed, group size. A live server can fill all
+  of them, so the policy tells PvE from PvP without an arena id.
+- **`hostiles` block** (14 features per enemy slot, no actions): player or creature, class, casting a heal,
+  stealthed, pet out. The pack block's target slots select players and creatures alike.
+- **Learner** (`configs/stage8_crossroads.yaml`): distilled with `teachers: auto` (each earlier arena taught by the
+  first parent that has it; the new arenas learn from the reward), the arena seat of `arena_1v1` scored against
+  `fight`, and every arena gated on its own episodes.
+- **Episode info:** the union of every arena's columns, plus `ambushers` and `ambushers_killed`; `reward_player_kill`.
 
 #### Arena mix pilot (`mix_duel_pvp`)
 

@@ -36,10 +36,14 @@ namespace AnimusForge::BotAccounts
 
     constexpr uint32 OWNER_OFFSET = 100000;
     constexpr uint32 OPPONENT_OFFSET = 300000;
+    constexpr uint32 AMBUSHER_OFFSET = 500000;
+    constexpr uint32 AMBUSHERS_PER_ENV = 2;
 
     /// Most envs whose seat accounts stay below the owner range (the owner and opponent ranges hold more).
     constexpr uint32 MAX_ENVS = OWNER_OFFSET / (SEATS_PER_ENV * SESSIONS_PER_BOT);
     static_assert(MAX_ENVS * SESSIONS_PER_BOT <= OPPONENT_OFFSET - OWNER_OFFSET, "owner accounts overlap opponents'");
+    static_assert(MAX_ENVS * SESSIONS_PER_BOT <= AMBUSHER_OFFSET - OPPONENT_OFFSET,
+        "opponent accounts overlap ambushers'");
 
     /// A learned agent's bot: env, seat, session slot.
     [[nodiscard]] constexpr uint32 Seat(uint32 env, uint32 seat, uint8 session)
@@ -57,6 +61,13 @@ namespace AnimusForge::BotAccounts
     [[nodiscard]] constexpr uint32 Opponent(uint32 env, uint8 session)
     {
         return BASE + OPPONENT_OFFSET + env * SESSIONS_PER_BOT + session;
+    }
+
+    /// A scripted enemy player ambushing the owner: env, ambusher, session slot.
+    [[nodiscard]] constexpr uint32 Ambusher(uint32 env, uint32 ambusher, uint8 session)
+    {
+        return BASE + AMBUSHER_OFFSET + env * AMBUSHERS_PER_ENV * SESSIONS_PER_BOT + ambusher * SESSIONS_PER_BOT
+            + session;
     }
 
     /// Short-lived probe characters that discover a class's spells, one per race, below every other range.

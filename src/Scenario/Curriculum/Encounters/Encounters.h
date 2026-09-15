@@ -27,15 +27,46 @@
 #include "StageDefinition.h"
 #include "StageScenario.h"
 #include <array>
+#include <functional>
+#include <string>
 #include <vector>
 
 class Group;
+class Map;
 
 /*
  * The encounters a StageDefinition can ask for (see Encounter). Each keeps its state per env, sized at construction.
  */
 namespace AnimusForge::Curriculum
 {
+    /// Scripted enemy players: the PvP stages' opponent and the ambushers.
+    namespace EnemyPlayers
+    {
+        /// Give `enemy` the other side's faction and flag both for PvP, which players need to attack each other.
+        void MakeEnemies(Player* player, Player* enemy);
+        /// Flag a player for PvP (zone updates can drop the flag).
+        void Flag(Player* player);
+
+        /// A bot slot's names and account ids, per session slot.
+        struct Naming
+        {
+            std::function<std::string(uint8)> Name;
+            std::function<uint32(uint8)> Account;
+        };
+
+        struct Spawned
+        {
+            Player* Bot = nullptr;
+            uint8 Class = 0;
+            Role PlayRole = Role::Dps;
+        };
+
+        /// Rebuild `slot` as an enemy player at `level` of a random class and role (tuning's chances), with a
+        /// standard build, kit and PvP gear, 40-50 yd from `near` in `map`. Bot is null on failure.
+        Spawned Create(BotSlot& slot, Naming const& naming, uint8 level, CurriculumTuning::OpponentTuning const& tuning,
+            Player* near, Map* map, uint32 mapId, ScriptedPlayer::State& state);
+    }
+
     /// A same-level creature spawned out of aggro range, which fights back. Reward: CombatReward::OneOnOne.
     class CreatureEncounter final : public Encounter
     {
@@ -246,6 +277,61 @@ namespace AnimusForge::Curriculum
         bool RebuildScripted(Env& env, Player* bot, Map* map);
 
         std::vector<EnvOpponent> _envs;
+    };
+
+    /// Scripted enemy players who ambush the owner (ArenaDefinition::Ambushers): beside pulls they arrive at a random
+    /// time and take enemy slots the pulls leave free; against Opposition::Ambush one of them is the whole fight from
+    /// the start. They attack the owner while it lives, then the nearest seat. The pvp block sees the first living one.
+    /// Reward: beside pulls, every seat is paid per ambusher killed (the pulls and the owner pay the rest); alone,
+    /// CombatReward::OneOnOne against it.
+    class AmbushEncounter final : public Encounter
+    {
+    public:
+        AmbushEncounter(StageScenario& scenario, uint32 envs);
+
+        [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
+        void AddEpisodeInfo(EpisodeInfoTable& table) override;
+        void ResetEpisode(Env& env) override;
+        void BeforeRebuild(Env& env) override;
+        bool Build(Env& env, Map* map, uint8 level) override;
+        void Update(Env& env) override;
+        bool SelectTarget(Env const& env, uint32 seat, Unit*& target) override;
+        void View(Env const& env, uint32 seat, SeatView& view) const override;
+        void BeforeRewards(Env& env) override;
+        void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
+        [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        void Deactivate(Env& env) override;
+        void Teardown(Env& env) override;
+
+    private:
+        struct Ambusher
+        {
+            BotSlot Bot;
+            uint8 Class = 0;
+            Role PlayRole = Role::Dps;
+            ScriptedPlayer::State Script;
+            bool KillCounted = false;
+        };
+
+        struct EnvAmbush
+        {
+            std::array<Ambusher, MAX_AMBUSHERS> Ambushers;
+            uint32 Count = 0;                   // ambushers this episode
+            uint32 ArriveMs = 0;                // episode time they arrive (beside pulls)
+            bool Arrived = false;
+            uint32 Killed = 0;
+            uint32 StepKills = 0;               // killed since the last decision
+        };
+
+        /// Whether the env's episode is the ambush alone (no pulls).
+        [[nodiscard]] bool Alone(Env const& env) const { return _scenario.Arena(env).Against == Opposition::Ambush; }
+        [[nodiscard]] Player* Find(Env const& env, uint32 ambusher) const;
+        /// The first living ambusher that arrived, or null.
+        [[nodiscard]] Player* FirstAlive(Env const& env, uint32* index = nullptr) const;
+        bool Arrive(Env& env, Map* map);
+        void RemoveBots(Env& env);
+
+        std::vector<EnvAmbush> _envs;
     };
 }
 

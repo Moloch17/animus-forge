@@ -158,7 +158,17 @@ namespace AnimusForge::Curriculum
             int32 TankChance = 20;
         } Opponent;
 
-        /// How the scripted players (owner, PvP opponent) play.
+        /// Scripted enemy players ambushing the owner (arenas with ambushers). Their class, role and level follow
+        /// Opponent.* chances and spread.
+        struct AmbushTuning
+        {
+            uint32 MinMs = 20000;               // beside pulls: they arrive this far into the episode ...
+            uint32 MaxMs = 120000;              // ... at the latest
+            uint32 EngageMaxMs = 3000;          // they start fighting up to this long after arriving
+            float Kill = 3.0f;                  // every seat, per ambusher killed
+        } Ambush;
+
+        /// How the scripted players (owner, PvP opponent, ambushers) play.
         struct ScriptedPlayerTuning
         {
             uint32 SpellMinMs = 2000;           // time between damage spells
@@ -266,6 +276,11 @@ namespace AnimusForge::Curriculum
             f("Opponent.EngageMaxMs", tuning.Opponent.EngageMaxMs);
             f("Opponent.HealerChance", tuning.Opponent.HealerChance);
             f("Opponent.TankChance", tuning.Opponent.TankChance);
+
+            f("Ambush.MinMs", tuning.Ambush.MinMs);
+            f("Ambush.MaxMs", tuning.Ambush.MaxMs);
+            f("Ambush.EngageMaxMs", tuning.Ambush.EngageMaxMs);
+            f("Ambush.Kill", tuning.Ambush.Kill);
 
             f("ScriptedPlayers.SpellMinMs", tuning.ScriptedPlayers.SpellMinMs);
             f("ScriptedPlayers.SpellMaxMs", tuning.ScriptedPlayers.SpellMaxMs);

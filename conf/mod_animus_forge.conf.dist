@@ -61,6 +61,9 @@ AnimusForge.OutputDir = ""
 #                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
 #                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
+#                       "stage8_crossroads" - PvE and PvP in one policy: every earlier situation, an
+#                                            ambush of the owner mid-gauntlet and a ganked owner
+#                                            (merges both branches)
 #                     Only when named (not in an empty queue):
 #                       "mix_duel_pvp"     - pilot arena mix: each episode a creature duel or a scripted
 #                                            enemy player (seeds from stage6_pvp)
@@ -513,8 +516,21 @@ AnimusForge.Curriculum.Opponent.HealerChance = 20
 AnimusForge.Curriculum.Opponent.TankChance = 20
 
 #
+#    AnimusForge.Curriculum.Ambush.*
+#        Scripted enemy players who ambush the owner (stage8_crossroads' ambush and escort_duel arenas).
+#        Their class, role and level follow the Opponent.* chances and spread.
+
+#   beside pulls: they arrive at a random time between these, in ms (at most 3/4 into the episode)
+AnimusForge.Curriculum.Ambush.MinMs = 20000
+AnimusForge.Curriculum.Ambush.MaxMs = 120000
+#   they start fighting up to this long after arriving, in ms
+AnimusForge.Curriculum.Ambush.EngageMaxMs = 3000
+#   beside pulls: every seat is paid this per ambusher killed (alone, the duel's rewards apply)
+AnimusForge.Curriculum.Ambush.Kill = 3.0
+
+#
 #    AnimusForge.Curriculum.ScriptedPlayers.*
-#        How the scripted players (owner, PvP opponent) play.
+#        How the scripted players (owner, PvP opponent, ambushers) play.
 
 #   time between damage spells
 AnimusForge.Curriculum.ScriptedPlayers.SpellMinMs = 2000

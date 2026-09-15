@@ -5,7 +5,11 @@ stage `mix_duel_pvp` (duel + scripted enemy player), and **P2 (per-arena evaluat
 against a scripted opponent, protocol 4)** and **P3 (merge seeding and per-arena distillation)** are done. P3
 differs from §5.4-5.5 in two details: a merge lists its extra parents in `Merges` (Extends stays the trunk), and the
 learner reads each decision's arena from the critic state one-hot (`stage.json` `state`) instead of a protocol field.
-P4 onward is still plan.
+**P4 (`context` + `hostiles` blocks, `AmbushEncounter` with the `ambush` and `escort_duel` arenas,
+`stage8_crossroads`)** is done too, except `duo_arena`, which needs `SeatPlan::Teams` and moves to stage 10 (P5).
+Ambushers are a separate encounter rather than `OpponentEncounter` beside pulls: they arrive mid-gauntlet, reserve enemy
+slots (a pull has at most `PACK_SLOTS - Ambushers` creatures), and the pulls count, clear and despawn creatures only.
+P5 onward is still plan. Nothing has run in a sim yet.
 
 ## Naming (done on this branch)
 

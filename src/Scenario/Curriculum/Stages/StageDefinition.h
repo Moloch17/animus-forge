@@ -41,6 +41,7 @@ namespace AnimusForge::Curriculum
         Pulls,          // packs of creatures (see PullSchedule)
         ScriptedPlayer, // an enemy player played by a script
         MirrorSeat,     // the other seat (SeatPlan::Mirror)
+        Ambush,         // only ambushers: scripted enemy players attacking the owner (ArenaDefinition::Ambushers)
     };
 
     enum class PullSchedule : uint8
@@ -52,6 +53,9 @@ namespace AnimusForge::Curriculum
 
     /// Most arenas a stage can mix (the critic state has one column per arena).
     constexpr uint32 MAX_ARENAS = 8;
+
+    /// Most ambushers an arena can have; they take enemy slots the pulls leave free.
+    constexpr uint32 MAX_AMBUSHERS = 2;
 
     /// One situation an episode of a stage can be: who the seats are, what they fight, and how long it lasts. Every
     /// episode of a stage draws one of its arenas by weight, so one stage (and one policy) can train PvE and PvP
@@ -67,6 +71,9 @@ namespace AnimusForge::Curriculum
         bool PartyGroup = false;        // the owner and seats form a core group
         bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
         uint32 EpisodeSeconds = 0;      // episode length; 0 = AnimusForge.EpisodeSeconds
+        /// Most scripted enemy players that ambush the owner (1 to this many, MAX_AMBUSHERS at most): mid-episode
+        /// beside pulls, or from the start against Opposition::Ambush. 0 = none.
+        uint32 Ambushers = 0;
 
         [[nodiscard]] uint32 SeatCount() const;
     };

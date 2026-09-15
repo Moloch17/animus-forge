@@ -21,28 +21,13 @@
 #include "CombatReward.h"
 #include "Env.h"
 #include "Map.h"
-#include "Opponents.h"
 #include "Player.h"
 #include "Random.h"
 #include "SeatView.h"
 #include "StringFormat.h"
 #include <algorithm>
 
-namespace
-{
-    // Player faction templates: a human's (Alliance) and an orc's (Horde). Enemies get the other side's.
-    constexpr uint32 FACTION_ALLIANCE_PLAYER = 1;
-    constexpr uint32 FACTION_HORDE_PLAYER = 2;
-
-    /// Make `enemy` hostile to `player` and flag both for PvP, which players need to attack each other.
-    void MakeEnemies(Player* player, Player* enemy)
-    {
-        enemy->SetFaction(player->GetTeamId() == TEAM_ALLIANCE ? FACTION_HORDE_PLAYER : FACTION_ALLIANCE_PLAYER);
-        for (Player* fighter : { player, enemy })
-            if (!fighter->IsPvP())
-                fighter->UpdatePvP(true, true);
-    }
-}
+using AnimusForge::Curriculum::EnemyPlayers::MakeEnemies;
 
 AnimusForge::Curriculum::OpponentEncounter::OpponentEncounter(StageScenario& scenario, uint32 envs)
     : Encounter(scenario), _envs(envs)
@@ -119,45 +104,21 @@ bool AnimusForge::Curriculum::OpponentEncounter::RebuildScripted(Env& env, Playe
     uint8 const level = uint8(std::clamp<int32>(int32(_scenario.Data(env).Seats[0].Level)
         + irand(-tuning.LevelSpread, tuning.LevelSpread), 1, DEFAULT_MAX_LEVEL));
 
-    Role role = RollRole(tuning.TankChance, tuning.HealerChance);
-    std::vector<uint8> classes = ClassRoleAssets::ClassesForRole(level, role);
-    if (classes.empty())
-    {
-        role = Role::Dps;
-        classes = ClassRoleAssets::ClassesForRole(level, role);
-    }
-    if (classes.empty())
+    uint32 const index = env.Index;
+    EnemyPlayers::Naming const naming{
+        [index](uint8 session) { return Acore::StringFormat("Foe{}{}", index, session ? "b" : "a"); },
+        [index](uint8 session) { return BotAccounts::Opponent(index, session); },
+    };
+
+    EnemyPlayers::Spawned const spawned = EnemyPlayers::Create(opponent.Bot, naming, level, tuning, bot, map,
+        _scenario.SpawnMapId(), opponent.Script);
+    if (!spawned.Bot)
         return false;
 
-    uint8 const playerClass = classes[urand(0, uint32(classes.size()) - 1)];
-    ClassRoleAssets const& assets = ClassRoleAssets::For(*ClassRoleAssets::FindProfile(playerClass, role));
-
-    opponent.Bot.Begin();
-    uint8 const session = opponent.Bot.NextSession();
-
-    BotFactory::BotSpec spec;
-    spec.Name = Acore::StringFormat("Foe{}{}", env.Index, session ? "b" : "a");
-    spec.Race = assets.Races[urand(0, uint32(assets.Races.size()) - 1)];
-    spec.Class = playerClass;
-    spec.Gender = uint8(urand(GENDER_MALE, GENDER_FEMALE));
-    spec.Level = level;
-    spec.AccountId = BotAccounts::Opponent(env.Index, session);
-
-    // Out of range at a random bearing, facing a random way, like the duel's creature.
-    Position start = Opponents::FindSpawnPoint(bot, map);
-    start.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
-    Player* enemy = opponent.Bot.CreateNext(spec, map, _scenario.SpawnMapId(), start);
-    if (!enemy)
-        return false;
-
-    enemy->InitTalentForLevel();
-    ScriptedPlayer::Configure(enemy, assets, opponent.Script, true);
     opponent.Script.EngageMs = env.EpisodeElapsedMs + urand(0, tuning.EngageMaxMs);
-    MakeEnemies(bot, enemy);
-
-    opponent.Bot.Promote();
-    opponent.Class = playerClass;
-    opponent.PlayRole = role;
+    MakeEnemies(bot, spawned.Bot);
+    opponent.Class = spawned.Class;
+    opponent.PlayRole = spawned.PlayRole;
     return true;
 }
 

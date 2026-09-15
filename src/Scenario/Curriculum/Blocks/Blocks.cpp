@@ -21,9 +21,11 @@
  */
 
 #include "CompanionBlock.h"
+#include "ContextBlock.h"
 #include "CoreBlock.h"
 #include "DuelBlock.h"
 #include "GauntletBlock.h"
+#include "HostilesBlock.h"
 #include "PackBlock.h"
 #include "PartyBlock.h"
 #include "PvpBlock.h"
@@ -37,11 +39,13 @@ AnimusForge::Curriculum::Block const& AnimusForge::Curriculum::GetBlock(BlockId 
     static CompanionBlock const companion;
     static PartyBlock const party;
     static PvpBlock const pvp;
+    static ContextBlock const context;
+    static HostilesBlock const hostiles;
 
     // In BlockId order.
     static std::array<Block const*, BLOCK_COUNT> const blocks =
     {
-        &core, &duel, &pack, &gauntlet, &companion, &party, &pvp
+        &core, &duel, &pack, &gauntlet, &companion, &party, &pvp, &context, &hostiles
     };
 
     return *blocks[std::size_t(id)];

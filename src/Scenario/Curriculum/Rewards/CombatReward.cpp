@@ -50,6 +50,7 @@ std::string_view AnimusForge::Curriculum::RewardTermName(RewardTerm term)
         case RewardTerm::TeammateThreat:        return "teammate_threat";
         case RewardTerm::TeammateDeath:         return "teammate_death";
         case RewardTerm::Revive:                return "revive";
+        case RewardTerm::PlayerKill:            return "player_kill";
         case RewardTerm::Count:                 break;
     }
 

@@ -173,6 +173,7 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
     OpponentEncounter* opponent = nullptr;
     PullsEncounter* pulls = nullptr;
     CreatureEncounter* creature = nullptr;
+    AmbushEncounter* ambush = nullptr;
 
     auto const add = [this](auto encounter)
     {
@@ -187,6 +188,7 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
     };
     auto const hasPulls = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Pulls; };
     auto const hasCreature = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Creature; };
+    auto const hasAmbush = [](ArenaDefinition const& arena) { return arena.Ambushers > 0; };
 
     // Build order matters: the owner comes before the party group (which it leads) and the pulls (which spawn around
     // it); both check it. Rewards do not depend on each other's order: what several read (a seat's damage taken, the
@@ -201,9 +203,12 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
     if (_stage.AnyArena(hasCreature))
         creature = add(std::make_unique<CreatureEncounter>(*this));
+    // After the owner and the pulls: ambushers find the owner and take the slots the pull leaves.
+    if (_stage.AnyArena(hasAmbush))
+        ambush = add(std::make_unique<AmbushEncounter>(*this, envs));
 
     // The order episode info columns and reward terms are listed in.
-    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, _owner, _party, opponent })
+    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, _owner, _party, opponent, ambush })
         if (encounter)
             _rewardOrder.push_back(encounter);
 
@@ -215,7 +220,7 @@ AnimusForge::Curriculum::StageScenario::StageScenario(ForgeConfig const& config,
         {
             return (encounter == opponent && fightsPlayer(arena)) || (encounter == _owner && arena.Owner)
                 || (encounter == _party && arena.PartyGroup) || (encounter == pulls && hasPulls(arena))
-                || (encounter == creature && hasCreature(arena));
+                || (encounter == creature && hasCreature(arena)) || (encounter == ambush && hasAmbush(arena));
         };
 
         std::vector<Encounter*>& build = _arenaEncounters.emplace_back();
@@ -482,6 +487,7 @@ void AnimusForge::Curriculum::StageScenario::WriteStageFiles(ForgeConfig const& 
         entry["seats"] = definition.SeatCount();
         entry["episode_seconds"] = _arenaEpisodeMs[arena] / IN_MILLISECONDS;
         entry["pvp"] = definition.Pvp;
+        entry["ambushers"] = definition.Ambushers;
     }
 
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.

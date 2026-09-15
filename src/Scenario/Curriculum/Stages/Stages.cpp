@@ -20,10 +20,10 @@
  * The curriculum, a tree: every stage extends one earlier stage (and seeds from it), keeping the base's
  * blocks it needs and adding its own.
  *
- *   duel ─┬─ pack ─ gauntlet ─ companion ─ party      (PvE)
- *         └─ pvp ─ arena                               (PvP)
+ *   duel ─┬─ pack ─ gauntlet ─ companion ─ party ─┬─ crossroads     (PvE ...
+ *         └─ pvp ─ arena ─────────────────────────┘                  ... and PvP, merged)
  *
- * Scenario names carry the stage's number (stage1_duel ... stage7_arena), model names only its suffix (_duel). The
+ * Scenario names carry the stage's number (stage1_duel ... stage8_crossroads), model names only its suffix (_duel). The
  * duel is the first stage: nothing seeds it.
  *
  * A stage's episodes are its arenas (see ArenaDefinition): each episode draws one by weight, so a stage can mix PvE
@@ -114,6 +114,38 @@ namespace
                 .Pvp = true } },
         });
 
+        // The crossroads: both branches join. It extends the party (the trunk and every PvE block), takes the pvp
+        // block from the arena, and each parent teaches the arenas it trained on. Two new situations need PvE and PvP in one
+        // episode: an ambush of the owner in the middle of the gauntlet, and a lone enemy player attacking the owner.
+        // Every PvE arena plays long episodes; the one-on-ones stay short.
+        stages.push_back({
+            .Name = "stage8_crossroads",
+            .Suffix = "_crossroads",
+            .Extends = "stage5_party",
+            .Merges = {
+                "stage7_arena", "stage6_pvp", "stage4_companion", "stage3_gauntlet", "stage1_duel",
+            },
+            .Summary = "PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet and a ganked owner",
+            .Blocks = { Core, Duel, Pack, Gauntlet, Companion, Party, Pvp, Context, Hostiles },
+            .Arenas = {
+                { .Name = "companion", .Weight = 20, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
+                    .Owner = true, .EpisodeSeconds = 300 },
+                { .Name = "party", .Weight = 20, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
+                    .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300 },
+                { .Name = "arena_1v1", .Weight = 15, .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
+                    .Pvp = true, .EpisodeSeconds = 60 },
+                { .Name = "pvp_scripted", .Weight = 10, .Against = Opposition::ScriptedPlayer, .Pvp = true,
+                    .EpisodeSeconds = 60 },
+                { .Name = "gauntlet", .Weight = 10, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
+                    .EpisodeSeconds = 300 },
+                { .Name = "duel", .Weight = 5, .Against = Opposition::Creature, .EpisodeSeconds = 60 },
+                { .Name = "ambush", .Weight = 15, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
+                    .Owner = true, .EpisodeSeconds = 300, .Ambushers = 2 },
+                { .Name = "escort_duel", .Weight = 5, .Against = Opposition::Ambush, .Owner = true,
+                    .EpisodeSeconds = 90, .Ambushers = 1 },
+            },
+        });
+
         // A pilot of arena mixing and merging, not part of the curriculum: the duel and the scripted enemy player in
         // one stage, merging the two stages that trained them (each teaches its arena). Trained only when named
         // (forge start mix_duel_pvp).
@@ -138,7 +170,9 @@ namespace
     std::string ArenaProblem(StageDefinition const& stage, ArenaDefinition const& arena)
     {
         bool const pulls = arena.Against == Opposition::Pulls;
-        bool const player = arena.Against == Opposition::ScriptedPlayer || arena.Against == Opposition::MirrorSeat;
+        bool const ambushOnly = arena.Against == Opposition::Ambush;
+        bool const duelPlayer = arena.Against == Opposition::ScriptedPlayer || arena.Against == Opposition::MirrorSeat;
+        bool const player = duelPlayer || arena.Ambushers > 0;
 
         if (pulls != (arena.Schedule != PullSchedule::None))
             return "a pull schedule goes with pulls, and only with pulls";
@@ -146,16 +180,26 @@ namespace
             return "pulls need the pack block";
         if (arena.Schedule == PullSchedule::Gauntlet && !stage.Has(BlockId::Gauntlet))
             return "the gauntlet schedule needs the gauntlet block";
-        if (arena.Owner && (!pulls || !stage.Has(BlockId::Companion)))
-            return "an owner needs pulls and the companion block";
+        if (arena.Owner && (!(pulls || ambushOnly) || !stage.Has(BlockId::Companion)))
+            return "an owner needs pulls or an ambush, and the companion block";
         if (arena.PartyGroup && (!arena.Owner || arena.Seats != SeatPlan::Party || !stage.Has(BlockId::Party)))
             return "a party group needs an owner, party seats and the party block";
         if ((arena.Seats == SeatPlan::Mirror) != (arena.Against == Opposition::MirrorSeat))
             return "mirror seats go with fighting the mirror seat, and only with it";
+        if (arena.Ambushers > MAX_AMBUSHERS)
+            return "at most " + std::to_string(MAX_AMBUSHERS) + " ambushers";
+        if (arena.Ambushers > 0 && !(pulls || ambushOnly))
+            return "ambushers join pulls, or are the whole fight (Opposition::Ambush)";
+        if (arena.Ambushers > 0 && (!arena.Owner || !stage.Has(BlockId::Pack)))
+            return "ambushers attack an owner and take enemy slots (the pack block)";
+        if (ambushOnly && arena.Ambushers != 1)
+            return "an ambush without pulls has exactly one ambusher (a one-on-one reward)";
         if (player && !stage.Has(BlockId::Pvp))
             return "fighting a player needs the pvp block";
-        if (player != arena.Pvp)
-            return "an arena is pvp exactly when it fights a player";
+        if (duelPlayer && !arena.Pvp)
+            return "a one-on-one against a player is pvp";
+        if (arena.Pvp && !player)
+            return "a pvp arena fights a player";
 
         return {};
     }

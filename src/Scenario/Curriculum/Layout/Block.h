@@ -48,6 +48,8 @@ namespace AnimusForge::Curriculum
         Companion,      // the owner: follow, assist, guard, heal it
         Party,          // three teammates: follow the tank, assist, guard and heal them
         Pvp,            // the enemy player's class, role and state
+        Context,        // the situation: allies, hostile players and creatures, PvP flag, map kind (no actions)
+        Hostiles,       // per enemy slot: player or creature, class, healing, stealth, pet (no actions)
         Count
     };
 

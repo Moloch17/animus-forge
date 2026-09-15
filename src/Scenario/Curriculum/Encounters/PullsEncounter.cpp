@@ -37,13 +37,23 @@ namespace
     constexpr float QUIET_TIME_SCALE_MS = 20000.0f;
     constexpr float NEXT_PULL_SCALE_MS = 20000.0f;
 
+    /// The pull's creatures leave; enemy players in the slots (ambushers) stay.
     void Despawn(AnimusForge::Env& env)
     {
         for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
             if (Creature* enemy = env.FindTarget(slot))
                 enemy->DespawnOrUnsummon();
 
-        env.Targets.clear();
+        std::erase_if(env.Targets, [](ObjectGuid const& guid) { return !guid.IsPlayer(); });
+    }
+
+    /// Whether a pull is up: creatures in the enemy slots (ambushers are not a pull).
+    bool HasCreatures(AnimusForge::Env const& env)
+    {
+        return std::any_of(env.Targets.begin(), env.Targets.end(), [](ObjectGuid const& guid)
+        {
+            return !guid.IsPlayer();
+        });
     }
 }
 
@@ -207,6 +217,13 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
                 entries.push_back(entry);
     }
 
+    // Ambushers keep their enemy slots: the pull takes what is left.
+    uint32 const room = PACK_SLOTS - std::min(PACK_SLOTS, arena.Ambushers);
+    if (entries.size() > room)
+        entries.resize(room);
+    if (entries.empty())
+        return false;
+
     // With an owner, pulls spawn around the owner; whoever takes part hears of the pull first (the owner decides when
     // it walks over).
     Player* anchor = _scenario.Owner(env);
@@ -216,7 +233,8 @@ bool AnimusForge::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
     if (pack.empty())
         return false;
 
-    env.Targets.clear();
+    // The new pull replaces the old one's creatures; enemy players (ambushers) keep their slots, first.
+    std::erase_if(env.Targets, [](ObjectGuid const& guid) { return !guid.IsPlayer(); });
     for (Creature* member : pack)
         env.Targets.push_back(member->GetGUID());
 
@@ -270,7 +288,7 @@ void AnimusForge::Curriculum::PullsEncounter::Update(Env& env)
     if (hasOwner)
         Recover(env);
 
-    if (!Gauntlet(env) || !env.Targets.empty() || env.EpisodeElapsedMs < _envs[env.Index].NextPullMs)
+    if (!Gauntlet(env) || HasCreatures(env) || env.EpisodeElapsedMs < _envs[env.Index].NextPullMs)
         return;
 
     // The next pull once the break is over, if anyone is left to fight it.
@@ -313,7 +331,7 @@ void AnimusForge::Curriculum::PullsEncounter::Recover(Env& env)
             anyoneAlive = true;
 
     // A wipe: nobody is left to finish the pull, so it is cleared away and the next one comes after the usual break.
-    if (!anyoneAlive && !env.Targets.empty())
+    if (!anyoneAlive && HasCreatures(env))
     {
         Despawn(env);
         ++pulls.Wipes;
@@ -321,7 +339,7 @@ void AnimusForge::Curriculum::PullsEncounter::Recover(Env& env)
     }
 
     pulls.AwaitingRevive = false;
-    if (!env.Targets.empty())
+    if (HasCreatures(env))
         return;
 
     // Between pulls the dead wait a while for a resurrection they can get -- their own Soulstone or Reincarnation, or
@@ -417,13 +435,13 @@ void AnimusForge::Curriculum::PullsEncounter::BeforeRewards(Env& env)
     uint32 alive = 0;
     uint32 dead = 0;
     for (uint32 slot = 0; slot < env.Targets.size(); ++slot)
-        if (Unit* enemy = env.FindTargetUnit(slot))
+        if (Unit* enemy = env.FindTarget(slot))
             ++(enemy->IsAlive() ? alive : dead);
 
     pulls.NewKills = dead > pulls.PullKills ? dead - pulls.PullKills : 0;
     pulls.Kills += pulls.NewKills;
     pulls.PullKills = std::max(pulls.PullKills, dead);
-    pulls.PullCleared = !env.Targets.empty() && !alive && dead;
+    pulls.PullCleared = HasCreatures(env) && !alive && dead;
 }
 
 void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Player* bot, RewardLedger& ledger)
@@ -449,7 +467,9 @@ void AnimusForge::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex,
         if (!enemy)
             continue;
 
-        pullHealth += float(enemy->GetMaxHealth());
+        // The pull is its creatures; an ambusher is paid for by the ambush, but still a place to close in on.
+        if (!enemy->IsPlayer())
+            pullHealth += float(enemy->GetMaxHealth());
         if (enemy->IsAlive() && (!nearest || bot->GetDistance(enemy) < bot->GetDistance(nearest)))
             nearest = enemy;
     }
@@ -545,7 +565,7 @@ void AnimusForge::Curriculum::PullsEncounter::AfterRewards(Env& env)
 void AnimusForge::Curriculum::PullsEncounter::WriteState(Env const& env, float* state) const
 {
     EnvPulls const& pulls = _envs[env.Index];
-    bool const pullActive = !env.Targets.empty();
+    bool const pullActive = HasCreatures(env);
 
     state[StageScenario::STATE_PULL_ACTIVE] = pullActive ? 1.0f : 0.0f;
     state[StageScenario::STATE_PULLS_CLEARED] = std::min(1.0f, float(pulls.PullsCleared) / 10.0f);

@@ -52,6 +52,7 @@ namespace AnimusForge::Curriculum
         TeammateThreat,
         TeammateDeath,
         Revive,
+        PlayerKill,
         Count
     };
 
