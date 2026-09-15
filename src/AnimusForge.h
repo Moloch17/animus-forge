@@ -84,11 +84,25 @@ namespace AnimusForge
             Skip,
         };
 
+        /// How a plan's scenario ended.
+        enum class Outcome : uint8
+        {
+            None,           // pending or running
+            Done,           // its learner finished and moved on, or its local episodes ran
+            Skipped,
+            Failed,         // it could not start or run
+            Cancelled,
+            BelowTarget,    // its stage stayed below its target after its restarts
+        };
+
+        /// "done", "below target", ...; "not started" for Outcome::None.
+        [[nodiscard]] static char const* OutcomeName(Outcome outcome);
+
         struct PlanEntry
         {
             std::string Scenario;
             bool Resume = false;
-            std::string Outcome;            // empty while pending or running; "done", "skipped", "failed", ...
+            Outcome Result = Outcome::None;
         };
 
         /// Scenarios run one after another.
@@ -115,7 +129,7 @@ namespace AnimusForge
         void TeardownScenario(bool stopLearner);
 
         /// The current scenario ended with `outcome`: tear it down and start the next one, or finish the plan.
-        void FinishCurrent(std::string const& outcome);
+        void FinishCurrent(Outcome outcome);
 
         /// The plan stops here (finished, cancelled or failed); the sim goes idle.
         void EndPlan(char const* reason);
@@ -147,6 +161,9 @@ namespace AnimusForge
         bool SendSpec();
         bool SendStep();
         bool ApplyMode(ModeMsg const& mode);
+
+        /// Whether the running scenario has the local policy `policy` ("random" or one of its scripted policies).
+        [[nodiscard]] bool KnowsPolicy(std::string const& policy) const;
 
         [[nodiscard]] SimSnapshot Snapshot(bool advanceRates);
         [[nodiscard]] std::vector<PlanRow> PlanRows(Plan const& plan, bool live) const;

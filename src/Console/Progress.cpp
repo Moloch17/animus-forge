@@ -324,12 +324,21 @@ std::optional<uint64> AnimusForge::ConfiguredTotalEnvSteps(ForgeConfig const& co
     return total;
 }
 
+std::optional<uint64> AnimusForge::ProgressMonitor::ConfiguredSteps(ForgeConfig const& config,
+    std::string const& scenario) const
+{
+    auto cached = _configuredSteps.find(scenario);
+    if (cached == _configuredSteps.end())
+        cached = _configuredSteps.emplace(scenario, ConfiguredTotalEnvSteps(config, scenario)).first;
+
+    return cached->second;
+}
+
 void AnimusForge::ProgressMonitor::Begin(std::string const& scenario)
 {
     _scenario = scenario;
     _lastSample.reset();
     _rateEma.reset();
-    _peakRate.reset();
     _firstEntropy.reset();
     _previous = {};
     _configuredSteps.clear();       // re-read the configs once per scenario: they may have been edited
@@ -362,7 +371,6 @@ void AnimusForge::ProgressMonitor::Advance(ProgressFile const& progress)
     {
         double const rate = (*steps - _lastSample->EnvSteps) / (*updated - _lastSample->UnixTime);
         _rateEma = _rateEma ? RATE_EMA_ALPHA * rate + (1.0 - RATE_EMA_ALPHA) * *_rateEma : rate;
-        _peakRate = std::max(_peakRate.value_or(0.0), *_rateEma);
     }
 
     if (!_lastSample || *steps != _lastSample->EnvSteps)
@@ -374,7 +382,6 @@ void AnimusForge::ProgressMonitor::Advance(ProgressFile const& progress)
     _previous.Reward = progress.Number("reward_per_decision");
     _previous.Entropy = progress.Number("entropy");
     _previous.Rate = StepRate(progress);
-    _previous.Score = progress.Number("last_eval_score");
 }
 
 void AnimusForge::ProgressMonitor::Report(ForgeConfig const& config, SimSnapshot const& sim,
@@ -422,9 +429,6 @@ void AnimusForge::ProgressMonitor::Report(ForgeConfig const& config, SimSnapshot
 
     if (periodic && haveProgress)
         Advance(progress);
-
-    if (periodic)
-        _previous.TicksPerSecond = sim.TicksPerSecond;
 }
 
 void AnimusForge::ProgressMonitor::ReportTraining(ForgeConfig const& config, SimSnapshot const& sim,
@@ -659,13 +663,8 @@ void AnimusForge::ProgressMonitor::ReportPlan(ForgeConfig const& config, std::ve
 
         ProgressFile file;
         ProgressFile const* progress = row.Current ? current : nullptr;
-        if (!row.Current && row.Status != "pending" && file.Load(ProgressPath(config, row.Scenario)))
+        if (!row.Current && !row.Pending && file.Load(ProgressPath(config, row.Scenario)))
             progress = &file;
-
-        auto cached = _configuredSteps.find(row.Scenario);
-        if (cached == _configuredSteps.end())
-            cached = _configuredSteps.emplace(row.Scenario, ConfiguredTotalEnvSteps(config, row.Scenario)).first;
-        std::optional<uint64> const configured = cached->second;
 
         if (progress)
         {
@@ -681,7 +680,8 @@ void AnimusForge::ProgressMonitor::ReportPlan(ForgeConfig const& config, std::ve
                 eta = Format::Duration(seconds);
             }
         }
-        else if (row.Status == "pending" && configured)
+        else if (std::optional<uint64> const configured = row.Pending ? ConfiguredSteps(config, row.Scenario)
+            : std::nullopt)
         {
             steps = Format::Compact(double(*configured));
             if (rate && *rate > 0)

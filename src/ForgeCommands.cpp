@@ -163,7 +163,7 @@ void AnimusForge::Forge::CommandStatus(LineSink const& out)
         {
             std::vector<std::string> outcomes;
             for (PlanEntry const& entry : _lastPlan->Entries)
-                outcomes.push_back(entry.Scenario + " " + (entry.Outcome.empty() ? "not started" : entry.Outcome));
+                outcomes.push_back(entry.Scenario + " " + OutcomeName(entry.Result));
 
             table.AddRow({ "last plan", Join(outcomes) });
         }
@@ -276,7 +276,7 @@ bool AnimusForge::Forge::CommandStart(std::vector<std::string> scenarios, LineSi
         if (!ValidScenario(scenario, out))
             return false;
 
-        plan.Entries.push_back({ scenario, false, "" });
+        plan.Entries.push_back({ scenario, false });
     }
 
     _requested = std::move(plan);
@@ -362,8 +362,8 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
         std::size_t first = _lastPlan->Entries.size();
         for (std::size_t i = 0; i < _lastPlan->Entries.size(); ++i)
         {
-            std::string const& outcome = _lastPlan->Entries[i].Outcome;
-            if (outcome != "done" && outcome != "skipped")
+            Outcome const outcome = _lastPlan->Entries[i].Result;
+            if (outcome != Outcome::Done && outcome != Outcome::Skipped)
             {
                 first = i;
                 break;
@@ -377,7 +377,7 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
         }
 
         for (std::size_t i = first; i < _lastPlan->Entries.size(); ++i)
-            plan.Entries.push_back({ _lastPlan->Entries[i].Scenario, i == first, "" });
+            plan.Entries.push_back({ _lastPlan->Entries[i].Scenario, i == first });
     }
     else
     {
@@ -386,7 +386,7 @@ bool AnimusForge::Forge::CommandResume(std::vector<std::string> scenarios, LineS
             if (!ValidScenario(scenario, out))
                 return false;
 
-            plan.Entries.push_back({ scenario, plan.Entries.empty(), "" });
+            plan.Entries.push_back({ scenario, plan.Entries.empty() });
         }
     }
 
@@ -505,7 +505,7 @@ bool AnimusForge::Forge::CommandRun(std::string const& scenario, std::string con
     Plan plan;
     plan.Policy = policy;
     plan.LocalEpisodes = episodes;
-    plan.Entries.push_back({ scenario, false, "" });
+    plan.Entries.push_back({ scenario, false });
 
     _requested = std::move(plan);
     _request = Request::Start;

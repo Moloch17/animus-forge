@@ -83,6 +83,7 @@ namespace AnimusForge
         std::string Scenario;
         std::string Status;                 // "done", "training", "pending", "skipped", "failed", ...
         bool Current = false;
+        bool Pending = false;               // not started yet
         bool Resume = false;
     };
 
@@ -113,11 +114,12 @@ namespace AnimusForge
             std::optional<double> Reward;
             std::optional<double> Entropy;
             std::optional<double> Rate;
-            std::optional<double> Score;
-            std::optional<double> TicksPerSecond;
         };
 
         [[nodiscard]] std::optional<double> StepRate(ProgressFile const& progress) const;
+        /// ConfiguredTotalEnvSteps, cached until the next scenario begins.
+        [[nodiscard]] std::optional<uint64> ConfiguredSteps(ForgeConfig const& config,
+            std::string const& scenario) const;
         void Advance(ProgressFile const& progress);
 
         void ReportTraining(ForgeConfig const& config, SimSnapshot const& sim, ProgressFile const* progress,
@@ -129,7 +131,6 @@ namespace AnimusForge
         std::string _scenario;
         std::optional<Sample> _lastSample;
         std::optional<double> _rateEma;
-        std::optional<double> _peakRate;
         std::optional<double> _firstEntropy;
         Previous _previous;
 

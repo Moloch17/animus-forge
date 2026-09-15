@@ -155,7 +155,7 @@ void AnimusForge::Forge::ApplyRequest()
                 _plan.Entries.size() == 1 ? "" : "s", _plan.Policy);
             if (!StartCurrent())
             {
-                _plan.Entries[_plan.Index].Outcome = "failed";
+                _plan.Entries[_plan.Index].Result = Outcome::Failed;
                 TeardownScenario(true);
                 EndPlan("its first scenario failed to start");
             }
@@ -166,14 +166,14 @@ void AnimusForge::Forge::ApplyRequest()
                 break;
             // Only a learner that is running or connected has a run to save.
             bool const learnerSaves = _plan.Remote() && (_learner.IsRunning() || _server.HasClient());
-            _plan.Entries[_plan.Index].Outcome = "cancelled";
+            _plan.Entries[_plan.Index].Result = Outcome::Cancelled;
             TeardownScenario(true);
             EndPlan(learnerSaves ? "cancelled; the learner saved latest.pt, `forge resume` continues it" : "cancelled");
             break;
         }
         case Request::Skip:
             if (_state != State::Idle)
-                FinishCurrent("skipped");
+                FinishCurrent(Outcome::Skipped);
             break;
     }
 }
@@ -228,20 +228,11 @@ bool AnimusForge::Forge::StartCurrent()
     LOG_INFO("module.animus", "Starting {}{}{} with policy {}", entry.Scenario, position,
         entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy);
 
-    ScenarioSpec const spec = _scenario->Spec();
-
     // Reject a local policy name before building anything, rather than on the first decision.
-    if (!_plan.Remote() && _plan.Policy != "random")
+    if (!_plan.Remote() && !KnowsPolicy(_plan.Policy))
     {
-        std::vector<float> obs(spec.ObsDim, 0.0f);
-        std::vector<uint8> mask(spec.NumActions, 0);
-        int32 action = 0;
-
-        if (!_scenario->ScriptedAction(_plan.Policy, obs.data(), mask.data(), 0, action))
-        {
-            LOG_ERROR("module.animus", "Scenario {} has no policy '{}'", _scenario->Name(), _plan.Policy);
-            return false;
-        }
+        LOG_ERROR("module.animus", "Scenario {} has no policy '{}'", _scenario->Name(), _plan.Policy);
+        return false;
     }
 
     _pool = std::make_unique<EnvPool>(*_scenario, _config);
@@ -313,16 +304,32 @@ void AnimusForge::Forge::TeardownScenario(bool stopLearner)
     _lastAct.reset();
 }
 
-void AnimusForge::Forge::FinishCurrent(std::string const& outcome)
+char const* AnimusForge::Forge::OutcomeName(Outcome outcome)
+{
+    switch (outcome)
+    {
+        case Outcome::None:        return "not started";
+        case Outcome::Done:        return "done";
+        case Outcome::Skipped:     return "skipped";
+        case Outcome::Failed:      return "failed";
+        case Outcome::Cancelled:   return "cancelled";
+        case Outcome::BelowTarget: return "below target";
+    }
+
+    return "unknown";
+}
+
+void AnimusForge::Forge::FinishCurrent(Outcome outcome)
 {
     PlanEntry& entry = _plan.Entries[_plan.Index];
-    entry.Outcome = outcome;
+    entry.Result = outcome;
 
-    LOG_INFO("module.animus", "{} {} after {}{}", entry.Scenario, outcome,
+    LOG_INFO("module.animus", "{} {} after {}{}", entry.Scenario, OutcomeName(outcome),
         Format::Duration(std::chrono::duration<double>(std::chrono::steady_clock::now() - _scenarioStarted).count()),
         _plan.Entries.size() > 1 ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "");
 
-    TeardownScenario(outcome != "done");
+    // A learner that finished its run has already exited; any other ending stops it.
+    TeardownScenario(outcome != Outcome::Done);
 
     if (++_plan.Index >= _plan.Entries.size())
     {
@@ -333,7 +340,7 @@ void AnimusForge::Forge::FinishCurrent(std::string const& outcome)
 
     if (!StartCurrent())
     {
-        _plan.Entries[_plan.Index].Outcome = "failed";
+        _plan.Entries[_plan.Index].Result = Outcome::Failed;
         TeardownScenario(true);
         EndPlan("the next scenario failed to start");
     }
@@ -350,8 +357,7 @@ void AnimusForge::Forge::EndPlan(char const* reason)
     {
         TextTable table({ { "#", TextTable::Align::Right }, { "Scenario" }, { "Outcome" } });
         for (std::size_t i = 0; i < _plan.Entries.size(); ++i)
-            table.AddRow({ std::to_string(i + 1), _plan.Entries[i].Scenario,
-                _plan.Entries[i].Outcome.empty() ? "not started" : _plan.Entries[i].Outcome });
+            table.AddRow({ std::to_string(i + 1), _plan.Entries[i].Scenario, OutcomeName(_plan.Entries[i].Result) });
 
         table.Write(LogInfo, "  ");
     }
@@ -503,7 +509,8 @@ std::vector<AnimusForge::PlanRow> AnimusForge::Forge::PlanRows(Plan const& plan,
         row.Scenario = entry.Scenario;
         row.Resume = entry.Resume;
         row.Current = live && i == plan.Index;
-        row.Status = !entry.Outcome.empty() ? entry.Outcome : row.Current ? StateName() : "pending";
+        row.Pending = entry.Result == Outcome::None && !row.Current;
+        row.Status = entry.Result != Outcome::None ? OutcomeName(entry.Result) : row.Current ? StateName() : "pending";
         rows.push_back(std::move(row));
     }
 
@@ -533,14 +540,14 @@ void AnimusForge::Forge::LocalDecision()
 
     if (_plan.LocalEpisodes && _pool->CompletedEpisodes() >= _plan.LocalEpisodes)
     {
-        FinishCurrent("done");
+        FinishCurrent(Outcome::Done);
         return;
     }
 
     if (!_pool->ChooseLocalActions(_plan.Policy))
     {
         LOG_ERROR("module.animus", "Scenario {} could not choose actions with policy '{}'", _current, _plan.Policy);
-        FinishCurrent("failed");
+        FinishCurrent(Outcome::Failed);
         return;
     }
 
@@ -573,11 +580,11 @@ void AnimusForge::Forge::RemoteDecision()
         if (!connected)
         {
             if (LearnerFinished())
-                FinishCurrent("done");
+                FinishCurrent(Outcome::Done);
             else if (LearnerHalted())
             {
                 // The stage stayed below its target after its restarts: later stages must not train on top of it.
-                _plan.Entries[_plan.Index].Outcome = "below target";
+                _plan.Entries[_plan.Index].Result = Outcome::BelowTarget;
                 LOG_ERROR("module.animus", "{} stayed below its stage target after its restarts (see runs/{}/"
                     "finished.json and stage.jsonl). The plan halts here: tune the target or the stage, then `forge "
                     "start {}`.", _current, _current, _current);
@@ -659,6 +666,19 @@ void AnimusForge::Forge::RemoteDecision()
     _pool->ApplyActions();
 }
 
+bool AnimusForge::Forge::KnowsPolicy(std::string const& policy) const
+{
+    if (policy == "random")
+        return true;
+
+    // ScriptedAction answers whether the scenario has the policy; a blank row is enough to ask.
+    ScenarioSpec const spec = _scenario->Spec();
+    std::vector<float> obs(spec.ObsDim, 0.0f);
+    std::vector<uint8> mask(spec.NumActions, 0);
+    int32 action = 0;
+    return _scenario->ScriptedAction(policy, obs.data(), mask.data(), 0, action);
+}
+
 bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
 {
     std::string const baseline(mode.Baseline, strnlen(mode.Baseline, POLICY_NAME_SIZE));
@@ -669,19 +689,11 @@ bool AnimusForge::Forge::ApplyMode(ModeMsg const& mode)
         return false;
     }
 
-    if (mode.Mode == 1 && !baseline.empty() && baseline != "random")
+    if (mode.Mode == 1 && !baseline.empty() && !KnowsPolicy(baseline))
     {
-        ScenarioSpec const spec = _scenario->Spec();
-        std::vector<float> obs(spec.ObsDim, 0.0f);
-        std::vector<uint8> mask(spec.NumActions, 0);
-        int32 action = 0;
-
-        if (!_scenario->ScriptedAction(baseline, obs.data(), mask.data(), 0, action))
-        {
-            LOG_ERROR("module.animus", "Learner asked for baseline '{}', which scenario {} does not have", baseline,
-                _scenario->Name());
-            return false;
-        }
+        LOG_ERROR("module.animus", "Learner asked for baseline '{}', which scenario {} does not have", baseline,
+            _scenario->Name());
+        return false;
     }
 
     _pool->SetEvaluation(mode.Mode == 1, mode.SeedBase, mode.Episodes, baseline);
