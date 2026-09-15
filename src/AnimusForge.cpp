@@ -412,10 +412,13 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
         if (!stage || stage->Extends.empty())
             continue;
 
-        if (std::find(scenarios.begin() + index + 1, scenarios.end(), stage->Extends) != scenarios.end()
-            && !RunAdvanced(config, stage->Extends))
-            out(Acore::StringFormat("  Warning: {} comes before {}, which it extends and seeds from; it will not seed "
-                "from it. List {} first.", stage->Name, stage->Extends, stage->Extends));
+        std::vector<std::string> parents = { stage->Extends };
+        parents.insert(parents.end(), stage->Merges.begin(), stage->Merges.end());
+        for (std::string const& parent : parents)
+            if (std::find(scenarios.begin() + index + 1, scenarios.end(), parent) != scenarios.end()
+                && !RunAdvanced(config, parent))
+                out(Acore::StringFormat("  Warning: {} comes before {}, which it builds on and seeds from; it will "
+                    "not seed from it. List {} first.", stage->Name, parent, parent));
     }
 }
 

@@ -246,7 +246,17 @@ block (`animus/bootstrap.py`; class/roles and blocks are matched by name, their 
 to where the block sits now, new blocks' inputs start at zero and their actions near zero, and dropped blocks are
 left behind; the trunk is copied; the critic's state encoder and value head start fresh because the global state and
 reward differ. A checkpoint without block positions (from before this) is seeded as a prefix. Queue every stage after
-the stage it extends (the sim warns otherwise); the two branches can go in either order, or on two machines.
+the stage it extends (the sim warns otherwise); the two branches can go in either order.
+
+**Merging branches:** a stage may also list `Merges`, further earlier stages (`stage.json` `merges`). With
+`merge_from: auto` the learner seeds, after the extended stage, every layout's blocks that only a merged stage has from
+that stage's `best.pt` (input columns and action rows; never the trunk). Those weights were trained against another
+trunk, so a merge stage is usually **distilled** too (`distill:` in its config, `animus/distill.py`): on the decisions
+of each arena that a parent already plays, the policy loss gains `coef` x KL(parent's policy || policy), over the
+actions both have, decaying with `half_life_env_steps`. `teachers: auto` picks, per arena, the first parent (the extended
+stage, then the merges) whose `stage.json` has that arena; a map `{arena: checkpoint}` names them. Each decision's
+arena comes from the critic state (`stage.json` `state`). `metrics.csv` logs `distill_coef`, `distill_kl` and
+`distill_rows`. The pilot `mix_duel_pvp` extends `stage6_pvp`, merges `stage1_duel` and is taught by both.
 
 #### Stage 2 (`stage2_pack`): packs
 

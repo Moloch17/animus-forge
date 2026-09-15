@@ -489,6 +489,16 @@ void AnimusForge::Curriculum::StageScenario::WriteStageFiles(ForgeConfig const& 
     for (StageDefinition const* base = FindStage(_stage.Extends); base; base = FindStage(base->Extends))
         seedChain.push_back(boost::json::string(base->Name));
 
+    // A merge's further parents: each seeds the blocks only it has, and can teach its arenas.
+    boost::json::array& merges = stageFile["merges"].emplace_array();
+    for (std::string const& merge : _stage.Merges)
+        merges.push_back(boost::json::string(merge));
+
+    // Where the critic state holds the episode's arena, so the learner knows each decision's arena.
+    boost::json::object& state = stageFile["state"].emplace_object();
+    state["arena_first"] = uint32(STATE_ARENA_FIRST);
+    state["arena_count"] = MAX_ARENAS;
+
     boost::json::object& models = stageFile["models"].emplace_object();
     for (Layout const& layout : _layouts)
         models[layout.Profile->Name] = layout.ModelName();

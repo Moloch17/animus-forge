@@ -112,7 +112,9 @@ class MappoTrainer:
 
     # ------------------------------------------------------------------ update
 
-    def update(self, buffer: RolloutBuffer) -> dict[str, float]:
+    def update(self, buffer: RolloutBuffer, auxiliary=None) -> dict[str, float]:
+        """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
+        loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         cfg = self.config
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0}
         data = {k: torch.as_tensor(v, device=self.train_device) for k, v in buffer.flat().items()}
@@ -132,6 +134,8 @@ class MappoTrainer:
 
         samples = data["actions"].shape[0]
         batch = max(1, samples // cfg.minibatches)
+        auxiliary_stats: dict[str, float] = {}
+        auxiliary_updates = 0
         updates = 0
 
         for _ in range(cfg.epochs):
@@ -148,8 +152,16 @@ class MappoTrainer:
                 policy_loss = -torch.min(ratio * adv, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * adv).mean()
                 entropy = dist.entropy().mean()
 
+                actor_loss = policy_loss - self.entropy_coef * entropy
+                if auxiliary is not None and (extra := auxiliary(data, idx, dist)) is not None:
+                    loss, extra_stats = extra
+                    actor_loss = actor_loss + loss
+                    for key, value in extra_stats.items():
+                        auxiliary_stats[key] = auxiliary_stats.get(key, 0.0) + value
+                    auxiliary_updates += 1
+
                 self.actor_opt.zero_grad()
-                (policy_loss - self.entropy_coef * entropy).backward()
+                actor_loss.backward()
                 nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
@@ -173,7 +185,9 @@ class MappoTrainer:
                 updates += 1
 
         self._sync_rollout()
-        return {k: v / max(1, updates) for k, v in stats.items()}
+        result = {k: v / max(1, updates) for k, v in stats.items()}
+        result.update({k: v / auxiliary_updates for k, v in auxiliary_stats.items()})
+        return result
 
     # ------------------------------------------------------------------ checkpoints
 

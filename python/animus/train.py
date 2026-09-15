@@ -32,8 +32,9 @@ import numpy as np
 import torch
 import yaml
 
-from .bootstrap import seed_trainer
+from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
+from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
 from .evaluation import ConvergenceTracker, EvalResult, format_summary, run_evaluation
 from .gates import validate_target
@@ -175,6 +176,42 @@ def init_from_checkpoint(path: str) -> Path | None:
     return None
 
 
+def load_parent(path: Path) -> dict:
+    """A parent stage's checkpoint, with the stage.json of its run when it carries none (for block positions)."""
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    if checkpoint.get("stage") is None and (path.parent / STAGE_FILE).is_file():
+        checkpoint["stage"] = json.loads((path.parent / STAGE_FILE).read_text())
+    return checkpoint
+
+
+def make_distiller(config: TrainConfig, spec, stage: dict | None, parents: list[dict], device) -> Distiller | None:
+    """The distillation loss for distill.teachers: auto (from `parents`, extended stage first) or named checkpoints."""
+    if not config.distill.teachers:
+        return None
+
+    named = config.named_teachers()
+    if named:
+        chosen = {}
+        for arena, candidate in named.items():
+            path = init_from_checkpoint(candidate)
+            if path is None:
+                print(f"Teacher {candidate} for arena {arena} does not exist; that arena is not distilled", flush=True)
+                continue
+            chosen[arena] = load_parent(path)
+    else:
+        chosen = auto_teachers(stage, parents)
+
+    if not chosen:
+        print("Distillation is on, but no arena has a teacher", flush=True)
+        return None
+
+    teachers = {arena: build_teacher(checkpoint, spec, stage, device) for arena, checkpoint in chosen.items()}
+    for arena, teacher in teachers.items():
+        print(f"Arena {arena} is taught by {teacher.name} ({len(teacher.layouts)} of {len(spec.layouts)} layouts)",
+              flush=True)
+    return Distiller(stage, teachers)
+
+
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -247,7 +284,8 @@ class TrainingRun:
         columns = [
             "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
             *(f"episode_{name}" for name in spec.episode_info_names),
-            "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl",
+            "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl", "distill_coef",
+            "distill_kl", "distill_rows",
         ]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
         self.eval_log = EvalLog(self.run_dir, self.logger.tb)
@@ -280,7 +318,8 @@ class TrainingRun:
     # ------------------------------------------------------------------ setup
 
     def _load_or_seed(self) -> None:
-        """Resume the run's latest.pt, or seed the fresh networks from the stage this one extends."""
+        """Resume the run's latest.pt, or seed the fresh networks from the stage this one extends and a merge stage's
+        further parents; either way the parents teach a distilled run (self.distiller)."""
         config, spec = self.config, self.spec
         if self.resume_path:
             checkpoint = torch.load(self.resume_path, map_location="cpu", weights_only=False)
@@ -295,23 +334,32 @@ class TrainingRun:
             self.controller.load_state_dict(checkpoint.get("controller"))
             print(f"Resumed {config.run_name} from {self.resume_path} at update {self.update}, {self.env_steps} env "
                   f"steps ({self.controller.restarts} restarts)", flush=True)
-            return
 
+        # The parents: the extended stage's checkpoint (the first init_from candidate that exists) and a merge stage's
+        # further parents.
         candidates = config.resolved_init_from(self.stage)
-        if not candidates:
-            return
-        seed_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
-        if not seed_path:
-            print(f"None of {', '.join(candidates)} to seed from; starting from scratch", flush=True)
-            return
+        base_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
+        merge_paths = []
+        for candidate in config.resolved_merge_from(self.stage):
+            if path := init_from_checkpoint(candidate):
+                merge_paths.append(path)
+            else:
+                print(f"Merged stage checkpoint {candidate} does not exist: nothing is seeded or taught from it",
+                      flush=True)
+        base = load_parent(base_path) if base_path else None
+        merged = [load_parent(path) for path in merge_paths]
 
-        checkpoint = torch.load(seed_path, map_location="cpu", weights_only=False)
-        # Block positions for block-wise seeding: the checkpoint's own, else the stage.json of its run.
-        if checkpoint.get("stage") is None and (seed_path.parent / STAGE_FILE).is_file():
-            checkpoint["stage"] = json.loads((seed_path.parent / STAGE_FILE).read_text())
-        seeded = seed_trainer(self.trainer, checkpoint, spec, self.stage)
-        print(f"Seeded the networks from {seed_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
-              flush=True)
+        if not self.resume_path and base is not None:
+            seeded = seed_trainer(self.trainer, base, spec, self.stage)
+            print(f"Seeded the networks from {base_path}: trunk and {len(seeded)} of {len(spec.layouts)} layouts",
+                  flush=True)
+            for layout, blocks in (seed_merges(self.trainer, merged, spec, self.stage, base) if merged else {}).items():
+                print(f"  {layout}: {', '.join(blocks)} from the merged stages", flush=True)
+        elif not self.resume_path and candidates:
+            print(f"None of {', '.join(candidates)} to seed from; starting from scratch", flush=True)
+
+        self.distiller = make_distiller(config, spec, self.stage, [p for p in (base, *merged) if p is not None],
+                                        self.trainer.train_device)
 
     # ------------------------------------------------------------------ checkpoints
 
@@ -477,7 +525,9 @@ class TrainingRun:
         rollout_seconds = time.perf_counter() - started
         buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), self.config.mappo.gamma,
                       self.config.mappo.gae_lambda)
-        stats = trainer.update(buffer)
+        if self.distiller is not None:
+            self.distiller.coef = self.config.distill.coef_at(self.env_steps)
+        stats = trainer.update(buffer, self.distiller)
 
         self.update += 1
         self.env_steps += self.config.rollout_length * envs * agents
@@ -496,6 +546,7 @@ class TrainingRun:
             "reward_per_decision": self.buffer.mean_reward(),
             "episodes": len(self.finished_episodes),
             "entropy_coef": self.trainer.entropy_coef,
+            **({"distill_coef": self.distiller.coef} if self.distiller is not None else {}),
         }
         if self.finished_episodes:
             means = np.mean(self.finished_episodes, axis=0)

@@ -114,12 +114,14 @@ namespace
                 .Pvp = true } },
         });
 
-        // A pilot of arena mixing, not part of the curriculum: the duel and the scripted enemy player in one stage.
-        // Trained only when named (forge start mix_duel_pvp).
+        // A pilot of arena mixing and merging, not part of the curriculum: the duel and the scripted enemy player in
+        // one stage, merging the two stages that trained them (each teaches its arena). Trained only when named
+        // (forge start mix_duel_pvp).
         stages.push_back({
             .Name = "mix_duel_pvp",
             .Suffix = "_mix",
             .Extends = "stage6_pvp",
+            .Merges = { "stage1_duel" },
             .Summary = "pilot arena mix: half the episodes a creature duel, half a scripted enemy player",
             .Blocks = { Core, Duel, Pvp },
             .Arenas = {
@@ -170,10 +172,26 @@ namespace
 
         // The base only has to exist: seeding maps the base's blocks to this stage's by name (stage.json spans), so a
         // stage may drop base blocks it does not need and several stages may share a base.
-        if (!stage.Extends.empty()
-            && std::none_of(valid.begin(), valid.end(),
-                [&stage](StageDefinition const& other) { return other.Name == stage.Extends; }))
+        auto const earlier = [&valid](std::string const& name)
+        {
+            return std::any_of(valid.begin(), valid.end(), [&name](StageDefinition const& other)
+            {
+                return other.Name == name;
+            });
+        };
+
+        if (!stage.Extends.empty() && !earlier(stage.Extends))
             return "it extends " + stage.Extends + ", which is not an earlier valid stage";
+
+        for (std::string const& merge : stage.Merges)
+        {
+            if (stage.Extends.empty())
+                return "a merge needs a stage it extends (the trunk)";
+            if (merge == stage.Extends || std::count(stage.Merges.begin(), stage.Merges.end(), merge) > 1)
+                return "it merges " + merge + " twice";
+            if (!earlier(merge))
+                return "it merges " + merge + ", which is not an earlier valid stage";
+        }
 
         if (!stage.Has(BlockId::Duel))
             return "every stage fights something that fights back, which needs the duel block";

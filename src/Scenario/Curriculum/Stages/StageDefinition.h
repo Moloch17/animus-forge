@@ -75,12 +75,15 @@ namespace AnimusForge::Curriculum
     ///
     /// A stage extends one earlier stage, whose best model seeds it: the base's blocks this stage keeps are seeded
     /// block by block (their features and actions may move), dropped ones are left behind and new ones start fresh.
-    /// Several stages may extend the same base, so the curriculum is a tree.
+    /// Several stages may extend the same base, so the curriculum is a tree. A merge stage also lists other earlier
+    /// stages (Merges): the blocks only they have are seeded from them, and the learner can distill each of their
+    /// arenas from their models, joining branches of the tree again.
     struct StageDefinition
     {
         std::string Name;               // the scenario name
         std::string Suffix;             // added to a class/role's name for the stage's models (warrior_dps_duel)
-        std::string Extends;            // the stage it builds on and seeds from; empty for the first
+        std::string Extends;            // the stage it builds on and seeds from (the trunk); empty for the first
+        std::vector<std::string> Merges{}; // further stages it seeds the blocks only they have from
         std::string Summary;
         std::vector<BlockId> Blocks;    // in layout order: every block any of its arenas needs
         std::vector<ArenaDefinition> Arenas;

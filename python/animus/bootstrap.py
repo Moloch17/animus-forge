@@ -14,6 +14,11 @@ drop others and adds its own (the curriculum is a tree), so a layout is seeded b
 
 Block positions come from the stages' stage.json (``layouts``), which every checkpoint carries. A checkpoint or stage
 without them (older runs, standalone scenarios) is seeded as a prefix: the earlier layout's columns and rows first.
+
+A merge stage (stage.json ``merges``) joins branches of the curriculum: after the stage it extends has seeded the
+trunk and its blocks, each merged stage seeds the blocks of every layout that neither the extended stage nor an
+earlier merge had (seed_merges) -- input columns and action rows only, never the trunk or the biases. Those weights
+were trained against the merged stage's own trunk, so they are a warm start; distillation (animus.distill) aligns them.
 """
 
 from __future__ import annotations
@@ -126,6 +131,58 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
             for network, remapped in adapters:
                 _seed_adapter(network, remapped, f"adapters.{index}")
             _seed_head(actor, head, f"heads.{index}")
+
+    trainer.actor.load_state_dict(actor)
+    trainer.critic.load_state_dict(critic)
+    trainer._sync_rollout()
+    return seeded
+
+
+def seed_merges(trainer, merges: list[dict], spec, stage: dict | None, base: dict) -> dict[str, list[str]]:
+    """After seed_trainer from `base` (the extended stage's checkpoint), seed each layout's blocks that only the merged
+    stages' checkpoints (`merges`, in order) have; returns {layout: [block, ...]} for what was seeded."""
+    actor = {key: tensor.clone() for key, tensor in trainer.actor.state_dict().items()}
+    critic = {key: tensor.clone() for key, tensor in trainer.critic.state_dict().items()}
+    seeded: dict[str, list[str]] = {}
+
+    for index, layout in enumerate(spec.layouts):
+        new_blocks = block_spans(stage, layout.name)
+        if new_blocks is None:
+            continue
+        taken = set(block_spans(base.get("stage"), layout.name) or {})
+
+        for merge in merges:
+            names = [entry["name"] for entry in merge["spec"].get("layouts", ())]
+            old_blocks = block_spans(merge.get("stage"), layout.name)
+            if layout.name not in names or old_blocks is None:
+                continue
+            old_index = names.index(layout.name)
+            wanted = {block: spans for block, spans in new_blocks.items() if block not in taken}
+            common = _common_blocks(old_blocks, wanted, layout.name)
+            if not common:
+                continue
+
+            old = merge["trainer"]
+            for network, old_network in ((actor, old["actor"]), (critic, old["critic"])):
+                new_w, old_w = network[f"adapters.{index}.weight"], old_network[f"adapters.{old_index}.weight"]
+                if new_w.shape[0] != old_w.shape[0]:
+                    raise ValueError(f"adapters.{index}: width {old_w.shape[0]} in a merged checkpoint, "
+                                     f"{new_w.shape[0]} now")
+                for ((old_first, count), _), ((new_first, _), _) in common:
+                    new_w[:, new_first : new_first + count] = old_w[:, old_first : old_first + count]
+
+            new_head, old_head = actor[f"heads.{index}.weight"], old["actor"][f"heads.{old_index}.weight"]
+            new_bias, old_bias = actor[f"heads.{index}.bias"], old["actor"][f"heads.{old_index}.bias"]
+            if new_head.shape[1] != old_head.shape[1]:
+                raise ValueError(f"heads.{index}: {tuple(old_head.shape)} in a merged checkpoint does not fit "
+                                 f"{tuple(new_head.shape)}")
+            for (_, (old_first, count)), (_, (new_first, _)) in common:
+                new_head[new_first : new_first + count] = old_head[old_first : old_first + count]
+                new_bias[new_first : new_first + count] = old_bias[old_first : old_first + count]
+
+            blocks = [block for block in wanted if block in old_blocks]
+            taken.update(blocks)
+            seeded.setdefault(layout.name, []).extend(blocks)
 
     trainer.actor.load_state_dict(actor)
     trainer.critic.load_state_dict(critic)

@@ -15,7 +15,7 @@ from typing import Union, get_args, get_origin, get_type_hints
 import yaml
 
 from .mappo.trainer import MappoConfig
-from .stages import seed_chain
+from .stages import merges, seed_chain
 
 EXTENDS_KEY = "extends"
 AUTO = "auto"
@@ -103,6 +103,24 @@ class RestartConfig:
 
 
 @dataclass
+class DistillConfig:
+    """Kickstarting a merge stage (animus.distill): on the decisions of each arena that has a teacher -- the parent
+    stage whose model already plays it -- the policy loss gains coef x KL(teacher || policy), and coef decays with
+    half_life_env_steps so PPO takes over."""
+
+    # "" = off; "auto" = every arena of the stage that a parent (the extended stage, then the merges, in order) has,
+    # taught by that parent's best.pt (else latest.pt); or {arena: checkpoint path} with {runs_dir} filled in.
+    teachers: str | dict = ""
+    coef: float = 1.0
+    half_life_env_steps: int = 30_000_000
+    min_coef: float = 0.0  # the coefficient never decays below this; below 1e-4 the term is not computed
+
+    def coef_at(self, env_steps: int) -> float:
+        decay = 0.5 ** (env_steps / self.half_life_env_steps) if self.half_life_env_steps > 0 else 1.0
+        return max(self.min_coef, self.coef * decay)
+
+
+@dataclass
 class TrainConfig:
     run_name: str = "run"
     runs_dir: str = "runs"  # the sim passes AnimusForge.OutputDir/runs
@@ -124,8 +142,12 @@ class TrainConfig:
     # them, with {runs_dir} and {run_name} filled in. A best.pt that does not exist falls back to the latest.pt beside
     # it. Empty = train from scratch.
     init_from: str | list[str] = AUTO
+    # A merge stage's further parents (stage.json merges), seeding the blocks only they have after init_from: "auto"
+    # takes each merged stage's best.pt (else latest.pt); a list names checkpoints; empty = none.
+    merge_from: str | list[str] = AUTO
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
+    distill: DistillConfig = field(default_factory=DistillConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
     target: TargetConfig = field(default_factory=TargetConfig)
@@ -136,6 +158,22 @@ class TrainConfig:
             return [str(Path(self.runs_dir) / name / "best.pt") for name in seed_chain(stage)]
         candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
         return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+
+    def resolved_merge_from(self, stage: dict | None) -> list[str]:
+        if self.merge_from == AUTO:
+            return [str(Path(self.runs_dir) / name / "best.pt") for name in merges(stage)]
+        candidates = [self.merge_from] if isinstance(self.merge_from, str) else list(self.merge_from or [])
+        return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+
+    def named_teachers(self) -> dict[str, str]:
+        """distill.teachers as {arena: checkpoint path}, {runs_dir} filled in; {} when off or "auto"."""
+        teachers = self.distill.teachers
+        if isinstance(teachers, dict):
+            return {arena: str(path).format(runs_dir=self.runs_dir, run_name=self.run_name)
+                    for arena, path in teachers.items()}
+        if teachers not in ("", AUTO):
+            raise ValueError(f"distill.teachers: expected \"\", \"auto\" or {{arena: checkpoint}}, got {teachers!r}")
+        return {}
 
     def resolved_train_device(self) -> str:
         return resolve_device(self.train_device)

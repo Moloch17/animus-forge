@@ -1,8 +1,20 @@
-# Pilot of arena mixing, not part of the curriculum (trained only when named: forge start mix_duel_pvp): every episode
-# is one of the stage's arenas, drawn by weight -- here half a creature duel (stage 1's situation) and half a scripted
-# enemy player (stage 6's) -- so one policy learns PvE and PvP together. It seeds from stage6_pvp, which has the same
-# blocks (core, duel, pvp). The episode info column "arena" is the index into stage.json's arenas: duel 0,
-# pvp_scripted 1.
+# Pilot of arena mixing and merging, not part of the curriculum (trained only when named: forge start mix_duel_pvp):
+# every episode is one of the stage's arenas, drawn by weight -- here half a creature duel (stage 1's situation) and
+# half a scripted enemy player (stage 6's) -- so one policy learns PvE and PvP together. It extends stage6_pvp (the
+# trunk and its blocks: core, duel, pvp) and merges stage1_duel. The episode info column "arena" is the index into
+# stage.json's arenas: duel 0, pvp_scripted 1.
+#
+# Distillation: each arena is taught by the parent that has it -- duel by stage1_duel, pvp_scripted by stage6_pvp --
+# with a KL term that halves every 30M env steps (distill.*); metrics.csv logs distill_coef and distill_kl.
 
 extends: stage6_pvp.yaml
 run_name: mix_duel_pvp
+
+distill:
+  teachers: auto
+
+# Each situation has to hold up on its own, not only on average.
+target:
+  arenas:
+    duel: {min_over_baseline: 0.1}
+    pvp_scripted: {min_over_baseline: 0.1}

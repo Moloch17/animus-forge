@@ -2,7 +2,10 @@
 
 Branch: `new-arenas` (from `master` at f33267c). Status: the renames below, **P1 (arenas in stages)** with the pilot
 stage `mix_duel_pvp` (duel + scripted enemy player), and **P2 (per-arena evaluation and gates, self-play scored
-against a scripted opponent, protocol 4)** are done; P3 onward is still plan.
+against a scripted opponent, protocol 4)** and **P3 (merge seeding and per-arena distillation)** are done. P3
+differs from §5.4-5.5 in two details: a merge lists its extra parents in `Merges` (Extends stays the trunk), and the
+learner reads each decision's arena from the critic state one-hot (`stage.json` `state`) instead of a protocol field.
+P4 onward is still plan.
 
 ## Naming (done on this branch)
 

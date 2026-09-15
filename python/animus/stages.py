@@ -29,6 +29,22 @@ def seed_chain(stage: dict | None) -> list[str]:
     return list(stage.get("seed_chain", ())) if stage else []
 
 
+def merges(stage: dict | None) -> list[str]:
+    """A merge stage's further parents: each seeds the blocks only it has and can teach its arenas."""
+    return list(stage.get("merges", ())) if stage else []
+
+
+def arena_names(stage: dict | None) -> tuple[str, ...]:
+    """The stage's arena names, in the order the episode info column "arena" and the critic state index them."""
+    return tuple(arena["name"] for arena in stage.get("arenas", ())) if stage else ()
+
+
+def arena_state_span(stage: dict | None) -> Span | None:
+    """(first, count) of the arena one-hot in the critic state, or None when the stage.json does not say."""
+    state = (stage or {}).get("state", {})
+    return (int(state["arena_first"]), int(state["arena_count"])) if "arena_first" in state else None
+
+
 Span = tuple[int, int]  # (first, count)
 
 
