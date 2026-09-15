@@ -1,39 +1,43 @@
-# Learner config for class_role, stage 1 of the class/role curriculum: one policy for every class/role of
-# AnimusForge.ClassRoles (all 18 by default) on a training dummy, maximising damage. Each class/role is a layout:
-# its own input adapter and action head around a shared trunk. The run trains in runs/class_role/ and publishes
-# one model per class/role (warrior_dps.amdl, ...).
+# Learner config for class_role, stage 1 of the class/role curriculum, and the base every later stage extends: one
+# policy for every class/role of AnimusForge.ClassRoles (all 18 by default) on a training dummy, maximising damage.
+# Each class/role is a layout: its own input adapter and action head around a shared trunk. The run trains in
+# <runs_dir>/class_role/; export writes one model per class/role (warrior_dps.amdl, ...).
 #
-# Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random, and the
-# policy sees them in its observation. Observations are a few hundred features (61 global, 5 per action, one per
-# talent) and a class has roughly 50-120 actions.
+# Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random, and the policy
+# sees them in its observation. Observations are a few hundred features (61 global, 5 per action, one per talent)
+# and a class has roughly 50-120 actions.
 #
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf); everything here is
-# learner-side.
+# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf), where runs go and what
+# a stage seeds from (its stage.json); everything here is learner-side. Later stages list only what they change.
 
 run_name: class_role
-runs_dir: runs
 socket: /tmp/animus-forge.sock
 seed: 1
 
-# One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so
-# it needs far more experience than the single-character scenarios. At 64 envs one update is
-# 128 x 64 = 8192 env steps. Stage 1 is a warm start: every role only practises damage on a dummy here (tanks and
-# healers included), so it gets a short budget rather than pulling the shared trunk towards pure damage play.
+# Seed from the closest earlier stage that has been trained (the stage's seed chain in stage.json): each layout
+# extends the earlier stage's, and the trunk carries over. Stage 1 has nothing to seed from.
+init_from: auto
+
+# One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so it needs far
+# more experience than a single-character scenario. At 64 envs one update is 128 x 64 = 8192 env steps. Stage 1 is a
+# warm start: every role only practises damage on a dummy here (tanks and healers included), so it gets a short budget
+# rather than pulling the shared trunk towards pure damage play.
 total_env_steps: 60000000
 rollout_length: 128
 log_every: 1
 checkpoint_every: 25
+keep_checkpoints: 5
 
-# Updates run on the GPU ("cuda" is PyTorch ROCm's name for AMD GPUs; the training server exposes only
-# the discrete card). Rollouts stay on the CPU: one forward pass per decision is faster there.
+# Updates on the GPU when torch sees one (CUDA or ROCm), else the CPU. Rollouts stay on the CPU: one forward pass per
+# decision is faster there.
+train_device: auto
 rollout_device: cpu
-train_device: cuda
 
 mappo:
-  # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space.
+  # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space. Every stage
+  # keeps these sizes, or seeding from the earlier stage cannot copy the trunk.
   hidden: [512, 512]
-  # Decisions are 50 ms apart; DoTs, buffs and cooldowns pay off over many seconds, so 0.995 (a ~200
-  # decision, 10 s horizon).
+  # Decisions are 100 ms apart by default; DoTs, buffs and cooldowns pay off over many seconds.
   gamma: 0.995
   gae_lambda: 0.95
   clip: 0.2
@@ -48,10 +52,10 @@ mappo:
   max_grad_norm: 0.5
   use_value_norm: true
 
-# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
-# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats next to the "greedy" baseline, scored once per run on the same seeds. The best networks go to best.pt
-# and are the ones the next stage seeds from.
+# Seeded evaluation (animus.evaluation): every every_env_steps the networks play the same 128 characters and opponents
+# with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band and per-class/role
+# stats next to the baseline, scored once per run on the same seeds. The best networks go to best.pt and are the ones
+# the next stage seeds from.
 eval:
   every_env_steps: 20000000
   at_start: true
@@ -60,8 +64,8 @@ eval:
   deterministic: true
   baseline: greedy
 
-# Stop once 3 evaluations in a row (60M env steps) fail to beat the best score by 2%, but not before 20M env
-# steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
+# Stop once `patience` evaluations in a row fail to beat the best score by 2%, but not before min_env_steps;
+# total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
 plateau:
   patience: 3
   min_improvement: 0.02

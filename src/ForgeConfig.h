@@ -26,16 +26,19 @@
 
 namespace AnimusForge
 {
-    /// Module settings, read once at startup (mod_animus_forge.conf.dist documents every key).
+    /// Module settings, read once at startup (mod_animus_forge.conf.dist documents every key). Only settings: what is
+    /// running lives in Forge. The class/role curriculum's tuning is ClassRoleTuning.
     struct ForgeConfig
     {
         bool Enable = true;
 
-        /// Scenario currently running: the current entry of Queue.
-        std::string Scenario;
-
-        /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes.
+        /// AnimusForge.Queue: scenarios trained one after another, each until its learner finishes. Empty = every
+        /// class/role stage, first to last.
         std::vector<std::string> Queue;
+
+        /// AnimusForge.Queue.SkipFinished: skip queued scenarios whose run already finished
+        /// (<RunsDir>/<name>/finished.json).
+        bool QueueSkipFinished = true;
 
         /// AnimusForge.Queue.LocalEpisodes: with a local policy, episodes per queued scenario (0 = run the
         /// first one forever).
@@ -46,26 +49,38 @@ namespace AnimusForge
         uint32 EpisodeSeconds = 60;
 
         std::string Policy;
-        uint32 HsRageThreshold = 15;
         uint32 ReportEpisodes = 256;
         std::string SocketPath;
+
+        /// AnimusForge.OutputDir, resolved: where runs/ and layouts/ go. Never empty after Load.
+        std::string OutputDir;
 
         /// Remote policy only: start the Python learner as a child process once the socket is up.
         bool LearnerAutoStart = true;
         std::string LearnerPython;      // resolved: never empty after Load
         std::string LearnerWorkDir;     // resolved: never empty after Load
-        std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = per scenario (LearnerConfigFor)
+        std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = configs/<scenario>.yaml
         std::string LearnerLogFile;     // resolved: never empty after Load
         std::vector<std::string> LearnerArgs;   // AnimusForge.Learner.Args, split on whitespace
         std::vector<std::string> ClassRoles;    // AnimusForge.ClassRoles; empty = every class/role
 
-        uint32 ArenaMapId = 560;
-        Position ArenaPosition;
+        /// AnimusForge.SpawnPoint.*: the instanceable map and position every env's bots start at.
+        uint32 SpawnMapId = 560;
+        Position SpawnPosition;
+
+        /// AnimusForge.WarriorDummy20.HsRageThreshold: rage at which warrior_dummy_20's scripted policies queue
+        /// Heroic Strike.
+        uint32 WarriorDummy20HsRageThreshold = 15;
 
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
-        /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else
-        /// configs/<scenario>.yaml if it exists, else configs/class_role.yaml.
+        /// Where learners train: <OutputDir>/runs.
+        [[nodiscard]] std::string RunsDir() const;
+
+        /// Where scenarios write their layout manifests and stage descriptions: <OutputDir>/layouts.
+        [[nodiscard]] std::string LayoutsDir() const;
+
+        /// Absolute learner config for a scenario: AnimusForge.Learner.Config if set, else configs/<scenario>.yaml.
         [[nodiscard]] std::string LearnerConfigFor(std::string const& scenario) const;
 
         void Load();

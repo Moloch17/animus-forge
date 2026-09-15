@@ -1,67 +1,7 @@
-# Learner config for class_role_companion, stage 5 of the class/role curriculum: the gauntlet fought beside a
-# scripted owner, a player of a random class near the bot's level that wanders, engages each pull and takes real
-# damage. The bot follows, assists and guards it; tanks keep enemies on themselves, healers keep the owner alive
-# with effective healing, damage dealers avoid pulling threat. Episodes end when the bot or the owner dies.
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf). Like the gauntlet,
-# give it episodes of several minutes.
+# Stage 5 of the class/role curriculum: the gauntlet fought beside a scripted owner, a player of a random class and
+# role near the bot's level that wanders, engages each pull and takes real damage. The bot follows, assists and guards
+# it; tanks keep enemies on themselves, healers keep the owner alive, damage dealers avoid pulling threat. Nobody's
+# death ends the episode: the dead stand up after the pull. Like the gauntlet, give it episodes of several minutes.
 
+extends: class_role_gauntlet.yaml
 run_name: class_role_companion
-runs_dir: runs
-socket: /tmp/animus-forge.sock
-seed: 1
-
-# Seed from the closest earlier stage that has been trained (the first candidate that exists): each
-# layout extends the earlier stage's, and the trunk carries over.
-init_from:
-  - runs/{base_run}_gauntlet/best.pt
-  - runs/{base_run}_pack/best.pt
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
-
-# Budget sized from throughput: 200M env steps is ~8 h at ~7k env steps/s.
-# The plateau stop usually ends the stage sooner.
-total_env_steps: 200000000
-rollout_length: 128
-log_every: 1
-checkpoint_every: 25
-
-rollout_device: cpu
-train_device: cuda
-
-mappo:
-  # Must match the earlier stages for the seeding to apply.
-  hidden: [512, 512]
-  gamma: 0.999
-  gae_lambda: 0.95
-  clip: 0.2
-  value_clip: 0.2
-  entropy_coef: 0.01
-  value_coef: 1.0
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  epochs: 4
-  minibatches: 8
-  max_grad_norm: 0.5
-  use_value_norm: true
-
-# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
-# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
-# the same seeds. The best networks go to best.pt
-# and are the ones the next stage seeds from.
-eval:
-  every_env_steps: 10000000
-  at_start: true
-  episodes: 128
-  seed: 1000
-  deterministic: true
-  baseline: fight
-
-# Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
-# 40M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
-plateau:
-  patience: 5
-  min_improvement: 0.02
-  min_improvement_abs: 0.01
-  min_env_steps: 40000000

@@ -1,7 +1,8 @@
 """Run directories.
 
 A learner always trains from scratch. When it starts, whatever its run directory holds from an earlier run is moved
-to ``<runs_dir>/_archive/<run>-<time>/`` (nothing is deleted).
+to ``<runs_dir>/_archive/<run>-<time>/`` (nothing is deleted). While it trains, only the newest numbered checkpoints
+are kept (latest.pt and best.pt are separate files and always stay).
 """
 
 from __future__ import annotations
@@ -10,6 +11,20 @@ import time
 from pathlib import Path
 
 ARCHIVE_DIR = "_archive"
+CHECKPOINT_GLOB = "checkpoint_*.pt"
+
+
+def prune_checkpoints(run_dir: Path, keep: int) -> list[Path]:
+    """Delete all but the newest `keep` numbered checkpoints (0 keeps them all); returns the deleted files."""
+    if keep <= 0:
+        return []
+
+    # checkpoint_<update, zero-padded>.pt: name order is update order.
+    checkpoints = sorted(run_dir.glob(CHECKPOINT_GLOB))
+    removed = checkpoints[:-keep]
+    for path in removed:
+        path.unlink(missing_ok=True)
+    return removed
 
 
 def archive_run(run_dir: Path) -> Path | None:

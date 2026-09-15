@@ -18,9 +18,11 @@
 
 #include "AnimusForge.h"
 #include "Log.h"
+#include "StageDefinition.h"
 #include "World.h"
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 AnimusForge::Forge* AnimusForge::Forge::Instance()
 {
@@ -38,29 +40,62 @@ void AnimusForge::Forge::OnStartup()
         return;
     }
 
-    if (!Start())
+    _queue = _config.Queue;
+    if (_queue.empty())
+        for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
+            _queue.push_back(stage.Name);
+
+    if (_queue.empty())
+    {
+        Fail("AnimusForge.Queue is empty and there are no class/role stages");
         return;
+    }
+
+    _queueIndex = 0;
+    StartQueue();
+}
+
+bool AnimusForge::Forge::AlreadyFinished(std::string const& scenario) const
+{
+    // Only an auto-started learner moves the queue on, so only then does skipping mean anything.
+    if (!_config.QueueSkipFinished || !_config.IsRemote() || !_config.LearnerAutoStart)
+        return false;
+
+    std::error_code error;
+    return std::filesystem::exists(std::filesystem::path(_config.RunsDir()) / scenario / "finished.json", error);
+}
+
+bool AnimusForge::Forge::StartQueue()
+{
+    for (; _queueIndex < _queue.size() && AlreadyFinished(CurrentScenario()); ++_queueIndex)
+        LOG_INFO("module.animus", "Queue: {} already finished (runs/{}/finished.json), skipping it. To train it again, "
+            "move that run away or set AnimusForge.Queue.SkipFinished = 0.", CurrentScenario(), CurrentScenario());
+
+    if (_queueIndex >= _queue.size())
+    {
+        LOG_INFO("module.animus", "Queue complete: every scenario in AnimusForge.Queue has finished training. The sim "
+            "idles until the server is stopped.");
+        return false;
+    }
+
+    LOG_INFO("module.animus", "Queue: starting {} ({} of {})", CurrentScenario(), _queueIndex + 1, _queue.size());
+    if (!Start())
+        return false;
 
     _running = true;
+    return true;
 }
 
 bool AnimusForge::Forge::Start()
 {
-    if (_config.Queue.empty())
-    {
-        LOG_ERROR("module.animus", "AnimusForge.Queue is empty: list the scenarios to train");
-        Fail("nothing to train");
-        return false;
-    }
-
-    _scenario = CreateScenario(_config);
+    _scenario = CreateScenario(CurrentScenario(), _config);
     if (!_scenario)
     {
         std::string available;
         for (std::string const& name : ScenarioNames())
             available += (available.empty() ? "" : ", ") + name;
 
-        LOG_ERROR("module.animus", "Unknown scenario '{}'. Available: {}", _config.Scenario, available);
+        LOG_ERROR("module.animus", "Unknown scenario '{}'. Available: {}", CurrentScenario(), available);
         Fail("unknown scenario");
         return false;
     }
@@ -101,10 +136,11 @@ bool AnimusForge::Forge::Start()
 
         // A learner that cannot be started is not fatal: the sim keeps waiting on the socket, so
         // one started by hand still works.
-        if (_config.LearnerAutoStart && !_learner.Start(_config))
+        if (_config.LearnerAutoStart && !_learner.Start(_config, CurrentScenario()))
             LOG_ERROR("module.animus", "Learner auto-start failed; start it manually: cd {} && {} -m animus.train "
-                "--config {} --socket {} --run-name {}", _config.LearnerWorkDir, _config.LearnerPython,
-                _config.LearnerConfigFor(_config.Scenario), _config.SocketPath, _config.Scenario);
+                "--config {} --socket {} --run-name {} --runs-dir {} --layouts-dir {}", _config.LearnerWorkDir,
+                _config.LearnerPython, _config.LearnerConfigFor(CurrentScenario()), _config.SocketPath,
+                CurrentScenario(), _config.RunsDir(), _config.LayoutsDir());
     }
 
     _pool->ResetAll();
@@ -118,25 +154,15 @@ bool AnimusForge::Forge::QueueScenarioFinished() const
 
 void AnimusForge::Forge::AdvanceQueue()
 {
-    LOG_INFO("module.animus", "Queue: {} finished ({} of {})", _config.Scenario, _queueIndex + 1, _config.Queue.size());
+    LOG_INFO("module.animus", "Queue: {} finished ({} of {})", CurrentScenario(), _queueIndex + 1, _queue.size());
 
     _running = false;
     _pool->Teardown();
     _pool.reset();
     _scenario.reset();
 
-    if (++_queueIndex >= _config.Queue.size())
-    {
-        LOG_INFO("module.animus", "Queue complete: every scenario in AnimusForge.Queue has finished training. The sim "
-            "idles until the server is stopped.");
-        return;
-    }
-
-    _config.Scenario = _config.Queue[_queueIndex];
-    LOG_INFO("module.animus", "Queue: starting {} ({} of {})", _config.Scenario, _queueIndex + 1, _config.Queue.size());
-
-    if (Start())
-        _running = true;
+    ++_queueIndex;
+    StartQueue();
 }
 
 void AnimusForge::Forge::Fail(char const* reason)

@@ -47,8 +47,16 @@ namespace AnimusForge
     private:
         Forge() = default;
 
+        /// Start the queue's scenario at _queueIndex, skipping scenarios whose run already finished. False when
+        /// nothing runs: the queue is done, or starting failed.
+        bool StartQueue();
         bool Start();
         void Fail(char const* reason);
+
+        [[nodiscard]] std::string const& CurrentScenario() const { return _queue[_queueIndex]; }
+
+        /// The run of `scenario` finished in an earlier server run and AnimusForge.Queue.SkipFinished allows skipping.
+        [[nodiscard]] bool AlreadyFinished(std::string const& scenario) const;
 
         /// The running scenario's auto-started learner finished, so the queue can move on.
         [[nodiscard]] bool QueueScenarioFinished() const;
@@ -68,6 +76,8 @@ namespace AnimusForge
         LockstepServer _server;
         LearnerProcess _learner;
 
+        /// AnimusForge.Queue, or every class/role stage when it is empty.
+        std::vector<std::string> _queue;
         bool _running = false;
         uint32 _queueIndex = 0;
         uint64 _ticks = 0;

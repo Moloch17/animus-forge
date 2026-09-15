@@ -17,6 +17,7 @@
  */
 
 #include "WarriorDummy20Scenario.h"
+#include "BotAccounts.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "Env.h"
@@ -31,7 +32,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "StringFormat.h"
-#include "TrainingDummyArena.h"
+#include "TrainingDummy.h"
 #include <algorithm>
 #include <cstring>
 
@@ -138,8 +139,8 @@ namespace
 }
 
 AnimusForge::WarriorDummy20Scenario::WarriorDummy20Scenario(ForgeConfig const& config)
-    : _arenaMapId(config.ArenaMapId), _arenaPosition(config.ArenaPosition), _hsRageThreshold(config.HsRageThreshold),
-    _talentPoints(BOT_TALENT_POINTS)
+    : _spawnMapId(config.SpawnMapId), _spawnPoint(config.SpawnPosition),
+    _hsRageThreshold(config.WarriorDummy20HsRageThreshold), _talentPoints(BOT_TALENT_POINTS)
 {
     _actions.resize(ACTION_FIXED_COUNT);
     _actions[ACTION_NOOP] = { "noop" };
@@ -378,7 +379,7 @@ bool AnimusForge::WarriorDummy20Scenario::Setup(Env& env)
     spec.Class = CLASS_WARRIOR;
     spec.Gender = GENDER_MALE;
     spec.Level = BOT_LEVEL;
-    spec.AccountId = TrainingDummyArena::BOT_ACCOUNT_BASE + env.Index;
+    spec.AccountId = BotAccounts::Seat(env.Index, 0, 0);
 
     Player* bot = BotFactory::Create(spec);
     if (!bot)
@@ -399,7 +400,7 @@ bool AnimusForge::WarriorDummy20Scenario::Setup(Env& env)
 
     bot->SetFullHealth();
 
-    Map* map = BotFactory::PlaceInNewInstance(bot, _arenaMapId, _arenaPosition);
+    Map* map = BotFactory::PlaceInNewInstance(bot, _spawnMapId, _spawnPoint);
     if (!map)
         return false;
 
@@ -410,16 +411,16 @@ bool AnimusForge::WarriorDummy20Scenario::Setup(Env& env)
     // A first login casts the class's start spells (playercreateinfo_cast_spell); Create does not.
     bot->CastSpell(bot, SPELL_BATTLE_STANCE, true);
 
-    TrainingDummyArena::ClearArena(bot);
+    TrainingDummy::ClearSpawnArea(bot);
 
-    Creature* dummy = TrainingDummyArena::SpawnDummy(bot, map);
+    Creature* dummy = TrainingDummy::Spawn(bot, map);
     if (!dummy)
         return false;
 
     env.Targets = { dummy->GetGUID() };
 
     EnvData& data = _data[env.Index];
-    data.Home = _arenaPosition;
+    data.Home = _spawnPoint;
     data.DamageScale = std::max(1.0f, bot->GetWeaponDamageRange(BASE_ATTACK, MAXDAMAGE));
 
     return true;

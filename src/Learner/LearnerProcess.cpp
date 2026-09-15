@@ -42,7 +42,7 @@ AnimusForge::LearnerProcess::~LearnerProcess()
     Stop(std::chrono::seconds(10));
 }
 
-bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
+bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config, std::string const& scenario)
 {
     namespace fs = std::filesystem;
 
@@ -55,25 +55,27 @@ bool AnimusForge::LearnerProcess::Start(ForgeConfig const& config)
         return false;
     }
 
-    fs::path const configPath = config.LearnerConfigFor(config.Scenario);
+    fs::path const configPath = config.LearnerConfigFor(scenario);
     if (!fs::exists(configPath))
     {
         LOG_ERROR("module.animus", "Learner config '{}' does not exist (scenario {}). Create it or set "
-            "AnimusForge.Learner.Config.", configPath.string(), config.Scenario);
+            "AnimusForge.Learner.Config.", configPath.string(), scenario);
         return false;
     }
 
     _logFile = config.LearnerLogFile;
     _exitedCleanly = false;
 
-    // The run is named after the scenario, so a shared config (configs/class_role.yaml) still gives
-    // every queued scenario its own runs/<scenario>/ and <scenario>.amdl.
+    // The run is named after the scenario, so a shared config still gives every queued scenario its own
+    // runs/<scenario>/. The sim decides where runs and layouts go (AnimusForge.OutputDir).
     std::vector<std::string> args =
     {
         config.LearnerPython, "-u", "-m", "animus.train",
         "--config", configPath.string(),
         "--socket", config.SocketPath,
-        "--run-name", config.Scenario,
+        "--run-name", scenario,
+        "--runs-dir", config.RunsDir(),
+        "--layouts-dir", config.LayoutsDir(),
     };
 
     args.insert(args.end(), config.LearnerArgs.begin(), config.LearnerArgs.end());

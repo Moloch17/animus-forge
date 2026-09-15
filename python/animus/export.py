@@ -24,14 +24,15 @@ Every layer but the last is followed by tanh. The policy is the argmax of the fi
 
 The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
-its own model, <model name>.amdl: the layout's name (the class/role, e.g. warrior_dps) with the scenario's stage
-suffix (class_role_duel -> warrior_dps_duel); a single-layout scenario keeps its own name. num_agents is 1, with a
-zero-weight agent column (the format has at least one).
+its own model, <model name>.amdl. A class/role stage's stage.json names each layout's model (warrior_dps at
+class_role_duel -> warrior_dps_duel); a scenario without one keeps its own name (one layout) or appends the layout's.
+num_agents is 1, with a zero-weight agent column (the format has at least one).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import struct
@@ -40,9 +41,10 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from .stages import STAGE_FILE, model_names
+
 AMDL_MAGIC = b"AMDL"
 AMDL_VERSION = 1
-CLASS_ROLE_SCENARIO = "class_role"
 
 _TRUNK_KEY = re.compile(r"^trunk\.layers\.(\d+)\.(weight|bias)$")
 
@@ -71,10 +73,10 @@ def with_agent_column(layers: list[tuple[np.ndarray, np.ndarray]]) -> list[tuple
     return [(padded, bias), *layers[1:]]
 
 
-def model_name(scenario: str, layout: str, layout_count: int) -> str:
-    """warrior_dps + class_role_duel -> warrior_dps_duel; a single-layout scenario keeps its own name."""
-    if scenario.startswith(CLASS_ROLE_SCENARIO):
-        return layout + scenario[len(CLASS_ROLE_SCENARIO):]
+def model_name(scenario: str, layout: str, layout_count: int, models: dict[str, str] | None = None) -> str:
+    """The model name stage.json gives the layout; without one, a single-layout scenario keeps its own name."""
+    if models and layout in models:
+        return models[layout]
     return scenario if layout_count == 1 else f"{scenario}_{layout}"
 
 
@@ -108,15 +110,18 @@ def export_layouts(
 ) -> list[Path]:
     """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written.
 
-    When manifest_dir (the sim writes layouts/<scenario>/ in the learner's directory) holds <model name>.json, the
-    layout manifest is copied beside the model, so whoever loads the model can check it reads the same layout.
+    manifest_dir is the stage's layouts directory (the sim writes <OutputDir>/layouts/<scenario>/): its stage.json
+    names the models, and each <model name>.json layout manifest there is copied beside its model, so whoever loads the
+    model can check it reads the same layout.
     """
     out_dir = Path(out_dir)
     manifests = Path(manifest_dir) if manifest_dir is not None else Path("layouts") / spec["scenario"]
+    stage_path = manifests / STAGE_FILE
+    models = model_names(json.loads(stage_path.read_text())) if stage_path.is_file() else {}
     layouts = spec["layouts"]
     written = []
     for index, layout in enumerate(layouts):
-        name = model_name(spec["scenario"], layout["name"], len(layouts))
+        name = model_name(spec["scenario"], layout["name"], len(layouts), models)
         layers = with_agent_column(layout_layers(actor_state, index))
         target = out_dir / f"{name}.amdl"
         partial = out_dir / f".{target.name}.partial"
@@ -191,12 +196,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--out", required=True, help="directory for the .amdl files, one per layout")
+    parser.add_argument(
+        "--layouts-dir", default="layouts", help="the sim's layouts directory (AnimusForge.OutputDir/layouts)"
+    )
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    for path in export_layouts(checkpoint["trainer"]["actor"], checkpoint["spec"], out):
+    manifests = Path(args.layouts_dir) / checkpoint["spec"]["scenario"]
+    for path in export_layouts(checkpoint["trainer"]["actor"], checkpoint["spec"], out, manifests):
         print(f"Wrote {path} (update {checkpoint.get('update', '?')})")
 
 

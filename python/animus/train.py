@@ -2,9 +2,9 @@
 
     python -m animus.train --config configs/class_role.yaml --run-name class_role
 
-The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1. Run by hand, the client retries
-until the sim's socket appears. Every start trains from scratch: an earlier run in runs/<run_name>/ is archived
-first (animus.runs).
+The worldserver starts this automatically when AnimusForge.Learner.AutoStart = 1, and passes where runs and layouts
+go (AnimusForge.OutputDir). Run by hand, the client retries until the sim's socket appears. Every start trains from
+scratch: an earlier run in <runs_dir>/<run_name>/ is archived first (animus.runs).
 
 With eval.every_env_steps set, the networks are scored on seeded episodes as they train (see
 animus.evaluation): the best-scoring networks are kept in best.pt, and with plateau.patience
@@ -31,7 +31,8 @@ from .env import ForgeEnv
 from .evaluation import EvalResult, PlateauTracker, format_summary, run_evaluation
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer
-from .runs import archive_run
+from .runs import archive_run, prune_checkpoints
+from .stages import STAGE_FILE, load_stage
 
 
 class RunLogger:
@@ -144,6 +145,8 @@ def main() -> None:
     parser.add_argument(
         "--run-name", help="run name (runs/<name>/), overriding the config; the sim passes its scenario"
     )
+    parser.add_argument("--runs-dir", help="where runs go, overriding the config; the sim passes its own")
+    parser.add_argument("--layouts-dir", help="where the sim writes layouts and stage.json, overriding the config")
     parser.add_argument(
         "--set", action="append", default=[], metavar="KEY=VALUE",
         help="override a config value, e.g. --set total_env_steps=5000000 --set eval.every_env_steps=1000000",
@@ -155,6 +158,10 @@ def main() -> None:
         config.socket = args.socket
     if args.run_name:
         config.run_name = args.run_name
+    if args.runs_dir:
+        config.runs_dir = args.runs_dir
+    if args.layouts_dir:
+        config.layouts_dir = args.layouts_dir
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -169,6 +176,11 @@ def main() -> None:
     env = ForgeEnv(config.socket)
     spec = env.spec
     (run_dir / "spec.json").write_text(json.dumps(asdict(spec), indent=2))
+
+    # The sim writes stage.json once it has built the scenario, which is before it accepts a learner.
+    stage = load_stage(config.layouts_dir, spec.scenario)
+    if stage is not None:
+        (run_dir / STAGE_FILE).write_text(json.dumps(stage, indent=2))
     print(
         f"Scenario {spec.scenario}: {spec.num_envs} envs x {spec.agents_per_env} agents, {len(spec.layouts)} layouts "
         f"(obs up to {spec.obs_dim}, actions up to {spec.num_actions}), state {spec.state_dim}, decision every "
@@ -180,9 +192,10 @@ def main() -> None:
         [(layout.obs_dim, layout.num_actions) for layout in spec.layouts],
         spec.state_dim,
         config.mappo,
-        train_device=config.train_device,
-        rollout_device=config.rollout_device,
+        train_device=config.resolved_train_device(),
+        rollout_device=config.resolved_rollout_device(),
     )
+    print(f"Updates on {trainer.train_device}, rollouts on {config.resolved_rollout_device()}", flush=True)
 
     evaluating = config.eval.every_env_steps > 0
     tracker = PlateauTracker(
@@ -193,7 +206,7 @@ def main() -> None:
 
     update = 0
     env_steps = 0
-    if candidates := config.resolved_init_from():
+    if candidates := config.resolved_init_from(stage):
         seed_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
         if seed_path:
             seeded = seed_trainer(trainer, torch.load(seed_path, map_location="cpu", weights_only=False), spec)
@@ -311,13 +324,15 @@ def main() -> None:
                 summary = ", ".join(
                     f"{k} {v:.4g}" for k, v in row.items() if k.startswith("episode_") or k in ("entropy", "value_loss")
                 )
-                print(f"update {update} | steps {env_steps} | {row['env_steps_per_sec']:.0f} sps | {summary}", flush=True)
+                print(f"update {update} | steps {env_steps} | {row['env_steps_per_sec']:.0f} sps | {summary}",
+                      flush=True)
                 finished_episodes.clear()
 
             if update % config.checkpoint_every == 0:
                 save_checkpoint(run_dir / f"checkpoint_{update:06d}.pt", trainer, config, spec, update, env_steps,
                                 checkpoint_extra())
                 save_checkpoint(run_dir / "latest.pt", trainer, config, spec, update, env_steps, checkpoint_extra())
+                prune_checkpoints(run_dir, config.keep_checkpoints)
 
             if evaluating and env_steps - last_eval_env_steps >= config.eval.every_env_steps:
                 # The evaluation resets every env: the training episodes in progress are cut short, and the next

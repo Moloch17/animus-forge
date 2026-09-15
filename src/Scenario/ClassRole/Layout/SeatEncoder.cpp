@@ -1,0 +1,65 @@
+/*
+ * This file is part of the Animus Forge project, based on AzerothCore.
+ * See AUTHORS file for Copyright information.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+ * more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include "SeatEncoder.h"
+#include "CoreBlock.h"
+#include "Player.h"
+#include <algorithm>
+
+void AnimusForge::ClassRole::SeatEncoder::Observe(SeatView const& view, float* obs, uint8* mask)
+{
+    Layout const& layout = *view.L;
+    std::fill(obs, obs + layout.ObsDim, 0.0f);
+    std::fill(mask, mask + layout.NumActions, 0);
+    mask[0] = 1;
+
+    CoreBlock::ObserveCharacter(view, obs);
+
+    Player* bot = view.Bot;
+    if (!bot || !bot->IsAlive() || (!view.Target && !ActsWithoutTarget(layout)))
+        return;
+
+    for (BlockId id : layout.Blocks)
+    {
+        BlockSlice const& slice = layout.Slice(id);
+        GetBlock(id).Observe(view, obs + slice.ObsFirst, mask + slice.ActionFirst);
+    }
+
+    // The no-op stays allowed whatever the core block decided.
+    mask[0] = 1;
+}
+
+void AnimusForge::ClassRole::SeatEncoder::Apply(SeatView& view, int32 action, SeatActionResult& result)
+{
+    if (!view.Bot || !view.L)
+        return;
+
+    Layout const& layout = *view.L;
+    if (!view.Target && !ActsWithoutTarget(layout))
+        return;
+
+    // Every decision, whatever the action (the no-op included).
+    for (BlockId id : layout.Blocks)
+        GetBlock(id).BeforeApply(view);
+
+    if (action <= 0)
+        return;
+
+    if (std::optional<BlockId> const block = layout.BlockOfAction(uint32(action)))
+        GetBlock(*block).Apply(view, uint32(action) - layout.Slice(*block).ActionFirst, result);
+}

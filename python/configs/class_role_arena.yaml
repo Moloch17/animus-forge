@@ -1,66 +1,18 @@
-# Learner config for class_role_arena, stage 8 of the class/role curriculum: self-play one-on-one. Two learned
-# agents of random classes and roles fight in each env, both played by this policy, so both sides of every fight
-# are training data, across class matchups.
+# Stage 8 of the class/role curriculum: self-play one-on-one. Two learned agents of random classes and roles fight in
+# each env, both played by this policy, so both sides of every fight are training data, across class matchups.
 #
-# Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides
-# improve together), so there is no baseline and no plateau stop: the run trains to total_env_steps. Judge it by
-# stage 7's evaluation: run the arena checkpoint on a class_role_pvp sim with animus.evaluate.
+# Evaluation still runs on seeds, but against itself a policy's score says little about progress (both sides improve
+# together), so there is no baseline and no plateau stop: the run trains to total_env_steps. Judge it by stage 7's
+# evaluation: run the arena checkpoint on a class_role_pvp sim with animus.evaluate.
 
+extends: class_role_pvp.yaml
 run_name: class_role_arena
-runs_dir: runs
-socket: /tmp/animus-forge.sock
-seed: 1
 
-# Seed from the closest earlier stage that has been trained (the first candidate that exists): each
-# layout extends the earlier stage's, and the trunk carries over.
-init_from:
-  - runs/{base_run}_pvp/best.pt
-  - runs/{base_run}_party/best.pt
-  - runs/{base_run}_companion/best.pt
-  - runs/{base_run}_gauntlet/best.pt
-  - runs/{base_run}_pack/best.pt
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
-
-# Budget sized from throughput: 200M env steps is ~4 h at ~14k env steps/s (two seats).
-# The plateau stop usually ends the stage sooner.
+# ~4 h at ~14k env steps/s (two seats).
 total_env_steps: 200000000
-rollout_length: 128
-log_every: 1
-checkpoint_every: 25
 
-rollout_device: cpu
-train_device: cuda
-
-mappo:
-  # Must match the earlier stages for the seeding to apply.
-  hidden: [512, 512]
-  gamma: 0.999
-  gae_lambda: 0.95
-  clip: 0.2
-  value_clip: 0.2
-  entropy_coef: 0.01
-  value_coef: 1.0
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  epochs: 4
-  minibatches: 8
-  max_grad_norm: 0.5
-  use_value_norm: true
-
-# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
-# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats. The best networks go to best.pt
-# and are the ones the next stage seeds from.
 eval:
-  every_env_steps: 10000000
-  at_start: true
-  episodes: 128
-  seed: 1000
-  deterministic: true
   baseline: ""
-  report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
 
-# No plateau stop in self-play (see the top of this file).
 plateau:
   patience: 0

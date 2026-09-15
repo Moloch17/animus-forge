@@ -26,16 +26,32 @@
 
 namespace
 {
-    /// AnimusForge.Queue when the key is missing: the whole class/role curriculum, in stage order.
-    constexpr char const* DEFAULT_QUEUE = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, "
-        "class_role_companion, class_role_party, class_role_pvp, class_role_arena";
+    namespace fs = std::filesystem;
 
     /// This module's python/ directory, from the path the compiler saw for this source file
     /// (<module>/src/ForgeConfig.cpp). Valid wherever the module source tree still exists at the
     /// path it was built from: native builds and the bind-mounted Docker services, not the runtime images.
-    std::filesystem::path DefaultLearnerWorkDir()
+    fs::path DefaultLearnerWorkDir()
     {
-        return std::filesystem::path(__FILE__).parent_path().parent_path() / "python";
+        return fs::path(__FILE__).parent_path().parent_path() / "python";
+    }
+
+    /// A comma-separated config list, whitespace removed, empty entries dropped.
+    std::vector<std::string> GetList(std::string const& key)
+    {
+        std::vector<std::string> entries;
+        std::string const value = sConfigMgr->GetOption<std::string>(key, "");
+        for (std::string_view name : Acore::Tokenize(value, ',', false))
+        {
+            std::string entry(name);
+            entry.erase(std::remove_if(entry.begin(), entry.end(), [](unsigned char c) { return std::isspace(c); }),
+                entry.end());
+
+            if (!entry.empty())
+                entries.push_back(std::move(entry));
+        }
+
+        return entries;
     }
 }
 
@@ -43,59 +59,41 @@ void AnimusForge::ForgeConfig::Load()
 {
     Enable = sConfigMgr->GetOption<bool>("AnimusForge.Enable", true);
 
-    Queue.clear();
-    std::string const queue = sConfigMgr->GetOption<std::string>("AnimusForge.Queue", DEFAULT_QUEUE);
-    for (std::string_view name : Acore::Tokenize(queue, ',', false))
-    {
-        std::string entry(name);
-        entry.erase(std::remove_if(entry.begin(), entry.end(), [](unsigned char c) { return std::isspace(c); }),
-            entry.end());
-
-        if (!entry.empty())
-            Queue.push_back(entry);
-    }
-
-    Scenario = Queue.empty() ? std::string() : Queue.front();
-
-    ClassRoles.clear();
-    std::string const classRoles = sConfigMgr->GetOption<std::string>("AnimusForge.ClassRoles", "");
-    for (std::string_view name : Acore::Tokenize(classRoles, ',', false))
-    {
-        std::string entry(name);
-        entry.erase(std::remove_if(entry.begin(), entry.end(), [](unsigned char c) { return std::isspace(c); }),
-            entry.end());
-
-        if (!entry.empty())
-            ClassRoles.push_back(entry);
-    }
-
+    Queue = GetList("AnimusForge.Queue");
+    QueueSkipFinished = sConfigMgr->GetOption<bool>("AnimusForge.Queue.SkipFinished", true);
     QueueLocalEpisodes = sConfigMgr->GetOption<uint32>("AnimusForge.Queue.LocalEpisodes", 0);
+    ClassRoles = GetList("AnimusForge.ClassRoles");
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
     DecisionTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionTicks", 2));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");
-    HsRageThreshold = sConfigMgr->GetOption<uint32>("AnimusForge.HsRageThreshold", 15);
     ReportEpisodes = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.ReportEpisodes", 256));
     SocketPath = sConfigMgr->GetOption<std::string>("AnimusForge.Socket", "/tmp/animus-forge.sock");
 
     LearnerAutoStart = sConfigMgr->GetOption<bool>("AnimusForge.Learner.AutoStart", true);
 
-    std::filesystem::path workDir = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.WorkDir", "");
+    fs::path workDir = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.WorkDir", "");
     if (workDir.empty())
         workDir = DefaultLearnerWorkDir();
     LearnerWorkDir = workDir.string();
 
+    fs::path outputDir = sConfigMgr->GetOption<std::string>("AnimusForge.OutputDir", "");
+    if (outputDir.empty())
+        outputDir = workDir;
+    else if (outputDir.is_relative())
+        outputDir = workDir / outputDir;
+    OutputDir = outputDir.lexically_normal().string();
+
     LearnerPython = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Python", "");
     if (LearnerPython.empty())
     {
-        std::filesystem::path const venvPython = workDir / ".venv" / "bin" / "python";
-        LearnerPython = std::filesystem::exists(venvPython) ? venvPython.string() : "python3";
+        fs::path const venvPython = workDir / ".venv" / "bin" / "python";
+        LearnerPython = fs::exists(venvPython) ? venvPython.string() : "python3";
     }
 
     LearnerConfig = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Config", "");
-
 
     LearnerArgs.clear();
     std::istringstream extraArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Learner.Args", ""));
@@ -105,39 +103,34 @@ void AnimusForge::ForgeConfig::Load()
     LearnerLogFile = sConfigMgr->GetOption<std::string>("AnimusForge.Learner.LogFile", "");
     if (LearnerLogFile.empty())
     {
-        std::filesystem::path logsDir = sConfigMgr->GetOption<std::string>("LogsDir", "");
+        fs::path logsDir = sConfigMgr->GetOption<std::string>("LogsDir", "");
         LearnerLogFile = (logsDir / "animus-learner.log").string();
     }
 
-    ArenaMapId = sConfigMgr->GetOption<uint32>("AnimusForge.Arena.MapId", 560);
-    ArenaPosition.Relocate(
-        sConfigMgr->GetOption<float>("AnimusForge.Arena.X", 2741.9f),
-        sConfigMgr->GetOption<float>("AnimusForge.Arena.Y", 1315.2f),
-        sConfigMgr->GetOption<float>("AnimusForge.Arena.Z", 14.0f),
-        sConfigMgr->GetOption<float>("AnimusForge.Arena.O", 2.96f));
+    SpawnMapId = sConfigMgr->GetOption<uint32>("AnimusForge.SpawnPoint.MapId", 560);
+    SpawnPosition.Relocate(
+        sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.X", 2741.9f),
+        sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Y", 1315.2f),
+        sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.Z", 14.0f),
+        sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.O", 2.96f));
+
+    WarriorDummy20HsRageThreshold = sConfigMgr->GetOption<uint32>("AnimusForge.WarriorDummy20.HsRageThreshold", 15,
+        false);
+}
+
+std::string AnimusForge::ForgeConfig::RunsDir() const
+{
+    return (fs::path(OutputDir) / "runs").string();
+}
+
+std::string AnimusForge::ForgeConfig::LayoutsDir() const
+{
+    return (fs::path(OutputDir) / "layouts").string();
 }
 
 std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenario) const
 {
-    namespace fs = std::filesystem;
-
-    fs::path const workDir = LearnerWorkDir;
-    auto const absolute = [&workDir](fs::path const& path) { return path.is_relative() ? workDir / path : path; };
-
-    if (!LearnerConfig.empty())
-        return absolute(LearnerConfig).string();
-
-    fs::path const own = absolute(fs::path("configs") / (scenario + ".yaml"));
-    if (fs::exists(own))
-        return own.string();
-
-    // Class/role stages share a config per stage.
-    for (char const* stage : { "duel", "pack", "gauntlet", "companion", "party", "pvp", "arena" })
-    {
-        std::string const suffix = std::string("_") + stage;
-        if (scenario.size() > suffix.size() && scenario.ends_with(suffix))
-            return absolute(fs::path("configs") / (std::string("class_role_") + stage + ".yaml")).string();
-    }
-
-    return absolute("configs/class_role.yaml").string();
+    fs::path const config = LearnerConfig.empty()
+        ? fs::path("configs") / (scenario + ".yaml") : fs::path(LearnerConfig);
+    return (config.is_relative() ? fs::path(LearnerWorkDir) / config : config).string();
 }

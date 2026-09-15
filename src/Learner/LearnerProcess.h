@@ -41,9 +41,9 @@ namespace AnimusForge
         LearnerProcess(LearnerProcess const&) = delete;
         LearnerProcess& operator=(LearnerProcess const&) = delete;
 
-        /// Validate the setup and spawn the learner. Returns false (with the reason logged) if the
+        /// Validate the setup and spawn the learner for `scenario`. Returns false (with the reason logged) if the
         /// working directory or config is missing or the process cannot be started.
-        bool Start(ForgeConfig const& config);
+        bool Start(ForgeConfig const& config, std::string const& scenario);
 
         /// Reap the child if it has exited, logging how it ended once. Cheap; safe to call often.
         void Poll();

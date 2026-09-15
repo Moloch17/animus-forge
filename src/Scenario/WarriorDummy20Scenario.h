@@ -161,8 +161,8 @@ namespace AnimusForge
         [[nodiscard]] static bool CanCast(Player* bot, SpellInfo const* info, Unit* target);
         [[nodiscard]] bool IsActionAllowed(Player* bot, Unit* target, int32 action) const;
 
-        uint32 _arenaMapId;
-        Position _arenaPosition;
+        uint32 _spawnMapId;
+        Position _spawnPoint;
         uint32 _hsRageThreshold;
         uint32 _talentPoints;
         ScenarioSpec _spec;

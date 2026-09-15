@@ -1,4 +1,8 @@
-"""Training run configuration, loaded from YAML (see configs/)."""
+"""Training run configuration, loaded from YAML (see configs/).
+
+A config may start with ``extends: <other>.yaml`` (relative to its own file): it is merged over that config, section by
+section, so a curriculum stage lists only what differs from the base.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +12,10 @@ from pathlib import Path
 import yaml
 
 from .mappo.trainer import MappoConfig
+from .stages import seed_chain
 
-# Curriculum stage suffixes of class/role scenario names, latest stage first.
-STAGE_SUFFIXES = ("_arena", "_pvp", "_party", "_companion", "_gauntlet", "_pack", "_duel")
+EXTENDS_KEY = "extends"
+AUTO = "auto"
 
 REPORT_COLUMNS = (
     "dps", "killed", "died", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
@@ -45,7 +50,8 @@ class PlateauConfig:
 @dataclass
 class TrainConfig:
     run_name: str = "run"
-    runs_dir: str = "runs"
+    runs_dir: str = "runs"  # the sim passes AnimusForge.OutputDir/runs
+    layouts_dir: str = "layouts"  # the sim passes AnimusForge.OutputDir/layouts
     socket: str = "/tmp/animus-forge.sock"
     seed: int = 1
 
@@ -53,39 +59,77 @@ class TrainConfig:
     rollout_length: int = 128
     log_every: int = 1  # updates
     checkpoint_every: int = 25  # updates
+    keep_checkpoints: int = 5  # numbered checkpoint_*.pt files kept (latest.pt and best.pt always are); 0 = all
 
-    train_device: str = "cpu"
-    rollout_device: str = "cpu"
+    train_device: str = AUTO  # "auto": cuda when torch sees a GPU (ROCm included), else cpu
+    rollout_device: str = "cpu"  # one small forward pass per decision is faster on the CPU
 
-    # A run seeds its networks from an earlier-stage checkpoint (see animus.bootstrap): the first of these
-    # candidates that exists, so a stage still seeds from the closest earlier stage when the ones in between were
-    # skipped. "{base_run}" is the run name without a stage suffix such as "_duel": runs/{base_run}/best.pt seeds
-    # warrior_dps_duel from warrior_dps. A best.pt that does not exist falls back to the latest.pt beside it.
-    init_from: str | list[str] = ""
-
-    def resolved_init_from(self) -> list[str]:
-        base = self.run_name
-        for suffix in STAGE_SUFFIXES:
-            if base.endswith(suffix):
-                base = base[: -len(suffix)]
-                break
-        candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
-        return [c.format(base_run=base, run_name=self.run_name) for c in candidates if c]
+    # Checkpoints to seed the networks from (see animus.bootstrap): the first candidate that exists. "auto" takes the
+    # stage's seed chain from the sim's stage.json (the closest earlier stage that has been trained); a list names
+    # them, with {runs_dir} and {run_name} filled in. A best.pt that does not exist falls back to the latest.pt beside
+    # it. Empty = train from scratch.
+    init_from: str | list[str] = AUTO
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     plateau: PlateauConfig = field(default_factory=PlateauConfig)
 
+    def resolved_init_from(self, stage: dict | None) -> list[str]:
+        if self.init_from == AUTO:
+            return [str(Path(self.runs_dir) / name / "best.pt") for name in seed_chain(stage)]
+        candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
+        return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+
+    def resolved_train_device(self) -> str:
+        return resolve_device(self.train_device)
+
+    def resolved_rollout_device(self) -> str:
+        return resolve_device(self.rollout_device)
+
     @classmethod
     def load(cls, path: str | Path, overrides: list[str] | None = None) -> "TrainConfig":
-        """Load YAML, then apply "key=value" overrides (dotted keys for sections, values parsed as YAML)."""
-        raw = yaml.safe_load(Path(path).read_text()) or {}
+        """Load YAML (following extends), then apply "key=value" overrides (dotted keys for sections, values parsed
+        as YAML)."""
+        raw = load_yaml(path)
         for override in overrides or ():
             apply_override(raw, override)
         return from_dict(cls, raw)
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+def resolve_device(name: str) -> str:
+    if name != AUTO:
+        return name
+
+    import torch
+
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def load_yaml(path: str | Path, seen: tuple[Path, ...] = ()) -> dict:
+    """A config file with its extends chain merged in, base first."""
+    path = Path(path).resolve()
+    if path in seen:
+        raise ValueError(f"config {path} extends itself")
+
+    raw = yaml.safe_load(path.read_text()) or {}
+    base = raw.pop(EXTENDS_KEY, None)
+    if not base:
+        return raw
+    return merge(load_yaml(path.parent / base, (*seen, path)), raw)
+
+
+def merge(base: dict, override: dict) -> dict:
+    """`override` over `base`: sections merge key by key, anything else is replaced."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def apply_override(raw: dict, override: str) -> None:

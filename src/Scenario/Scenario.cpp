@@ -17,63 +17,24 @@
  */
 
 #include "Scenario.h"
-#include "ClassRoleCommon.h"
 #include "ClassRoleScenario.h"
 #include "ForgeConfig.h"
+#include "StageDefinition.h"
 #include "WarriorDummy20Scenario.h"
-#include <functional>
-#include <utility>
 
-namespace
+/*
+ * Every scenario the module can run, by the name used in AnimusForge.Queue: the class/role curriculum's stages
+ * (ClassRoleStages) and the standalone scenarios below. Adding a standalone scenario = implementing Scenario and one
+ * branch here.
+ */
+
+std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(std::string const& name, ForgeConfig const& config)
 {
-    using ScenarioFactory = std::function<std::unique_ptr<AnimusForge::Scenario>(AnimusForge::ForgeConfig const&)>;
+    if (ClassRole::StageDefinition const* stage = ClassRole::FindStage(name))
+        return std::make_unique<ClassRole::ClassRoleScenario>(config, *stage);
 
-    /// Every scenario the module can run, by the name used in AnimusForge.Queue.
-    /// Adding a scenario = implementing AnimusForge::Scenario and adding one row here; class/role
-    /// scenarios come from ClassRoleProfiles().
-    std::vector<std::pair<std::string, ScenarioFactory>> const& Registry()
-    {
-        static std::vector<std::pair<std::string, ScenarioFactory>> const registry = []()
-        {
-            std::vector<std::pair<std::string, ScenarioFactory>> scenarios =
-            {
-                {
-                    "warrior_dummy_20",
-                    [](AnimusForge::ForgeConfig const& config)
-                    {
-                        return std::make_unique<AnimusForge::WarriorDummy20Scenario>(config);
-                    }
-                },
-            };
-
-            // Curriculum stages, each its own scenario so every stage stays repeatable.
-            using AnimusForge::ArenaMode;
-            using AnimusForge::ClassRoleScenario;
-
-            // Every class/role of AnimusForge.ClassRoles plays in each, as layouts of one policy.
-            for (ArenaMode mode : { ArenaMode::Dummy, ArenaMode::Duel, ArenaMode::Pack, ArenaMode::Gauntlet,
-                ArenaMode::Companion, ArenaMode::Party, ArenaMode::Pvp, ArenaMode::Arena })
-            {
-                scenarios.emplace_back(ClassRoleScenario::ScenarioName(mode),
-                    [mode](AnimusForge::ForgeConfig const& config)
-                    {
-                        return std::unique_ptr<AnimusForge::Scenario>(
-                            std::make_unique<ClassRoleScenario>(config, mode));
-                    });
-            }
-
-            return scenarios;
-        }();
-
-        return registry;
-    }
-}
-
-std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(ForgeConfig const& config)
-{
-    for (auto const& [name, factory] : Registry())
-        if (name == config.Scenario)
-            return factory(config);
+    if (name == "warrior_dummy_20")
+        return std::make_unique<WarriorDummy20Scenario>(config);
 
     return nullptr;
 }
@@ -81,8 +42,9 @@ std::unique_ptr<AnimusForge::Scenario> AnimusForge::CreateScenario(ForgeConfig c
 std::vector<std::string> AnimusForge::ScenarioNames()
 {
     std::vector<std::string> names;
-    for (auto const& entry : Registry())
-        names.push_back(entry.first);
+    for (ClassRole::StageDefinition const& stage : ClassRole::ClassRoleStages())
+        names.push_back(stage.Name);
 
+    names.push_back("warrior_dummy_20");
     return names;
 }

@@ -1,68 +1,12 @@
-# Learner config for class_role_pvp, stage 7 of the class/role curriculum: one-on-one against a scripted enemy
-# player of a random class and role at the bot's level. Episodes end when either dies; the duel's reward (damage, a
-# fast kill, little damage taken, casts).
-#
-# The sim decides the env count, decision interval and episode length (mod_animus_forge.conf).
+# Stage 7 of the class/role curriculum: one-on-one against a scripted enemy player of a random class and role near
+# the bot's level. Episodes end when either dies; the reward is the duel's (damage, a fast kill, little damage taken,
+# casts).
 
+extends: class_role_duel.yaml
 run_name: class_role_pvp
-runs_dir: runs
-socket: /tmp/animus-forge.sock
-seed: 1
-
-# Seed from the closest earlier stage that has been trained (the first candidate that exists): each
-# layout extends the earlier stage's, and the trunk carries over.
-init_from:
-  - runs/{base_run}_party/best.pt
-  - runs/{base_run}_companion/best.pt
-  - runs/{base_run}_gauntlet/best.pt
-  - runs/{base_run}_pack/best.pt
-  - runs/{base_run}_duel/best.pt
-  - runs/{base_run}/best.pt
-
-# Budget sized from throughput: 150M env steps is ~6 h at ~7k env steps/s.
-# The plateau stop usually ends the stage sooner.
-total_env_steps: 150000000
-rollout_length: 128
-log_every: 1
-checkpoint_every: 25
-
-rollout_device: cpu
-train_device: cuda
 
 mappo:
-  # Must match the earlier stages for the seeding to apply.
-  hidden: [512, 512]
   gamma: 0.999
-  gae_lambda: 0.95
-  clip: 0.2
-  value_clip: 0.2
-  entropy_coef: 0.01
-  value_coef: 1.0
-  actor_lr: 0.0003
-  critic_lr: 0.0003
-  epochs: 4
-  minibatches: 8
-  max_grad_norm: 0.5
-  use_value_norm: true
 
-# Seeded evaluation (animus.evaluation): every 20M env steps the networks play the same 128 characters and
-# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band
-# stats (overall, per level band and per class/role) next to the "fight" baseline, scored once per run on
-# the same seeds. The best networks go to best.pt
-# and are the ones the next stage seeds from.
 eval:
-  every_env_steps: 10000000
-  at_start: true
-  episodes: 128
-  seed: 1000
-  deterministic: true
-  baseline: fight
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
-
-# Stop once 5 evaluations in a row (50M env steps) fail to beat the best score by 2%, but not before
-# 30M env steps; total_env_steps stays the upper bound. finished.json records why, and the queue moves on.
-plateau:
-  patience: 5
-  min_improvement: 0.02
-  min_improvement_abs: 0.01
-  min_env_steps: 30000000

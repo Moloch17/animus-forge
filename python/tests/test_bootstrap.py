@@ -56,14 +56,17 @@ def test_critic_state_encoder_and_head_are_not_copied():
     torch.testing.assert_close(critic["adapters.0.weight"], old.critic.state_dict()["adapters.0.weight"])
 
 
-def test_init_from_resolves_the_base_run():
-    config = TrainConfig(run_name="class_role_duel", init_from="runs/{base_run}/best.pt")
-    assert config.resolved_init_from() == ["runs/class_role/best.pt"]
-    assert TrainConfig(run_name="class_role").resolved_init_from() == []
-    assert TrainConfig(run_name="class_role", init_from=None).resolved_init_from() == []
+def test_init_from_follows_the_stage_seed_chain():
+    stage = {"stage": "class_role_pack", "seed_chain": ["class_role_duel", "class_role"]}
+    config = TrainConfig(run_name="class_role_pack", runs_dir="/out/runs")
+    assert config.resolved_init_from(stage) == ["/out/runs/class_role_duel/best.pt", "/out/runs/class_role/best.pt"]
 
-    for stage, previous in (("pack", "_duel"), ("gauntlet", "_pack"), ("companion", "_gauntlet"),
-                            ("party", "_companion"), ("pvp", "_party"), ("arena", "_pvp")):
-        run = TrainConfig(run_name=f"class_role_{stage}", init_from=[f"runs/{{base_run}}{previous}/best.pt",
-                                                                       "runs/{base_run}/best.pt"])
-        assert run.resolved_init_from() == [f"runs/class_role{previous}/best.pt", "runs/class_role/best.pt"]
+    # The first stage, and a scenario the sim wrote no stage.json for, train from scratch.
+    assert config.resolved_init_from({"seed_chain": []}) == []
+    assert config.resolved_init_from(None) == []
+
+    # Named candidates, with the run directory filled in.
+    named = TrainConfig(run_name="mage", runs_dir="runs", init_from=["{runs_dir}/other/best.pt", ""])
+    assert named.resolved_init_from(stage) == ["runs/other/best.pt"]
+    assert TrainConfig(init_from="").resolved_init_from(stage) == []
+    assert TrainConfig(init_from=None).resolved_init_from(stage) == []

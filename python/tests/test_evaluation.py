@@ -167,6 +167,21 @@ def test_config_overrides(tmp_path):
         TrainConfig.load(path, ["eval.nope=1"])
 
 
+def test_config_extends_merges_sections(tmp_path):
+    (tmp_path / "base.yaml").write_text("run_name: base\ntotal_env_steps: 100\nmappo:\n  hidden: [8, 8]\n"
+                                        "  gamma: 0.9\neval:\n  baseline: greedy\n")
+    (tmp_path / "stage.yaml").write_text("extends: base.yaml\nrun_name: stage\nmappo:\n  gamma: 0.99\n")
+
+    config = TrainConfig.load(tmp_path / "stage.yaml")
+    assert config.run_name == "stage" and config.total_env_steps == 100
+    assert tuple(config.mappo.hidden) == (8, 8) and config.mappo.gamma == 0.99
+    assert config.eval.baseline == "greedy"
+
+    (tmp_path / "loop.yaml").write_text("extends: loop.yaml\n")
+    with pytest.raises(ValueError):
+        TrainConfig.load(tmp_path / "loop.yaml")
+
+
 def test_init_from_falls_back_to_latest(tmp_path):
     run = tmp_path / "warrior_dps"
     run.mkdir()

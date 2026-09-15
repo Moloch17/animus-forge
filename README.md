@@ -40,8 +40,7 @@ worldserver (forge)                                   python -m animus.train
 
 List the scenarios to train in `AnimusForge.Queue` (see
 [Training every model](#training-every-model-animusforgequeue)). The learner auto-starts with
-`configs/<scenario>.yaml`, or the class/role config of the scenario's stage when it has none, and trains in
-`runs/<scenario>/`.
+`configs/<scenario>.yaml` and trains in `<OutputDir>/runs/<scenario>/`.
 
 ### `warrior_dummy_20`
 
@@ -99,6 +98,32 @@ earlier stage stays repeatable.
 - **`AnimusForge.ClassRoles`:** a comma-separated subset (e.g. `"warrior_dps, priest_heal"`) trains only those.
   Changing it changes the layouts, so models of the earlier list do not fit the new one.
 
+#### How a stage is built: blocks, encounters, tuning
+
+A stage is one entry in `src/Scenario/ClassRole/Stages/Stages.cpp` (`StageDefinition`):
+
+- **Blocks** (`Blocks/`): the groups of observation features and actions its layouts have, in order -- `core` (the
+  character, its spells, trinkets and talents), `duel` (movement, auto-attack, pets, casting, forms), `pack` (enemy
+  slots, target selection, tactical spells), `gauntlet` (pull timing, food, drink, sustain spells), `companion`
+  (the owner), `party` (three teammates), `pvp` (the enemy player). A block is stateless: it sizes its slice of a
+  layout, writes its features and mask, and applies its actions. `Layout` places each block after the previous
+  one, and the manifest lists every block with its spans.
+- **What it extends:** the stage it builds on. Its blocks must start with that stage's blocks, so every layout keeps
+  the earlier stage's features and actions in place and the earlier stage's model seeds it. The sim checks this at
+  startup and leaves out a stage that breaks it.
+- **Encounters** (`Encounters/`): what its envs contain besides the seats -- a training dummy, a creature, pulls
+  (one pack or the gauntlet's schedule), a scripted owner, a party group, an enemy player (scripted or the other
+  seat). Each encounter builds and updates its part of the world, keeps its own episode state, and adds its reward
+  terms, episode info columns and critic state. `ClassRoleScenario` builds the seats and calls every encounter's
+  hooks in a fixed order.
+- **Rewards** are added term by term (`Rewards/RewardLedger.h`); every term's episode sum is reported as the
+  episode info column `reward_<term>` (`reward_damage_dealt`, `reward_clear`, `reward_owner_death`, ...), so
+  TensorBoard shows what each stage actually pays for.
+- **Tuning:** every reward weight, chance, level spread and scripted-player timing is a config key,
+  `AnimusForge.ClassRole.<Group>.<Name>` (the CLASS/ROLE TUNING section of `mod_animus_forge.conf.dist`). The sim
+  writes the effective values into `<OutputDir>/layouts/<stage>/stage.json` beside the layout manifests, and the
+  learner copies it into the run directory.
+
 #### Stage 1 (`class_role`): the training dummy
 
 Every class and role maximises damage on a training dummy (tank and healer roles too: they learn their spec's
@@ -117,7 +142,7 @@ damage play in role gear):
 | Warlock | `warlock_dps` (Affliction, Demonology, Destruction) |
 | Druid | `druid_dps` (Balance, Feral cat), `druid_tank` (Feral bear), `druid_heal` (Restoration) |
 
-The table lives in `src/Scenario/ClassRole/ClassRoleProfile.cpp`, with each spec's stat profile,
+The table lives in `src/Scenario/ClassRole/Character/ClassRoleProfile.cpp`, with each spec's stat profile,
 range and weapon layouts. Every episode builds a new character (the env's bot is replaced):
 
 - **Race and level:** a random race the class allows (`playercreateinfo`), random gender, level
@@ -155,12 +180,14 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
 - **Reward:** damage per decision divided by a level scale (`15 * e^(0.068 * level)`), so early
   and late levels weigh alike. Pet, guardian and totem damage counts for the owner.
 - **Dummy health:** the dummy takes no damage, so its health follows a random line over the episode
-  (start 20-100%, end anywhere below): execute-range abilities come up without killing it.
+  (start 20-100% by default, `Dummy.StartHealthMin`; end anywhere below): execute-range abilities come up
+  without killing it.
 - **Episode info:** damage, DPS, white/special damage, level, race, spec, unspent talent points,
   equipped items, spell casts, trinket uses.
 - **Baseline:** `greedy`, the first usable spell or trinket.
 
-Learner settings come from `configs/<scenario>.yaml` (`configs/class_role.yaml` for stage 1).
+Learner settings come from `configs/<scenario>.yaml`. `configs/class_role.yaml` is stage 1's and the base of every
+later stage's (`extends: class_role.yaml`), which lists only what it changes.
 
 #### Stage 2 (`class_role_duel`): the duel
 
@@ -189,26 +216,26 @@ opponent:
   combat, stealth and auto-attack state, damage taken last step, pet out/health/attacking, elapsed
   episode time, the current cast's progress and time left (casts and channels), whether the bot is in
   a form it can cancel, and (hunters) the stable.
-- **Reward:** per decision, damage dealt as a fraction of the opponent's health (x2) minus damage
-  taken as a fraction of the bot's (x1), potential-based shaping toward the spec's range (melee or
-  25 yd), +0.5 for a stealth-only opener from stealth, and a small time cost. Casting: every cast-time
-  spell that does not finish (stopped, interrupted, pushed into death) costs 0.05 per second of cast
-  time already spent, and every one that finishes while the bot is in combat earns 0.02 per second of
-  its cast time. Nothing forces a cast to finish; cutting one short stays the policy's call when
-  something else is worth more. Channels are paid by their ticks. Later stages keep this term.
-  On the kill: +2, plus
-  up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health it did
-  not lose. Death: -3. The episode ends on the kill or the bot's death.
+- **Reward** (defaults; every weight is an `AnimusForge.ClassRole.Duel.*` key): per decision, damage dealt as a
+  fraction of the opponent's health (x2) minus damage taken as a fraction of the bot's (x1), potential-based
+  shaping toward the spec's range (melee 3.5 yd or 25 yd), +0.5 for a stealth-only opener from stealth, and a
+  small time cost. Casting (`Casting.*`): every cast-time spell that does not finish (stopped, interrupted,
+  pushed into death) costs 0.03 per second of cast time already spent, and every one that finishes while the bot
+  is in combat earns 0.03 per second of its cast time. Nothing forces a cast to finish; cutting one short stays the
+  policy's call when something else is worth more. Channels are paid by their ticks. Later stages keep this term.
+  On the kill: +2, plus up to +3 for the time left in the episode, plus up to +2 for the share of the bot's health
+  it did not lose. Death: -3. The episode ends on the kill or the bot's death.
 - **Episode info:** stage 1's columns, then killed, died, time to kill, damage taken, health left,
   stealth openers, whether a pet was out, the opponent's entry, casts completed, casts cancelled and
-  seconds of cast time wasted.
+  seconds of cast time wasted, and the reward terms.
 
-**Bootstrapping:** every stage after the first has `init_from: runs/{base_run}<previous stage>/best.pt`
-(`class_role_duel` seeds from `runs/class_role/best.pt`). A run seeds its networks from the
-previous stage's (`animus/bootstrap.py`), layout by layout (class/roles are matched by name): each layout's
-earlier features keep their places in its wider adapter (new inputs start at zero) and its earlier actions keep
-their logits (new actions start near zero); the trunk is copied; the critic's state encoder and value head start
-fresh because the global state and reward differ. Queue the stages in order.
+**Bootstrapping:** every stage after the first has `init_from: auto`: the learner reads the stage's `stage.json`,
+whose `seed_chain` lists the stages it extends, closest first, and seeds from the first of those that has been
+trained (`<runs_dir>/<stage>/best.pt`, or its `latest.pt`). It seeds its networks layout by layout
+(`animus/bootstrap.py`; class/roles are matched by name): each layout's earlier features keep their places in its
+wider adapter (new inputs start at zero) and its earlier actions keep their logits (new actions start near zero);
+the trunk is copied; the critic's state encoder and value head start fresh because the global state and reward
+differ. Queue the stages in order.
 
 #### Stage 3 (`class_role_pack`): packs
 
@@ -251,7 +278,7 @@ Stage 4: sustained combat.
 - **Reward:** the pack stage's per-step terms (damage taken weighs x1.5). Each cleared pull: +2, up
   to +2 for clearing it within a minute, up to +2 for the health kept during that pull. Death -5 and
   ends the episode.
-- **Episode info:** the pack stage's, then pulls cleared, food used, drinks used, sustain casts.
+- **Episode info:** the pack stage's, then pulls cleared, food used, drinks used, sustain casts, deaths.
 
 Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes).
 
@@ -259,35 +286,42 @@ Give the gauntlet long episodes (`AnimusForge.EpisodeSeconds` of several minutes
 
 Stage 5: the gauntlet fought beside an owner, as a companion fights beside a player.
 
-- **Owner:** a scripted player bot of a random class (one a character of that level can be) within 2
-  levels of the companion, dressed like the companion: a random damage spec and build, its trainer
-  spells and level-appropriate gear. It gets the companion's faction so either faction's races can be
-  paired. Between pulls it wanders near the arena and recovers health and mana; each pull spawns around
-  it and it walks in after 1.5-5 s, fights the enemy attacking it (else the nearest) in melee and casts
-  one of its own damage spells every 2-4 s. Linked packs join in on whoever their engaged member fights.
+- **Owner:** a scripted player bot within 2 levels of the companion, of a random role (tank 25%, healer 25%,
+  damage dealer 50%) and a class that can fill it, dressed like the companion: one of the role's specs with a
+  random build, its trainer spells and level-appropriate gear. It gets the companion's faction so either
+  faction's races can be paired. Between pulls it wanders near the spawn point and recovers health and mana; each
+  pull spawns around it. A tank owner starts every pull and taunts enemies off others; a healer owner heals the most
+  hurt party member; a damage dealer walks in after 1.5-5 s (and starts the pull itself 30% of the time) and
+  fights. It casts one of its own spells every 2-4 s. Linked packs join in on whoever their engaged member fights.
+  Everything here is `AnimusForge.ClassRole.Owner.*`, `Pulls.*` and `ScriptedPlayers.*` tuning.
 - **Actions:** the gauntlet's, then follow the owner, assist (target the owner's target), guard (target an
   enemy attacking the owner), and one "cast on the owner" action per single-target heal.
 - **Observation:** the gauntlet's, then the owner's presence, health, mana, distance, bearing, combat,
   movement, level difference and class, how many enemies attack it, which enemy slot it attacks, which
   enemies attack it, and each owner heal's known/cooldown.
-- **Reward:** the gauntlet's, plus, by role:
+- **Reward:** the gauntlet's, with kills and clears counting double, plus, by role (defaults of
+  `AnimusForge.ClassRole.Owner.*`):
   - everyone: the owner's damage taken (fraction of its health; x1 for damage dealers, x2 for tanks and
-    healers), -0.01 per decision in combat while the owner is not, a small bonus for staying within 12 yd
-    out of combat and a penalty beyond 25 yd, -6 if the owner dies;
-  - tanks: +0.01 per enemy attacking the tank, -0.02 per enemy attacking the owner, per decision (and
+    healers; a quarter of that when the owner is the tank), -0.01 per decision in combat while the owner is not,
+    +0.0005 per decision out of combat within 12 yd and -0.002 beyond 25 yd, -6 each time the owner dies;
+  - tanks: +0.002 per enemy attacking the tank, -0.02 per enemy attacking the owner, per decision (and
     half of the gauntlet's damage-taken penalty back);
   - healers: effective healing on the owner (x2, fraction of its health; the core's heal hook reports the
     health actually gained, so overhealing earns nothing);
-  - damage dealers and healers: -0.01 per enemy attacking them, per decision.
-  The episode ends when the companion or the owner dies.
-- **Episode info:** the gauntlet's, then the owner's class, whether it died, its damage taken, the
-  companion's healing on it, and enemy-decisions spent on the companion and on the owner.
+  - damage dealers and healers: -0.004 per enemy attacking them, per decision.
+  Nobody's death ends the episode: after the pull everyone who died stands up with half their health and mana,
+  and a pull that killed everyone is cleared away (a wipe), so letting the owner die is never a way out of the
+  penalties. Episodes end at their length.
+- **Episode info:** the gauntlet's, then wipes, the owner's class and role, whether and how often it died, its
+  damage taken, the companion's healing on it, and enemy-decisions spent on the companion and on the owner.
 
 #### Stage 6 (`class_role_party`): the party
 
-Four learned seats -- a tank, a healer and two damage dealers of random classes that can fill the role, all at
-one level -- and the companion stage's scripted owner as the fifth player, against dungeon-like pulls. Every seat
-plays with the same policy and sees the other three.
+Up to four learned seats -- 1-4 each episode, as a player brings 1-4 companions (`Party.SizeWeight1-4`); half the
+time the classic tank, healer and damage dealers, otherwise roles drawn one by one -- of random classes that can fill
+their roles, all at one level, and the companion stage's scripted owner as the fifth player, against dungeon-like
+pulls. Every seat plays with the same policy and sees the other three; an empty seat has no character and only the
+no-op.
 
 - **Pulls:** 2-4 creatures, each elite half the time, up to 2 levels above the party, pull after pull, spawning
   around the owner. The owner waits 4-7 s so the tank can pull, then attacks the tank's target.
@@ -305,9 +339,9 @@ plays with the same policy and sees the other three.
   teammate: its damage taken (not for a tank teammate; x0.5 for a damage dealer, x1 otherwise), effective
   healing on it for healers (x2), -0.02 per enemy on a non-tank teammate per decision for tanks, and -3 when it
   dies. Kills and clears are shared by the party. A tank is not charged for fighting before the owner joins.
-  The episode ends when the owner dies or every seat has.
-- **Episode info:** per seat, the companion stage's, then teammates died, teammate damage taken, its healing
-  on teammates, enemy-decisions spent on non-tank teammates, and the seat.
+  As in the companion stage, the dead stand up after the pull and episodes end at their length.
+- **Episode info:** per seat, the companion stage's, then the seat, teammates died, teammate damage taken, its
+  healing on teammates, and enemy-decisions spent on non-tank teammates.
 
 #### Stages 7 and 8 (`class_role_pvp`, `class_role_arena`): PvP
 
@@ -327,7 +361,8 @@ and the PvP flag, which players need to attack each other.
   stunned/feared, rooted or silenced, and whether the opponent is a learned agent.
 - **Reward:** the duel's (damage dealt and taken, closing in, stealth openers, casts, a fast kill with health
   kept, death). The episode ends when either player dies.
-- **Episode info:** stage 6's, then won, opponent class and opponent role.
+- **Episode info:** stage 1's and the duel's columns, then won, opponent class and opponent role (the pulls, owner
+  and party columns are left out: nothing fills them in PvP).
 
 `configs/class_role_pvp.yaml` scores against the `fight` baseline. `configs/class_role_arena.yaml` has no
 baseline or plateau stop: against itself a policy's score does not track progress -- judge an arena model with
@@ -335,22 +370,20 @@ baseline or plateau stop: against itself a policy's score does not track progres
 
 ### Training every model: `AnimusForge.Queue`
 
-`AnimusForge.Queue` lists the scenarios to train, one after another. It is the only way to pick what runs, and
-it defaults to the whole curriculum:
-
-```
-AnimusForge.Queue = "class_role, class_role_duel, class_role_pack, class_role_gauntlet, class_role_companion, class_role_party, class_role_pvp, class_role_arena"
-```
-
-To train a single scenario, list only that one (`AnimusForge.Queue = "class_role_duel"`).
+`AnimusForge.Queue` lists the scenarios to train, one after another. It is the only way to pick what runs. Empty
+(the default) is the whole class/role curriculum, first stage to last; to train a single scenario, list only that
+one (`AnimusForge.Queue = "class_role_duel"`).
 
 Each scenario runs with its auto-started learner until the learner finishes -- its evaluation score
 plateaus or it reaches `total_env_steps` (see
 [Evaluation and plateau stopping](#evaluation-and-plateau-stopping)) -- and exits cleanly; the sim then
-tears the scenario down and starts the next one. Every run trains in `runs/<scenario>/`; export its models by
-hand when you want them (see [Export](#export)). Change the list (or its order) in the config and restart to
-retrain or skip models; a restart starts the queue over from its first scenario. When the last scenario finishes the
-sim idles. A learner that crashes stops the queue at that scenario: the sim waits for a learner started by hand.
+tears the scenario down and starts the next one. Every run trains in `<OutputDir>/runs/<scenario>/`; export its
+models by hand when you want them (see [Export](#export)). When the last scenario finishes the sim idles. A learner
+that crashes stops the queue at that scenario: the sim waits for a learner started by hand.
+
+A restart continues where the queue stopped: scenarios whose run already finished (`finished.json`) are skipped
+(`AnimusForge.Queue.SkipFinished`), and the first unfinished one trains from scratch. To retrain a finished stage,
+move its run directory away (or set `SkipFinished = 0` to retrain the whole queue).
 
 ## Enabling
 
@@ -381,20 +414,23 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | Key | Default | Purpose |
 |---|---|---|
 | `AnimusForge.Enable` | `1` | `0` turns the module off entirely (no bots, no socket, hooks return immediately) |
-| `AnimusForge.Queue` | the whole curriculum | Scenarios trained one after another, starting when the server starts |
+| `AnimusForge.OutputDir` | the learner's directory | Where `runs/` and `layouts/` go (Docker: `/azerothcore/var/animus-forge`) |
+| `AnimusForge.Queue` | `""` (the whole curriculum) | Scenarios trained one after another, starting when the server starts |
+| `AnimusForge.Queue.SkipFinished` | `1` | Skip queued scenarios whose run already finished |
 | `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per queued scenario before moving on |
+| `AnimusForge.ClassRoles` | `""` | Class/roles the class/role scenarios play; empty = all 18 |
 | `AnimusForge.Envs` | `64` | Parallel envs (one instance map each) |
 | `AnimusForge.DecisionTicks` | `2` | World ticks per decision (2 = every 100 ms of game time) |
 | `AnimusForge.EpisodeSeconds` | `60` | Game-time episode length |
+| `AnimusForge.SpawnPoint.*` | Old Hillsbrad entrance | Dungeon map and position every env's bots start at |
 | `AnimusForge.Policy` | `remote` | `remote`, `random`, or a scenario's scripted policy (`greedy`, `fight`, `rotation`, ...) |
-| `AnimusForge.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
 | `AnimusForge.ReportEpisodes` | `256` | Log mean episode stats every N episodes |
 | `AnimusForge.Socket` | `/tmp/animus-forge.sock` | Learner socket path |
 | `AnimusForge.Learner.AutoStart` | `1` | Start the Python learner automatically (remote policy) |
 | `AnimusForge.Learner.WorkDir` / `Python` / `Config` / `LogFile` | derived | Where and how the learner runs (see Training) |
 | `AnimusForge.Learner.Args` | `""` | Extra learner arguments for every scenario, e.g. `--set total_env_steps=5000000` |
-| `AnimusForge.ClassRoles` | `""` | Class/roles the class/role scenarios play; empty = all 18 |
-| `AnimusForge.Arena.*` | Old Hillsbrad entrance | Dungeon map and position for the arena |
+| `AnimusForge.WarriorDummy20.HsRageThreshold` | `15` | Rage threshold for `warrior_dummy_20`'s `hs_at_threshold` and `rotation` |
+| `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=class_role_duel`.
 
@@ -420,6 +456,10 @@ the server; the learner saves a checkpoint first.
   the learner needs this module's `python/` directory. On its first start it builds the worldserver and creates
   `python/.venv` (torch, the learner and TensorBoard) inside the container, then starts TensorBoard and the sim;
   the sim starts the learner.
+- **Output:** runs and layouts go to `var/animus-forge/` in the forge checkout (`AC_ANIMUS_FORGE_OUTPUT_DIR`; set
+  `ANIMUS_FORGE_OUTPUT_DIR` to put them elsewhere), not into the module's source tree. Runs trained before this
+  change are in `modules/mod-animus-forge/python/runs/`: move them to `var/animus-forge/runs/` to keep seeding and
+  skipping from them.
 - **torch build:** the first-start venv installs torch from PyPI (NVIDIA CUDA builds). Set
   `ANIMUS_TORCH_INDEX_URL` before the first start for another build, e.g.
   `https://download.pytorch.org/whl/rocm6.4` for AMD GPUs.
@@ -429,8 +469,8 @@ the server; the learner saves a checkpoint first.
 - **Dev container (`ac-dev-server`, profile `dev`):** the same image and build volumes, no ports, for VS Code
   (`.devcontainer`) or a shell. After changing C++, build there and restart training:
   `docker compose exec ac-dev-server ./acore.sh compiler build`, then `docker compose restart ac-worldserver`
-  (a restart retrains the queue from scratch). Don't start a second training worldserver in it: both would
-  train into the same `runs/`.
+  (a restart skips the finished stages and retrains the current one from scratch). Don't start a second training
+  worldserver in it: both would train into the same `runs/`.
 
 ## Baselines (no Python)
 
@@ -456,17 +496,23 @@ worldserver starts the learner itself once the envs are built, for the current s
 
 ```
 <WorkDir>/.venv/bin/python -u -m animus.train --config configs/<scenario>.yaml \
-    --socket <AnimusForge.Socket>
+    --socket <AnimusForge.Socket> --run-name <scenario> \
+    --runs-dir <OutputDir>/runs --layouts-dir <OutputDir>/layouts
 ```
 
 - **WorkDir** defaults to this module's `python/` directory; each `AnimusForge.Learner.*` key
   overrides one part.
 - **Output** is appended to `animus-learner.log` in `LogsDir`.
 - **An exit** is logged in the worldserver log, with the exit code.
+- **Configs** may start with `extends: <other>.yaml`: the file is merged over that one, section by section. Every
+  class/role stage extends `class_role.yaml` (directly or through an earlier stage).
+- **Devices:** `train_device: auto` updates on the GPU when torch sees one (CUDA or ROCm), else the CPU.
+- **Checkpoints:** `checkpoint_<update>.pt` every `checkpoint_every` updates, keeping the newest `keep_checkpoints`
+  (5); `latest.pt` and `best.pt` are always kept.
 - **No resuming:** every learner start trains from scratch. Whatever `runs/<scenario>/` held is first moved to
   `runs/_archive/<scenario>-<time>/` (nothing is deleted). The sim never needs a restart -- its game clock and the
-  timestamps compared against it are 64-bit -- so a run goes from start to finish in one server lifetime; a server
-  restart starts the queue over.
+  timestamps compared against it are 64-bit -- so a run goes from start to finish in one server lifetime; after a
+  server restart the queue skips finished runs and retrains the unfinished one.
 - **Overrides:** `AnimusForge.Learner.Args` appends arguments to every learner, typically
   `--set key=value` (dotted keys for sections: `--set eval.episodes=64`), to change config values for a
   whole queue without editing YAML -- e.g. a short pass over a curriculum before the long run.
@@ -493,8 +539,8 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   (`eval.report`) overall and per level band (1-20, 21-40, 41-60, 61-80), learner next to baseline.
   `eval.csv` has one row per evaluation, `eval.jsonl` the full tables, TensorBoard `eval/*` and
   `eval_<band>/*`.
-- **Best model:** each new best score saves `best.pt`; the next curriculum stage
-  seeds from `runs/<previous stage>/best.pt` (its `latest.pt` if there is no best).
+- **Best model:** each new best score saves `best.pt`; the next curriculum stage seeds from it (see
+  Bootstrapping; its `latest.pt` if there is no best).
 - **Plateau:** with `plateau.patience` set, the run stops once that many evaluations in a row fail to beat
   the best score by `plateau.min_improvement` (a fraction of it) or `plateau.min_improvement_abs`,
   whichever is larger, and not before `plateau.min_env_steps`. The class/role configs use 5 evaluations
@@ -513,9 +559,12 @@ A hand-started learner can start before or after the worldserver; it retries unt
 exists. Disconnecting (Ctrl+C) is safe: the sim waits for the next learner and resets every env when
 one connects.
 
-Each run writes `config.yaml`, `spec.json`, `metrics.csv`, TensorBoard logs (if installed) and
-checkpoints to `runs/<run_name>/`; with evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`,
-`best.pt` and, once done, `finished.json`.
+A hand-started learner uses the config's `runs_dir` and `layouts_dir` (`runs`, `layouts`) unless given
+`--runs-dir` / `--layouts-dir`; point them at the sim's `AnimusForge.OutputDir` so it finds the stage's `stage.json`.
+
+Each run writes `config.yaml`, `spec.json`, `stage.json` (class/role stages: blocks, seed chain, models, the
+effective tuning), `metrics.csv`, TensorBoard logs (if installed) and checkpoints to `runs/<run_name>/`; with
+evaluation also `eval.csv`, `eval.jsonl`, `eval_baseline.json`, `best.pt` and, once done, `finished.json`.
 
 ## Export
 
@@ -523,25 +572,28 @@ Training writes checkpoints to its run directory and nothing else: models are ne
 automatically. Export a checkpoint's actor to `.amdl` models by hand:
 
 ```
-python -m animus.export --checkpoint runs/class_role_duel/best.pt --out exported/class_role_duel
+python -m animus.export --checkpoint <OutputDir>/runs/class_role_duel/best.pt --out exported/class_role_duel \
+    --layouts-dir <OutputDir>/layouts
 ```
 
 Copying exported models to a server that plays them is also done by hand.
 
-It writes one model per layout: `warrior_dps_duel.amdl`, `priest_heal_duel.amdl`, ... (a single-layout scenario
-such as `warrior_dummy_20` writes `warrior_dummy_20.amdl`). Each is the layout's input adapter, the shared trunk and the
-layout's action head, in the plain MLP format below.
+It writes one model per layout, named by the stage's `stage.json`: `warrior_dps_duel.amdl`, `priest_heal_duel.amdl`,
+... (a single-layout scenario such as `warrior_dummy_20` writes `warrior_dummy_20.amdl`). Each is the layout's input
+adapter, the shared trunk and the layout's action head, in the plain MLP format below.
 
 The file format is documented at the top of `animus/export.py`. `tests/test_export.py` checks that
 the exported network reproduces the torch actor's greedy actions.
 
-A class/role model's inputs and outputs are defined by `src/Scenario/ClassRole/ClassRoleLayout.*` (what each
-observation feature and action is, and where) and `SeatEncoder.*` (how observations, masks and actions are read
-from and applied to the world); the scenario only describes each seat's situation (`ClassRoleScenario::ViewSeat`:
-enemies, owner, teammates, opponent, pull timing). Each exported class/role model gets its layout manifest beside
-it (`<model>.json`, e.g. `warrior_dps_duel.json`): the stage, class/role, sizes, block offsets, every action and
-talent. Anything that plays the model must build exactly that manifest for it; a different manifest means the
-model would read its observations and actions as something else.
+A class/role model's inputs and outputs are defined by its stage's blocks (`src/Scenario/ClassRole/Blocks/`: each
+block's features, actions and what they do) placed one after another by `Layout/Layout.*`; the scenario only
+describes each seat's situation (`SeatView`: enemies, owner, teammates, opponent, pull timing). Each exported
+class/role model gets its layout manifest beside it (`<model>.json`, e.g. `warrior_dps_duel.json`, format 3): the
+stage, class/role, class, role, sizes and specs, then every block with its observation and action spans
+(`[first, count]`) and its own entries -- the catalog and talents (core), stable slots (duel), tactical spells
+(pack), sustain spells (gauntlet), ally heals (companion), member slots (party). Anything that plays the model must
+build exactly that manifest for it; a different manifest means the model would read its observations and actions
+as something else. The sim writes a manifest only when its content changed.
 
 ## Wire protocol
 
@@ -558,10 +610,25 @@ observation and mask rows are padded to the largest. A `STEP` carries, for every
 
 ## Adding a scenario
 
-1. Implement `Animus::Scenario` (`src/Scenario/Scenario.h`): `Setup` builds bots and targets once,
+**A class/role stage:**
+
+1. Add a `StageDefinition` to `src/Scenario/ClassRole/Stages/Stages.cpp`: its name and model suffix, the stage it
+   extends, its blocks (the extended stage's, then any new ones), its seats and what it fights (encounters).
+2. If it needs new observations or actions, add a block: a `BlockId`, a `Block` implementation in `Blocks/`
+   (`Size`, `Observe`, `Apply`, `DescribeManifest`) and its entry in `Blocks/Blocks.cpp`. Add what it needs to know
+   about the world to `SeatView`.
+3. If its envs contain something new, add an `Encounter` in `Encounters/` (build, update, reward terms, episode
+   info, critic state), create it from the definition in `ClassRoleScenario`'s constructor, and put its tuning in
+   `ClassRoleTuning` (one field and one `Visit` line; `mod_animus_forge.conf.dist` documents it).
+4. Write `python/configs/<name>.yaml` with `extends:` the extended stage's config, and add the name to
+   `AnimusForge.Queue` (or leave the queue empty to run every stage).
+
+**A standalone scenario:**
+
+1. Implement `AnimusForge::Scenario` (`src/Scenario/Scenario.h`): `Setup` builds bots and targets once,
    `Reset` restarts an episode in place, and `Observe` / `ApplyActions` / `Reward` define the MDP.
    `IsTerminal` is optional.
-2. Add one row to the registry in `src/Scenario/Scenario.cpp`.
+2. Create it by name in `CreateScenario` and list it in `ScenarioNames` (`src/Scenario/Scenario.cpp`).
 3. Add its name to `AnimusForge.Queue` and write a learner config under `python/configs/`.
 
 The protocol and learner are shape-generic. A multi-agent scenario sets `AgentsPerEnv > 1` and
@@ -584,8 +651,9 @@ That relies on small Forge core APIs:
 - `rand_seed` (`RandomSeed.h`): restarts the calling thread's `urand`/`frand`/... sequence from a seed,
   so seeded evaluation episodes roll the same characters and opponents every time.
 
-Bots also reuse a fixed pair of player GUIDs per env, because the core keeps some per-GUID state
-(instance bind storage) for the life of the server.
+Bots also reuse a fixed pair of player GUIDs and sessions per seat (`BotSlot`), because the core keeps some
+per-GUID state (instance bind storage) for the life of the server. Their account ids come from `BotAccounts.h`,
+one range per kind of bot.
 
 ## Known limits
 

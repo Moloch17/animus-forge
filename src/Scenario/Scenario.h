@@ -105,8 +105,8 @@ namespace AnimusForge
         virtual void Teardown(Env& env) = 0;
     };
 
-    /// Build the scenario named by config.Scenario (the current queue entry), or nullptr if no such scenario exists.
-    std::unique_ptr<Scenario> CreateScenario(ForgeConfig const& config);
+    /// Build the scenario `name`, or nullptr if no such scenario exists.
+    std::unique_ptr<Scenario> CreateScenario(std::string const& name, ForgeConfig const& config);
 
     /// Names of every registered scenario.
     std::vector<std::string> ScenarioNames();
