@@ -158,9 +158,8 @@ void AnimusForge::ForgeConfig::Load()
     fs::path fastOutputDir = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.OutputDir", "fast");
     if (fastOutputDir.empty())
         fastOutputDir = "fast";
-    if (fastOutputDir.is_relative())
-        fastOutputDir = outputDir / fastOutputDir;
-    fastOutputDir = fastOutputDir.lexically_normal();
+    // Nested in the resolved AnimusForge.OutputDir when relative (the one path key that is not config-dir relative).
+    fastOutputDir = Resolve(fastOutputDir, OutputDir);
 
     // Fast runs must stay out of the real runs: they archive what they replace, and `forge clean fast` deletes it all.
     fs::path const inside = fs::path(OutputDir).lexically_relative(fastOutputDir);
@@ -172,12 +171,10 @@ void AnimusForge::ForgeConfig::Load()
     }
     FastOutputDir = fastOutputDir.string();
 
-    fs::path fastOverlay = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.Learner.Overlay", "");
-    if (fastOverlay.empty())
-        fastOverlay = fs::path("configs") / "fast.yaml";
-    if (fastOverlay.is_relative())
-        fastOverlay = workDir / fastOverlay;
-    FastLearnerOverlay = fastOverlay.lexically_normal().string();
+    // Set: relative to the config directory. Empty: configs/fast.yaml in the work directory.
+    fs::path const fastOverlay = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.Learner.Overlay", "");
+    FastLearnerOverlay = (fastOverlay.empty() ? workDir / "configs" / "fast.yaml" : Resolve(fastOverlay, configDir))
+        .lexically_normal().string();
 
     FastLearnerArgs.clear();
     std::istringstream fastArgs(sConfigMgr->GetOption<std::string>("AnimusForge.Fast.Learner.Args", ""));

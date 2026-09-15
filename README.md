@@ -453,8 +453,8 @@ Until then every `AnimusForge.*` key logs "Missing property" and falls back to i
 | `AnimusForge.ClassRole.*` | see the `.dist` | The curriculum's tuning: reward weights, chances, level spreads, scripted players |
 
 Relative paths in the path keys (`OutputDir`, `ModelDir`, `Socket`, `Learner.WorkDir`, `Learner.Python`,
-`Learner.Config`, `Learner.LogFile`) are relative to the directory of the `worldserver.conf` the server loaded, not
-to its working directory.
+`Learner.Config`, `Learner.LogFile`, `Fast.Learner.Overlay`) are relative to the directory of the `worldserver.conf`
+the server loaded, not to its working directory. `Fast.OutputDir` is the exception: it nests inside `OutputDir`.
 
 Any key can also be set from the environment, e.g. `AC_ANIMUS_FORGE_QUEUE=stage1_duel`.
 

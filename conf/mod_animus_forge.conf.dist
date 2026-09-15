@@ -281,7 +281,7 @@ AnimusForge.Fast.OutputDir = "fast"
 #
 #    AnimusForge.Fast.Learner.Overlay
 #        Description: Learner config merged over every stage's config in a fast run (--overlay),
-#                     relative to AnimusForge.Learner.WorkDir or absolute. The default shrinks step,
+#                     relative to the directory of worldserver.conf or absolute. The default shrinks step,
 #                     evaluation and checkpoint budgets and turns the stage targets off.
 #        Default:     "" - configs/fast.yaml
 
