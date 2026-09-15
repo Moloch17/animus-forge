@@ -36,8 +36,9 @@ and each episode draws its arena. Add **merge nodes**: a stage may extend severa
 parent that trained it and **distilling** (kickstarting) each arena from that parent's checkpoint. The curriculum
 stays a tree up to stage 5 and stage 7. Then `stage8_crossroads` merges both branches and adds cross arenas that need
 PvE and PvP features in the same episode (a companion whose owner is ganked mid-pull). After the merge, the tree
-branches again into a raid line and a mass-PvP line. The two lines train concurrently on two machines, each keeping a
-rehearsal share of the other's arenas so their trunks stay compatible. A final merge produces the model that plays
+branches again into a raid line and a mass-PvP line. Everything trains on **one machine, one stage at a time**: the
+two lines are interleaved in queue order (a raid stage, then a PvP stage, ...), each keeping a rehearsal share of the
+other line's most recently trained arenas so their trunks stay compatible. A final merge produces the model that plays
 everything.
 
 ## 3. What exists today (the parts this plan depends on)
@@ -65,27 +66,22 @@ The main weakness of the current tree for the product: `_party` and `_arena` mod
 with disjoint blocks**. `stage5_party` has no `pvp` block and `stage7_arena` has no pack/gauntlet/companion/party
 blocks. Neither model can do the other's job, and mod-animus would have to pick a model per situation.
 
-## 4. Two ways to train "at the same time"
+## 4. Training both on one machine
 
-### 4a. Parallel branches, no code (available now)
+"At the same time" means **in the same model**, not simultaneously. Arena mixes put PvE and PvP episodes into one
+stage and one trunk; the curriculum itself is one `AnimusForge.Queue` on one sim, one scenario at a time. That already
+works today:
 
-Both branches seed only from `stage1_duel`, so once the duel is trained they can run on two sims at once:
+- A stage only needs its base (or, for a merge, its parents) trained first. Branches of the tree can go in any order.
+- An empty `AnimusForge.Queue` trains every stage in definition order, and definitions list every base before the
+  stages that extend it (§6 numbers the stages in the recommended order).
+- `forge start` with `Queue.SkipFinished` carries on where training stopped; `forge pause`/`resume` survive a long
+  queue across sessions.
 
-- Sim A: `AnimusForge.Queue = "stage2_pack, stage3_gauntlet, stage4_companion, stage5_party"`
-- Sim B: `AnimusForge.Queue = "stage6_pvp, stage7_arena"`
+Running stages on several sims at once would only save wall-clock time; nothing in this design depends on it.
 
-Share `OutputDir` (run directories are per scenario, and both need `runs/stage1_duel/best.pt`). Give each its own
-`AnimusForge.Socket`, `Learner.LogFile` and worldserver port. Two machines is simplest; on one machine the two sims
-split `MapUpdate.Threads`. Caveat: README warns against a second training worldserver in the dev container. That
-warning is about two sims training the same scenario; with disjoint queues it only costs CPU.
-
-This saves wall-clock time but still produces two model families. **Use it for stages 2-7 only, as the feeder for the
-merge in 4b.**
-
-### 4b. Arena mixes and merge nodes (the plan)
-
-Rejected alternative: two `EnvPool`s and two learners in one sim. It doubles the lock-step plumbing in
-`AnimusForge.cpp` and still yields two trunks. Arena mixes get one trunk with less code.
+Not needed: two `EnvPool`s and two learners in one sim. It would double the lock-step plumbing in `AnimusForge.cpp`
+and still yield two trunks. Arena mixes get one trunk with less code.
 
 ## 5. Design
 
@@ -228,18 +224,27 @@ distill:
 ## 6. The new curriculum
 
 ```
-stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┐   (sim A)
-             └─ stage6_pvp ─ stage7_arena ───────────────────────────────────────┤   (sim B)
+stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┐
+             └─ stage6_pvp ─ stage7_arena ───────────────────────────────────────┤
                                                                                  ▼
                                             stage8_crossroads  (merge + cross arenas)
-                                              ├─ stage9_dungeon ─ stage10_raid10 ─ stage11_raid25          (PvE line, sim A)
-                                              └─ stage12_skirmish ─ stage13_battleground ─ stage14_warfront (PvP line, sim B)
+                                              ├─ stage9_dungeon ─ stage11_raid10 ─ stage13_raid25            (PvE line)
+                                              └─ stage10_skirmish ─ stage12_battleground ─ stage14_warfront  (PvP line)
                                                                                  ▼
                                             stage15_world  (merge of raid25 + warfront: the model mod-animus plays)
 ```
 
-Every stage from 8 on has the union blocks, so **each line keeps a rehearsal share (15-20%) of the other line's latest
-arenas**. It is cheap, it stops forgetting, and it keeps the two trunks close enough that the final merge is short.
+**One machine, one queue.** Stage numbers are the training order, and definitions follow it, so an empty
+`AnimusForge.Queue` trains 1, 2, ..., 15 on one sim, and every base comes before the stages that extend it. After
+stage 8 the lines are **interleaved**: dungeon, skirmish, raid10, battleground, raid25, warfront. Each line's rehearsal
+teachers are then the other line's latest `best.pt`, at a similar level, so the trunks drift less and the final merge
+stays short. Line by line (`AnimusForge.Queue = "stage9_dungeon, stage11_raid10, stage13_raid25, stage10_skirmish,
+stage12_battleground, stage14_warfront, stage15_world"`) also works, with staler rehearsal.
+
+Every stage from 8 on has the union blocks, so **each line keeps a rehearsal share (15-20%) of the other line's most
+recently trained arenas**. It is cheap, it stops forgetting, and it keeps the two trunks compatible. The rehearsal
+teachers in `distill.teachers` point at the other line's latest finished stage: `stage9_dungeon` rehearses PvP arenas
+from `stage8_crossroads`, `stage11_raid10` rehearses skirmish arenas from `stage10_skirmish`, and so on.
 
 ### 6.1 Folding the existing stages in
 
@@ -251,7 +256,7 @@ arenas**. It is cheap, it stops forgetting, and it keeps the two trunks close en
 | `stage4_companion` | yes | `companion` | stage 8 core arena, 20%: mod-animus's main use |
 | `stage5_party` | yes | `party` | stage 8 20%; stage 9 builds on it |
 | `stage6_pvp` | yes | `pvp_scripted` | stage 8 10% and eval anchor for every PvP stage |
-| `stage7_arena` | yes | `arena_1v1` | stage 8 15%; stage 12 builds on it |
+| `stage7_arena` | yes | `arena_1v1` | stage 8 15%; stage 10 builds on it |
 
 Stages 1-7 stay as they are: single-arena stages under the new definition, repeatable, with gates. Nothing is trained
 yet, so any tuning changes they need can land before the first pilot run.
@@ -329,7 +334,7 @@ abilities" in combat logs.
 Levels: a boss arena draws from its content's level band. Gear adds dungeon-tier bands per expansion to
 `GearBuilder` `ITEM_LEVEL_ANCHORS`.
 
-### 7.3 Stages 10-11 `stage10_raid10`, `stage11_raid25`
+### 7.3 Stages 11 and 13 `stage11_raid10`, `stage13_raid25`
 
 - `SeatPlan::Raid{10|25}`: all seats learned. Role makeup 2/2-3/rest at 10, 2-3/5-6/rest at 25. Some episodes have
   scripted fillers so policies learn with imperfect allies (and with the mod-animus player).
@@ -344,7 +349,7 @@ Levels: a boss arena draws from its content's level band. Gear adds dungeon-tier
 
 ## 8. The PvP line: what training gets to large battles
 
-### 8.1 Stage 12 `stage12_skirmish`: team arenas with a league
+### 8.1 Stage 10 `stage10_skirmish`: team arenas with a league
 
 - `SeatPlan::Teams{n}`: 2n learned seats, two factions, generalising `Mirror`. Arenas `2v2`, `3v3`, `5v5`, plus
   uneven `2v3`, `1v2` (survive and trade), and a gank-defense arena (owner + companion vs 2-3).
@@ -364,7 +369,7 @@ Levels: a boss arena draws from its content's level band. Gear adds dungeon-tier
   penalty, and a death penalty weighted by team size.
 - Eval: `won` vs `fight` teams on seeds, and Elo vs a fixed reference pool (the stage 7 best and scripted anchors).
 
-### 8.2 Stages 13-14 `stage13_battleground`, `stage14_warfront`
+### 8.2 Stages 12 and 14 `stage12_battleground`, `stage14_warfront`
 
 - **Objective encounter first, real battlegrounds later.** A sim-owned `ObjectiveEncounter` on open terrain: capture
   points (hold 10 yd uncontested for 8 s; Arathi-style nodes), a flag carry (pick up, run, return), and respawn
@@ -393,7 +398,7 @@ Levels: a boss arena draws from its content's level band. Gear adds dungeon-tier
 | Protocol: arena id per env, per-seat frozen/scripted flags, entity-table state | §5.5, §5.7, §8 | bump `Protocol.h` / `protocol.py` together |
 | Per-arena value heads | if value loss is unbalanced | learner only |
 | `DecisionTicks` per arena (200 ms for 20+ players) | battlegrounds | throughput; decisions stay lock-step |
-| Throughput | raids | 25 bots × 16 envs = 400 players; profile `MapUpdate.Threads` and per-decision Python round-trip before stage 10 |
+| Throughput | raids | 25 bots × 16 envs = 400 players; profile `MapUpdate.Threads` and per-decision Python round-trip before stage 11 |
 
 **mod-animus impact** (separate repo, built separately; models copied by hand): every stage from 8 on produces
 manifests with `context`/`hostiles` blocks, and later with `hazards`/`boss`/`raidframes`/`intent`. mod-animus must
@@ -407,22 +412,25 @@ Each phase ends with pytest green (in the `ac-dev-server` venv; the host has no 
 
 | # | Phase | Code | Done when |
 |---|---|---|---|
-| P0 | Pilot the tree as is | none; §4a two sims | stages 1-7 pass gates; target numbers tuned from `eval.jsonl` |
+| P0 | Pilot the tree as is | none; stages 1-7 in queue order on one sim | stages 1-7 pass gates; target numbers tuned from `eval.jsonl` |
 | P1 | Arenas in stages | `ArenaDefinition`; stage reads → arena reads; `Encounter::Uses/Deactivate`; per-env episode length; `arena` episode info; stage.json format 2 | stages 1-7 byte-identical `stage.json` layouts; a test stage mixing `duel`+`pvp_scripted` runs with seeded evals stable across env counts |
 | P2 | Per-arena eval and gates | `animus/evaluation.py` grouping, `gates.py` `arenas:`, `MODE` per-seat scripted flag | stage 7 reports `won` vs `fight`; per-arena gates tested |
 | P3 | Merge seeding and distillation | `Extends` list, `seed_parents`; `bootstrap.py` multi-parent; protocol arena id; `distill:` in trainer | tests: block provenance per parent; KL is 0 when student == teacher; action/obs remap round-trips |
 | P4 | `context` + `hostiles` blocks, cross arenas | new blocks; `OpponentEncounter` beside pulls and owner; `ambush`, `escort_duel` | `stage8_crossroads` passes per-arena gates |
-| P5a | PvE line | `hazards`, `boss`, `raidframes`, factorised ally targeting; `BossEncounter` + drills; boss allowlist; raid seat plans; gear bands | stage 9 drills → real 5-player bosses → Naxx 10 → 25 |
-| P5b | PvP line (parallel with P5a) | `SeatPlan::Teams`; league in learner; arena-map spike; `ObjectiveEncounter`; set-encoder critic | skirmish Elo climbs vs reference pool; 10v10 objective win rate vs scripted |
-| P6 | Final merge | `stage15_world` with distillation from 11 and 14 | every arena within 5% of its teacher; mod-animus manifest v4 fillers done |
+| P5 | Raid and PvP lines, interleaved (stages 9-14 in queue order) | each stage's code lands before it trains. Stage 9: `hazards`, `boss`, `BossEncounter` + drills, boss allowlist. Stage 10: `SeatPlan::Teams`, league in learner, arena-map spike. Stage 11: `raidframes`, factorised ally targeting, raid seat plans, gear bands. Stage 12: `ObjectiveEncounter`, set-encoder critic. Stages 13-14: scale-ups | stage 9 drills → real 5-player bosses → Naxx 10 → 25; skirmish Elo climbs vs reference pool; 10v10 objective win rate vs scripted |
+| P6 | Final merge | `stage15_world` with distillation from 13 and 14 | every arena within 5% of its teacher; mod-animus manifest v4 fillers done |
 
 P1 and P2 are the enablers and change no behaviour of stages 1-7. P3 and P4 give the first single PvE+PvP model.
-P5a and P5b are long and run concurrently on two machines, which is the branching payoff.
+P5 is long. The branching payoff is not parallelism: one queue on one machine trains every model, each stage stays
+repeatable on its own, and each seeds only from what has already been trained.
 
 ## 11. Risks and open questions
 
 - **Arena and battleground maps for bots**: `BattlegroundMap` needs a `Battleground`; the sim creates instance maps
-  per env. Spike before P5b; open-terrain fallback is in §8.1.
+  per env. Spike before stage 10; open-terrain fallback is in §8.1.
+- **One machine**: total wall-clock time is the sum of the stages. `forge pause`/`forge resume` and
+  `Queue.SkipFinished` let the queue run across restarts. Distillation loads up to ~5 frozen teacher actors; they are
+  small MLPs (a few hundred MB of GPU/CPU memory at most), so they fit beside the learner.
 - **Real boss scripts in a reset-in-place sim**: `InstanceScript` boss states, doors and respawn timers persist across
   episodes. Resetting needs `SetBossState(NOT_STARTED)`, a respawn, and possibly door game objects. Spike on one
   boss (Utgarde Keep's Prince Keleseth) before the allowlist grows.
