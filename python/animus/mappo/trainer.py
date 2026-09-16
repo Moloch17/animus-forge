@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -10,7 +11,7 @@ import torch
 from torch import nn
 
 from .buffer import RolloutBuffer
-from .networks import LayoutActor, LayoutCritic
+from .networks import LayoutActor, LayoutCritic, skip_distribution_checks
 from .valuenorm import ValueNorm
 
 
@@ -58,6 +59,7 @@ class MappoTrainer:
         rollout_device: str = "cpu",
     ):
         """layouts: (obs dim, action count) per agent layout, in the sim's layout order."""
+        skip_distribution_checks()
         self.config = config
         self.layouts = list(layouts)
         self.state_dim = state_dim
@@ -114,10 +116,22 @@ class MappoTrainer:
     def act(
         self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        """obs [E, A, O], mask [E, A, N], layout [E, A] -> actions [E, A], log_probs [E, A]."""
-        dist = self._rollout_actor(self._tensor(obs), self._tensor(layout, torch.long), self._tensor(mask))
-        actions = dist.probs.argmax(dim=-1) if deterministic else dist.sample()
-        return actions.cpu().numpy(), dist.log_prob(actions).cpu().numpy()
+        """obs [E, A, O], mask [E, A, N], layout [E, A] -> actions [E, A], log_probs [E, A].
+
+        The rows go in flat and the answers are reshaped, so the actor builds one distribution per decision: a
+        [E, A] batch would make it build a second one over the reshaped logits.
+        """
+        envs, agents = layout.shape
+        rows = envs * agents
+        dist = self._rollout_actor(
+            self._tensor(obs).reshape(rows, -1),
+            self._tensor(layout, torch.long).reshape(rows),
+            self._tensor(mask).reshape(rows, -1),
+        )
+        # argmax over the logits is the argmax over the probabilities, without materialising them.
+        actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
+        log_probs = dist.log_prob(actions)
+        return (actions.reshape(envs, agents).cpu().numpy(), log_probs.reshape(envs, agents).cpu().numpy())
 
     @torch.no_grad()
     def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:
@@ -135,6 +149,7 @@ class MappoTrainer:
         """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         cfg = self.config
+        started = time.perf_counter()
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0}
         data = {k: torch.as_tensor(v, device=self.train_device) for k, v in buffer.flat().items()}
         if data["actions"].shape[0] == 0:
@@ -152,17 +167,23 @@ class MappoTrainer:
             data["old_values"] = data["values"]
 
         samples = data["actions"].shape[0]
-        batch = max(1, samples // cfg.minibatches)
+        # Even splits: `samples // minibatches` with a fixed stride leaves a remainder minibatch, which is a full
+        # optimizer step on a fragment of the rollout.
+        splits = max(1, min(cfg.minibatches, samples))
         auxiliary_stats: dict[str, float] = {}
         auxiliary_updates = 0
         updates = 0
 
+        # Summed on the device and read once at the end: a .item() per statistic per minibatch is a pipeline stall
+        # per statistic per minibatch.
+        totals = {name: torch.zeros((), device=self.train_device) for name in stats}
+
         for _ in range(cfg.epochs):
             order = torch.randperm(samples, device=self.train_device)
-            for start in range(0, samples, batch):
-                idx = order[start : start + batch]
+            for idx in torch.tensor_split(order, splits):
+                obs, layout = data["obs"][idx], data["layout"][idx]
 
-                dist = self.actor(data["obs"][idx], data["layout"][idx], data["mask"][idx])
+                dist = self.actor(obs, layout, data["mask"][idx])
                 log_probs = dist.log_prob(data["actions"][idx])
                 log_ratio = log_probs - data["log_probs"][idx]
                 ratio = log_ratio.exp()
@@ -184,7 +205,7 @@ class MappoTrainer:
                 nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
-                values = self.critic(data["state"][idx], data["obs"][idx], data["layout"][idx])
+                values = self.critic(data["state"][idx], obs, layout)
                 old_values = data["old_values"][idx]
                 target = data["returns_target"][idx]
                 clipped = old_values + (values - old_values).clamp(-cfg.value_clip, cfg.value_clip)
@@ -196,17 +217,21 @@ class MappoTrainer:
                 self.critic_opt.step()
 
                 with torch.no_grad():
-                    stats["policy_loss"] += policy_loss.item()
-                    stats["value_loss"] += value_loss.item()
-                    stats["entropy"] += entropy.item()
-                    stats["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean().item()
-                    stats["approx_kl"] += ((ratio - 1) - log_ratio).mean().item()
+                    totals["policy_loss"] += policy_loss.detach()
+                    totals["value_loss"] += value_loss.detach()
+                    totals["entropy"] += entropy.detach()
+                    totals["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
+                    totals["approx_kl"] += ((ratio - 1) - log_ratio).mean()
                 updates += 1
 
         if sync:
             self._sync_rollout()
+        stats = {name: float(total) for name, total in totals.items()}
         result = {k: v / max(1, updates) for k, v in stats.items()}
         result.update({k: v / auxiliary_updates for k, v in auxiliary_stats.items()})
+        # What the update itself cost. With overlap_updates the run's own timer measures the wait for this to
+        # finish, not the work, so without this the work is invisible.
+        result["update_compute_seconds"] = time.perf_counter() - started
         return result
 
     # ------------------------------------------------------------------ checkpoints

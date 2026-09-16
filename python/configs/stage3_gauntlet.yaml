@@ -19,5 +19,12 @@ mappo:
   gamma: 0.999
   gae_lambda: 0.99
 
+# An evaluation costs a wave of full episodes per 64 seeds, so it scales with the episode length, not with the
+# training between evaluations: these episodes run minutes rather than the duel's 60 s, which makes a 1024-episode
+# evaluation worth a sizeable share of the stage. Evaluate less often rather than on fewer episodes -- the score's
+# standard error sets the convergence margin and the per-class/role gates, and it only grows as episodes are cut.
+eval:
+  every_env_steps: 15000000
+
 convergence:
   min_env_steps: 40000000

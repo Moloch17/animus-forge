@@ -322,8 +322,8 @@ class TrainingRun:
         columns = [
             "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
             *(f"episode_{name}" for name in spec.episode_info_names),
-            "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl", "distill_coef",
-            "distill_kl", "distill_rows",
+            "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl",
+            "update_compute_seconds", "distill_coef", "distill_kl", "distill_rows",
         ]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.

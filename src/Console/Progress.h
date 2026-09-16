@@ -73,6 +73,20 @@ namespace AnimusForge
         double WorldMsPerTick = 0.0;        // the map update and the rest of the world tick
         double SimMsPerTick = 0.0;          // observing, rewarding and applying actions
         double LearnerMsPerTick = 0.0;      // blocked on the learner
+
+        /// What the sim's own share went on, ms per decision (they add up to SimMsPerTick, less the bridge's
+        /// own work): which of these dominates is what says where to spend effort.
+        struct CollectMs
+        {
+            double Reward = 0.0;
+            double Observe = 0.0;           // the running episodes' observation and mask
+            double FinalObserve = 0.0;      // the ended ones' last observation, which has no mask
+            double Reset = 0.0;             // building the next episode's characters
+            double Apply = 0.0;             // the actions the learner sent
+            double ResetsPerTick = 0.0;     // episodes rebuilt per decision
+        };
+
+        CollectMs Collect;
         bool LearnerRunning = false;
         int32 LearnerPid = -1;
         bool LearnerConnected = false;

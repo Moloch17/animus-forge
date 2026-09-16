@@ -62,6 +62,15 @@ class _Trunk(nn.Module):
         return x
 
 
+def skip_distribution_checks() -> None:
+    """Stop torch validating every Categorical it builds and every sample it scores.
+
+    The checks (finite logits, a sample inside the support) run on every rollout decision and every minibatch of
+    every epoch, and the logits here are built by this module, not by a user. Call it once at start-up.
+    """
+    torch.distributions.Distribution.set_default_validate_args(False)
+
+
 def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tensor]]:
     """(layout, row indices) for every layout present in the batch."""
     if count == 1:

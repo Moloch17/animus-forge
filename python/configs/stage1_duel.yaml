@@ -31,7 +31,7 @@ rollout_length: 128
 # the serial loop, which PPO's clipping already accounts for.
 overlap_updates: true
 log_every: 1
-checkpoint_every: 25
+checkpoint_every: 100
 keep_checkpoints: 5
 
 # Updates on the GPU when torch sees one (CUDA or ROCm), else the CPU. Rollouts stay on the CPU: one forward pass per

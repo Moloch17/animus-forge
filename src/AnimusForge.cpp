@@ -164,6 +164,19 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
     else
         LocalDecision();
 
+    // What the pool spent this decision on, totalled for the report.
+    if (_pool)
+    {
+        Animus::EnvPool::CollectTiming const& collect = _pool->LastCollect();
+        _collect.RewardNs += collect.RewardNs;
+        _collect.ObserveNs += collect.ObserveNs;
+        _collect.FinalObserveNs += collect.FinalObserveNs;
+        _collect.ResetNs += collect.ResetNs;
+        _collect.ApplyNs += collect.ApplyNs;
+        _collect.Observes += collect.Observes;
+        _collect.Resets += collect.Resets;
+    }
+
     // What is left of this module's time in the tick, once the waiting on the learner is taken out.
     auto const tickEnded = std::chrono::steady_clock::now();
     uint64 const inModule =
@@ -342,6 +355,9 @@ bool AnimusForge::Forge::StartCurrent()
     _rateWorldNs = 0;
     _rateSimNs = 0;
     _rateLearnerNs = 0;
+    _collect = Animus::EnvPool::CollectTiming();
+    _rateCollect = Animus::EnvPool::CollectTiming();
+    _collectMs = SimSnapshot::CollectMs();
     _scenarioStarted = now;
     _lastReport = now;
     _lastAct.reset();
@@ -904,6 +920,14 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
             _worldMsPerTick = double(_worldNs - std::min(_worldNs, _rateWorldNs)) / perTick;
             _simMsPerTick = double(_simNs - std::min(_simNs, _rateSimNs)) / perTick;
             _learnerMsPerTick = double(_learnerNs - std::min(_learnerNs, _rateLearnerNs)) / perTick;
+
+            auto const since = [](uint64 now, uint64 then) { return double(now - std::min(now, then)); };
+            _collectMs.Reward = since(_collect.RewardNs, _rateCollect.RewardNs) / perTick;
+            _collectMs.Observe = since(_collect.ObserveNs, _rateCollect.ObserveNs) / perTick;
+            _collectMs.FinalObserve = since(_collect.FinalObserveNs, _rateCollect.FinalObserveNs) / perTick;
+            _collectMs.Reset = since(_collect.ResetNs, _rateCollect.ResetNs) / perTick;
+            _collectMs.Apply = since(_collect.ApplyNs, _rateCollect.ApplyNs) / perTick;
+            _collectMs.ResetsPerTick = since(_collect.Resets, _rateCollect.Resets) / double(ticks);
         }
     }
 
@@ -915,6 +939,7 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
         _rateWorldNs = _worldNs;
         _rateSimNs = _simNs;
         _rateLearnerNs = _learnerNs;
+        _rateCollect = _collect;
     }
 
     sim.TicksPerSecond = _ticksPerSecond;
@@ -923,6 +948,7 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
     sim.WorldMsPerTick = _worldMsPerTick;
     sim.SimMsPerTick = _simMsPerTick;
     sim.LearnerMsPerTick = _learnerMsPerTick;
+    sim.Collect = _collectMs;
 
     sim.LearnerRunning = _learner.IsRunning();
     sim.LearnerPid = _learner.IsRunning() ? int32(_learner.Pid()) : -1;

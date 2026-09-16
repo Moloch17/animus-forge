@@ -33,6 +33,15 @@
 
 namespace
 {
+    /// What the sim's share of a decision went on. `observe` carries the mask, `final observe` is the same work
+    /// without it, so their per-call difference is what mask building costs.
+    std::string SimPartsNote(AnimusForge::SimSnapshot::CollectMs const& collect)
+    {
+        return Acore::StringFormat("reward {:.2f} ms, final observe {:.2f} ms, reset {:.2f} ms ({:.2f} episodes "
+            "rebuilt per decision), apply {:.2f} ms", collect.Reward, collect.FinalObserve, collect.Reset,
+            collect.ResetsPerTick, collect.Apply);
+    }
+
     /// Weight of the newest interval in the step rate average.
     constexpr double RATE_EMA_ALPHA = 0.3;
 
@@ -363,6 +372,8 @@ void AnimusForge::ProgressMonitor::ReportTraining(ForgeConfig const& config, Sim
         sim.WorldMsPerTick + sim.SimMsPerTick + sim.LearnerMsPerTick),
         Acore::StringFormat("world {:.1f} ms (map update), sim {:.1f} ms, learner {:.1f} ms", sim.WorldMsPerTick,
             sim.SimMsPerTick, sim.LearnerMsPerTick) });
+    table.AddRow({ "sim parts", Acore::StringFormat("{:.2f} ms observe", sim.Collect.Observe),
+        SimPartsNote(sim.Collect) });
 
     if (!progress)
     {
@@ -516,6 +527,8 @@ void AnimusForge::ProgressMonitor::ReportLocal(SimSnapshot const& sim, LineSink 
         sim.WorldMsPerTick + sim.SimMsPerTick + sim.LearnerMsPerTick),
         Acore::StringFormat("world {:.1f} ms (map update), sim {:.1f} ms, learner {:.1f} ms", sim.WorldMsPerTick,
             sim.SimMsPerTick, sim.LearnerMsPerTick) });
+    table.AddRow({ "sim parts", Acore::StringFormat("{:.2f} ms observe", sim.Collect.Observe),
+        SimPartsNote(sim.Collect) });
 
     std::string episodes = Format::Count(sim.Episodes);
     std::string note = Acore::StringFormat("{:.1f}/s", sim.EpisodesPerSecond);

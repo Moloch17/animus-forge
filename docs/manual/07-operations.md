@@ -374,6 +374,11 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   - If the world thread dominates, more map threads (`MapUpdate.Threads`) and fewer class/roles or simpler arenas help.
   - The learner's torch and the map update threads share the cores: `AnimusForge.Learner.TorchThreads` caps torch,
     and the benchmark sweeps both together.
+- **Know which part of the sim.** The `sim parts` row splits that **sim** share into reward, observe (which carries
+  the action mask), final observe (the same work without the mask, for an episode that just ended), reset (building
+  the next episode's characters) and apply. Observe against final observe, per call, is the cheapest read on what
+  mask building costs; reset against the episodes rebuilt per decision says whether episode turnover is worth
+  attacking. Measure here before optimising the sim: the answer decides what is worth doing.
 - **Envs are also a training setting.** One update is `rollout_length x envs x seats` env steps, so a different env
   count changes the batch PPO trains on, not only the speed. `forge bench` says so when its winner differs from the
   env count you train with.

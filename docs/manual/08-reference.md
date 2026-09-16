@@ -315,7 +315,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `config.yaml` | Start | The fully resolved learner config |
 | `spec.json` | Connect | The SPEC |
 | `stage.json` | Connect | The stage description (curriculum stages) |
-| `metrics.csv` | Every `log_every` updates | Update, env steps, rates, reward per decision, episode count, `episode_<info>` means, losses, entropy, entropy coefficient, clip fraction, approx KL, distillation stats |
+| `metrics.csv` | Every `log_every` updates | Update, env steps, rates, reward per decision, episode count, `episode_<info>` means, losses, entropy, entropy coefficient, clip fraction, approx KL, `update_compute_seconds` (the update's own cost, which `update_seconds` stops measuring once `overlap_updates` is on), distillation stats |
 | `tb/` | Same | TensorBoard events, if installed |
 | `progress.json` | Every update and evaluation | For the console |
 | `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |

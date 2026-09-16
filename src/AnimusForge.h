@@ -288,6 +288,11 @@ namespace AnimusForge
         uint64 _rateWorldNs = 0;
         uint64 _rateSimNs = 0;
         uint64 _rateLearnerNs = 0;
+
+        /// The pool's own per-decision timings, totalled since the scenario started and at the last rate window.
+        Animus::EnvPool::CollectTiming _collect;
+        Animus::EnvPool::CollectTiming _rateCollect;
+        SimSnapshot::CollectMs _collectMs;
         double _ticksPerSecond = 0.0;
         double _episodesPerSecond = 0.0;
         double _worldMsPerTick = 0.0;
