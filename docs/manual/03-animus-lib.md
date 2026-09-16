@@ -19,9 +19,9 @@ This chapter covers the machinery: scenarios, env pools, bots, core seams, layou
 | `src/Scenario/Curriculum/` | The curriculum: `StageScenario`, `CurriculumTuning`, `StageState`, and the subdirectories below |
 | `.../Stages/` | `StageDefinition`, `ArenaDefinition`, the stage list (`Stages.cpp`) and its validation |
 | `.../Layout/` | `Block` (interface), `Layout` (block placement, manifests), `SeatView`, `SeatEncoder`, `EncoderSupport` |
-| `.../Blocks/` | One class per block: `CoreBlock`, `DuelBlock`, `PackBlock`, `GauntletBlock`, `CompanionBlock`, `PartyBlock`, `PvpBlock`, `ContextBlock`, `HostilesBlock` |
-| `.../Encounters/` | `Encounter` (interface), creature, pulls, owner, party, opponent and ambush encounters, `ScriptedPlayer`, `Opponents` (creature pools and spawn points), `EpisodeInfoTable` |
-| `.../Character/` | `ClassRoleProfile` (the 18 class/roles), `ClassRoleAssets`, `ClassKit`, `TalentBuilder`, `SpecBuilds` (generated), `ActionCatalog`, `GearBuilder`, `GearEnhancements`, `Supplies`, `WorldCreatures`, `SeatCharacter` |
+| `.../Blocks/` | One class per block: `CoreBlock`, `DuelBlock`, `PetBlock`, `PackBlock`, `GauntletBlock`, `CompanionBlock`, `PartyBlock`, `PvpBlock`, `ContextBlock`, `HostilesBlock`, `TravelBlock`, `FlagBlock`; `Blocks.cpp` (`GetBlock`) |
+| `.../Encounters/` | `Encounter` (interface), creature, pulls, owner, party, opponent, ambush, travel and flag encounters, `ScriptedPlayer`, `EnemyPlayers` (building scripted enemy players), `Opponents` (creature pools and spawn points), `EpisodeInfoTable` |
+| `.../Character/` | `ClassRoleProfile` (the 18 class/roles), `ClassRoleAssets`, `ClassKit`, `TalentBuilder`, `SpecBuilds` (generated), `ActionCatalog`, `GearBuilder`, `GearStats`, `GearEnhancements`, `PetTalents`, `Supplies`, `WorldCreatures`, `SeatCharacter` |
 | `.../Rewards/` | `RewardLedger`, `CombatReward` (the shared one-on-one and pull reward terms) |
 | `.../Baselines/` | The scripted `greedy` and `fight` policies |
 | `src/Env/` | `Env`, `EnvPool`, `PoolRegistry` |
@@ -61,7 +61,7 @@ A `Scenario` (`src/Scenario/Scenario.h`) defines one MDP. Every call runs on the
 | Method | When | Contract |
 |---|---|---|
 | `Name()`, `Spec()` | Construction | Fixed shapes: agents per env, padded obs dim, state dim, padded action count, episode info dim, longest episode, and the `LayoutSpec` list (name, obs dim, actions per layout) |
-| `Setup(env)` | Once per env | Create bots and targets. Fill `env.Bots` (one per agent), `Targets`, `MapId` and `InstanceId` |
+| `Setup(env)` | Once per env | Create bots and targets. Fill `env.Bots` (one per agent), `Targets`, `MapId` and `InstanceId`. False if the env could not be built |
 | `Reset(env)` | Each new episode | Start an episode in place. The pool has already cleared the episode clock |
 | `Observe(env, obs, state, mask)` | Each decision, and for final observations | Write `AgentsPerEnv x ObsDim` features, `StateDim` critic state and `AgentsPerEnv x NumActions` mask bytes. `mask` is null for a final observation, so costly cast checks can be skipped |
 | `AgentLayouts(env, layout)` | After `Observe` | Each agent's layout index, constant within an episode |
@@ -72,6 +72,7 @@ A `Scenario` (`src/Scenario/Scenario.h`) defines one MDP. Every call runs on the
 | `IsOpponentSeat(env, agent)` | Evaluation | Whether the agent is the other side of a self-play episode |
 | `EpisodeInfo(env, info)`, `EpisodeInfoNames()` | When an episode ends | Per-agent totals, one named column each |
 | `ScriptedAction(policy, obs, mask, layout, action)` | Local policies | A scripted baseline's action for one agent's row. False if the policy isn't known |
+| `SetLayoutWeights(weights)` | After each evaluation | How often training episodes draw each layout (the learner's `WEIGHTS`). Evaluation episodes ignore it. Optional |
 | `Teardown(env)` | Once | Remove bots (without saving) and targets |
 
 `CreateScenario(name, settings)` returns a scenario by name. Currently every scenario is a curriculum stage
@@ -107,14 +108,17 @@ raw pointers across ticks:
 
 - `Bots` (one per agent, in agent order; an empty GUID for an empty seat), `Targets` (enemy creatures or players, in
   slot order), `Allies` (scripted friendly players such as the owner)
+- `Index` (its place in the pool) and `Id` (unique among the server's envs: bot accounts and names derive from it)
 - `MapId`, `InstanceId`
+- `EpisodeSeedIndex`: the evaluation seed index of the episode being built or played, or `NO_EPISODE_SEED`
 - the episode clock (`EpisodeElapsedMs`, `EpisodeLengthMs`) and `EpisodesCompleted`
 - `StepStats` (since the last decision) and `EpisodeStats` (since the last reset), one `AgentStats` per agent
 - `StepInterruptedTargets`: targets whose cast was cut short by something other than themselves since the last decision
 
-`AgentStats` holds damage (total, white, special, hits), damage taken, damage taken by allies (total and per ally),
-effective healing on allies and on other agents, and cast bookkeeping: casts completed and cancelled, cast time
-completed and wasted, and why each cancel happened (stopped by the agent, moved, target lost, other).
+`AgentStats` holds damage (total, white, special, hits, and the share its pets and guardians dealt), damage taken,
+damage taken by allies (total and per ally), effective healing on allies and on other agents, and cast bookkeeping:
+casts completed and cancelled, cast time completed and wasted, and why each cancel happened (stopped by the agent,
+moved, target lost, other).
 
 ### The decision cycle
 
@@ -168,7 +172,7 @@ episode that just ended. This is the auto-reset convention the learner's GAE exp
 
 `ChooseLocalActions(policy, opponentsOnly)` fills `Actions` without a learner. `random` picks uniformly among allowed
 actions. Any other name goes to `Scenario::ScriptedAction`. With `opponentsOnly`, only the opponent seats are
-overwritten.
+overwritten. `SetLayoutWeights(weights)` passes the learner's per-layout draw weights to the scenario.
 
 ### Seeded resets
 
@@ -294,7 +298,8 @@ teleport is out of the world but still has to be destroyed.
 
 ### Account ids
 
-`BotAccounts.h` gives each kind of bot its own id range, far above anything a real realm allocates (`BASE = 0x7F000000`):
+`BotAccounts.h` gives each kind of bot its own id range, far above anything a real realm allocates (`BASE =
+0x7F000000`):
 
 | Kind | Id |
 |---|---|
@@ -343,19 +348,23 @@ stage)`:
 3. places each of the stage's blocks in order. A block's slice starts where the previous block's ended:
    `BlockSlice{ObsFirst, ObsCount, ActionFirst, ActionCount}`.
 
-So the observation row is `[core][duel][pack]...` and the action list is `[core actions][duel actions][pack actions]...`.
-The learner pads every row to the largest layout of the run and tags it with the layout index.
+So the observation row is `[core][duel][pack]...` and the action list is `[core actions][duel actions][pack
+actions]...`. The learner pads every row to the largest layout of the run and tags it with the layout index.
 
-`Layout::Manifest()` is compact JSON (format 3) of everything the layout's meaning depends on:
+`Layout::Manifest()` is compact JSON (format 3) of everything the layout's meaning depends on. Abridged, with sizes
+that change whenever a block does:
 
 ```json
 {"format":3,"model":"warrior_tank_duel","stage":"stage1_duel","class_role":"warrior_tank","class":1,"role":"tank",
- "obs_dim":404,"num_actions":60,"specs":[2],
- "blocks":[{"name":"core","obs":[0,374],"actions":[0,45],"action_features":5,
+ "obs_dim":...,"num_actions":...,"specs":[2],
+ "blocks":[{"name":"core","obs":[0,...],"actions":[0,...],"action_features":5,
             "catalog":[{"kind":"noop"},{"kind":"cancel_queued"},{"kind":"spell","first_rank":71,"next_swing":false},...],
             ...},
-           {"name":"duel","obs":[374,30],"actions":[45,15],...}]}
+           {"name":"duel","obs":[...],"actions":[...],"stable_slots":0,"stable_features":5},
+           {"name":"pet","obs":[...,0],"actions":[...,0]}]}
 ```
+
+A block a class/role has no use for (the `pet` block for a warrior) still appears, with no features and no actions.
 
 Each block adds its own entries through `Block::DescribeManifest`: the catalog and talents (core), stable slots (duel),
 tactical spells (pack), sustain spells (gauntlet), ally heals and revives (companion), member slots (party).

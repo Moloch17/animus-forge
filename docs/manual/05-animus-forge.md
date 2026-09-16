@@ -175,7 +175,7 @@ fraction of a second even while Python computes an update.
   with an empty payload.
 - One client at a time. A second learner can't connect while one is attached.
 
-The protocol's byte layout is in [chapter 8](08-reference.md#83-wire-protocol-version-5).
+The protocol's byte layout is in [chapter 8](08-reference.md#83-wire-protocol-version-6).
 
 ## 5.6 The learner and export processes
 
@@ -219,6 +219,7 @@ from an in-game administrator's chat.
 | `forge cancel` | End the plan. The learner saves `latest.pt` first |
 | `forge skip` | End the current scenario (the learner saves) and start the next |
 | `forge run <scenario> <policy> [episodes]` | A local plan: `random`, `greedy` or `fight`, for N episodes or until cancelled. `forge run <s> remote` is refused (use `start`) |
+| `forge talents <class_role> [spec] [points] [plan]` | Print the talent build the curriculum would give that class/role (which talents, in which tree, at how many ranks). `points` defaults to a level 80 character's, `plan` is `standard`, `noisy` or `random` |
 | `forge bench [scenario]` | Time the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then the fastest few with the learner; `forge bench apply` writes the winner into the configs |
 | `forge export [scenario] [best\|latest]` | Background `python -m animus.export` of `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) into `ModelDir`, with the layout manifests. Output in `animus-export.log`. One export at a time. Works while training |
 | `forge clean archive \| scenario <s> \| exports \| fast \| logs \| all` | Delete `runs/_archive/`, one run, exported models and manifests, the fast output, the learner and export logs, or everything (idle only). Each refuses while it would delete something in use, and lists every removal with its size |
@@ -414,12 +415,13 @@ update is 8192 env steps.
 One set of weights plays every agent of every layout (parameter sharing):
 
 ```
-actor:   obs[:obs_dim(layout)] ─► adapter[layout] (Linear → hidden[0]) ─► tanh ─► trunk (Linear+tanh per hidden layer after the first)
-                                                                         ─► head[layout] (Linear → num_actions(layout)) ─► masked logits
+actor:   obs[:obs_dim(layout)] ─► norm[layout] ─► adapter[layout] (Linear → hidden[0]) ─► tanh
+             ─► trunk (Linear + tanh per hidden layer after the first)
+             ─► head[layout] (Linear → num_actions(layout)) ─► masked logits
 
-critic:  state ─► state_encoder (Linear → hidden[0]) ─┐
-                                                      +─► tanh ─► trunk ─► value head (Linear → 1)
-         obs ─► adapter[layout] (Linear → hidden[0]) ─┘
+critic:  state ─► state_norm ─► state_encoder (Linear → hidden[0]) ─┐
+                                                                    +─► tanh ─► trunk ─► value head (Linear → 1)
+         obs ─► norm[layout] ─► adapter[layout] (Linear → hidden[0]) ─┘
 ```
 
 - **Adapters** read only their layout's features, and **heads** write only their layout's actions. Padded columns are
@@ -434,16 +436,27 @@ critic:  state ─► state_encoder (Linear → hidden[0]) ─┐
 - For a single layout this is exactly a plain MLP. Adapter, trunk and head of one layout form one MLP, which is what
   export writes.
 
-The curriculum uses `hidden: [512, 512]`: 512-wide adapters and one 512 to 512 trunk layer. Every stage must keep the
-same sizes, or seeding can't copy the trunk.
+- **Observation normalisation** (`mappo.normalise_observations`, on by default). Each layout's observations are
+  centred and scaled per feature (`RunningNorm`) before its adapter, in both the actor and the critic, and the critic's
+  state likewise. The features arrive on very different scales (a level, yards, fractions, gear ratings) and meet tanh
+  first, which saturates on anything far from zero. The statistics come from the rollouts (updated at each update,
+  before it learns), are buffers that travel in the checkpoint, and carry across seeding for the blocks a stage keeps.
+  The map is affine with no clipping, so export folds it into the adapter and the exported model stays a plain MLP.
+
+The curriculum uses `hidden: [256, 512, 512]`: 256-wide adapters (one per class/role) and two 512-wide shared trunk
+layers, so the capacity sits where every class/role trains it. Every stage must keep the same sizes, or seeding can't
+copy the trunk.
 
 ## 5.16 The PPO update
 
 `MappoTrainer.update(buffer, auxiliary)`:
 
-1. Flatten the valid samples onto the training device. Normalise advantages to zero mean and unit variance.
-2. With value normalisation, update `ValueNorm` (debiased exponential moving mean and mean-square, beta 0.99999) with
-   the returns, and normalise the returns and old values.
+1. Flatten the valid samples onto the training device. Normalise advantages to zero mean and unit variance, per
+   class/role with `per_layout_advantages` (a layout with fewer than `min_layout_rows` rows uses the rollout's
+   statistics), because the class/roles share a trunk but not a return scale.
+2. With value normalisation, update `ValueNorm` (debiased exponential moving mean and mean-square, beta
+   `mappo.value_norm_beta`: 0.99 in the curriculum) with the returns, and normalise the returns and old values. With
+   observation normalisation, fold the rollout's observations and states into the running statistics.
 3. For `epochs` passes over a random permutation split into `minibatches`:
    - **Actor:** `ratio = exp(logp - old_logp)`,
      `policy_loss = -mean(min(ratio x A, clip(ratio, 1±clip) x A))`, minus `entropy_coef x entropy`, plus the
@@ -451,7 +464,8 @@ same sizes, or seeding can't copy the trunk.
    - **Critic:** clipped value loss `mean(max((V - R)^2, (V_old + clip(V - V_old, ±value_clip) - R)^2))` x
      `value_coef`, with its own Adam and clipping.
    - Record policy loss, value loss, entropy, clip fraction and approx KL (`mean((ratio - 1) - log ratio)`).
-4. Sync the rollout copies.
+   - With `target_kl`, stop after an epoch whose mean approx KL exceeds 1.5 x `target_kl` (`epochs_run` records it).
+4. Record `explained_variance` of the rollout's returns by its values, and sync the rollout copies.
 
 `entropy_coef` is set by the stage controller before each rollout, so it can be boosted after a restart (5.19).
 `reset_optimizers()` and `shrink_perturb(shrink, perturb)` (weights = shrink x weights + perturb x fresh
@@ -467,6 +481,8 @@ directory.
 `seed_trainer(trainer, checkpoint, spec, stage)`:
 
 - **Trunk** (actor and critic): copied. Hidden sizes must match.
+- **Observation normaliser statistics** move with the adapter columns: feature by feature for the blocks both stages
+  have, so a kept block keeps the scale its weights were trained on.
 - **Layouts are matched by name** (the class/role). For each layout both runs have, block spans from both
   `stage.json` files are compared:
   - **Adapter weights** (actor and critic): zeroed, then each common block's input columns are copied from their old
@@ -515,8 +531,8 @@ coef(env_steps) x mean KL(teacher || policy)        coef = max(min_coef, coef0 x
 
 `run_evaluation(env, spec, act, episodes, seed, baseline, opponents, arenas)`:
 
-1. `env.set_mode(True, seed, episodes, baseline, opponents_only)` sends MODE. Every env resets, and seeds `0..episodes-1`
-   are handed out as envs reset (see [3.4](03-animus-lib.md#seeded-resets)).
+1. `env.set_mode(True, seed, episodes, baseline, opponents_only)` sends MODE. Every env resets, and seeds
+   `0..episodes-1` are handed out as envs reset (see [3.4](03-animus-lib.md#seeded-resets)).
 2. Step with argmax actions (`eval.deterministic`) until every seeded episode has ended, collecting each ended
    episode's return, info and layout by its seed index. A safety cap of `(ceil(episodes / envs) + 2)` episode lengths
    in decisions stops an evaluation that can't finish, and logs how many episodes it got.
@@ -544,8 +560,8 @@ A new best score saves `best.pt`.
   `min_improvement_abs`, and `z x sqrt(stderr^2 + best_stderr^2)`. A lucky evaluation inside the noise doesn't count.
 - The stage has **converged** when `patience` evaluations in a row set no new best, **and** at least `min_env_steps`
   have passed since the start or the last restart, **and** a linear fit over the last `window` (at least 3) scores of
-  the current segment, projected `patience` evaluations ahead, wouldn't reach the margin (so a slow climb hidden by noise
-  keeps training). With fewer than 3 scores in the segment, patience alone decides.
+  the current segment, projected `patience` evaluations ahead, wouldn't reach the margin (so a slow climb hidden by
+  noise keeps training). With fewer than 3 scores in the segment, patience alone decides.
 - `patience: 0` trains to `total_env_steps`.
 
 ### Stage targets (`gates.py`)
@@ -635,7 +651,8 @@ dim, action count or layouts changed. The env count, decision interval and episo
 
 **Export** (`export.py`) writes, for each layout of the checkpoint:
 
-- `<model name>.amdl`: the layout's adapter, the trunk layers and the layout's head, in the format described in
+- `<model name>.amdl`: the layout's adapter (with its observation normaliser folded in: `W / sd` and
+  `b - W(mean / sd)`), the trunk layers and the layout's head, in the format described in
   [3.8](03-animus-lib.md#38-models), with `num_agents = 1` and a zero-weight agent column. The model name comes from
   `stage.json` `models` (`warrior_dps` at `stage1_duel` is `warrior_dps_duel`). A scenario without `stage.json` uses
   its own name for a single layout, or appends the layout name.

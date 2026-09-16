@@ -99,7 +99,8 @@ model only works on a server that builds the same manifest.
 
 **Stage and arena.** A **stage** is a scenario the learner trains (`stage2_pack`). It extends an earlier stage and
 inherits that stage's trained weights. An **arena** is one situation a stage's episodes can be: a duel, a gauntlet, a
-party, or an ambush. Stages 1-7 have one arena each. Stage 8 mixes eight.
+party, an ambush, a trip or a flag match. Every stage has one arena except stage 8, which mixes eight, and the
+`mix_duel_pvp` pilot, which mixes two.
 
 **Decision.** One step of the environment. On the forge, one world tick equals one decision equals
 `AnimusForge.DecisionMs` of game time (100 ms by default). For each decision, every env scores the last transition,
@@ -126,8 +127,8 @@ pass.
    every class/role, and optionally per arena), then confirms it on held-out seeds. If the target passes, the learner
    exits 0 and the plan moves to the next stage. If not, it restarts from `best.pt` with more exploration. When the
    restarts run out, it exits 3 and the plan halts.
-6. **Export.** `forge export <stage>` writes one `<class>_<role><suffix>.amdl` per layout (adapter, shared trunk and head
-   as a plain MLP) and copies each layout manifest beside it.
+6. **Export.** `forge export <stage>` writes one `<class>_<role><suffix>.amdl` per layout (the observation normaliser,
+   adapter, shared trunk and head folded into a plain MLP) and copies each layout manifest beside it.
 7. **Deploy.** Copy the `.amdl` and `.json` files into a realm's `Animus.ModelDir`. mod-animus loads a model the first
    time a companion or stage seat needs it, and refuses it if the manifest differs from the one the server builds.
 8. **Play.** A companion observes through the same `SeatEncoder` as in training, runs the MLP forward pass in C++, picks
@@ -173,9 +174,11 @@ These principles come from the project's history. They explain choices that migh
 - **Training and play run the same code.** Blocks read the world through a `SeatView`, and the same encoder serves a
   training seat and a live companion. Changing a block changes the manifest, so any model trained before the change is
   refused.
-- **Observations contain only what live play can supply.** Episode time remaining was removed from observations
-  because a live server has no episodes. Stage 8's `context` block tells PvE from PvP using signals a live server has,
-  not an arena id.
+- **Observations contain only what live play can supply.** The time *left* in an episode is not observed, because a
+  live server has no time limit: only the critic sees it. The time *spent* in the episode is observed, because a
+  companion party keeps episodes of its own (a fight after 20 s of quiet starts one); without it a bot standing still
+  sees the same row every decision and a deterministic policy can loop forever. Stage 8's `context` block tells PvE
+  from PvP using signals a live server has, not an arena id.
 - **The model makes every combat ability choice.** Companions don't mix in hand-written rotations.
 - **Repeatable randomness is not a design goal.** Seeded evaluation reproduces the situations (characters, opponents,
   spawn points) but not the combat rolls, so scores are averages.

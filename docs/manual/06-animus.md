@@ -16,8 +16,9 @@ with real clients. It offers two features:
   LibTorch.
 - **The model makes every combat ability choice.** No hand-written rotations are mixed in.
 - **Observations are exactly the training observations.** Companions and stage seats go through the same
-  `SeatEncoder` and blocks as training seats. Features that only exist in training, such as episode time remaining,
-  aren't in the observation.
+  `SeatEncoder` and blocks as training seats. Features only training could supply, such as the share of an episode's
+  time limit left, aren't observed. What live play can supply is filled in the same way: a companion party counts
+  combat time, pull time and time into its own episodes.
 - **Never built into the forge core.** A forge build disables it (`-DMODULE_MOD-ANIMUS=disabled`).
 
 ## 6.2 Source map
@@ -71,56 +72,83 @@ which other class/roles the run trained (`AnimusForge.ClassRoles`), only on its 
 
 ### Commands
 
+All `.animus` commands need game master security and don't work from the console.
+
 | Command | Effect |
 |---|---|
-| `.animus summon <class_role>` | Build a companion of that class/role at your level. It joins your party |
-| `.animus list` | Your companions, their class/roles, levels and whether their models are loaded |
+| `.animus summon <race> <class> <role>` | Build a companion of that race, class and role at your level (`human priest heal`, `orc warrior tank`). It joins your party |
+| `.animus list` | Your companions, their class/roles and levels, whether their models are loaded, and whether they are waiting for you to land |
 | `.animus dismiss` | Remove all your companions |
 
 ### Summoning
 
-`AnimusMod::Summon` refuses in these cases:
+| Argument | Accepted |
+|---|---|
+| `race` | `human`, `dwarf`, `nightelf`, `gnome`, `draenei`, `orc`, `undead` (or `forsaken`), `tauren`, `troll`, `bloodelf` |
+| `class` | `warrior`, `paladin`, `hunter`, `rogue`, `priest`, `deathknight` (or `dk`), `shaman`, `mage`, `warlock`, `druid` |
+| `role` | `dps` (or `damage`), `tank`, `heal` (or `healer`) |
 
-- the module is disabled
-- you are in an instance, on a transport or in flight
-- the class/role name is unknown (the reply lists them)
-- your level is below the class's minimum (55 for death knights)
-- you already have four companions
-- you are in a group you don't lead, or the group is full
+Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The class/roles are the forge's 18 (4.3).
+`AnimusMod::Summon` and `CompanionParty::Add` refuse when:
 
-Otherwise:
+- the module is disabled,
+- a name isn't a race, class or role (the reply lists the valid ones),
+- the class doesn't have the role (`mage tank`), or the race can't be the class (`orc paladin`),
+- the race belongs to the other faction,
+- you are on a flight path or a vehicle (`BotFactory::IsAway`),
+- you are in a battleground or arena, which only takes queued players, or between maps (`BotFactory::CanJoin`),
+- you already have four companions,
+- you are in a group you don't lead, or the group is full.
+
+You can summon in the open world, in a dungeon or raid instance, and on a boat, zeppelin or elevator. Otherwise:
 
 1. **Layout.** `LayoutFor(profile)` builds and caches the class/role's layout at `Animus.Curriculum.Stage` (default
    `stage5_party`). The first build of a class/role's assets takes a few seconds and stalls the world thread.
-2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of a race of your faction
-   (so it is friendly to you and everyone you group with), and places it beside you (`PlaceNear`).
+2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of the race you named
+   and a random gender, at your level or the class's first level if that is higher (a death knight is at least 55),
+   and places it beside you (`PlaceNear`).
 3. **Character.** Exactly as the forge builds a seat: `InitTalentForLevel` on your map, `SeatCharacter::Configure`
-   (spec, standard talents and glyphs, trainer spells, gear with enchants and gems; non-PvP) and `PrepareFighter` (no
-   XP, a warrior's stance, a hunter's stable offer).
+   (a random spec of the role, its standard talent build and glyphs, trainer spells, gear with enchants and gems;
+   non-PvP) and `PrepareFighter` (no XP, a warrior's stance, a hunter's stable offer).
 4. **Group.** If you have no group, one is created with you as leader. The companion is added as a normal member.
 5. **Supplies.** `Restock`: potions, bandages, stones and flask, plus food and drink for layouts with the gauntlet
    block, stocked after joining so a warlock in the group hands out healthstones.
 6. If its model isn't available, the reply says so. The companion then only follows you.
 
+### Where companions go with you
+
+Companions follow you through every loading screen (`CompanionParty::Update`, `UpdateMember`):
+
+- **Another map or an instance.** As soon as you arrive, each companion is brought to you, into the same instance with
+  your group's difficulty, in or out of combat. Entry requirements don't apply to it. Only an instance that refuses
+  anyone at that moment (full, or a raid encounter in progress) keeps it out until it takes it.
+- **Transports.** A companion boards a transport when you do and steps off when you step off, through a map change
+  too.
+- **Flight paths and vehicles.** While you are on one, the companions leave the world (they are *parked*). When you
+  are off it, they come back beside you, wherever you landed.
+- **Battlegrounds and arenas.** Companions wait where you left them and rejoin you when you come back.
+- **Other teleports** a companion starts itself (a summoning spell, a transport changing maps) complete as a client
+  would acknowledge them.
+
+A companion never answers an instance's lock warning, so it is only ever bound to an instance temporarily.
+
 ### The party as an env
 
 `CompanionParty` stands in for a training env. **You are the owner, the companions are the seats, and whatever is
-fighting any of you is the current pull.** Every world update (`Update`):
+fighting any of you is the current pull.** Every world update:
 
 **Tracking the pull** (`UpdatePull`). Enemies are units that attack you, a companion, or any of your pets, plus the
 units you and the companions attack. Only living, valid attack targets on your map count.
 
 - A new enemy takes a free slot (up to 4). Once all slots are taken, it replaces a slot whose enemy is dead or gone.
 - The first enemy of a pull starts a new **episode** if none has started yet, or if the party has been quiet for at
-  least 20 s (`NEW_EPISODE_QUIET_MS`). A new episode resets pulls cleared and restocks every living companion, just as
-  training starts every episode with full bags.
+  least 20 s (`NEW_EPISODE_QUIET_MS`). A new episode resets pulls cleared, restarts the episode clock the models
+  observe, and restocks every living companion, just as training starts every episode with full bags.
 - The pull ends once no enemy in it is alive and still fighting (dead, gone, or evaded home). Then pulls cleared is
   incremented, slots and target selections reset, and the quiet timer starts.
 
 **Each companion** (`UpdateMember`):
 
-- **Another map.** While you are in an instance, the companion waits where it is. When you are back in the open world,
-  it teleports to you.
 - **Dead.** It accepts a pending resurrection at once, as a client would. Otherwise, once the party is quiet, you are
   alive and out of combat, and it has been dead 10 s, it stands up with half health.
 - **Out of combat.** More than 100 yd away: teleport to you. With a model and more than 30 yd away: run back behind
@@ -135,8 +163,8 @@ units you and the companions attack. Only living, valid attack targets on your m
    level's damage scale, damage taken divided by max health (both from the module's `DealDamage` hook, stored in
    atomics because map threads write them), and the power change.
 3. Choose the target: the selected enemy slot, or the nearest living enemy (which becomes the selection).
-4. Build the `SeatView`: you as the owner, the other companions as teammates, the enemy slots, pull timing, supplies,
-   stable. Run `SeatEncoder::Observe`.
+4. Build the `SeatView`: you as the owner, the other companions as teammates, the enemy slots, pull timing, the
+   episode clock (time since the episode started / 5 min), supplies, stable. Run `SeatEncoder::Observe`.
 5. With no target and a layout that can't act without one, stop.
 6. `MlpPolicy::Decide` picks the highest-scoring allowed action. `SeatEncoder::Apply` performs it as a client would:
    casts, item uses, movement, target selection, pet commands, heals and resurrections on party members. A called
@@ -164,8 +192,9 @@ Policies: `model` (each seat's exported model; the default `Animus.Stage.Policy`
 ### Lifecycle
 
 **Begin** (`StageViewer::Begin`). The stage, policy and arena are checked. A named arena forces that arena for every
-episode; otherwise arenas are drawn by weight. The spawn map must be instanceable. The game master is teleported with
-GM mode to `Animus.Stage.SpawnPoint.*` (default: the forge's own spawn point, the Old Hillsbrad Foothills entrance),
+episode; otherwise arenas are drawn by weight. The spawn map must be instanceable. GM mode is turned on as `.gm on`
+would (the reply says so, and it stays on after the stage stops), and the game master is teleported to
+`Animus.Stage.SpawnPoint.*` (default: the forge's own spawn point, the Old Hillsbrad Foothills entrance),
 which creates or enters an instance of that map. Starting a stage replaces the one you already watch. At most
 `Animus.Stage.MaxViewers` (4) stages run at once, and each takes the lowest free env id, which keeps bot accounts and
 names apart.
@@ -205,8 +234,9 @@ more than once.
 
 ### Watching a stage as it was trained
 
-- **Use `.gm on`.** The stage's creatures and enemy players choose their targets among the seats and the owner, but a
-  visible player in the middle of a pull can still be attacked. Your presence changes nothing the seats observe.
+- **GM mode is on.** `.animus stage start` turns it on, so the stage's creatures and enemy players, which choose their
+  targets among the seats and the owner, leave you alone. Turning it off in the middle of a pull lets them attack you.
+  Your presence changes nothing the seats observe.
 - **Match the settings** to the forge run: `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*`
   like the run's `AnimusForge.*` keys, and `Animus.Curriculum.*` like the run's `stage.json` `"tuning"`.
   `Animus.Stage.ClassRoles` only chooses which characters appear. Unlike the forge's list, it doesn't change what the

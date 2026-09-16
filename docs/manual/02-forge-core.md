@@ -5,12 +5,6 @@ a fixed-step world loop, a simulated clock, and the client and persistence paths
 narrow. It knows nothing about bots, rewards or learners. It provides a world that runs as fast as the CPU allows,
 never writes bot state to MySQL, and gives modules a small number of seams.
 
-> **Branch state.** This chapter describes the branch as the modules need it. Some pieces, marked *(in progress)* below,
-> were still uncommitted changes in the forge checkout when this was written: the 64-bit game-time timestamps,
-> `WorldSession::SetSimSession`, `Group::SetSimGroup`, `Player::SetSocial` and `rand_seed` (`RandomSeed.h`).
-> mod-animus-forge calls the session, group and seed seams from `src/Hooks/AnimusForgeScripts.cpp`, so it only builds
-> against a core that has them.
-
 ## 2.1 Rules the fork follows
 
 **No gating.** No `Sim.Enabled` switch exists and no path falls back to stock behaviour. The binary is always a
@@ -91,8 +85,8 @@ while (!World::IsStopped())
   path shows up in the log.
 - `maxTicks` (a `constexpr`, 0) is a hook for batch runs that should stop after N ticks.
 
-Before the 64-bit clock work *(in progress)*, the loop also stopped the server when the game clock approached
-UINT32_MAX minus `infinityCooldownDelay` (about 19.7 game days). At 100 ms per tick and thousands of ticks per second,
+Before the 64-bit clock work, the loop also stopped the server when the game clock approached UINT32_MAX minus
+`infinityCooldownDelay` (about 19.7 game days). At 100 ms per tick and thousands of ticks per second,
 that limit arrived within hours. The budget check is gone now that the timestamps it protected are 64-bit (see 2.4).
 
 ## 2.4 The game clock
@@ -131,7 +125,7 @@ These remain on the wall clock on purpose, because the sim drops them from the t
 time sync, movement client sync, LFG, arena spectator, WorldState, GameEventMgr, Battlefield, transport first-departure
 sync, scourge invasion, midsummer, `cs_mmaps`, UpdateTime.
 
-**64-bit timestamps *(in progress)*.** Absolute timestamps compared against game time are now `uint64` milliseconds,
+**64-bit timestamps.** Absolute timestamps compared against game time are now `uint64` milliseconds,
 so no clock budget is needed:
 
 - player and creature spell cooldown ends (`SpellCooldown::end`, `CreatureSpellCooldown::end`), including the
@@ -195,6 +189,12 @@ map id. It never holds players itself, because they are in its child instances. 
   every finished instance,
 - only an empty child's `Update()` is skipped (it is waiting to unload, or for bots to arrive).
 
+**The map update pool can be restarted.** `forge bench` switches `MapUpdate.Threads` between trials by deactivating
+the `MapUpdater` pool and activating it again at the next count. Stock `MapUpdater::deactivate()` leaves its
+cancellation token set and its queue cancelled, so a reactivated pool would look running while dropping every
+request and the world thread would wait forever for a decision's map updates. `MapUpdater::activate` now clears the
+token and calls `PCQueue::Reset` (`common/Threading/PCQueue.h`) before starting its workers.
+
 ## 2.7 No clients
 
 No client sockets exist, so everything that only builds packets returns immediately. Each site carries
@@ -231,12 +231,12 @@ grows without bound.
   `Player::UpdateAdditionalSaves` drops queued partial saves (inventory, quests, achievements).
 - **Achievements.** Every `AchievementMgr` entry point returns immediately (update, criteria, timed achievements,
   completion, save, packets). Bots don't use achievements.
-- **Sim sessions *(in progress)*.** `WorldSession::SetSimSession(true)` marks a session whose account and characters
+- **Sim sessions.** `WorldSession::SetSimSession(true)` marks a session whose account and characters
   exist only in memory. On such a session, logout skips marking the account's characters offline
   (`CHAR_UPD_ACCOUNT_ONLINE`), the destructor skips the `account.totaltime` update, and
   `InstanceSaveMgr::PlayerBindToInstance` skips the instance bind rows. The bind statements are now built
   only when executed, because an unexecuted prepared statement would leak.
-- **Sim groups *(in progress)*.** `Group::SetSimGroup(true)` (set before `Create`) makes a group that works like a
+- **Sim groups.** `Group::SetSimGroup(true)` (set before `Create`) makes a group that works like a
   normal party or raid (membership, party spells, shared kills) but has no group or member rows and no character
   cache entries. Joining never resets instance binds, and leaving or disbanding never starts homebind timers or
   deletes instance save data. `Group::IsPersisted()` is the single test for "not a battleground, battlefield or sim
@@ -253,7 +253,7 @@ core.
 | `WorldSession::SetSimSession(bool)` | `CoreHooks::MarkSimSession` | Every bot session (`BotFactory::Create`) |
 | `Group::SetSimGroup(bool)` | `CoreHooks::MarkSimGroup` | The party stage's group, rebuilt every episode |
 | `rand_seed(uint32)` in `common/Utilities/RandomSeed.h` | `CoreHooks::SeedRandom` | Seeded evaluation episodes |
-| `Player::SetSocial(PlayerSocial*)` | (not used) | Bots never run `LoadFromDB`, which normally attaches the social list. animus-lib assigns the private member directly so it also works on a stock core |
+| none | (no seam) | Bots never run `LoadFromDB`, which normally attaches the social list. The core has no setter for it, so `BotFactory::Create` assigns the private `Player::m_social` through an explicit template instantiation, which works on any core |
 
 `rand_seed(seed)` calls `SFMTRand::Seed` on the calling thread's generator, so `urand`, `irand`, `frand` and
 `rand_norm` restart from `seed`. Seed 0 reseeds from `std::random_device`. Other threads are unaffected. Resets run on
@@ -276,15 +276,15 @@ image carries that prefix, and host ports differ from stock, so it can run besid
 
 `ac-worldserver` runs `apps/docker/forge-worldserver.sh` on every start:
 
-1. **Build if needed.** It runs `acore.sh compiler build` when `env/dist/bin/worldserver` doesn't exist, or when
+1. **Build if needed.** It runs `acore.sh compiler configure` and then `compile` (so added and removed source files
+   are picked up) when `env/dist/bin/worldserver` doesn't exist, or when
    `./forge.sh --build` left `env/dist/.forge-build`. The request file is removed only after a successful build.
 2. **Restore config files.** It copies mod-animus-forge's `.conf.dist` into `env/dist/etc/modules/` if it is missing,
    and creates any missing `.conf` from its `.dist`. Existing files are never overwritten.
-3. **Prepare the Python venv.** `apps/docker/animus-venv.sh` *(in progress; the committed script creates the venv
-   inline, on first start only)* checks `modules/mod-animus-forge/python/.venv` and installs whatever is missing:
-   torch (from `ANIMUS_TORCH_INDEX_URL` if set, otherwise PyPI) and the learner with `[tensorboard,dev]`. The venv lives
-   on the bind mount, so both containers share it. `ac-dev-server` runs the same script on start, so `pytest` works
-   there.
+3. **Prepare the Python venv.** `apps/docker/animus-venv.sh` checks `modules/mod-animus-forge/python/.venv` on
+   every start and installs whatever is missing: torch (from `ANIMUS_TORCH_INDEX_URL` if set, otherwise PyPI) and the
+   learner with `[tensorboard,dev]`. The venv lives on the bind mount, so both containers share it. `ac-dev-server`
+   runs the same script on start, so `pytest` works there.
 4. **Start TensorBoard** on `<AC_ANIMUS_FORGE_OUTPUT_DIR>/runs` (`/azerothcore/var/animus-forge/runs` by default).
 5. **`exec ./worldserver`**, in the foreground so its console is the container's terminal.
 
@@ -302,8 +302,8 @@ Plain `docker compose up` only streams logs, because Compose never forwards the 
 rebuilds images, never the worldserver binary.
 
 Machine-specific settings go in a gitignored `docker-compose.override.yml`: GPU passthrough (commented NVIDIA and AMD
-examples are in `docker-compose.yml`), a ROCm `ANIMUS_TORCH_INDEX_URL`, and `CCUSTOMOPTIONS: "-DMODULE_MOD-ANIMUS=disabled"`
-so a checked-out mod-animus is never built into the forge.
+examples are in `docker-compose.yml`), a ROCm `ANIMUS_TORCH_INDEX_URL`, and
+`CCUSTOMOPTIONS: "-DMODULE_MOD-ANIMUS=disabled"` so a checked-out mod-animus is never built into the forge.
 
 ## 2.11 Divergence map
 
@@ -312,13 +312,14 @@ so a checked-out mod-animus is never built into the forge.
 | Entry point | `apps/CMakeLists.txt`, `apps/worldserver/ForgeMain.cpp` | `Main.cpp` excluded, new `main()` |
 | World tick | `World/World.{h,cpp}`, `Forge/ForgeWorld.cpp` | Replacement member |
 | Map tick | `Maps/MapMgr.{h,cpp}`, `Maps/MapInstanced.{h,cpp}`, `Forge/ForgeMapMgr.cpp` | Replacement members |
+| Map update pool | `Maps/MapUpdater.cpp`, `common/Threading/PCQueue.h` | Restartable after `deactivate` |
 | Object updates | `Maps/Map.{h,cpp}`, `Forge/ForgeMap.cpp` | Replacement member |
 | Game clock | `Time/GameTime.h`, `Forge/ForgeGameTime.cpp`, plus the sites in 2.4 | New function, in-place conversions |
-| 64-bit timestamps *(in progress)* | Creature, CreatureData, GameObject, Pet, Player, Unit, Spell, BattlegroundSA, spell_druid, spell_generic | Type changes |
+| 64-bit timestamps | Creature, CreatureData, GameObject, Pet, Player, Unit, Spell, BattlegroundSA, spell_druid, spell_generic | Type changes |
 | Packets | Object, Player, PlayerUpdates, Bag, Unit, Spell, SpellAuras, MoveSplineInit | Early returns |
 | Persistence | PlayerStorage, PlayerUpdates, AchievementMgr | Early returns |
-| Sim sessions and groups *(in progress)* | WorldSession, Group, InstanceSaveMgr | New flags, guarded writes |
-| Seeding *(in progress)* | `common/Utilities/RandomSeed.h`, `Random.cpp`, `SFMTRand.{h,cpp}` | New API |
+| Sim sessions and groups | WorldSession, Group, InstanceSaveMgr | New flags, guarded writes |
+| Seeding | `common/Utilities/RandomSeed.h`, `Random.cpp`, `SFMTRand.{h,cpp}` | New API |
 | Scripts | TaskScheduler, boss_jeklik, zone_howling_fjord, boss_xt002, spell_paladin | Clock fixes |
 | Ops | `docker-compose.yml`, `forge.sh`, `apps/docker/forge-worldserver.sh`, `apps/docker/animus-venv.sh`, `Dockerfile.dev-server`, `.devcontainer/devcontainer.json`, `design-doc.md` | New or rewritten |
 

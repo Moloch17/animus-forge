@@ -50,5 +50,6 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
   `AC_ANIMUS_FORGE_DECISION_MS`.
 - "Game time" is simulated time and "wall time" is real time. On the forge core the two are unrelated. That
   difference is behind most of the core's changes.
-- The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are shorter operational
-  references. Where this manual and a README disagree, the source code is authoritative. Please report the mismatch.
+- The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are overviews that link
+  into this manual; the detail lives here. Where the manual and the source code disagree, the code is authoritative.
+  Please report the mismatch.

@@ -123,8 +123,8 @@ To exercise stage targets and restarts as well:
 forge start
 ```
 
-With an empty `AnimusForge.Queue`, this trains every default-queue stage in order (1, 2, 3, 4, 5, 6, 7, 8), skipping any
-stage whose run already advanced. Each stage:
+With an empty `AnimusForge.Queue`, this trains every default-queue stage in order (stages 1 to 11; the `mix_duel_pvp`
+pilot only when named), skipping any stage whose run already advanced. Each stage:
 
 1. builds its env pool (world stalls for a few seconds per class/role on the first build),
 2. writes `layouts/<stage>/`,
@@ -219,18 +219,17 @@ The plan stops with outcome `below target` and the learner exits 3.
 
 4. **Load.** Models load on first use. On a running realm, `.reload config` resets the model cache.
 
-5. **Verify** in game: `.animus summon warrior_tank`, then `.animus list`. A model that is refused shows the reason,
-   and the log says `Animus model <name> not loaded: <reason>`.
+5. **Verify** in game: `.animus summon human warrior tank`, then `.animus list`. A model that is refused shows the
+   reason, and the log says `Animus model <name> not loaded: <reason>`.
 
 The realm's animus-lib must build the same manifests. Use the animus-lib revision the forge trained with, and the same
 world database and DBC data, because trainer spells and the spell catalog come from them.
 
 ## 7.7 Watching a stage in game
 
-On a stock realm with mod-animus and the models:
+On a stock realm with mod-animus and the models (`.animus stage start` turns GM mode on for you):
 
 ```
-.gm on
 .animus stage start stage5_party model
 .animus stage status
 .animus stage reset
@@ -342,14 +341,15 @@ restart before the stage starts. The value is recorded in the run's `stage.json`
 
 ### Add a standalone scenario
 
-Implement `Animus::Scenario`, create it in `CreateScenario` and list it in `ScenarioNames` (`src/Scenario/Scenario.cpp`),
-and write a learner config. The protocol and learner are shape-generic. For more than one agent per env, provide a real
-global `State`.
+Implement `Animus::Scenario`, create it in `CreateScenario` and list it in `ScenarioNames`
+(`src/Scenario/Scenario.cpp`), and write a learner config. The protocol and learner are shape-generic. For more than one
+agent per env, provide a real global `State`.
 
 ### Change a spec build
 
-Edit `tools/spec_builds/builds.py`, run `validate.py`, then `generate.py` to rewrite `SpecBuilds.cpp`. Talent features
-change, so models of that class/role must be retrained.
+Edit `tools/spec_builds/builds.py`, run `validate.py`, then `generate.py` to rewrite `SpecBuilds.cpp`. After a rebuild,
+`forge talents <class_role> [spec] [points] [plan]` prints the build a character gets at any point count, under any of
+the three talent plans. Talent features change, so models of that class/role must be retrained.
 
 ## 7.10 Changing the forge core
 
@@ -363,8 +363,11 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 - **Measure it: `forge bench`.** It times the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then runs the
   fastest few again with the real learner (x `Bench.LearnerTorchThreads`), and reports the env steps per second of
   each. Trials run in `<OutputDir>/bench/` with evaluation, seeding and distillation off, so no real run is touched;
-  the results are in `bench/bench.json`, and `forge bench apply` writes the winner into `worldserver.conf` and
-  `mod_animus_forge.conf` (backing both up). `forge cancel` stops a sweep and restores the configured thread count.
+  the results are in `bench/bench.json`, and `forge bench apply` writes the winner in place: `MapUpdate.Threads` into
+  `worldserver.conf`, `AnimusForge.Envs` and (when a torch thread count won) `AnimusForge.Learner.TorchThreads` into
+  `mod_animus_forge.conf`, backing each file up as `<file>.before-bench`. The thread count takes effect when the
+  worldserver restarts, the env count at the next `forge start`. `forge cancel` stops a sweep and restores the
+  configured thread count.
 - **Know which side is the bottleneck.** `forge status` shows env steps per second and where a decision's wall time
   goes: **world** (the map update, spread over `MapUpdate.Threads`; every env is its own instance), **sim** (this
   module's rewards, observations and actions, on the world thread, linear in envs) and **learner** (blocked on its
@@ -410,7 +413,7 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 | "waiting for learner" forever | Auto-start failed (see the server log and `animus-learner.log`), or `AutoStart = 0`. Run the printed command by hand |
 | The learner exits right after connecting | Config error (unknown key, wrong type), target validation (a gate on a missing metric), or a resume mismatch. See `animus-learner.log` |
 | "cannot resume ...: the scenario's layouts changed" | Shapes changed since the checkpoint. Use `forge start <stage>` instead |
-| "trunk.…: the trunk in the checkpoint does not match (hidden sizes must be equal)" | The stage's `mappo.hidden` differs from the ancestor's. Keep `[512, 512]` across stages |
+| "trunk.…: the trunk in the checkpoint does not match (hidden sizes must be equal)" | The stage's `mappo.hidden` differs from the ancestor's. Keep `[256, 512, 512]` across stages |
 | A stage always starts "from scratch" | Its ancestors have no `best.pt`/`latest.pt` in this `runs/`. Train them first, or move old runs from `modules/mod-animus-forge/python/runs/` to `var/animus-forge/runs/` |
 | "Stage X is left out: ..." at startup | A definition broke a validation rule (4.1). Fix `Stages.cpp` |
 | Evaluation "stopped after N decisions with k of M episodes" | Episodes are longer than `SPEC.EpisodeSeconds` suggests, or envs are stuck rebuilding. Check for "could not build its episode" errors |
@@ -419,4 +422,5 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 | Realm refuses a model: "its manifest differs" | Different animus-lib revision, world database or DBC data than training. Retrain with the realm's, or align versions |
 | Realm: "no layout manifest ... beside the model" | Copy the `.json` next to the `.amdl`. The CMake install step copies only `.amdl` |
 | Companion only follows you | Its model is missing or refused (`.animus list`), or it has no target and can't act without one |
-| Stage viewer: "you are not in an instance of its map" | `Animus.Stage.SpawnPoint.MapId` isn't instanceable, or the teleport failed (level or attunement requirements). GM mode helps |
+| Stage viewer: "you are not in an instance of its map" | `Animus.Stage.SpawnPoint.MapId` isn't instanceable, or the teleport failed within 60 s |
+| Not enough detail in the log | Set `Logger.module.animus=1,Console Server` in `worldserver.conf` for debug-level Animus logging (both modules and animus-lib log under `module.animus`) |

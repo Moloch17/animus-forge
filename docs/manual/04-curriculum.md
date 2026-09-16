@@ -40,7 +40,7 @@ stages.push_back({
     .Suffix = "_companion",              // model names: warrior_tank_companion
     .Extends = "stage3_gauntlet",        // seeds from it (the trunk)
     .Summary = "the gauntlet beside a scripted owner: follow, assist, guard and heal it",
-    .Blocks = { Core, Duel, Pack, Gauntlet, Companion },   // layout order
+    .Blocks = { Core, Duel, Pet, Pack, Gauntlet, Companion },   // layout order
     .Arenas = { { .Name = "companion", .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
                   .Owner = true } },
 });
@@ -133,8 +133,10 @@ every `Reset` calls `Rebuild`:
 5. **Pick the seats.** A party arena draws its size from `Party.SizeWeight1-4`. Half the time
    (`Party.ClassicChance`) the roles are the classic tank, healer, DPS, DPS in shuffled order. Otherwise each seat's
    role is drawn (`RoleTankChance`, `RoleHealerChance`). Each seat then takes a random layout of its role, or any layout
-   if the run has none of that role. Other arenas give every seat a uniformly random layout. Seats beyond the active
-   count get no layout and no bot.
+   if the run has none of that role. Other arenas give every seat any layout. A training episode draws it by the
+   learner's per-layout weights (`WEIGHTS`, evenly without them); an evaluation episode doesn't draw at all: seed
+   *i* plays candidate *(i + seat) mod count*, so every class/role is scored on an equal share of the seeds. Seats
+   beyond the active count get no layout and no bot.
 6. **Pick one level** every seat's class can be (death knights start at 55). It is `StageSettings::Level` if set;
    otherwise `Characters.HighLevelChance` percent of the time a level from `HighLevelFirst` to 80, else any level from
    the class minimum to 80.
@@ -323,7 +325,7 @@ how busy a seat was.
 
 | Block | Observation (summary) | Actions |
 |---|---|---|
-| `core` | 61 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
+| `core` | 62 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
 | `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
@@ -336,11 +338,14 @@ how busy a seat was.
 | `travel` (16) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing and height; at the objective; in combat; speed; moving | Mount the fastest ground mount, mount the fastest flying mount, dismount, move to the objective (by path, or straight in the air), climb 15 yd, descend 15 yd |
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 
-The core block's 61 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
+The core block's 62 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
-last-step power change. All are normalised (see `Blocks/CoreBlock.h` for the scale of each).
+last-step power change; time into the episode (/ 5 min, `EPISODE_TIME_SCALE_MS`). All are normalised (see
+`Blocks/CoreBlock.h` for the scale of each). The episode time is elapsed time, not the share of the limit left: a
+companion has no limit, and without a clock a bot standing still out of combat sees the same row every decision, so a
+deterministic policy can repeat a loop forever.
 
 Movement and casting constrain each other: movement actions are masked while casting, and cast-time or channelled
 spells are masked while running. The bot turns to face its target whenever it isn't running. Stop casting and cancel
@@ -418,9 +423,9 @@ a flag match. PvP arenas allow no self-resurrection.
 rules.
 
 - Beside pulls (`ambush` arena), they arrive `Ambush.MinMs`-`MaxMs` (20-120 s) into the episode, engage within
-  `EngageMaxMs`, attack the owner while it lives and then the nearest seat they can see (a hidden one only when they
-  see none). They take enemy slots the pulls leave free (a pull has at most 4 minus the arena's ambushers creatures). Every seat earns `Ambush.Kill` (3) per ambusher killed,
-  and the pulls and owner rewards pay the rest.
+  `EngageMaxMs`, attack the owner while it lives and then the nearest seat they can see (a hidden one only when they see
+  none). They take enemy slots the pulls leave free (a pull has at most 4 minus the arena's ambushers creatures). Every
+  seat earns `Ambush.Kill` (3) per ambusher killed, and the pulls and owner rewards pay the rest.
 - Alone (`escort_duel`, `Opposition::Ambush`), exactly one ambusher is the whole fight from the start, paid as a
   one-on-one against it.
 
@@ -480,9 +485,12 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
   out of Shadowmeld; it can't be repeated without earning stealth back), +0.05 for one that keeps it (Sap, Distract,
   Premeditation), once per target per stealth so it can't be farmed
 - casting: -0.03 per second already spent on a cast-time spell that didn't finish, +0.03 per second of cast time for
-  each one that finished in combat (channels pay through their ticks)
-- kill: +2, plus up to +3 for the share of the episode length left since the fight was engaged (the bot or its opponent
-  entered combat), plus up to +2 for the share of health kept. The approach, stealth and preparation before engaging
+  each one that finished in combat (channels pay through their ticks), and -0.05 for each cast the seat cut short
+  itself (the stop-casting action, or moving out of its own cast), however little of it had run, so a start/stop loop
+  costs more than an episode can earn. An enemy's interrupt costs only the seconds lost
+- kill: +3, plus up to +3 for the share of the episode length left since the fight was engaged (the bot or its opponent
+  entered combat), plus up to +0.5 for the share of health kept (damage taken is already charged as it happens, so a
+  larger share would pay for surviving over winning). The approach, stealth and preparation before engaging
   cost only the discount
 - death: -3 each time, including after a self-resurrection. With a self-resurrection available the seat has
   `Resurrection.GraceMs` to use it before the episode ends
@@ -536,9 +544,12 @@ objective changes, so a flag changing hands pays nothing by itself.
   2. with the gauntlet block and no target: eat when health is low, drink when mana is low,
   3. with the companion block and ally heals: heal a living, hurt owner (cancel a form first if needed),
   4. with the party block: heal the first hurt, living teammate a heal can reach,
-  5. start auto-attack,
-  6. move to a living target that is far away while not already moving,
-  7. otherwise `greedy`.
+  5. with the pet block and a pet class: out of combat with no living pet, call a stable beast or cast the best summon
+     (Felguard, Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental); with a pet out, send it at the
+     target,
+  6. start auto-attack,
+  7. move to a living target that is far away while not already moving,
+  8. otherwise `greedy`.
 
 They are the reference numbers a trained policy has to beat (evaluation baseline) and a mechanics smoke test
 (`forge run <stage> fight`).
@@ -553,8 +564,9 @@ The centralised critic sees a class-agnostic global state of the env. `StateDim 
 | Per seat (4 x 23) | Present, alive, health, mana, other power, level / 80, role one-hot (3), class one-hot (10), in combat, casting, x, y |
 | Per enemy slot (4 x 14) | Present, alive, health, x, y, casting, elite, level difference / 5, in combat, victim is the owner, victim is seat s (4) |
 
-The episode time fraction appears only in the critic state, never in an observation, because live play has no
-episodes. In self-play, each seat's opponent is the other seat and already appears in the seat part.
+The episode time *fraction* (the share of the episode's own limit spent) appears only in the critic state, because live
+play has no time limit. Observations carry elapsed episode time instead (the core block's last global feature). In
+self-play, each seat's opponent is the other seat and already appears in the seat part.
 
 ## 4.9 Tuning
 
@@ -564,10 +576,11 @@ writing. Min/max pairs are put in order on load.
 
 | Group | Controls |
 |---|---|
-| `Characters.*` | High-level threshold and chance, and how talent points are spent |
+| `Characters.*` | High-level threshold and chance, how talent points are spent, how often a pet class starts with its pet out |
 | `Party.*` | Size weights, classic makeup chance, role chances, teammate reward weights |
 | `Duel.*` | One-on-one reward weights and preferred ranges |
-| `Casting.*` | Cast time wasted and completed |
+| `Casting.*` | Cast time wasted and completed, the charge per self-inflicted cancel |
+| `Actions.*` | Pacing: how soon the same action, the same movement order, a stop of a new cast and a recast of a stopped spell are allowed again |
 | `Pulls.*` | Linked, elite and higher-level chances, pull timing, owner engage timing, recovery fraction, pull reward weights |
 | `Owner.*` | Level spread, role chances, owner reward weights, follow distances |
 | `Resurrection.*` | Grace period, revive reward |
@@ -643,14 +656,22 @@ Pets are played as a player has them:
   Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental) when no living pet is out, and sends the pet at
   the target, so the per-class/role gates of pet classes compare with a character that plays its pet.
 
-Learner (`configs/stage1_duel.yaml`, the root every other config extends): hidden `[512, 512]` (every stage keeps
-these sizes, or the trunk can't be copied), gamma 0.997 and lambda 0.985 per 100 ms of game time
-(`reference_decision_ms`, compounded to `AnimusForge.DecisionMs` so horizons stay the same in seconds: a ~33 s horizon
-and a ~5.5 s GAE credit trace, printed at start), clip 0.2, entropy 0.01, learning rates 3e-4, 4 epochs, 8 minibatches,
-rollout 128. Budget 300M env steps. Evaluation every 10M steps on 128 seeds against `fight`.
-Convergence patience 5, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps. Target: 10% over
-baseline overall and at least baseline for every class/role (16+ episodes), confirmed on 512 held-out episodes. Up to
-2 restarts with 3x entropy decaying over 10M steps.
+Learner (`configs/stage1_duel.yaml`, the root every other config extends):
+
+- **Networks:** hidden `[256, 512, 512]`: a 256-wide adapter per class/role and a two-layer 512-wide shared trunk,
+  which puts the capacity where every class/role trains it. Every stage keeps these sizes, or the trunk can't be
+  copied.
+- **PPO:** gamma 0.997 and lambda 0.985 per 100 ms of game time (`reference_decision_ms`, compounded to
+  `AnimusForge.DecisionMs` so horizons stay the same in seconds: a ~33 s horizon and a ~5.5 s GAE credit trace, printed
+  at start), clip 0.2, entropy 0.01 with an entropy floor at 30% of `ln(legal actions)` (boosted up to 4x), learning
+  rates 3e-4, 4 epochs stopped early past approx KL 0.04, 8 minibatches, rollout 128 with overlapping updates, value
+  normaliser beta 0.99, advantages normalised per class/role. Budget 300M env steps.
+- **Evaluation:** every 10M steps and at the start, 1024 seeded episodes against `fight`. Training episodes lean
+  toward the class/roles furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
+- **Convergence:** patience 3, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps.
+- **Target:** 10% over baseline overall and at least baseline for every class/role (16+ episodes, 1 standard error of
+  slack), every fight won outright (`clean_kill` 1.0) and no livelocks, overall and for every class/role; confirmed on
+  2048 held-out episodes. Up to 2 restarts with 3x entropy decaying over 10M steps and fresh optimizers.
 
 ### Stage 2: `stage2_pack`
 
@@ -680,10 +701,10 @@ least 60M steps, a party-focused report.
 
 ### Stage 6: `stage6_pvp`
 
-The PvP branch. It extends the duel and keeps only core and duel, adding pvp. The pack, gauntlet, companion and party
-blocks aren't in its layouts, so the PvP line can train right after the duel. Scored against `fight`. Config: gamma
-0.999 and lambda 0.99, as a fight turns on what happened tens of seconds before (a stealthy approach, a trinket baited
-out).
+The PvP branch. It extends the duel and keeps only core, duel and pet, adding pvp. The pack, gauntlet, companion and
+party blocks aren't in its layouts, so the PvP line can train right after the duel. Scored against `fight`. Config:
+gamma 0.999 and lambda 0.99, as a fight turns on what happened tens of seconds before (a stealthy approach, a trinket
+baited out).
 
 ### Stage 7: `stage7_arena`
 
