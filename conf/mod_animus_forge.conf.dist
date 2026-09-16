@@ -286,17 +286,21 @@ AnimusForge.Bench.Policy = "fight"
 #
 #    AnimusForge.Bench.Threads
 #        Description: MapUpdate.Threads values to try, comma-separated. The sim switches the map update
-#                     pool between trials, so no restart is needed while benchmarking.
-#        Default:     "2, 4, 8, 12, 16, 24"
+#                     pool between trials, so no restart is needed while benchmarking. Every trial rebuilds
+#                     the env pool, so a trial costs its warm-up and measured decisions plus that build:
+#                     keep the grid to the counts worth telling apart. More threads than the machine has
+#                     cores, once the learner's own threads are counted, only adds trials.
+#        Default:     "4, 8, 12, 16"
 
-AnimusForge.Bench.Threads = "2, 4, 8, 12, 16, 24"
+AnimusForge.Bench.Threads = "4, 8, 12, 16"
 
 #
 #    AnimusForge.Bench.Envs
-#        Description: AnimusForge.Envs values to try, comma-separated.
-#        Default:     "32, 64, 128, 256"
+#        Description: AnimusForge.Envs values to try, comma-separated. Big env counts cost the most to
+#                     build and to hold, so try the few that could win rather than a wide ladder.
+#        Default:     "64, 128, 192"
 
-AnimusForge.Bench.Envs = "32, 64, 128, 256"
+AnimusForge.Bench.Envs = "64, 128, 192"
 
 #
 #    AnimusForge.Bench.MaxEnvs
@@ -307,20 +311,22 @@ AnimusForge.Bench.MaxEnvs = 256
 
 #
 #    AnimusForge.Bench.WarmupTicks
-#        Description: Decisions a trial runs before it is timed: the first episodes, and for a learner trial
-#                     its start-up and first update.
-#        Default:     300
+#        Description: Decisions a sim-only trial runs before it is timed, so the first episode (which every
+#                     env starts together) and the cold caches are behind it.
+#        Default:     128
 
-AnimusForge.Bench.WarmupTicks = 300
+AnimusForge.Bench.WarmupTicks = 128
 
 #
 #    AnimusForge.Bench.MeasureTicks
-#        Description: Decisions timed per trial. Long enough to cover several learner updates (its rollout
-#                     is rollout_length decisions, 128 by default), or a learner trial only measures the
-#                     rollout and not the update.
-#        Default:     1200
+#        Description: Decisions timed per sim-only trial. What the window has to average over is episode
+#                     ends: an env rebuilds its character there, and that rebuild is part of what training
+#                     costs. Episodes end on the kill well before the 60 s limit, so at 64 envs a few
+#                     hundred decisions already cover a hundred or so of them and the rate settles to a few
+#                     percent. Raise it if trials of the same settings disagree by more than that.
+#        Default:     384
 
-AnimusForge.Bench.MeasureTicks = 1200
+AnimusForge.Bench.MeasureTicks = 384
 
 #
 #    AnimusForge.Bench.MaxMemoryPercent
@@ -333,10 +339,28 @@ AnimusForge.Bench.MaxMemoryPercent = 80
 #
 #    AnimusForge.Bench.LearnerTop
 #        Description: How many of the fastest sim trials run again with the real learner, which is what
-#                     training actually costs. 0 = sim only.
-#        Default:     3
+#                     training actually costs. Each one starts a learner of its own, so this is the
+#                     expensive phase; two is enough to tell the top settings apart. 0 = sim only.
+#        Default:     2
 
-AnimusForge.Bench.LearnerTop = 3
+AnimusForge.Bench.LearnerTop = 2
+
+#
+#    AnimusForge.Bench.LearnerWarmupTicks
+#        Description: The learner phase's own warm-up, which also has to cover the learner starting up and
+#                     its first updates (one update per rollout_length decisions, 128 by default).
+#        Default:     384
+
+AnimusForge.Bench.LearnerWarmupTicks = 384
+
+#
+#    AnimusForge.Bench.LearnerMeasureTicks
+#        Description: Decisions timed per learner trial. Longer than the sim-only window because the cost
+#                     being measured now includes updates, which land once per rollout: this averages over
+#                     several of them.
+#        Default:     768
+
+AnimusForge.Bench.LearnerMeasureTicks = 768
 
 #
 #    AnimusForge.Bench.LearnerTorchThreads

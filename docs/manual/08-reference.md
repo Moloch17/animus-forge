@@ -32,13 +32,15 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Learner.LogFile` | `""` = `<LogsDir>/animus-learner.log` | Learner output |
 | `AnimusForge.Bench.Scenario` | `"stage1_duel"` | What `forge bench` times without a name |
 | `AnimusForge.Bench.Policy` | `"fight"` | Local policy the sim-only trials play |
-| `AnimusForge.Bench.Threads` | `"2, 4, 8, 12, 16, 24"` | `MapUpdate.Threads` values tried |
-| `AnimusForge.Bench.Envs` | `"32, 64, 128, 256"` | `AnimusForge.Envs` values tried |
+| `AnimusForge.Bench.Threads` | `"4, 8, 12, 16"` | `MapUpdate.Threads` values tried |
+| `AnimusForge.Bench.Envs` | `"64, 128, 192"` | `AnimusForge.Envs` values tried |
 | `AnimusForge.Bench.MaxEnvs` | `256` | Never try more envs than this |
-| `AnimusForge.Bench.WarmupTicks` | `300` | Decisions before a trial is timed |
-| `AnimusForge.Bench.MeasureTicks` | `1200` | Decisions timed per trial |
+| `AnimusForge.Bench.WarmupTicks` | `128` | Decisions before a sim-only trial is timed |
+| `AnimusForge.Bench.MeasureTicks` | `384` | Decisions timed per sim-only trial |
 | `AnimusForge.Bench.MaxMemoryPercent` | `80` | Skip bigger envs once memory is this used |
-| `AnimusForge.Bench.LearnerTop` | `3` | Fastest sim trials re-timed with the learner (0 = sim only) |
+| `AnimusForge.Bench.LearnerTop` | `2` | Fastest sim trials re-timed with the learner (0 = sim only) |
+| `AnimusForge.Bench.LearnerWarmupTicks` | `384` | Decisions before a learner trial is timed |
+| `AnimusForge.Bench.LearnerMeasureTicks` | `768` | Decisions timed per learner trial |
 | `AnimusForge.Bench.LearnerTorchThreads` | `"0, 8"` | Torch thread counts tried with the learner |
 | `AnimusForge.Fast.Queue` | `""` | What `forge fast` trains without names; empty = every curriculum stage in order |
 | `AnimusForge.Fast.Envs` | `32` | Fast profile envs |

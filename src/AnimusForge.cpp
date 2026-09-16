@@ -625,8 +625,13 @@ void AnimusForge::Forge::BenchTick()
     BenchTrial& trial = _benchTrials[_benchTrial];
     ForgeConfig const& config = RunConfig();
 
+    // The learner phase times a handful of settings rather than a grid, so it can afford the longer window its
+    // start-up and its updates need; the sim-only grid runs on the short one.
+    uint32 const warmupTicks = _benchLearnerPhase ? _config.Bench.LearnerWarmupTicks : _config.Bench.WarmupTicks;
+    uint32 const measureTicks = _benchLearnerPhase ? _config.Bench.LearnerMeasureTicks : _config.Bench.MeasureTicks;
+
     // The warm-up covers the first episodes and, for a learner trial, its start-up and first update.
-    if (_ticks == _config.Bench.WarmupTicks)
+    if (_ticks == warmupTicks)
     {
         _benchMeasuredFrom = std::chrono::steady_clock::now();
         _benchWorldNs = _worldNs;
@@ -635,12 +640,12 @@ void AnimusForge::Forge::BenchTick()
         return;
     }
 
-    if (_ticks < uint64(_config.Bench.WarmupTicks) + _config.Bench.MeasureTicks)
+    if (_ticks < uint64(warmupTicks) + measureTicks)
         return;
 
     double const seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - _benchMeasuredFrom).count();
-    double const ticks = double(_config.Bench.MeasureTicks);
+    double const ticks = double(measureTicks);
     uint32 const agents = _pool ? _pool->Spec().AgentsPerEnv : 1;
 
     trial.Agents = agents;
@@ -650,6 +655,8 @@ void AnimusForge::Forge::BenchTick()
     trial.SimMsPerTick = double(_simNs - _benchSimNs) / ticks / 1e6;
     trial.LearnerMsPerTick = double(_learnerNs - _benchLearnerNs) / ticks / 1e6;
     trial.MemoryMb = ResidentMb();
+    trial.WarmupTicks = warmupTicks;
+    trial.MeasureTicks = measureTicks;
     trial.Measured = true;
 
     LOG_INFO("module.animus", "Bench {} of {}: {} threads, {} envs{} -> {:.0f} env steps/s (world {:.1f} ms, sim "
@@ -807,6 +814,8 @@ void AnimusForge::Forge::BenchSave() const
     file["decision_ms"] = _config.DecisionMs;
     file["measure_ticks"] = _config.Bench.MeasureTicks;
     file["warmup_ticks"] = _config.Bench.WarmupTicks;
+    file["learner_measure_ticks"] = _config.Bench.LearnerMeasureTicks;
+    file["learner_warmup_ticks"] = _config.Bench.LearnerWarmupTicks;
     file["cores"] = uint32(std::thread::hardware_concurrency());
     file["configured_threads"] = ConfiguredMapThreads();
     file["configured_envs"] = _config.Envs;
@@ -829,6 +838,8 @@ void AnimusForge::Forge::BenchSave() const
         entry["sim_ms"] = trial.SimMsPerTick;
         entry["learner_ms"] = trial.LearnerMsPerTick;
         entry["memory_mb"] = trial.MemoryMb;
+        entry["warmup_ticks"] = trial.WarmupTicks;
+        entry["measure_ticks"] = trial.MeasureTicks;
         if (!trial.Note.empty())
             entry["note"] = trial.Note;
 

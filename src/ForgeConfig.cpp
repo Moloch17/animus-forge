@@ -212,14 +212,18 @@ void AnimusForge::ForgeConfig::Load()
     Bench = BenchSettings();
     Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage1_duel");
     Bench.Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Policy", "fight");
-    Bench.Threads = GetNumberList("AnimusForge.Bench.Threads", "2, 4, 8, 12, 16, 24");
-    Bench.Envs = GetNumberList("AnimusForge.Bench.Envs", "32, 64, 128, 256");
+    Bench.Threads = GetNumberList("AnimusForge.Bench.Threads", "4, 8, 12, 16");
+    Bench.Envs = GetNumberList("AnimusForge.Bench.Envs", "64, 128, 192");
     Bench.MaxEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MaxEnvs", 256));
-    Bench.WarmupTicks = sConfigMgr->GetOption<uint32>("AnimusForge.Bench.WarmupTicks", 300);
-    Bench.MeasureTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MeasureTicks", 1200));
+    Bench.WarmupTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.WarmupTicks", 128));
+    Bench.MeasureTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MeasureTicks", 384));
+    Bench.LearnerWarmupTicks = std::max<uint32>(1,
+        sConfigMgr->GetOption<uint32>("AnimusForge.Bench.LearnerWarmupTicks", 384));
+    Bench.LearnerMeasureTicks = std::max<uint32>(1,
+        sConfigMgr->GetOption<uint32>("AnimusForge.Bench.LearnerMeasureTicks", 768));
     Bench.MaxMemoryPercent = std::clamp<uint32>(
         sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MaxMemoryPercent", 80), 1, 100);
-    Bench.LearnerTop = sConfigMgr->GetOption<uint32>("AnimusForge.Bench.LearnerTop", 3);
+    Bench.LearnerTop = sConfigMgr->GetOption<uint32>("AnimusForge.Bench.LearnerTop", 2);
     // 0 means torch's own default, so this list keeps zeroes: it is read as "the default" rather than "no threads".
     Bench.LearnerTorchThreads.clear();
     for (std::string const& entry : GetList("AnimusForge.Bench.LearnerTorchThreads", "0, 8"))

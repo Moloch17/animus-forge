@@ -123,6 +123,8 @@ namespace AnimusForge
             double SimMsPerTick = 0.0;      // observing, rewarding and applying actions
             double LearnerMsPerTick = 0.0;  // blocked on the learner
             uint64 MemoryMb = 0;            // the worldserver's resident memory at the end of the trial
+            uint32 WarmupTicks = 0;         // the window this trial ran: the sim grid and the learner phase differ
+            uint32 MeasureTicks = 0;
             bool Measured = false;
             std::string Note;               // why it was not measured
         };

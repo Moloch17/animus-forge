@@ -715,8 +715,11 @@ forge bench apply                # write the winner into the configs
 ```
 
 - Each trial starts the scenario with its own thread and env count, warms up (`Bench.WarmupTicks`), and is timed
-  over `Bench.MeasureTicks` decisions with a scripted policy (`Bench.Policy`). The map update pool is switched
-  between trials, so nothing has to restart.
+  over `Bench.MeasureTicks` decisions with a scripted policy (`Bench.Policy`). The window only has to average over
+  episode ends, where an env rebuilds its character: a few hundred decisions cover a hundred or so of them at 64
+  envs. The learner phase has its own, longer window (`Bench.LearnerWarmupTicks`, `Bench.LearnerMeasureTicks`),
+  because it also pays for the learner starting up and has to average over several updates. The map update pool
+  is switched between trials, so nothing has to restart.
 - The fastest `Bench.LearnerTop` settings then run again with the real learner (x `Bench.LearnerTorchThreads`),
   which adds inference and updates -- what training actually costs.
 - Nothing is trained: every trial runs in `<OutputDir>/bench/` with evaluation, seeding and distillation off, so

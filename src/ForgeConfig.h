@@ -102,10 +102,17 @@ namespace AnimusForge
             std::vector<uint32> Threads;            // MapUpdate.Threads values to try
             std::vector<uint32> Envs;               // AnimusForge.Envs values to try
             uint32 MaxEnvs = 256;                   // never try more envs than this
-            uint32 WarmupTicks = 300;               // decisions run before a trial is timed
-            uint32 MeasureTicks = 1200;             // decisions timed
+            /// A sim-only trial: long enough that every env ends several episodes inside the window, so the
+            /// rebuild an episode end costs is counted at its real share, and short enough to sweep a grid.
+            uint32 WarmupTicks = 128;               // decisions run before a trial is timed
+            uint32 MeasureTicks = 384;              // decisions timed
+            /// The learner trials of the second phase, which rank a handful of settings rather than a grid: the
+            /// warm-up also covers the learner's start-up and first updates, and the longer window averages over
+            /// several of them (one update per rollout_length decisions).
+            uint32 LearnerWarmupTicks = 384;
+            uint32 LearnerMeasureTicks = 768;
             uint32 MaxMemoryPercent = 80;           // skip bigger envs once the machine's memory is this used
-            uint32 LearnerTop = 3;                  // sim trials re-timed with the learner (0 = none)
+            uint32 LearnerTop = 2;                  // sim trials re-timed with the learner (0 = none)
             std::vector<uint32> LearnerTorchThreads;    // torch thread counts to try with the learner
             std::string OutputDir;                  // resolved: <OutputDir>/bench, never empty after Load
         };
