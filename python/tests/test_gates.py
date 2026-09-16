@@ -194,3 +194,29 @@ def test_livelocked_is_gateable_though_it_is_not_episode_info():
     target = TargetConfig(layout_metrics={"livelocked": {"max": 0.05}})
     learner = summary(5.0, {"warlock_dps": {**layout(4.7), "livelocked": 0.248}})
     assert not check_gates(learner, None, target).passed
+
+
+def test_clean_kill_every_fight_is_gateable():
+    config = TrainConfig()
+    config.eval.every_env_steps = 1
+    config.target.metrics = {"clean_kill": {"min": 1.0}}
+    config.target.layout_metrics = {"clean_kill": {"min": 1.0}}
+    config.layout_sampling.enabled = True
+    config.layout_sampling.metric = "clean_kill"
+    validate_target(config, ("killed", "died"))
+
+    target = TargetConfig(metrics={"clean_kill": {"min": 1.0}}, layout_metrics={"clean_kill": {"min": 1.0}})
+    assert check_gates(summary(5.0, {"mage_dps": {**layout(5.0), "clean_kill": 1.0}}, clean_kill=1.0), None,
+                       target).passed
+    report = check_gates(summary(5.0, {"mage_dps": {**layout(5.0), "clean_kill": 0.98}}, clean_kill=0.999), None,
+                         target)
+    assert not report.passed and len(report.failures) == 2  # one lost fight anywhere fails
+
+
+def test_layout_sampling_metric_must_exist():
+    config = TrainConfig()
+    config.eval.every_env_steps = 1
+    config.layout_sampling.enabled = True
+    config.layout_sampling.metric = "clean_kills"
+    with pytest.raises(ValueError, match="layout_sampling.metric"):
+        validate_target(config, ("killed", "died"))

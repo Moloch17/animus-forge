@@ -113,13 +113,12 @@ class EvalLog:
     COLUMNS = ["update", "env_steps", "policy", "episodes", "score", "stderr", "margin", "best", "evals_since_best",
                "restarts", "seconds"]
 
-    def __init__(self, run_dir: Path, tb, report: tuple[str, ...] = ()):
+    def __init__(self, run_dir: Path, tb):
         self.csv_path = run_dir / "eval.csv"
         self.jsonl_path = run_dir / "eval.jsonl"
         self.episodes_path = run_dir / "eval_episodes.jsonl"
         self.stage_path = run_dir / "stage.jsonl"
         self.tb = tb
-        self.report = report
 
     def write(self, update: int, env_steps: int, result: EvalResult, summary: dict, tracker: ConvergenceTracker,
               restarts: int = 0) -> None:
@@ -145,9 +144,10 @@ class EvalLog:
         with self.jsonl_path.open("a") as f:
             f.write(json.dumps({**row, "summary": summary}) + "\n")
 
-        # The episodes behind the summary: which seeds a class/role failed, not just that its mean is low.
+        # The episodes behind the summary, every episode info column of each: which seeds a class/role failed, not
+        # just that its mean is low, and what those episodes have in common.
         with self.episodes_path.open("a") as f:
-            for episode in result.episodes_log(self.report):
+            for episode in result.episodes_log():
                 f.write(json.dumps({"update": update, "env_steps": env_steps, **episode}) + "\n")
 
         if self.tb is None or result.policy != "learner":
@@ -337,7 +337,7 @@ class TrainingRun:
         # Derived fields are computed by the summary itself, not averaged from an episode info column.
         report += tuple(name for name in gated if name not in report and name not in DERIVED_METRICS)
         self.report = report
-        self.eval_log = EvalLog(self.run_dir, self.logger.tb, report)
+        self.eval_log = EvalLog(self.run_dir, self.logger.tb)
         # Self-play arenas scored against the baseline as their opponent (eval.opponent_baseline).
         self.opponents = config.eval.baseline if config.eval.opponent_baseline else ""
         self.baselines: dict[tuple[int, int], dict] = {}
@@ -491,7 +491,7 @@ class TrainingRun:
         if not sampling.enabled or baseline is None or not summary.get("layouts"):
             return
 
-        weights = layout_weights(summary, baseline, sampling.strength, sampling.max_ratio)
+        weights = layout_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
         names = [layout.name for layout in self.spec.layouts]
         self.env.set_layout_weights([weights.get(name, 1.0) for name in names])
         heaviest = sorted(weights.items(), key=lambda item: -item[1])[:3]

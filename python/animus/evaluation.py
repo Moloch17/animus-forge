@@ -42,7 +42,9 @@ LIVELOCK_CANCELS = 20
 
 # Summary fields derived from the episode info rather than averaged straight from them. Gateable like any metric
 # (target.metrics, target.layout_metrics); they are not episode info names, so validation allows them by name.
-DERIVED_METRICS = ("livelocked",)
+# clean_kill: the fight was won outright -- the opponent killed and the seat never dead. killed and died are gated
+# apart, and their means cannot say whether the episodes that killed are the ones that did not die.
+DERIVED_METRICS = ("livelocked", "clean_kill")
 
 
 @dataclass
@@ -69,33 +71,54 @@ class EvalResult:
     def stderr(self) -> float:
         return standard_error(self.returns)
 
-    def episodes_log(self, columns: tuple[str, ...]) -> list[dict]:
-        """One row per scored episode: its seed, layout, return and `columns` of its episode info.
+    def episodes_log(self, columns: tuple[str, ...] | None = None) -> list[dict]:
+        """One row per scored episode: its seed, layout, return, `columns` of its episode info (None: every column)
+        and the derived fields.
 
         The summaries average these away, and an average cannot say whether a class/role is a little worse
         everywhere or fine except for a handful of episodes it never finishes -- which is what a per-layout gate
-        actually turns on. Written to eval_episodes.jsonl by the training run.
+        actually turns on. Why those episodes failed is in the columns no summary reports (the character's level and
+        spec, the opponent, the form and distance it ended in), so the training run logs them all to
+        eval_episodes.jsonl.
         """
-        present = [c for c in columns if c in self.info_names]
+        names = self.info_names if columns is None else tuple(c for c in columns if c in self.info_names)
+        indices = [self.info_names.index(name) for name in names]
+        derived = self.derived()
         rows = []
         for index in range(self.episodes):
             row = {
                 "policy": self.policy,
                 "seed": int(self.seeds[index]) if index < len(self.seeds) else -1,
                 "layout": self.layouts[index] if index < len(self.layouts) else "",
-                "return": float(self.returns[index]),
+                "return": round(float(self.returns[index]), 4),
             }
-            for name in present:
-                row[name] = float(self.infos[index, self.info_names.index(name)])
+            for name, column in zip(names, indices):
+                row[name] = round(float(self.infos[index, column]), 4)
+            for name, values in derived.items():
+                row[name] = float(values[index])
             rows.append(row)
         return rows
 
     def column(self, name: str) -> np.ndarray | None:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
 
+    def derived(self) -> dict[str, np.ndarray]:
+        """Per episode, the DERIVED_METRICS the episode info can give: 1.0 where it holds, else 0.0."""
+        out = {}
+        # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a tail,
+        # not a shift (stage1_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
+        cancels = self.column("casts_cancelled")
+        if cancels is not None:
+            out["livelocked"] = (cancels >= LIVELOCK_CANCELS).astype(np.float64)
+        killed, died = self.column("killed"), self.column("died")
+        if killed is not None and died is not None:
+            out["clean_kill"] = ((killed > 0.0) & (died <= 0.0)).astype(np.float64)
+        return out
+
     def summary(self, columns: tuple[str, ...]) -> dict:
         """Score and means of `columns`: overall, per level band, per layout, per arena and per talent build."""
         present = [c for c in columns if c in self.info_names]
+        derived = self.derived()
 
         def means(rows: np.ndarray) -> dict:
             out = {
@@ -106,12 +129,9 @@ class EvalResult:
             for name in present:
                 values = self.column(name)[rows]
                 out[name] = float(values.mean()) if len(values) else None
-            # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a
-            # tail, not a shift (stage1_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
-            cancels = self.column("casts_cancelled")
-            if cancels is not None:
-                picked = cancels[rows]
-                out["livelocked"] = float((picked >= LIVELOCK_CANCELS).mean()) if len(picked) else None
+            for name, values in derived.items():
+                picked = values[rows]
+                out[name] = float(picked.mean()) if len(picked) else None
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
@@ -141,12 +161,17 @@ class EvalResult:
         return result
 
 
-def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float) -> dict[str, float]:
-    """How often training episodes should draw each layout, from the gap to the baseline's score for that layout.
+def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float,
+                   metric: str = "") -> dict[str, float]:
+    """How often training episodes should draw each layout, from the gap to the baseline's score for that layout
+    and, with `metric`, from how far the layout falls short on that summary field (higher is better).
 
     A stage is gated on its weakest class/role, so an episode of a layout that trails its baseline is worth more
-    than one of a layout that is already clear of it. The gaps are measured in their own standard deviations, so
-    the weights do not depend on the size of the scenario's rewards, and the spread is capped: the heaviest layout
+    than one of a layout that is already clear of it. The baseline gap alone misses a layout that beats a weak
+    baseline yet fails an absolute gate -- stage1_duel's mage beat the scripted mage while killing 68% of the time --
+    so the shortfall on the gated metric counts as well, whichever of the two is larger. Each is measured in its own
+    standard deviations, so the
+    weights do not depend on the size of the scenario's rewards, and the spread is capped: the heaviest layout
     draws at most `max_ratio` times the lightest, whatever the scores are. Weights average 1 (the even draw).
     """
     rows = summary.get("layouts", {})
@@ -154,13 +179,21 @@ def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ra
     if not names or strength <= 0.0 or max_ratio <= 1.0:
         return {name: 1.0 for name in rows}
 
+    def standardised(values: np.ndarray) -> np.ndarray:
+        spread = float(values.std())
+        return (values - values.mean()) / spread if spread > 1e-9 else np.zeros_like(values)
+
     base = (baseline or {}).get("layouts", {})
     gaps = np.array([float(base.get(name, {}).get("score") or 0.0) - float(rows[name]["score"]) for name in names])
-    spread = float(gaps.std())
-    if spread <= 1e-9:
+    need = standardised(gaps)
+    if metric and all(rows[name].get(metric) is not None for name in names):
+        # The larger of the two needs, not their sum: a wide lead over a weak baseline must not cancel a gate
+        # the layout is failing.
+        need = np.maximum(need, standardised(-np.array([float(rows[name][metric]) for name in names])))
+    if not need.any():
         return {name: 1.0 for name in names}
 
-    weights = np.exp(strength * np.clip((gaps - gaps.mean()) / spread, -3.0, 3.0))
+    weights = np.exp(strength * np.clip(need, -3.0, 3.0))
     # Cap the spread, then centre on 1 so the total number of episodes is unchanged.
     limit = math.sqrt(max_ratio)
     weights = np.clip(weights / float(np.exp(np.log(weights).mean())), 1.0 / limit, limit)
@@ -351,7 +384,7 @@ def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...
         value = None if row is None else row.get(name)
         return f"{value:10.2f}" if isinstance(value, (int, float)) else f"{'-':>10}"
 
-    names = ["score", *[c for c in columns if c in summary]]
+    names = ["score", *[c for c in columns if c in summary], *[d for d in DERIVED_METRICS if d in summary]]
     rows = [("all", summary, baseline)]
     for group in ("bands", "layouts", "arenas", "builds"):
         for key, row in summary.get(group, {}).items():

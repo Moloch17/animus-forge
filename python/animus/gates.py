@@ -176,6 +176,9 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
         if gates.get("min_over_baseline") is not None and not isinstance(gates["min_over_baseline"], (int, float)):
             errors.append(f"{prefix}.min_over_baseline: expected a number")
         errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), names)
+    metric = config.layout_sampling.metric
+    if config.layout_sampling.enabled and metric and metric not in names:
+        errors.append(f"layout_sampling.metric: {metric} is neither episode info nor a derived field")
     if target.min_arena_episodes < 0:
         errors.append("target.min_arena_episodes must be >= 0")
     if target.noise_z < 0:

@@ -310,6 +310,15 @@ current one.
 
 Casting goes through `ApplySpellAction`, which builds the `SpellCastTargets` a client would send for the spell.
 
+**Pacing** (`Actions.*`). A decision comes every 100 ms, and a policy free to act on every one re-issues orders no
+player would: stage1_duel's warlocks sent their pet in 125 times an episode and started and stopped the same cast
+over and over while never engaging. So the scenario masks, on top of every block's own checks, an action pressed too
+recently: the same action again within `Actions.RepeatMs` (1000 ms; `Actions.MoveRepeatMs`, 300 ms, for movement
+orders, so steering stays responsive), stopping a cast before it has run `Actions.StopCastMinMs` (500 ms), and
+starting a spell the bot stopped itself within `Actions.RecastAfterStopMs` (2000 ms). Spells keep their GCD and
+cooldowns as well. A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows
+how busy a seat was.
+
 ## 4.4 Blocks
 
 | Block | Observation (summary) | Actions |
@@ -450,7 +459,7 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 `interrupt`, `kill`, `clear`, `health_kept`, `death`, `owner_damage_taken`, `owner_healing`, `tank_damage_refund`,
 `threat`, `solo_fight`, `follow`, `owner_death`, `teammate_damage_taken`, `teammate_healing`, `teammate_threat`,
 `teammate_death`, `revive`, `player_kill`, `progress`, `arrive`, `flag_capture`, `flag_pickup`, `flag_return`,
-`carrier_kill`, `flag_lost`.
+`carrier_kill`, `flag_lost`, `timeout`.
 
 ### Scales
 
@@ -477,6 +486,9 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
   cost only the discount
 - death: -3 each time, including after a self-resurrection. With a self-resurrection available the seat has
   `Resurrection.GraceMs` to use it before the episode ends
+- timeout (creature duel only): -3 when the episode's time runs out with neither side dead. The fight is lost, so the
+  episode ends as a terminal outcome rather than a cut-off the critic bootstraps past; before it, never engaging was
+  the cheapest way to lose
 
 **Pack** (`Pulls.*`): damage x2 of the pack's total health, damage taken x1, approach to the nearest enemy, +0.5 per
 kill, +0.3 per interrupt, the stealth terms. Clear: +2, up to +3 for the episode length left since a pack member
@@ -586,6 +598,10 @@ Every stage reports these **core columns** per seat:
 - `casts_completed`, `casts_cancelled`, `cast_seconds_wasted`, `cancelled_stopped`, `cancelled_moved`,
   `cancelled_target`, `cancelled_other`
 - `consumables_used`, `self_resurrections`
+- how a fight ended, to tell the ways of losing apart: `timed_out` (creature duel: time ran out with neither side
+  dead), `engaged`, `engage_time`, `target_health_left`, `distance_at_end`, `form_at_end` (the `ShapeshiftForm`),
+  `power_left` (of the primary power), `target_evade_seconds` and `out_of_sight_seconds` (creature duel: the opponent
+  evading, and engaged without line of sight to it), `actions_per_minute` (actions other than the no-op)
 
 Encounters then add their own columns:
 

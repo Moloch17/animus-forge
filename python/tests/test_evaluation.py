@@ -360,6 +360,35 @@ def test_episodes_log_has_one_row_per_episode():
     assert rows[0]["killed"] == 1.0 and "present" not in rows[0]  # only the reported columns
 
 
+def test_episodes_log_writes_every_column_and_the_derived_fields_by_default():
+    """Why a class/role loses is in columns no summary reports (level, opponent, form at the end), so the log keeps
+    them all, next to whether each episode was a clean kill."""
+    result = EvalResult(
+        policy="learner",
+        returns=np.array([7.0, -3.0, -3.0]),
+        infos=np.array([[1, 0, 12, 0], [1, 1, 40, 0], [0, 0, 70, 31]], dtype=np.float32),
+        info_names=("killed", "died", "level", "form_at_end"),
+        layouts=("mage_dps",) * 3,
+        seeds=(0, 1, 2),
+    )
+    rows = result.episodes_log()
+    assert [row["level"] for row in rows] == [12.0, 40.0, 70.0]
+    assert rows[2]["form_at_end"] == 31.0
+    assert [row["clean_kill"] for row in rows] == [1.0, 0.0, 0.0]  # killed but died is not a clean kill
+
+
+def test_clean_kill_needs_the_kill_and_no_death():
+    infos = np.array([[1, 0], [1, 1], [0, 0], [0, 1]], dtype=np.float32)
+    result = EvalResult("learner", np.zeros(4), infos, ("killed", "died"), layouts=("a", "a", "b", "b"))
+    summary = result.summary(("killed", "died"))
+    assert summary["clean_kill"] == pytest.approx(0.25)
+    assert summary["layouts"]["a"]["clean_kill"] == pytest.approx(0.5)
+    assert summary["layouts"]["b"]["clean_kill"] == pytest.approx(0.0)
+    # Neither mean says it: half killed and half died either way.
+    assert summary["killed"] == pytest.approx(0.5) and summary["died"] == pytest.approx(0.5)
+    assert "clean_kill" not in EvalResult("learner", np.zeros(1), np.zeros((1, 1), np.float32), ("killed",)).summary(())
+
+
 def test_summary_groups_by_talent_build():
     names = ("level", "talent_plan")
     infos = np.array([[10, 0], [20, 1], [30, 2], [40, 0]], dtype=np.float32)
@@ -384,6 +413,26 @@ def test_layout_weights_favour_the_layouts_below_baseline():
     assert weights["rogue_dps"] > weights["priest_dps"] > weights["mage_dps"]
     assert np.mean(list(weights.values())) == pytest.approx(1.0)  # the episode count is unchanged
     assert max(weights.values()) / min(weights.values()) <= 3.0 + 1e-6
+
+
+def test_layout_weights_follow_the_metric_short_of_the_gate_too():
+    """stage1_duel's mage beat the scripted mage's score while killing 68% of the time: the baseline gap alone gave
+    it less data than a class/role already killing every time."""
+    summary = {"layouts": {
+        "mage_dps": {"score": 7.0, "clean_kill": 0.68},
+        "rogue_dps": {"score": 7.8, "clean_kill": 0.95},
+        "warrior_dps": {"score": 7.4, "clean_kill": 0.93},
+    }}
+    baseline = {"layouts": {"mage_dps": {"score": 2.6}, "rogue_dps": {"score": 7.6}, "warrior_dps": {"score": 7.0}}}
+
+    by_score = layout_weights(summary, baseline, 1.0, 4.0)
+    assert by_score["mage_dps"] < by_score["rogue_dps"]
+    weights = layout_weights(summary, baseline, 1.0, 4.0, metric="clean_kill")
+    assert weights["mage_dps"] == max(weights.values())
+    assert np.mean(list(weights.values())) == pytest.approx(1.0)
+    # A metric some layout does not report leaves the baseline gap to decide.
+    del summary["layouts"]["rogue_dps"]["clean_kill"]
+    assert layout_weights(summary, baseline, 1.0, 4.0, metric="clean_kill") == pytest.approx(by_score)
 
 
 def test_layout_weights_are_even_without_a_spread_or_a_baseline():

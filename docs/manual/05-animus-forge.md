@@ -558,7 +558,9 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   character per seeded episode). A looser floor so no layout hides behind the average, since the next stage seeds
   every layout.
 - `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
-  these.
+  these. Two derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying, and
+  `livelocked`, the share stuck in a cast/stop loop.
+- `layout_metrics`: the same bounds on every class/role's own episodes, which no baseline can lower.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
 - `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass
@@ -598,6 +600,12 @@ that class/role's score and its baseline's, measured in standard deviations of t
 on the size of the scenario's rewards. `strength` scales the effect (0 = even), `max_ratio` caps the spread between
 the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
 are spent. Evaluation episodes stay evenly spread over the class/roles whatever the weights are.
+
+The score gap alone misses a class/role that beats its baseline yet fails an absolute gate (stage1_duel's mage beat
+the scripted mage while killing only 68% of the time). `metric` names a summary field where higher is better, usually
+the one the stage is gated on (`clean_kill`): a class/role's need is then the larger of its score gap and its
+shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
+gate it is failing.
 
 ### The stage controller (`stage.py`)
 

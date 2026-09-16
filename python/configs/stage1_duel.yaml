@@ -123,23 +123,23 @@ convergence:
 # moved the stage on. metrics and layout_metrics are absolute floors on the episode info, which no baseline can
 # lower and reward shaping cannot game; layout_metrics applies each to one class/role's own episodes.
 #
-# The numbers are what that run reached (overall killed 0.854, died 0.002, livelocked 0.025) rounded to leave room
-# for noise, with the per-layout floors set where its weakest honest layouts sat (paladin_tank killed 0.77) so that
-# only warlock_dps -- 0.65 killed, 24.8% livelocked -- and mage_dps (8.8% livelocked) would have failed. Tune after
-# the next run; eval.jsonl carries every class/role's numbers.
+# The duel is a same-level creature: every fight should be won outright. clean_kill is the share of episodes that
+# killed the opponent without dying (derived from killed and died), and it is required of every class/role on every
+# seed: the evaluation that set the best and the 2048 confirming episodes alike. A single lost fight -- a death, or
+# the clock running out -- fails the stage, so it restarts, and after max_restarts halts the queue on this stage;
+# eval_episodes.jsonl then says which characters and opponents lost and how. The second run of this stage killed
+# in 0.886 of its fights at 60M env steps, mage_dps in 0.68, so expect this to take the whole budget or more.
 target:
   min_over_baseline: 0.1
   min_layout_over_baseline: 0.0
   min_layout_episodes: 16
   noise_z: 1.0
   metrics:
-    killed: {min: 0.85}
-    died: {max: 0.05}
-    livelocked: {max: 0.01}
+    clean_kill: {min: 1.0}
+    livelocked: {max: 0.0}
   layout_metrics:
-    killed: {min: 0.75}
-    died: {max: 0.10}
-    livelocked: {max: 0.05}
+    clean_kill: {min: 1.0}
+    livelocked: {max: 0.0}
   confirm_episodes: 2048
   confirm_seed: 50000
 
@@ -154,12 +154,14 @@ entropy_floor:
   rate: 0.05
 
 # Where the data goes: after every evaluation the sim is told how often to build each class/role, so the ones
-# furthest below their baseline -- the ones the per-class/role gate turns on -- get more episodes than the ones
-# already clear of it. Evaluation stays evenly spread over the class/roles whatever the weights are.
+# furthest below their baseline, and the ones furthest short of clean kills -- the gate every class/role must pass --
+# get more episodes than the ones already clear of both. Without the metric, mage_dps drew no extra data at 0.68
+# clean kills because it beat the scripted mage's score. Evaluation stays evenly spread whatever the weights are.
 layout_sampling:
   enabled: true
   strength: 1.0
-  max_ratio: 3.0
+  max_ratio: 4.0
+  metric: clean_kill
 
 # Converged below the target is a local optimum: restart from best.pt with 3x the entropy bonus (decaying back with a
 # 10M env step half-life) and fresh optimizers, at most twice. After that -- or at total_env_steps below the target --

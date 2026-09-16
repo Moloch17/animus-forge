@@ -21,7 +21,7 @@ EXTENDS_KEY = "extends"
 AUTO = "auto"
 
 REPORT_COLUMNS = (
-    "dps", "killed", "died", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
+    "dps", "killed", "died", "timed_out", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
     "owner_deaths", "owner_healing", "casts_completed", "casts_cancelled", "cancelled_stopped", "cancelled_moved",
     "cancelled_target", "cancelled_other", "cast_seconds_wasted", "consumables_used", "self_resurrections", "revives",
     # Pets: logged per episode in eval_episodes.jsonl with the episode's class/role, so a pet class's use of its pet
@@ -167,6 +167,11 @@ class LayoutSamplingConfig:
     enabled: bool = False
     strength: float = 1.0  # e^(strength x gap in standard deviations of the gaps): 0 = uniform
     max_ratio: float = 3.0  # the heaviest layout draws at most this many times the lightest
+    # A summary field where higher is better (an episode info column or a derived one such as clean_kill): a layout's
+    # need is the larger of its baseline gap and its shortfall on this, each in standard deviations over the layouts.
+    # A layout can beat a weak baseline and still fail an absolute gate; this sends the data there too.
+    # "" = the baseline gap alone.
+    metric: str = ""
 
 
 @dataclass
