@@ -27,6 +27,8 @@ REPORT_COLUMNS = (
     # Pets: logged per episode in eval_episodes.jsonl with the episode's class/role, so a pet class's use of its pet
     # can be read on its own.
     "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",
+    # Fights no play could win (a creature with no path to the seat), and one action pressed over and over.
+    "target_unreachable_seconds", "target_teleports", "repeated_presses",
 )
 
 

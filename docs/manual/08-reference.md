@@ -139,6 +139,14 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Actions.MoveRepeatMs` | 300 | | | |
 | `Actions.StopCastMinMs` | 500 | | | |
 | `Actions.RecastAfterStopMs` | 2000 | | | |
+| `Characters.LowLevelLast` | 20 | | | |
+| `Characters.LowLevelChance` | 15 | | | |
+| `Duel.Stall` | 0.05 | | | |
+| `Duel.StallGraceMs` | 15000 | | | |
+| `Duel.Spacing` | 0.03 | | | |
+| `Actions.Repeat` | 0.02 | | | |
+| `Actions.RepeatWindowMs` | 10000 | | | |
+| `Actions.RepeatFree` | 3 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|

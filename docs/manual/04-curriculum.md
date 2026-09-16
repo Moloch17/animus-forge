@@ -138,8 +138,9 @@ every `Reset` calls `Rebuild`:
    *i* plays candidate *(i + seat) mod count*, so every class/role is scored on an equal share of the seeds. Seats
    beyond the active count get no layout and no bot.
 6. **Pick one level** every seat's class can be (death knights start at 55). It is `StageSettings::Level` if set;
-   otherwise `Characters.HighLevelChance` percent of the time a level from `HighLevelFirst` to 80, else any level from
-   the class minimum to 80.
+   otherwise `Characters.HighLevelChance` percent of the time a level from `HighLevelFirst` to 80,
+   `Characters.LowLevelChance` percent of the time a level from the class minimum to `LowLevelLast` (20; skipped when
+   the class can't be that low), else any level from the class minimum to 80.
 7. **Build each seat** (`BuildSeat`): random race and spec, `DamageScale(level)`, a bot named
    `Forge<envId>s<seat><a|b>` on the slot's idle session and account, placed in the env's instance (the first build of
    an env opens a new instance, unless the host placed the env). Party seats start spread around the spawn point, and a
@@ -325,6 +326,14 @@ starting a spell the bot stopped itself within `Actions.RecastAfterStopMs` (2000
 cooldowns as well. A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows
 how busy a seat was.
 
+**Repeats** (`Actions.Repeat`, every stage). Pacing caps how soon an action can be pressed again, not how often: a
+policy can still press one button every second for a whole episode (stage1_duel's warlocks gave their pet 93 orders an
+episode while it dealt 1% of their damage). Each press of an action counts that same action's presses within the last
+`Actions.RepeatWindowMs` (10 s); past `Actions.RepeatFree` (3) of them, each press costs `Actions.Repeat` (0.02).
+Movement orders are always free. How often the seat acts overall is not charged, only the same action over and
+over. `repeated_presses` in the episode info
+counts the charged presses.
+
 ## 4.4 Blocks
 
 | Block | Observation (summary) | Actions |
@@ -370,10 +379,15 @@ for each phase: `RewardTerms`, `AddEpisodeInfo`, `ResetEpisode`, `BeforeRebuild`
 
 **`CreatureEncounter`** (`Opposition::Creature`). It spawns a random creature whose natural level range covers the
 seat's level: normal rank, attackable, default AI with no script, no NPC services, not a civilian, guard or trigger,
-and spawned somewhere in the world. The creature is summoned at the seat's level (`PendingSummonLevel`) 40-50 yd away
-at a random line-of-sight bearing on level ground, facing a random way, hostile and aggressive. It starts out of aggro
-range. Rewards are the one-on-one terms (`CombatReward::OneOnOne`). The episode is terminal on the kill or on death
-with no resurrection left.
+walking on the ground in plain sight (no flying, hovering, swim-only or rooted movement, and no stealth or invisibility
+aura on its addon), and spawned somewhere in the world. The creature is summoned at the seat's level
+(`PendingSummonLevel`) 40-50 yd away at a random line-of-sight bearing on level ground the seat can walk to (a path at
+most 1.5 times the straight line), facing a random way, hostile and aggressive, without health regeneration. It starts
+out of aggro range. A creature with no path to its victim stops and regenerates, then evades home at full health
+after 10 s, which no play can win: after 3 s without a path it is put beside its victim instead (as instance trash is
+with `Creature.Instance.TeleportToUnreachableTarget`). `target_unreachable_seconds` and `target_teleports` count it.
+Rewards are the one-on-one terms (`CombatReward::OneOnOne`). The episode is terminal on the kill or on death with no
+resurrection left.
 
 **`PullsEncounter`** (`Opposition::Pulls`). The pack pool adds creatures whose SmartAI only casts or talks (about 3500
 casters and ability users) to the duel pool.
@@ -501,6 +515,13 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 - timeout (creature duel only): -10 when the episode's time runs out with neither side dead. The fight is lost, so the
   episode ends as a terminal outcome rather than a cut-off the critic bootstraps past; before it, never engaging was
   the cheapest way to lose
+- stall (creature duel only): -0.05 per second the fight hasn't started once `Duel.StallGraceMs` (15 s) of the episode
+  are gone. The timeout comes 900 decisions later, too far for the policy to tell standing still from closing in: at
+  20M steps stage1_duel's deterministic policy stood where it spawned for the whole episode in 67 of 2048 evaluation
+  fights
+- spacing (creature duel, ranged specs): -0.03 per second the opponent stands in melee range attacking the seat. The
+  approach term only pays for closing in, so nothing kept a hunter, mage or warlock at its range
+- repeats (every stage): -0.02 per press of the same action past the free ones in its window (see Repeats, 4.3)
 - winning outweighs winning fast: with the kill at 10, speed at most 1 and a loss at -10, a risky fast opener only pays
   more than a sure slow win above about 97% odds (at the earlier 3, 3 and -3 it was 79%)
 
@@ -620,7 +641,9 @@ Every stage reports these **core columns** per seat:
 - how a fight ended, to tell the ways of losing apart: `timed_out` (creature duel: time ran out with neither side
   dead), `engaged`, `engage_time`, `target_health_left`, `distance_at_end`, `form_at_end` (the `ShapeshiftForm`),
   `power_left` (of the primary power), `target_evade_seconds` and `out_of_sight_seconds` (creature duel: the opponent
-  evading, and engaged without line of sight to it), `actions_per_minute` (actions other than the no-op)
+  evading, and engaged without line of sight to it), `target_unreachable_seconds` and `target_teleports` (creature duel:
+  the opponent without a path to its victim, and put beside it for that), `actions_per_minute` (actions other than the
+  no-op), `repeated_presses` (presses charged by `Actions.Repeat`)
 
 Encounters then add their own columns:
 
@@ -660,6 +683,9 @@ Pets are played as a player has them:
   a warlock a random demon it knows, a death knight with Master of Ghouls its ghoul, a frost mage with Glyph of Eternal
   Water its elemental, summoned without a cast and with the summon ready again. The rest summon it themselves, so the
   policy learns both to get a pet out and to use (or replace) the one it has.
+- **Damage abilities are on autocast** (`PetBlock::AutocastDamage`), as a player sets them once: a pet learns its spells
+  with autocast off, and an Imp, which cannot melee, did nothing without Firebolt. Control, threat and utility abilities
+  stay on the pet bar for the policy to cast.
 - **The `fight` baseline uses pets:** out of combat it calls a stable beast or casts its best summon (Felguard,
   Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental) when no living pet is out, and sends the pet at
   the target, so the per-class/role gates of pet classes compare with a character that plays its pet.
