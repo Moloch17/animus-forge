@@ -753,9 +753,14 @@ Dead, Water Elemental and Feral Spirit are ordinary spell actions with their rea
 Pets are played as a player has them:
 
 - **A new pet starts defensive.** Creating a pet's `CharmInfo` sets it passive, and a player's summon then loads the
-  stance saved with the pet, which a bot never has: stage1_duel's warlock demons stayed passive all fight, ignored the
-  attack orders sent to them and dealt no damage. `PetBlock::DefaultStance` sets a newly seen pet that came out
-  passive to defensive, once per pet, so a stance the policy picks afterwards stands. Companions do the same.
+  stance saved with the pet, which a bot never has, so every pet stayed passive and only fought what it was sent at.
+  `PetBlock::DefaultStance` sets a newly seen pet that came out passive to defensive, once per pet, so a stance the
+  policy picks afterwards stands. Companions do the same.
+- **A warlock's demon isn't stunned by the masks.** A strict `Spell::CheckCast` of a demon summon casts Summoning
+  Disorientation (32752) on the warlock's current pet, meant for a summon the player starts. The action masks check
+  every summon spell every decision, so stage1_duel's demons were stunned for nearly the whole of every fight,
+  ignored every attack order and dealt no damage. `SpellChecks::CheckCast` checks those summons loosely, and does
+  the global cooldown and shapeshift checks the strict pass would have made itself.
 - **A called beast is fed and talented.** It arrives happy (a freshly tamed beast is unhappy and deals 75% damage) and
   its talent points are spent (`PetTalents`): the build players took for its tree -- ferocity, tenacity or cunning --
   point by point through `Player::LearnPetTalent`, the rest at random. Family-specific talents (Dash, Dive, Charge,
