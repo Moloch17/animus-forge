@@ -348,6 +348,14 @@ class ConvergenceTracker:
         stderr = float(np.mean([point[2] for point in recent]))
         return gain <= self.margin(stderr)
 
+    def promote(self, score: float, env_steps: int, stderr: float = 0.0) -> None:
+        """Make the latest evaluation (already observed) the best whatever its score: one that passes the stage
+        target outranks a higher score that does not."""
+        self.best = score
+        self.best_stderr = stderr
+        self.best_env_steps = env_steps
+        self.evals_since_best = 0
+
     def reset_segment(self, env_steps: int) -> None:
         """Start a new segment (after a restart): counters and trend start over, the best score is kept."""
         self.segment_index = len(self.history)

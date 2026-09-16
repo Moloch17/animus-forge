@@ -44,7 +44,7 @@ from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
-from .stage import ADVANCE, EXIT_BELOW_TARGET, HALT, RESTART, Outcome, StageController
+from .stage import ADVANCE, EXIT_BELOW_TARGET, EXTEND, HALT, RESTART, Outcome, StageController
 from .stages import STAGE_FILE, load_stage
 
 
@@ -535,7 +535,10 @@ class TrainingRun:
 
     def handle(self, outcome: Outcome) -> bool:
         """Carry out the controller's decision; True when training stops."""
-        if outcome.action not in (ADVANCE, RESTART, HALT):
+        if outcome.action not in (ADVANCE, RESTART, HALT, EXTEND):
+            if outcome.gates is not None and not outcome.gates.passed:
+                print(f"Below the target ({outcome.stage}: {'; '.join(outcome.gates.failures)}); training on.",
+                      flush=True)
             return False
         tracker, controller = self.tracker, self.controller
         self.eval_log.write_outcome(self.update, self.env_steps, outcome, controller.restarts)
@@ -545,6 +548,11 @@ class TrainingRun:
             print(f"Converged below the target ({outcome.stage}: {failures}). Restart {controller.restarts} of "
                   f"{self.config.restarts.max_restarts} from best.pt (score {tracker.best:.4g}), entropy_coef "
                   f"{controller.entropy_coef(self.env_steps):.3g}.", flush=True)
+            return False
+        if outcome.action == EXTEND:
+            controller.record_extension(self.env_steps)
+            print(f"Converged below the target ({outcome.stage}: {failures}) with {controller.restarts} restarts used; "
+                  f"training on until it passes (target.until_passed).", flush=True)
             return False
         if outcome.action == HALT:
             print(f"Below the target after {controller.restarts} restarts ({outcome.stage}: {failures}); best score "
@@ -670,9 +678,11 @@ class TrainingRun:
         self.finished_episodes.clear()
 
     def train(self) -> Outcome:
-        """Train until the stage decides to move on or halt, or the step budget runs out."""
+        """Train until the stage decides to move on or halt, or the step budget runs out (with target.until_passed
+        the budget does not end it: only passing the target does)."""
         config, controller = self.config, self.controller
-        while self.env_steps < config.total_env_steps:
+        until_passed = config.target.until_passed and config.target.enabled and self.evaluating
+        while until_passed or self.env_steps < config.total_env_steps:
             stats, started, rollout_seconds = self.rollout()
             self.log_update(stats, started, rollout_seconds)
             self.maybe_checkpoint()

@@ -636,7 +636,18 @@ After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns 
 | Budget reached, target passed | advance | Exit 0, reason `total_env_steps` |
 | Budget reached, below target | halt | Exit 3, reason `budget_below_target` |
 
-Every advance, restart and halt is appended to `stage.jsonl` with the gate report. `finished.json` records the
+With `target.until_passed` (stage1_duel sets it) a stage below its target never halts:
+
+| Situation | Action | Learner |
+|---|---|---|
+| Converged, below target, no restarts left | **extend** | Keep training; the convergence test starts a new segment and judges again when it next converges |
+| Budget reached, below target | continue | Keep training past `total_env_steps`, judging every evaluation; the first best that passes and confirms advances (reason `total_env_steps`) |
+
+Under `until_passed` an evaluation that passes the target becomes the best (and `best.pt`) even when a failing one
+scored higher, and a passing best is only replaced by a higher score that passes too, so the networks that pass are
+the ones confirmed and moved on with.
+
+Every advance, restart, extension and halt is appended to `stage.jsonl` with the gate report. `finished.json` records the
 reason, whether it advanced, the step and update counts, the best score and where it was reached, restarts, which
 evaluation it was judged on, and the gates.
 

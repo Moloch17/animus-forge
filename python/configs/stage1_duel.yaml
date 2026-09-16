@@ -126,9 +126,10 @@ convergence:
 # The duel is a same-level creature: every fight should be won outright. clean_kill is the share of episodes that
 # killed the opponent without dying (derived from killed and died), and it is required of every class/role on every
 # seed: the evaluation that set the best and the 2048 confirming episodes alike. A single lost fight -- a death, or
-# the clock running out -- fails the stage, so it restarts, and after max_restarts halts the queue on this stage;
-# eval_episodes.jsonl then says which characters and opponents lost and how. The second run of this stage killed
-# in 0.886 of its fights at 60M env steps, mage_dps in 0.68, so expect this to take the whole budget or more.
+# the clock running out -- fails the stage. until_passed: a stage below its target never halts. It restarts
+# (restarts.max_restarts), then keeps training, past total_env_steps too, until a best that passes is confirmed;
+# eval_episodes.jsonl says which characters and opponents are still losing, and how. The second run of this stage
+# killed in 0.886 of its fights at 60M env steps, mage_dps in 0.68, so expect this to run past the budget.
 target:
   min_over_baseline: 0.1
   min_layout_over_baseline: 0.0
@@ -142,6 +143,7 @@ target:
     livelocked: {max: 0.0}
   confirm_episodes: 2048
   confirm_seed: 50000
+  until_passed: true
 
 # Exploration has a floor, measured against what the mask allowed. A masked policy's ceiling is
 # ln(legal actions) -- about ln(9) in this stage, not ln(82) -- so a flat coefficient says little about whether

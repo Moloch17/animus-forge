@@ -95,6 +95,11 @@ class TargetConfig:
     # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
     confirm_episodes: int = 2048
     confirm_seed: int = 50000
+    # Train until the target passes, however long it takes. Below the target the stage never halts: once the restarts
+    # are used up it keeps training, total_env_steps no longer ends it (past it every evaluation is judged, and the
+    # first best that passes, confirmed, moves the stage on), and an evaluation that passes the target becomes the best
+    # even when a failing one scored higher, while a passing best is only replaced by a better one that passes too.
+    until_passed: bool = False
 
     @property
     def enabled(self) -> bool:

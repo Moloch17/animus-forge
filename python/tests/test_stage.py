@@ -5,7 +5,7 @@ import torch
 
 from animus.config import TrainConfig
 from animus.mappo.trainer import MappoConfig, MappoTrainer
-from animus.stage import ADVANCE, CONTINUE, HALT, RESTART, StageController
+from animus.stage import ADVANCE, CONTINUE, EXTEND, HALT, RESTART, StageController
 
 
 def make_config(**target) -> TrainConfig:
@@ -192,3 +192,109 @@ def test_entropy_floor_is_off_by_default():
     for _ in range(10):
         controller.observe_entropy(0.0, 50.0)
     assert controller.entropy_coef(0) == pytest.approx(0.02)
+
+
+def test_until_passed_trains_on_below_target_instead_of_halting():
+    config = make_config(min_over_baseline=0.2, until_passed=True)
+    config.restarts.max_restarts = 1
+    config.total_env_steps = 1000
+    controller = StageController(config)
+    evaluate(controller, 11.0, 0)
+    assert evaluate(controller, 10.9, 10).action == RESTART
+    controller.record_restart(10)
+    outcome = evaluate(controller, 10.9, 20)
+    assert (outcome.action, outcome.reason) == (EXTEND, "below_target")  # restarts used up: no halt
+    controller.record_extension(20)
+    assert evaluate(controller, 10.8, 30).action == EXTEND
+    controller.record_extension(30)
+    assert evaluate(controller, 12.5, 40).action == CONTINUE  # passes, but has not converged yet
+    assert evaluate(controller, 12.4, 50).action == ADVANCE
+
+
+def test_until_passed_judges_every_evaluation_past_the_budget():
+    config = make_config(min_over_baseline=0.2, until_passed=True)
+    config.convergence.patience = 3
+    config.total_env_steps = 20
+    controller = StageController(config)
+    assert evaluate(controller, 11.0, 10).action == CONTINUE
+    assert evaluate(controller, 11.2, 20).action == CONTINUE  # below the target past the budget: train on
+    assert evaluate(controller, 13.0, 30).action == ADVANCE  # the first passing evaluation moves on
+
+
+def test_until_passed_keeps_the_networks_that_pass():
+    """A passing evaluation is the best whatever a failing one scored, and only a passing one replaces it."""
+    config = make_config(metrics={"clean_kill": {"min": 1.0}}, until_passed=True)
+    config.convergence.patience = 5
+    controller = StageController(config)
+    controller.baseline_summary = {"score": 1.0, "layouts": {}}
+
+    def row(score, clean):
+        return {"score": score, "episodes": 64, "layouts": {}, "clean_kill": clean}
+
+    assert controller.observe(row(8.0, 0.9), 0)
+    assert controller.observe(row(7.0, 1.0), 10)  # lower score, but it passes
+    assert controller.tracker.best == 7.0
+    assert not controller.observe(row(9.0, 0.95), 20)  # higher score that fails: best.pt keeps the passing networks
+    assert controller.best_summary["clean_kill"] == 1.0 and controller.tracker.best == 7.0
+    assert controller.tracker.evals_since_best == 0
+    assert controller.observe(row(9.5, 1.0), 30)
+
+
+def test_without_until_passed_the_budget_still_halts():
+    controller = StageController(make_config(min_over_baseline=0.2))
+    controller.baseline_summary = {"score": 10.0}
+    controller.observe({"score": 11.0}, 0)
+    assert controller.at_budget(lambda: pytest.fail("no confirmation")).action == HALT
+
+
+def test_until_passed_trains_on_below_target_instead_of_halting():
+    config = make_config(min_over_baseline=0.2, until_passed=True)
+    config.restarts.max_restarts = 1
+    config.total_env_steps = 1000
+    controller = StageController(config)
+    evaluate(controller, 11.0, 0)
+    assert evaluate(controller, 10.9, 10).action == RESTART
+    controller.record_restart(10)
+    outcome = evaluate(controller, 10.9, 20)
+    assert (outcome.action, outcome.reason) == (EXTEND, "below_target")  # restarts used up: no halt
+    controller.record_extension(20)
+    assert evaluate(controller, 10.8, 30).action == EXTEND
+    controller.record_extension(30)
+    assert evaluate(controller, 12.5, 40).action == CONTINUE  # passes, but has not converged yet
+    assert evaluate(controller, 12.4, 50).action == ADVANCE
+
+
+def test_until_passed_judges_every_evaluation_past_the_budget():
+    config = make_config(min_over_baseline=0.2, until_passed=True)
+    config.convergence.patience = 3
+    config.total_env_steps = 20
+    controller = StageController(config)
+    assert evaluate(controller, 11.0, 10).action == CONTINUE
+    assert evaluate(controller, 11.2, 20).action == CONTINUE  # below the target past the budget: train on
+    assert evaluate(controller, 13.0, 30).action == ADVANCE  # the first passing evaluation moves on
+
+
+def test_until_passed_keeps_the_networks_that_pass():
+    """A passing evaluation is the best whatever a failing one scored, and only a passing one replaces it."""
+    config = make_config(metrics={"clean_kill": {"min": 1.0}}, until_passed=True)
+    config.convergence.patience = 5
+    controller = StageController(config)
+    controller.baseline_summary = {"score": 1.0, "layouts": {}}
+
+    def row(score, clean):
+        return {"score": score, "episodes": 64, "layouts": {}, "clean_kill": clean}
+
+    assert controller.observe(row(8.0, 0.9), 0)
+    assert controller.observe(row(7.0, 1.0), 10)  # lower score, but it passes
+    assert controller.tracker.best == 7.0
+    assert not controller.observe(row(9.0, 0.95), 20)  # higher score that fails: best.pt keeps the passing networks
+    assert controller.best_summary["clean_kill"] == 1.0 and controller.tracker.best == 7.0
+    assert controller.tracker.evals_since_best == 0
+    assert controller.observe(row(9.5, 1.0), 30)
+
+
+def test_without_until_passed_the_budget_still_halts():
+    controller = StageController(make_config(min_over_baseline=0.2))
+    controller.baseline_summary = {"score": 10.0}
+    controller.observe({"score": 11.0}, 0)
+    assert controller.at_budget(lambda: pytest.fail("no confirmation")).action == HALT

@@ -105,8 +105,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Characters.RandomTalentChance` | 10 | | `Pulls.PartyEliteChance` | 50 |
 | `Characters.TalentNoisePoints` | 5 | | | |
 | `Characters.PetOutChance` | 50 | | | |
-| `Party.SizeWeight1` | 20 | | `Pulls.HigherLevelChance` | 25 |
-| `Party.SizeWeight2` | 20 | | `Pulls.PartyEliteChance` | 50 |
+| `Party.SizeWeight1` | 20 | | | |
+| `Party.SizeWeight2` | 20 | | | |
 | `Party.SizeWeight3` | 20 | | `Pulls.NextPullMinMs` | 8000 |
 | `Party.SizeWeight4` | 40 | | `Pulls.NextPullMaxMs` | 20000 |
 | `Party.ClassicChance` | 50 | | `Pulls.OwnerEngageMinMs` | 1500 |
@@ -123,14 +123,14 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.StealthOpener` | 0.5 | | `Pulls.Approach` | 0.5 |
 | `Duel.StealthUtility` | 0.05 | | `Pulls.StealthOpener` | 0.5 |
 | `Duel.StepCost` | 0.0002 | | `Pulls.StealthUtility` | 0.05 |
-| `Duel.Kill` | 2.0 | | `Pulls.Interrupt` | 0.3 |
+| `Duel.Kill` | 3.0 | | `Pulls.Interrupt` | 0.3 |
 | `Duel.FastKill` | 3.0 | | `Pulls.Kill` | 0.5 |
-| `Duel.HealthKept` | 1.0 | | `Pulls.StepCost` | 0.0002 |
+| `Duel.HealthKept` | 0.5 | | `Pulls.StepCost` | 0.0002 |
 | `Duel.Death` | 3.0 | | `Pulls.Clear` | 2.0 |
 | `Duel.MeleeRange` | 3.5 | | `Pulls.FastClear` | 3.0 |
 | `Duel.RangedRange` | 25.0 | | `Pulls.FastPull` | 2.0 |
-| `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 1.0 |
-| `Casting.TimeCompleted` | 0.0 | | `Pulls.PackDeath` | 3.0 |
+| `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 2.0 |
+| `Casting.TimeCompleted` | 0.03 | | `Pulls.PackDeath` | 3.0 |
 | `Resurrection.GraceMs` | 20000 | | `Pulls.GauntletDeath` | 5.0 |
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.OwnerClearScale` | 2.0 |
 | `Duel.Timeout` | 3.0 | | | |
@@ -249,8 +249,9 @@ ModeMsg   { u32 Mode;          // 0 training, 1 evaluation
 The first STEP after SPEC, and the STEP answering a MODE, carry freshly reset envs with zero rewards and dones. Neither
 is a transition. Every new session starts in training mode.
 
-Evaluation episodes ignore `WEIGHTS`: seed index *i* plays layout *i % (layout count)*, so every class/role is scored
-on an equal share of the seeds.
+Evaluation episodes ignore `WEIGHTS`: seed index *i* plays candidate *(i + seat) % (candidate count)*, where the
+candidates are the layouts of the seat's role (all layouts outside a party arena), so every class/role is scored on an
+equal share of the seeds.
 
 ## 8.4 File formats
 
@@ -266,11 +267,11 @@ every layer but the last. The policy is the argmax of the logits over allowed ac
 
 ### Layout manifest `<model>.json` (format 3)
 
-Compact JSON: `format`, `model`, `stage`, `class_role`, `class`, `role`, `obs_dim`, `num_actions`, `specs` (talent tabs),
-`blocks[]` each with `name`, `obs: [first, count]`, `actions: [first, count]` and block-specific entries (core:
+Compact JSON: `format`, `model`, `stage`, `class_role`, `class`, `role`, `obs_dim`, `num_actions`, `specs` (talent
+tabs), `blocks[]` each with `name`, `obs: [first, count]`, `actions: [first, count]` and block-specific entries (core:
 `action_features`, `catalog[]` with `kind`, `first_rank` and `next_swing`, plus talents; duel: stable slots; pack:
-tactical spells; gauntlet: sustain spells; companion: ally heals and revives; party: member slots). A consumer must build
-a byte-identical manifest (trailing whitespace ignored).
+tactical spells; gauntlet: sustain spells; companion: ally heals and revives; party: member slots). A consumer must
+build a byte-identical manifest (trailing whitespace ignored).
 
 ### `stage.json` (format 2)
 
@@ -280,15 +281,14 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 {
   "format": 2, "stage": "stage4_companion", "suffix": "_companion", "extends": "stage3_gauntlet",
   "summary": "...", "seats": 1,
-  "blocks": ["core", "duel", "pack", "gauntlet", "companion"],
+  "blocks": ["core", "duel", "pet", "pack", "gauntlet", "companion"],
   "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0}],
   "seed_chain": ["stage3_gauntlet", "stage2_pack", "stage1_duel"],
   "merges": [],
   "state": {"arena_first": 13, "arena_count": 8},
   "models": {"warrior_tank": "warrior_tank_companion", "...": "..."},
-  "layouts": {"warrior_tank": {"obs_dim": 519, "num_actions": 76,
-              "blocks": [{"name": "core", "obs": [0, 374], "actions": [0, 45]},
-                         {"name": "duel", "obs": [374, 30], "actions": [45, 15]}, "..."]}},
+  "layouts": {"warrior_tank": {"obs_dim": "...", "num_actions": "...",
+              "blocks": [{"name": "core", "obs": [0, "..."], "actions": [0, "..."]}, "..."]}},
   "episode_info": ["damage", "dps", "..."],
   "tuning": {"Characters.HighLevelFirst": 61, "...": "..."}
 }
