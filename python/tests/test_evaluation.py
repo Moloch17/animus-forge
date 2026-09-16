@@ -360,6 +360,22 @@ def test_episodes_log_has_one_row_per_episode():
     assert rows[0]["killed"] == 1.0 and "present" not in rows[0]  # only the reported columns
 
 
+def test_summary_groups_by_talent_build():
+    names = ("level", "talent_plan")
+    infos = np.array([[10, 0], [20, 1], [30, 2], [40, 0]], dtype=np.float32)
+    result = EvalResult(policy="learner", returns=np.array([1.0, 2.0, 3.0, 5.0]), infos=infos, info_names=names)
+
+    builds = result.summary(())["builds"]
+    assert set(builds) == {"standard", "noisy", "random"}
+    assert builds["standard"]["episodes"] == 2 and builds["standard"]["score"] == 3.0
+    assert builds["noisy"]["score"] == 2.0 and builds["random"]["score"] == 3.0
+
+    # One build everywhere is no breakdown.
+    same = EvalResult(policy="learner", returns=np.array([1.0, 2.0]), info_names=names,
+                      infos=np.array([[10, 0], [20, 0]], dtype=np.float32))
+    assert same.summary(())["builds"] == {}
+
+
 def test_layout_weights_favour_the_layouts_below_baseline():
     summary = {"layouts": {"rogue_dps": {"score": 6.0}, "mage_dps": {"score": 9.0}, "priest_dps": {"score": 8.0}}}
     baseline = {"layouts": {"rogue_dps": {"score": 8.5}, "mage_dps": {"score": 4.0}, "priest_dps": {"score": 8.0}}}

@@ -29,6 +29,10 @@ from . import protocol as p
 
 LEVEL_BANDS = ((1, 20), (21, 40), (41, 60), (61, 80))
 
+# How a character's talents were spent, by the episode info column "talent_plan" (SeatCharacter::TalentPlan).
+# Scored as its own group so a run shows whether the policy plays a build it was not handed the recipe for.
+TALENT_PLANS = ("standard", "noisy", "random")
+
 
 @dataclass
 class EvalResult:
@@ -79,7 +83,7 @@ class EvalResult:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
 
     def summary(self, columns: tuple[str, ...]) -> dict:
-        """Score and means of `columns` (those the scenario has): overall, per level band, per layout, per arena."""
+        """Score and means of `columns`: overall, per level band, per layout, per arena and per talent build."""
         present = [c for c in columns if c in self.info_names]
 
         def means(rows: np.ndarray) -> dict:
@@ -94,7 +98,7 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}, "builds": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -111,6 +115,12 @@ class EvalResult:
                 rows = arenas == index
                 if rows.any():
                     result["arenas"][arena] = means(rows)
+        plans = self.column("talent_plan")
+        if plans is not None and len(set(plans.tolist())) > 1:
+            for index, plan in enumerate(TALENT_PLANS):
+                rows = plans == index
+                if rows.any():
+                    result["builds"][plan] = means(rows)
         return result
 
 
@@ -318,7 +328,7 @@ class ConvergenceTracker:
 
 
 def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...]) -> str:
-    """Multi-line table: overall, per level band, per layout and per arena, learner next to baseline."""
+    """Multi-line table: overall, per level band, layout, arena and talent build, learner next to baseline."""
 
     def cell(row: dict | None, name: str) -> str:
         value = None if row is None else row.get(name)
@@ -326,7 +336,7 @@ def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...
 
     names = ["score", *[c for c in columns if c in summary]]
     rows = [("all", summary, baseline)]
-    for group in ("bands", "layouts", "arenas"):
+    for group in ("bands", "layouts", "arenas", "builds"):
         for key, row in summary.get(group, {}).items():
             rows.append((key, row, (baseline or {}).get(group, {}).get(key)))
 
