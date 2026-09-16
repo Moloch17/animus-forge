@@ -156,6 +156,40 @@ def test_trainer_restart_hooks():
     assert trainer.actor_opt is not old_opt and not trainer.actor_opt.state
 
 
+def test_learning_rates_follow_their_schedule():
+    from animus.mappo.trainer import schedule
+
+    assert schedule(0.1, 0, 300) == pytest.approx(1.0)
+    assert schedule(0.1, 150, 300) == pytest.approx(0.55)
+    assert schedule(0.1, 300, 300) == pytest.approx(0.1) and schedule(0.1, 900, 300) == pytest.approx(0.1)
+    assert schedule(1.0, 150, 300) == 1.0
+
+    trainer = MappoTrainer([(3, 2)], 5, MappoConfig(hidden=(8,), actor_lr=3e-4, critic_lr=1e-3))
+    trainer.set_learning_rate_scale(0.5)
+    assert trainer.actor_opt.param_groups[0]["lr"] == pytest.approx(1.5e-4)
+    assert trainer.critic_opt.param_groups[0]["lr"] == pytest.approx(5e-4)
+
+
+def test_act_and_value_matches_act_and_value_apart():
+    """One pass for both networks, grouping the rows by layout once, answers as the two calls do."""
+    import numpy as np
+
+    torch.manual_seed(0)
+    trainer = MappoTrainer([(3, 2), (4, 3)], 5, MappoConfig(hidden=(8, 8)))
+    rng = np.random.default_rng(0)
+    obs = rng.random((6, 2, 4), dtype=np.float32)
+    mask = np.ones((6, 2, 3), bool)
+    mask[..., 2] = False
+    layout = rng.integers(0, 2, (6, 2))
+    state = rng.random((6, 5), dtype=np.float32)
+
+    actions, log_probs = trainer.act(obs, mask, layout, deterministic=True)
+    values = trainer.value(state, obs, layout)
+    together = trainer.act_and_value(obs, mask, layout, state, deterministic=True)
+    assert (together[0] == actions).all()
+    assert np.allclose(together[1], log_probs) and np.allclose(together[2], values, atol=1e-6)
+
+
 def test_entropy_floor_lifts_a_collapsing_policy_and_lets_go():
     """The floor raises the coefficient while entropy is under its share of ln(legal actions), never above."""
     from animus.config import TrainConfig
@@ -244,3 +278,16 @@ def test_without_until_passed_the_budget_still_halts():
     controller.baseline_summary = {"score": 10.0}
     controller.observe({"score": 11.0}, 0)
     assert controller.at_budget(lambda: pytest.fail("no confirmation")).action == HALT
+
+
+def test_entropy_coef_follows_its_schedule():
+    config = make_config()
+    config.total_env_steps = 100
+    config.mappo.entropy_coef = 0.01
+    config.mappo.entropy_final_fraction = 0.2
+    controller = StageController(config)
+    assert controller.entropy_coef(0) == pytest.approx(0.01)
+    assert controller.entropy_coef(50) == pytest.approx(0.006)
+    assert controller.entropy_coef(100) == pytest.approx(0.002)
+    assert controller.entropy_coef(500) == pytest.approx(0.002)  # held at the end, past the budget
+

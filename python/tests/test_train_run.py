@@ -164,8 +164,10 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
 
     with (run_dir / "eval.csv").open() as f:
         evals = list(csv.DictReader(f))
-    assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update]
-    assert modes.count((True, 2, "")) == 3
+    # The third evaluation also plays sampled actions on the same seeds (stage1_duel: eval.sampled_every 3).
+    assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update, 2 * steps_per_update]
+    assert [row["policy"] for row in evals] == ["learner", "learner", "learner", "learner_sampled"]
+    assert modes.count((True, 2, "")) == 4
     # After each training evaluation the lost seeds go to the sim (stage1_duel replays clean_kill losses). The fake
     # episodes have no killed or died columns, so none can be told lost: an empty replay each time.
     assert len(replays) == 3 and all(len(seeds) == 0 for _, _, seeds in replays)

@@ -11,7 +11,7 @@ import torch
 from torch import nn
 
 from .buffer import RolloutBuffer
-from .networks import LayoutActor, LayoutCritic, skip_distribution_checks, update_norms
+from .networks import LayoutActor, LayoutCritic, per_layout, skip_distribution_checks, update_norms
 from .valuenorm import ValueNorm
 
 
@@ -49,10 +49,24 @@ class MappoConfig:
     # different scales and meet tanh first, which saturates on anything far from zero. The statistics come from
     # the rollouts, travel in the checkpoint, and are folded into the adapter when a model is exported.
     normalise_observations: bool = True
+    # Where the learning rates end, as a fraction of actor_lr and critic_lr, falling linearly over total_env_steps:
+    # a constant rate kept the update growing all run (stage1_duel: approx KL 0.014 -> 0.028, ~20% of samples
+    # clipped) when late progress needs small steps. 1 = constant.
+    lr_final_fraction: float = 1.0
+    # Where entropy_coef ends, as a fraction of itself, falling linearly over total_env_steps (the entropy floor and
+    # a restart's boost still apply on top). Late on, the argmax policy that evaluation and exported models play
+    # should be the one training sampled. 1 = constant.
+    entropy_final_fraction: float = 1.0
 
 
 #: An epoch may exceed the target this far before the update stops: the measure is noisy over one epoch.
 EPOCH_KL_TOLERANCE = 1.5
+
+
+def schedule(final_fraction: float, env_steps: int, total_env_steps: int) -> float:
+    """A linear schedule's factor: 1 at the start, `final_fraction` at total_env_steps and after."""
+    progress = min(1.0, max(0.0, env_steps / total_env_steps)) if total_env_steps > 0 else 0.0
+    return 1.0 - (1.0 - final_fraction) * progress
 
 
 def per_decision(config: MappoConfig, decision_ms: int) -> tuple[float, float]:
@@ -126,6 +140,12 @@ class MappoTrainer:
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.config.actor_lr, eps=1e-5)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=self.config.critic_lr, eps=1e-5)
 
+    def set_learning_rate_scale(self, scale: float) -> None:
+        """Both optimizers at `scale` times their configured learning rate (see MappoConfig.lr_final_fraction)."""
+        for optimizer, rate in ((self.actor_opt, self.config.actor_lr), (self.critic_opt, self.config.critic_lr)):
+            for group in optimizer.param_groups:
+                group["lr"] = rate * scale
+
     @torch.no_grad()
     def shrink_perturb(self, shrink: float, perturb: float) -> None:
         """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
@@ -174,6 +194,31 @@ class MappoTrainer:
         actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
         log_probs = dist.log_prob(actions)
         return (actions.reshape(envs, agents).cpu().numpy(), log_probs.reshape(envs, agents).cpu().numpy())
+
+    @torch.inference_mode()
+    def act_and_value(
+        self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, state: np.ndarray, deterministic: bool = False
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """act() and value() of one decision in one pass over the inputs: the rows are converted and grouped by
+        layout once for both networks. Returns (actions [E, A], log_probs [E, A], values [E, A])."""
+        envs, agents = layout.shape
+        rows = envs * agents
+        obs_t = self._tensor(obs).reshape(rows, -1)
+        layout_t = self._tensor(layout, torch.long).reshape(rows)
+        groups = per_layout(layout_t, len(self.layouts))
+
+        dist = self._rollout_actor(obs_t, layout_t, self._tensor(mask).reshape(rows, -1), groups)
+        actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
+        log_probs = dist.log_prob(actions)
+
+        state_t = self._tensor(state)[:, None, :].expand(envs, agents, state.shape[-1]).reshape(rows, -1)
+        values = self._rollout_critic(state_t, obs_t, layout_t, groups)
+        if self._rollout_value_norm is not None:
+            values = self._rollout_value_norm.denormalize(values)
+
+        shape = (envs, agents)
+        return (actions.reshape(shape).cpu().numpy(), log_probs.reshape(shape).cpu().numpy(),
+                values.reshape(shape).cpu().numpy())
 
     @torch.no_grad()
     def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:

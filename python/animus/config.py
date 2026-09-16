@@ -48,6 +48,11 @@ class EvalConfig:
     # (and against itself when the baseline is), so the score is the learner against a fixed opponent.
     opponent_baseline: bool = False
     report: tuple[str, ...] = REPORT_COLUMNS  # episode info columns printed per level band, when present
+    # Every this many evaluations, also score sampled actions on the same seeds (policy learner_sampled in eval.csv,
+    # eval.jsonl and eval_episodes.jsonl). Training samples; evaluation and exported models take the argmax. A wide
+    # gap between the two says the policy that is gated is not the one that trained (see mappo.entropy_final_fraction).
+    # 0 = never.
+    sampled_every: int = 0
 
 
 @dataclass

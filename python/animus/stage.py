@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from .config import TrainConfig
 from .evaluation import ConvergenceTracker
 from .gates import GateReport, check_gates
+from .mappo.trainer import schedule
 
 EXIT_BELOW_TARGET = 3
 
@@ -97,7 +98,9 @@ class StageController:
         return check_gates(summary, self.baseline_summary, self.config.target).passed
 
     def entropy_coef(self, env_steps: int) -> float:
-        base = self.config.mappo.entropy_coef * self.entropy_scale
+        mappo = self.config.mappo
+        base = mappo.entropy_coef * self.entropy_scale * schedule(mappo.entropy_final_fraction, env_steps,
+                                                                  self.config.total_env_steps)
         r = self.config.restarts
         if self.restart_env_steps is None or r.entropy_boost == 1.0:
             return base

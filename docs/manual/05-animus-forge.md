@@ -546,8 +546,13 @@ Combat rolls stay random, so every score carries a standard error.
 (1-20, 21-40, 41-60, 61-80), per layout (class/role) and per arena. Rows with `opponent_seat` are left out when
 `opponents` is set.
 
+**Sampled actions** (`eval.sampled_every`): every that many evaluations, the learner also plays sampled actions on the
+same seeds and logs them as policy `learner_sampled` beside the argmax evaluation, printing score, `clean_kill`,
+`killed`, `died` and `timed_out` for both. Training samples; evaluation and exported models take the argmax, so a wide
+gap means the gated policy is not the one that trained (lower `mappo.entropy_final_fraction` then).
+
 **The baseline** (`eval.baseline`, `fight` for the curriculum) is scored once per run on the same seeds. It is cached in
-`eval_baseline.json` under a key of policy, seed, episodes, opponents and arenas, and in
+`eval_baseline.json` under a key of policy, seed, episodes, opponents, arenas and the stage tuning, and in
 `eval_baseline_<seed>_<episodes>.json` for confirmation seeds. With `opponent_baseline`, the sim plays the opponent
 seats of self-play episodes with the baseline policy (`MODE_FLAG_SCRIPTED_OPPONENTS`) during both the learner's
 evaluation and the baseline's own, so the baseline plays against itself.
@@ -602,6 +607,9 @@ With no gates set, a converged stage advances.
   trunk but not a return scale, so one global scale lets the widest-spread of them set the shared gradient.
 - `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
   clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
+- `lr_final_fraction` and `entropy_final_fraction`: where `actor_lr`/`critic_lr` and `entropy_coef` end, as a fraction
+  of their configured values, falling linearly over `total_env_steps` (1 = constant). stage1_duel ends its learning
+  rates at a tenth: at a constant rate the update kept growing all run while the late gains were small.
 
 ### Keeping exploration alive (`entropy_floor`)
 

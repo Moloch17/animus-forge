@@ -270,8 +270,8 @@ every layer but the last. The policy is the argmax of the logits over allowed ac
 
 Compact JSON: `format`, `model`, `stage`, `class_role`, `class`, `role`, `obs_dim`, `num_actions`, `specs` (talent
 tabs), `blocks[]` each with `name`, `obs: [first, count]`, `actions: [first, count]` and block-specific entries (core:
-`action_features`, `catalog[]` with `kind`, `first_rank` and `next_swing`, plus talents; duel: stable slots; pack:
-tactical spells; gauntlet: sustain spells; companion: ally heals and revives; party: member slots). A consumer must
+`action_features`, `catalog[]` with `kind`, `first_rank`, `next_swing` and `group`, plus talents; duel: stable slots;
+pack: slot counts; gauntlet: consumables; companion: ally heals and revives; party: member slots). A consumer must
 build a byte-identical manifest (trailing whitespace ignored).
 
 ### `stage.json` (format 2)

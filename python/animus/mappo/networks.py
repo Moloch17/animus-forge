@@ -127,6 +127,12 @@ def update_norms(norms: nn.ModuleList, obs: torch.Tensor, layout: torch.Tensor, 
         norms[index].update(obs[rows, : obs_dims[index]])
 
 
+def per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tensor]]:
+    """(layout, row indices) for every layout present in the flat batch `layout`, for the forward passes to share: the
+    grouping is a unique and a nonzero per layout, which with 18 layouts is most of a small batch's forward cost."""
+    return _per_layout(layout.reshape(-1), count)
+
+
 def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tensor]]:
     """(layout, row indices) for every layout present in the batch."""
     if count == 1:
@@ -150,11 +156,12 @@ class LayoutActor(nn.Module):
         self.trunk = _Trunk(hidden)
         self.heads = nn.ModuleList(_linear(hidden[-1], actions, 0.01) for _, actions in layouts)
 
-    def forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor) -> Categorical:
-        """obs [..., O], layout [...], mask [..., N] (padded) -> distribution over N actions."""
+    def forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, groups=None) -> Categorical:
+        """obs [..., O], layout [...], mask [..., N] (padded) -> distribution over N actions. `groups` is
+        per_layout(layout) when the caller already has it."""
         lead = obs.shape[:-1]
         obs, layout, mask = obs.reshape(-1, obs.shape[-1]), layout.reshape(-1), mask.reshape(-1, mask.shape[-1])
-        groups = _per_layout(layout, len(self.adapters))
+        groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
 
         width = self.adapters[0].out_features
         hidden = obs.new_zeros(obs.shape[0], width)
@@ -187,13 +194,13 @@ class LayoutCritic(nn.Module):
         self.trunk = _Trunk(hidden)
         self.head = _linear(hidden[-1], 1, 1.0)
 
-    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor) -> torch.Tensor:
-        """state [..., S], obs [..., O], layout [...] -> value [...]."""
+    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, groups=None) -> torch.Tensor:
+        """state [..., S], obs [..., O], layout [...] -> value [...]. `groups` as for LayoutActor.forward."""
         lead = obs.shape[:-1]
         state, obs, layout = state.reshape(-1, state.shape[-1]), obs.reshape(-1, obs.shape[-1]), layout.reshape(-1)
 
         hidden = self.state_encoder(self.state_norm(state))
         own = torch.zeros_like(hidden)
-        for index, rows in _per_layout(layout, len(self.adapters)):
+        for index, rows in groups if groups is not None else _per_layout(layout, len(self.adapters)):
             own[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
         return self.head(self.trunk(hidden + own)).reshape(lead)

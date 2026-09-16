@@ -192,7 +192,7 @@ party's tank; the enemy player and whether it is a learned seat. Encounters fill
 - **A dead bot** sees only the duel block's dead features (whether it can resurrect itself), and its only possible
   action is the self-resurrect action.
 - **No target** (between gauntlet pulls) blocks observation and actions, unless the layout acts without a target, which
-  is any layout with the gauntlet block (food, drink, sustain spells).
+  is any layout with the gauntlet block (food, drink, and self-cast spells between pulls).
 - **Hidden enemies.** An enemy the bot can neither see nor detect (`CanSeeOrDetect`: stealth, invisibility) is left out
   of the view, as a client leaves it off the screen. An enemy slot holding one reads empty, the pvp block writes only
   what the bot remembers about a hidden opponent, and a hidden target is `HiddenTarget` instead of `Target`: every block
@@ -291,13 +291,17 @@ The same function builds training seats and live companions, so a model gets in 
   (speed; mechanic and school immunity such as the PvP trinket, Every Man for Himself, Will of the Forsaken, Hand of
   Freedom and Fear Ward; dodge, parry, block, reflection; Feign Death, Fade and invisibility). Mounts, teleports,
   crafting, pure heals and charm are excluded,
-- one action per trinket slot.
+- one action per trinket slot,
+- then the rest of the kit, from the first stage on, as a player fights with it: **tactical spells** (interrupts, stuns
+  with Sap included, silences, fears, roots, polymorphs, knockbacks, taunts, snares, disarms, traps, Distract and
+  offensive dispels) cast at the target, and **sustain spells** (heals, HoTs, absorbs and friendly dispels) cast on the
+  bot itself. Until they were core actions a duel healer had no heal and a duel mage no Polymorph or Ice Barrier.
+  Each catalog entry in the manifest names its `group` (`combat`, `tactical`, `sustain`).
 
-The catalog also provides three more lists that later blocks use:
+The catalog also keeps the lists apart for the blocks that cast them elsewhere:
 
-- `Tactical()` (pack block): interrupts, stuns (Sap included), silences, fears, roots, polymorphs, knockbacks, taunts,
-  snares, disarms, traps, Distract and offensive dispels.
-- `Sustain()` (gauntlet block): heals, HoTs, absorbs and friendly dispels.
+- `Tactical()`: the tactical spells above.
+- `Sustain()`: the sustain spells above, which the companion and party blocks cast on allies.
 - `Revives()` (companion and party blocks): Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth, and a
   warlock's soulstone.
 
@@ -326,10 +330,10 @@ how busy a seat was.
 | Block | Observation (summary) | Actions |
 |---|---|---|
 | `core` | 62 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
-| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
+| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
-| `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
-| `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left; each sustain spell's known and cooldown | Eat, drink; sustain spells |
+| `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
+| `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left (the sustain spells are core actions) | Eat, drink |
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally spell's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one cast-on-owner per ally spell, one revive-on-owner per revive |
 | `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, ally spells, revives |
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
@@ -558,13 +562,13 @@ They are the reference numbers a trained policy has to beat (evaluation baseline
 
 ## 4.8 The critic state
 
-The centralised critic sees a class-agnostic global state of the env. `StateDim = 21 + 4 x 23 + 4 x 14 = 169`.
+The centralised critic sees a class-agnostic global state of the env. `StateDim = 21 + 4 x 23 + 4 x 25 = 213`.
 
 | Part | Features |
 |---|---|
 | Global (21) | Episode time fraction; pull active; pulls cleared / 10; time to next pull / 20 s; elite pull; linked pull; owner present, alive, health, mana, x, y (relative to the spawn point, / 40), in combat; arena one-hot (8) |
 | Per seat (4 x 23) | Present, alive, health, mana, other power, level / 80, role one-hot (3), class one-hot (10), in combat, casting, x, y |
-| Per enemy slot (4 x 14) | Present, alive, health, x, y, casting, elite, level difference / 5, in combat, victim is the owner, victim is seat s (4) |
+| Per enemy slot (4 x 25) | Present, alive, health, x, y, casting, elite, level difference / 5, in combat, victim is the owner, victim is seat s (4), max health against seat 0's, damage multiplier, armor reduction against seat 0, run speed, creature type one-hot (7) |
 
 The episode time *fraction* (the share of the episode's own limit spent) appears only in the critic state, because live
 play has no time limit. Observations carry elapsed episode time instead (the core block's last global feature). In
@@ -637,7 +641,9 @@ stage is `episode_info` in its `stage.json`.
 
 ### Stage 1: `stage1_duel`
 
-A new character against a real creature (4.5). Nothing seeds it, so its networks start from scratch. Hunters are
+A new character against a real creature (4.5), with the class's whole kit, in 90-second episodes (a timeout is a
+lost fight, and a healer against a creature with twice the usual health needs the time). Nothing seeds it, so its
+networks start from scratch. Hunters are
 offered four beasts each episode through `call_beast` actions, because Call Pet needs a pet saved in the database. The
 observation shows each beast's family and pet type, so the policy can learn its preference. Warlock demons, Raise
 Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. The bot gains no XP.
@@ -677,13 +683,13 @@ Learner (`configs/stage1_duel.yaml`, the root every other config extends):
 
 ### Stage 2: `stage2_pack`
 
-Adds the pack block: target slots, tactical spells, and the enemy-slot observation. Linked packs mean pulling one
+Adds the pack block: target slots and the enemy-slot observation (the tactical spells come with the core from stage 1). Linked packs mean pulling one
 enemy pulls all of them. The interrupt reward teaches casting interrupts at the right moment. Config: inherits
 stage 1.
 
 ### Stage 3: `stage3_gauntlet`
 
-Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and sustain spells. Between pulls
+Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and the core's sustain spells. Between pulls
 there is no target, so target features are 0 and only self-cast actions are allowed. Needs long episodes (several
 minutes of `AnimusForge.EpisodeSeconds`). Config: gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so
 resting before a pull or stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps.

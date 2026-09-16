@@ -44,6 +44,7 @@ from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
+from .mappo.trainer import schedule
 from .stage import ADVANCE, EXIT_BELOW_TARGET, EXTEND, HALT, RESTART, Outcome, StageController
 from .stages import STAGE_FILE, load_stage
 
@@ -485,8 +486,26 @@ class TrainingRun:
         if improved:
             self._save(self.best_path)
 
+        sampled_every = config.eval.sampled_every
+        if sampled_every > 0 and len(tracker.history) % sampled_every == 0:
+            self.evaluate_sampled(summary)
+
         self.send_layout_weights(summary, baseline_summary)
         self.send_replay(result)
+
+    def evaluate_sampled(self, argmax: dict) -> None:
+        """Score sampled actions on the evaluation seeds, next to the argmax evaluation that just ran."""
+        config = self.config
+        result, self.step = run_evaluation(
+            self.env, self.spec,
+            lambda step: self.trainer.act(step.obs, step.mask, step.layout, deterministic=False)[0],
+            config.eval.episodes, config.eval.seed, opponents=self.opponents, arenas=self.arena_names)
+        result.policy = "learner_sampled"
+        summary = result.summary(self.report)
+        self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
+        fields = [name for name in ("score", "clean_kill", "killed", "died", "timed_out") if name in summary]
+        print("Sampled vs argmax actions on the evaluation seeds: " + ", ".join(
+            f"{name} {summary[name]:.4g} / {argmax.get(name, float('nan')):.4g}" for name in fields), flush=True)
 
     def send_replay(self, result: EvalResult) -> None:
         """Send the sim the seeds this evaluation lost, for training resets to rebuild (protocol REPLAY)."""
@@ -601,8 +620,7 @@ class TrainingRun:
 
         while not buffer.full:
             step = self.step
-            values = trainer.value(step.state, step.obs, step.layout)
-            actions, log_probs = trainer.act(step.obs, step.mask, step.layout)
+            actions, log_probs, values = trainer.act_and_value(step.obs, step.mask, step.layout, step.state)
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
@@ -627,6 +645,10 @@ class TrainingRun:
         self.rollout_reward = buffer.mean_reward()
         self.rollout_allowed_actions = buffer.mean_allowed_actions()
         trainer.entropy_coef = self.controller.entropy_coef(self.env_steps)
+        # With an overlapped update this applies to the update submitted below: a rollout's worth late, which a
+        # schedule over hundreds of millions of steps does not notice.
+        trainer.set_learning_rate_scale(schedule(self.config.mappo.lr_final_fraction, self.env_steps,
+                                                 self.config.total_env_steps))
         if self.distiller is not None:
             self.distiller.coef = self.config.distill.coef_at(self.env_steps)
 

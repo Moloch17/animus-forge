@@ -367,7 +367,7 @@ that change whenever a block does:
 A block a class/role has no use for (the `pet` block for a warrior) still appears, with no features and no actions.
 
 Each block adds its own entries through `Block::DescribeManifest`: the catalog and talents (core), stable slots (duel),
-tactical spells (pack), sustain spells (gauntlet), ally heals and revives (companion), member slots (party).
+enemy slots (pack), food and drink (gauntlet), ally heals and revives (companion), member slots (party).
 
 **Any change that affects the manifest invalidates models.** That includes a new feature in a block, a new spell in a
 catalog (a new spell rule, a different talent build), a block added to a stage, or a different class/role list.
