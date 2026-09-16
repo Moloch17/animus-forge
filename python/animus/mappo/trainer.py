@@ -81,6 +81,25 @@ class MappoTrainer:
             copy.deepcopy(self.value_norm).to(self.rollout_device) if self.value_norm is not None else None
         )
 
+        # (trained tensor, rollout tensor) for every parameter and buffer the rollout networks mirror, paired
+        # once here so a sync is a copy rather than a state dict.
+        self._rollout_pairs = self._pair_tensors()
+
+    def _pair_tensors(self) -> list[tuple[torch.Tensor, torch.Tensor]]:
+        """Every tensor a rollout copy mirrors, next to the trained tensor it comes from."""
+        trained = [self.actor, self.critic]
+        rollout = [self._rollout_actor, self._rollout_critic]
+        if self.value_norm is not None:
+            trained.append(self.value_norm)
+            rollout.append(self._rollout_value_norm)
+
+        pairs = []
+        for source, destination in zip(trained, rollout):
+            for name, tensor in list(source.named_parameters()) + list(source.named_buffers()):
+                pairs.append((tensor, dict(list(destination.named_parameters())
+                                           + list(destination.named_buffers()))[name]))
+        return pairs
+
     def reset_optimizers(self) -> None:
         """Fresh Adam state: after a restart the step sizes are no longer shrunk by the old gradient history."""
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.config.actor_lr, eps=1e-5)
@@ -103,11 +122,13 @@ class MappoTrainer:
         overlapping an update with the next rollout needs: the rollout reads these copies while the update runs."""
         self._sync_rollout()
 
+    @torch.no_grad()
     def _sync_rollout(self) -> None:
-        self._rollout_actor.load_state_dict(self.actor.state_dict())
-        self._rollout_critic.load_state_dict(self.critic.state_dict())
-        if self.value_norm is not None:
-            self._rollout_value_norm.load_state_dict(self.value_norm.state_dict())
+        # Copy tensor by tensor into the networks that are already there. Building a state dict and loading it
+        # allocates a host copy of every parameter and buffer of both networks after every update, which with a
+        # GPU is the whole model over the bus; the rollout copies only ever need the values.
+        for source, destination in self._rollout_pairs:
+            destination.copy_(source)
 
     def _tensor(self, array: np.ndarray, dtype=None) -> torch.Tensor:
         return torch.as_tensor(array, device=self.rollout_device, dtype=dtype)

@@ -587,7 +587,10 @@ class TrainingRun:
 
             final_values = np.zeros((envs, agents), dtype=np.float32)
             if step.done.any():
-                final_values[step.done] = trainer.value(step.final_state, step.final_obs, layout)[step.done]
+                # Only the envs that finished need one: an env ends an episode once in hundreds of decisions, so
+                # valuing all of them and then throwing most away is a forward pass over ~20x the rows needed.
+                done = step.done
+                final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done])
                 ended = step.episode_info[step.done].reshape(-1, spec.episode_info_dim)
                 present = self.present_column
                 self.finished_episodes.extend(ended if present is None else ended[ended[:, present] > 0.0])

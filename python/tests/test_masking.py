@@ -141,3 +141,32 @@ def test_update_splits_evenly_and_times_itself():
     assert steps == 2 * 4  # epochs x minibatches, with no ragged extra
     assert stats["update_compute_seconds"] > 0.0
     assert all(np.isfinite(value) for value in stats.values())
+
+
+def test_rollout_networks_mirror_the_trained_ones_after_an_update():
+    """The rollout copies are synced tensor by tensor, so they must still hold exactly the trained values."""
+    trainer = MappoTrainer([(4, 3)], 5, MappoConfig(hidden=(8, 8), epochs=1, minibatches=1))
+    envs, agents = 4, 1
+    buffer = RolloutBuffer(4, envs, agents, 4, 5, 3)
+    rng = np.random.default_rng(3)
+
+    while not buffer.full:
+        layout = np.zeros((envs, agents), dtype=np.int64)
+        obs = rng.random((envs, agents, 4), dtype=np.float32)
+        state = rng.random((envs, 5), dtype=np.float32)
+        mask = np.ones((envs, agents, 3), dtype=bool)
+        chosen, log_probs = trainer.act(obs, mask, layout)
+        buffer.add_decision(obs, state, mask, layout, chosen, log_probs, trainer.value(state, obs, layout))
+        buffer.add_outcome(rng.random((envs, agents), dtype=np.float32), np.zeros(envs, bool),
+                           np.zeros(envs, bool), np.zeros((envs, agents), dtype=np.float32))
+
+    buffer.finish(trainer.value(state, obs, layout), 0.99, 0.95)
+    before = trainer._rollout_actor.trunk.layers[0].weight.clone()
+    trainer.update(buffer)
+
+    assert not torch.equal(before, trainer._rollout_actor.trunk.layers[0].weight), "the update changed nothing"
+    for network, rollout in ((trainer.actor, trainer._rollout_actor), (trainer.critic, trainer._rollout_critic)):
+        for (name, trained), (_, copied) in zip(network.named_parameters(), rollout.named_parameters()):
+            assert torch.equal(trained.cpu(), copied.cpu()), f"{name} was not mirrored"
+    if trainer.value_norm is not None:
+        assert torch.equal(trainer.value_norm.running_mean.cpu(), trainer._rollout_value_norm.running_mean.cpu())
