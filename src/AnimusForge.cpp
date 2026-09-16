@@ -428,8 +428,10 @@ void AnimusForge::Forge::FinishCurrent(Outcome outcome)
         Format::Duration(std::chrono::duration<double>(std::chrono::steady_clock::now() - _scenarioStarted).count()),
         _plan.Entries.size() > 1 ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "");
 
-    // A learner that finished its run has already exited; any other ending stops it.
-    TeardownScenario(outcome != Outcome::Done);
+    // A learner that finished its run has already exited; any other ending stops it. A benchmark trial is the
+    // exception that ends well with its learner still training -- its budget is one no trial ever reaches -- so
+    // that one is stopped and waited for here, or the next trial finds it running and cannot start its own.
+    TeardownScenario(outcome != Outcome::Done || _benching);
 
     if (++_plan.Index >= _plan.Entries.size())
     {
