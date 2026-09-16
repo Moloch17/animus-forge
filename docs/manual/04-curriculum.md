@@ -616,7 +616,9 @@ objective changes, so a flag changing hands pays nothing by itself.
      pet hold it; auto-attack only once the target is in melee reach (a hunter with no pet yet, or one still held),
   7. a melee spec starts auto-attack,
   8. and moves to a living target beyond melee reach while not already moving,
-  9. otherwise its rotation (not `greedy`), first match wins:
+  9. while its pet attacks the target, the pet's first allowed damaging ability (pets don't autocast, and an Imp or a
+     Water Elemental can't melee, so this is all they do),
+  10. otherwise its rotation (not `greedy`), first match wins:
      - in no form, the spec's own: Moonkin Form (balance), Cat Form (feral cat), Dire Bear or Bear Form (feral bear),
        Shadowform (shadow). Other forms and stances are never cast; `SeatCharacter::PrepareFighter` puts a warrior in
        its stance,
@@ -750,6 +752,10 @@ Dead, Water Elemental and Feral Spirit are ordinary spell actions with their rea
 
 Pets are played as a player has them:
 
+- **A new pet starts defensive.** Creating a pet's `CharmInfo` sets it passive, and a player's summon then loads the
+  stance saved with the pet, which a bot never has: stage1_duel's warlock demons stayed passive all fight, ignored the
+  attack orders sent to them and dealt no damage. `PetBlock::DefaultStance` sets a newly seen pet that came out
+  passive to defensive, once per pet, so a stance the policy picks afterwards stands. Companions do the same.
 - **A called beast is fed and talented.** It arrives happy (a freshly tamed beast is unhappy and deals 75% damage) and
   its talent points are spent (`PetTalents`): the build players took for its tree -- ferocity, tenacity or cunning --
   point by point through `Player::LearnPetTalent`, the rest at random. Family-specific talents (Dash, Dive, Charge,
