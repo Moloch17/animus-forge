@@ -639,6 +639,10 @@ Every stage reports these **core columns** per seat:
   `pet_summoned`, `pet_at_start`, `pet_damage_share` (of the seat's damage, what its pets and guardians dealt),
   `pet_died`, `pet_abilities` (pet bar abilities started), `pet_orders` (stances, follow, stay, sending the pet in),
   `opponent` (creature entry)
+- what the seat did with its pet: `pet_attack_orders`, `pet_passive_orders`, `pet_defensive_orders`,
+  `pet_aggressive_orders`, `pet_follow_orders`, `pet_stay_orders` (each order given), `pet_out_seconds`, and the share
+  of that time the pet was attacking something (`pet_attacking_share`), set passive (`pet_passive_share`) or told to
+  stay (`pet_staying_share`). A pet's abilities are the policy's to cast: its spells are learned with autocast off
 - `casts_completed`, `casts_cancelled`, `cast_seconds_wasted`, `cancelled_stopped`, `cancelled_moved`,
   `cancelled_target`, `cancelled_other`
 - `consumables_used`, `self_resurrections`
@@ -659,6 +663,9 @@ Every stage reports these **core columns** per seat:
     it spent within melee reach of the opponent, and the share the opponent spent attacking its pet or guardian. A
     hunter's shots can't be used inside melee reach (`SPELL_FAILED_TOO_CLOSE`), so for a hunter `in_melee_share` is
     the share of the fight it played melee. For a caster it is mostly where the opponent chose to fight
+  - `target_rooted_share`, `target_snared_share`, `roots_applied`, `snares_applied` (one-on-one arenas): the share of
+    the same time the opponent spent rooted (Frost Nova, Entangling Roots) or slowed (Concussive Shot, Wing Clip,
+    Frost Shock, Earthbind) by the seat, its pet or its totems, and how often one went on where there was none
 
 Encounters then add their own columns:
 
@@ -698,9 +705,6 @@ Pets are played as a player has them:
   a warlock a random demon it knows, a death knight with Master of Ghouls its ghoul, a frost mage with Glyph of Eternal
   Water its elemental, summoned without a cast and with the summon ready again. The rest summon it themselves, so the
   policy learns both to get a pet out and to use (or replace) the one it has.
-- **Damage abilities are on autocast** (`PetBlock::AutocastDamage`), as a player sets them once: a pet learns its spells
-  with autocast off, and an Imp, which cannot melee, did nothing without Firebolt. Control, threat and utility abilities
-  stay on the pet bar for the policy to cast.
 - **The `fight` baseline uses pets:** out of combat it calls a stable beast or casts its best summon (Felguard,
   Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental) when no living pet is out, and sends the pet at
   the target, so the per-class/role gates of pet classes compare with a character that plays its pet.

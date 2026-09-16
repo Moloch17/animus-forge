@@ -33,6 +33,10 @@ REPORT_COLUMNS = (
     # spent within melee reach, and how much its pet held the opponent. Read by spec: a hunter's shots cannot be used
     # in melee reach, so in_melee_share is the share of the fight it played melee.
     "melee_damage_share", "shot_damage_share", "spell_damage_share", "in_melee_share", "target_on_pet_share",
+    # Whether it roots or slows its opponent, and what it has its pet do.
+    "target_rooted_share", "target_snared_share", "roots_applied", "snares_applied",
+    "pet_attack_orders", "pet_passive_orders", "pet_follow_orders", "pet_stay_orders", "pet_attacking_share",
+    "pet_passive_share", "pet_staying_share",
 )
 
 
