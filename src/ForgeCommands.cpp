@@ -22,6 +22,7 @@
  */
 
 #include "AnimusForge.h"
+#include "ClassRoleAssets.h"
 #include "Config.h"
 #include "Log.h"
 #include "StringFormat.h"
@@ -39,6 +40,10 @@ namespace
 {
     constexpr char const* ARCHIVE_DIR = "_archive";
     constexpr char const* EXPORT_LOG = "animus-export.log";
+
+    /// How many of its last points a `noisy` build improvises, when the command asks for one. The curriculum
+    /// draws this per character (Characters.TalentNoisePoints); the command shows the middle of that range.
+    constexpr uint32 TALENTS_NOISE_POINTS = 3;
 
     std::string Join(std::vector<std::string> const& names, char const* separator = ", ")
     {
@@ -658,6 +663,99 @@ bool AnimusForge::Forge::CommandRun(std::string const& scenario, std::string con
 
     out(Acore::StringFormat("Running {} with policy {} {}.", scenario, policy,
         episodes ? Acore::StringFormat("for {} episodes", Format::Count(episodes)) : "until `forge cancel`"));
+    return true;
+}
+
+bool AnimusForge::Forge::CommandTalents(std::string const& classRole, std::string const& spec, uint32 points,
+    std::string const& plan, LineSink const& out)
+{
+    using namespace Animus::Curriculum;
+
+    if (!Enabled(out))
+        return false;
+
+    auto const profile = std::find_if(ClassRoleProfiles().begin(), ClassRoleProfiles().end(),
+        [&classRole](ClassRoleProfile const& candidate) { return candidate.Name == classRole; });
+    if (profile == ClassRoleProfiles().end())
+    {
+        std::vector<std::string> names;
+        for (ClassRoleProfile const& candidate : ClassRoleProfiles())
+            names.push_back(candidate.Name);
+
+        out(Acore::StringFormat("Unknown class/role '{}'. Available: {}", classRole, Join(names)));
+        return false;
+    }
+
+    // Building the assets is what a stage does on its first episode of this class/role: trainer spells, gear
+    // pools, the talent trees. It is cached from here on, so asking twice is cheap.
+    ClassRoleAssets const& assets = ClassRoleAssets::For(*profile);
+    if (!assets.Talents || profile->Specs.empty())
+    {
+        out(Acore::StringFormat("{} has no talent trees to show", classRole));
+        return false;
+    }
+
+    SpecProfile const* chosen = &profile->Specs.front();
+    if (!spec.empty())
+    {
+        auto const named = std::find_if(profile->Specs.begin(), profile->Specs.end(),
+            [&spec](SpecProfile const& candidate) { return candidate.Name == spec; });
+        if (named == profile->Specs.end())
+        {
+            std::vector<std::string> names;
+            for (SpecProfile const& candidate : profile->Specs)
+                names.push_back(candidate.Name);
+
+            out(Acore::StringFormat("{} has no spec '{}'. Available: {}", classRole, spec, Join(names)));
+            return false;
+        }
+
+        chosen = &*named;
+    }
+
+    TalentBuilder const& talents = *assets.Talents;
+    TalentBuilder::Build build;
+    if (plan == "random")
+        build = talents.Random(chosen->TabPage, points);
+    else if (plan == "noisy")
+        build = talents.Noisy(chosen->Name, chosen->TabPage, points, TALENTS_NOISE_POINTS);
+    else if (plan.empty() || plan == "standard")
+        build = talents.Standard(chosen->Name, chosen->TabPage, points);
+    else
+    {
+        out(Acore::StringFormat("Unknown plan '{}'. Available: standard, noisy, random", plan));
+        return false;
+    }
+
+    out(Acore::StringFormat("{} {} ({} plan): {} points", classRole, chosen->Name,
+        plan.empty() ? "standard" : plan, points));
+
+    TextTable table({ { "Tree" }, { "Row", TextTable::Align::Right }, { "Talent" },
+        { "Ranks", TextTable::Align::Right } });
+    uint32 spent = 0;
+    for (uint8 tab = 0; tab < TalentBuilder::TREE_COUNT; ++tab)
+    {
+        for (TalentBuilder::Talent const& talent : talents.Talents())
+        {
+            uint32 const index = uint32(&talent - talents.Talents().data());
+            if (talent.Tab != tab || !build.Ranks[index])
+                continue;
+
+            spent += build.Ranks[index];
+            table.AddRow({ tab == chosen->TabPage ? Acore::StringFormat("{} (spec)", tab) : std::to_string(tab),
+                std::to_string(talent.Row + 1), talent.Name,
+                Acore::StringFormat("{}/{}", build.Ranks[index], talent.MaxRank) });
+        }
+    }
+
+    table.Write(out, "  ");
+
+    std::vector<std::string> trees;
+    for (uint8 tab = 0; tab < TalentBuilder::TREE_COUNT; ++tab)
+        trees.push_back(Acore::StringFormat("{}{}", build.TreePoints[tab], tab == chosen->TabPage ? " (spec)" : ""));
+
+    out(Acore::StringFormat("  {} points placed as {}; {} left over. The last row of a tree needs {} points in "
+        "it.", spent, Join(trees, " / "), points - std::min(points, spent), TalentBuilder::SPEC_TREE_POINTS - 1));
     return true;
 }
 

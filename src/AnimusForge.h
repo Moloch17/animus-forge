@@ -63,6 +63,11 @@ namespace AnimusForge
         /// `forge bench [scenario]`: time the sim at every AnimusForge.Bench.Threads x Envs pair, then the best few
         /// with the learner, and report what runs fastest. `forge bench apply` writes the winner into the configs.
         bool CommandBench(std::string const& scenario, LineSink const& out);
+
+        /// `forge talents <class_role> [spec] [points] [plan]`: print a build the curriculum would give a
+        /// character of that class/role, tree by tree. Builds nothing and trains nothing.
+        bool CommandTalents(std::string const& classRole, std::string const& spec, uint32 points,
+            std::string const& plan, LineSink const& out);
         bool CommandBenchApply(LineSink const& out);
         bool CommandExport(std::string scenario, std::string const& checkpoint, LineSink const& out);
         bool CommandClean(std::string const& target, std::string const& scenario, LineSink const& out);

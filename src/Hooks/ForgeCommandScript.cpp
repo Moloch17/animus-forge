@@ -27,6 +27,9 @@ using namespace Acore::ChatCommands;
 
 namespace
 {
+    /// A level 80 character's talent points: what `forge talents` shows when given no count.
+    constexpr uint32 TALENT_POINTS_AT_80 = 71;
+
     /// Scenario names separated by spaces or commas.
     std::vector<std::string> SplitNames(std::string_view text)
     {
@@ -75,6 +78,7 @@ namespace
                 { "skip",      HandleSkip,      SEC_ADMINISTRATOR, Console::Yes },
                 { "run",       HandleRun,       SEC_ADMINISTRATOR, Console::Yes },
                 { "bench",     HandleBench,     SEC_ADMINISTRATOR, Console::Yes },
+                { "talents",   HandleTalents,   SEC_ADMINISTRATOR, Console::Yes },
                 { "export",    HandleExport,    SEC_ADMINISTRATOR, Console::Yes },
                 { "clean",     HandleClean,     SEC_ADMINISTRATOR, Console::Yes },
                 { "progress",  HandleProgress,  SEC_ADMINISTRATOR, Console::Yes },
@@ -104,6 +108,8 @@ namespace
             table.AddRow({ "forge cancel", "stop the plan; the learner saves latest.pt first" });
             table.AddRow({ "forge skip", "end the current scenario and start the next one" });
             table.AddRow({ "forge run <scenario> <policy> [episodes]", "run a scripted or random policy, no learner" });
+            table.AddRow({ "forge talents <class_role> [spec] [points] [plan]",
+                "print a build the curriculum would give that class/role (plan: standard, noisy, random)" });
             table.AddRow({ "forge bench [scenario]", "time the sim and the learner at every AnimusForge.Bench.* "
                 "thread and env count" });
             table.AddRow({ "forge bench apply", "write the fastest settings from the last benchmark into the "
@@ -168,6 +174,15 @@ namespace
         static bool HandleRun(ChatHandler* handler, std::string scenario, std::string policy, Optional<uint32> episodes)
         {
             return sAnimusForge->CommandRun(scenario, policy, episodes.value_or(0), Reply(handler));
+        }
+
+        /// `forge talents <class_role> [spec] [points] [plan]` prints a build the curriculum would give that
+        /// class/role: which talents, in which tree, at how many ranks.
+        static bool HandleTalents(ChatHandler* handler, std::string classRole, Optional<std::string> spec,
+            Optional<uint32> points, Optional<std::string> plan)
+        {
+            return sAnimusForge->CommandTalents(classRole, spec.value_or(""), points.value_or(TALENT_POINTS_AT_80),
+                plan.value_or(""), Reply(handler));
         }
 
         /// `forge bench [scenario]` times the sim at every thread and env count in AnimusForge.Bench.*, then the
