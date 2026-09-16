@@ -64,6 +64,7 @@ def main() -> None:
     opponents = args.baseline if args.opponent_baseline else ""
     stage = checkpoint.get("stage") or {}
     arenas = tuple(arena["name"] for arena in stage.get("arenas", ()))
+    action_names = {name: layout.get("action_names", []) for name, layout in stage.get("layouts", {}).items()}
 
     try:
         env.reset()
@@ -73,7 +74,8 @@ def main() -> None:
             baseline_result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline,
                                                 opponents=opponents, arenas=arenas)
             baseline = baseline_result.summary(REPORT_COLUMNS)
-        result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, opponents=opponents, arenas=arenas)
+        result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, opponents=opponents, arenas=arenas,
+                                   action_names=action_names)
     finally:
         env.close()
 

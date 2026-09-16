@@ -336,7 +336,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `progress.json` | Every update and evaluation | For the console |
 | `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |
 | `eval.jsonl` | Every evaluation | The same plus the full summary (bands, layouts, arenas) |
-| `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column and the derived `clean_kill` and `livelocked` |
+| `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column, the derived `clean_kill` and `livelocked`, and (learner rows) `actions`: each action taken other than the no-op, by name, with its count |
 | `eval_baseline.json` | Once per run | The baseline summary and its cache key |
 | `eval_baseline_<seed>_<episodes>.json` | Confirmation | Baseline on the confirmation seeds |
 | `stage.jsonl` | Each advance, restart or halt | Decision, reason, gates |

@@ -58,6 +58,11 @@ class EvalResult:
     arenas: tuple[str, ...] = ()  # the stage's arena names, indexed by the episode info column "arena"
     seconds: float = 0.0
     decisions: int = 0
+    # [n, num_actions] how often each row's agent took each action during its episode (the learner's choices; empty
+    # for a scripted baseline, whose actions the sim picks), and per layout the actions' names (stage.json
+    # "action_names"), for the per-episode log.
+    action_counts: np.ndarray | None = None
+    action_names: dict[str, list[str]] = field(default_factory=dict)
 
     @property
     def episodes(self) -> int:
@@ -96,8 +101,19 @@ class EvalResult:
                 row[name] = round(float(self.infos[index, column]), 4)
             for name, values in derived.items():
                 row[name] = float(values[index])
+            if self.action_counts is not None and index < len(self.action_counts):
+                row["actions"] = self.actions_taken(index)
             rows.append(row)
         return rows
+
+    def actions_taken(self, index: int) -> dict[str, int]:
+        """Row `index`'s actions other than the no-op, by name, with how often it took each: which spells, items
+        and orders a class actually uses, which no episode info column can say."""
+        layout = self.layouts[index] if index < len(self.layouts) else ""
+        names = self.action_names.get(layout, [])
+        counts = self.action_counts[index]
+        return {(names[action] if action < len(names) else str(action)): int(counts[action])
+                for action in np.flatnonzero(counts) if action > 0}
 
     def column(self, name: str) -> np.ndarray | None:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
@@ -218,12 +234,14 @@ def standard_error(values: np.ndarray) -> float:
 
 def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline: str = "",
                    max_decisions: int | None = None, opponents: str = "",
-                   arenas: tuple[str, ...] = ()) -> tuple[EvalResult, p.Step]:
+                   arenas: tuple[str, ...] = (),
+                   action_names: dict[str, list[str]] | None = None) -> tuple[EvalResult, p.Step]:
     """Run seeded episodes 0..episodes-1 and return their results and the fresh training STEP after them.
 
     choose_actions(step) -> [E, A] actions; ignored by the sim when `baseline` names a scripted policy. `opponents`
     names a scripted policy for the opponent seats of self-play episodes (the learner plays the rest, or `baseline`
     everything); their rows are left out. `arenas` are the stage's arena names, for the per-arena summary.
+    `action_names` names each layout's actions in the per-episode log's action counts.
     """
     started = time.perf_counter()
     envs, agents = spec.num_envs, spec.agents_per_env
@@ -239,7 +257,9 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
     else:
         step = env.set_mode(True, seed, episodes, opponents, opponents_only=bool(opponents))
     running = np.zeros((envs, agents), dtype=np.float64)
-    finished: dict[int, list[tuple[float, np.ndarray, str]]] = {}
+    taken = np.zeros((envs, agents, spec.num_actions), dtype=np.int32)
+    env_rows, agent_rows = np.indices((envs, agents))
+    finished: dict[int, list[tuple[float, np.ndarray, str, np.ndarray]]] = {}
     info_names = list(spec.episode_info_names)
     # A party seat left empty for an episode reports present = 0: it is not an episode of any class/role.
     present = info_names.index("present") if "present" in info_names else None
@@ -251,6 +271,8 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         actions = np.zeros((envs, agents), dtype=np.int32) if baseline else choose_actions(step)
         # The episode's layouts: after a done, the next STEP already carries the new episode's.
         layout = step.layout
+        if not baseline:
+            taken[env_rows, agent_rows, np.clip(actions, 0, spec.num_actions - 1)] += 1
         step = env.step(actions)
         decisions += 1
 
@@ -259,12 +281,13 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
             index = int(step.episode_seed[e])
             if index != p.NO_EPISODE_SEED and index < episodes and index not in finished:
                 finished[index] = [
-                    (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])])
+                    (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])], taken[e, a].copy())
                     for a in range(agents)
                     if (present is None or step.episode_info[e, a, present] > 0.0)
                     and (opponent_seat is None or step.episode_info[e, a, opponent_seat] <= 0.0)
                 ]
             running[e] = 0.0
+            taken[e] = 0
 
     if len(finished) < episodes:
         print(f"Evaluation stopped after {decisions} decisions with {len(finished)} of {episodes} episodes", flush=True)
@@ -281,6 +304,9 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         arenas=tuple(arenas),
         seconds=time.perf_counter() - started,
         decisions=decisions,
+        action_counts=None if baseline else np.array([row[3] for row in rows], dtype=np.int32).reshape(
+            len(rows), spec.num_actions),
+        action_names=dict(action_names or {}),
     )
 
     training_step = env.set_mode(False)

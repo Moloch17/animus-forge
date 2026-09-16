@@ -36,7 +36,7 @@ REPORT_COLUMNS = (
     # Whether it roots or slows its opponent, and what it has its pet do.
     "target_rooted_share", "target_snared_share", "roots_applied", "snares_applied",
     "pet_attack_orders", "pet_passive_orders", "pet_follow_orders", "pet_stay_orders", "pet_attacking_share",
-    "pet_passive_share", "pet_staying_share",
+    "pet_passive_share", "pet_staying_share", "feign_deaths", "feign_death_resets", "item_uses",
 )
 
 

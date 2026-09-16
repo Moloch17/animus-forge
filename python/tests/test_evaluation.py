@@ -1,5 +1,6 @@
 """Seeded evaluation against a fake sim, convergence tracking and config overrides."""
 
+import dataclasses
 import socket
 import threading
 from pathlib import Path
@@ -199,6 +200,18 @@ def test_opponent_seats_are_scripted_and_left_out():
     summary = result.summary(())
     assert set(summary["arenas"]) == {"duel", "arena_1v1"}
     assert summary["arenas"]["duel"]["episodes"] == 2 and summary["arenas"]["arena_1v1"]["episodes"] == 2
+    assert baseline.action_counts is None and "actions" not in baseline.episodes_log()[0]
+
+
+def test_episode_log_counts_actions_by_name():
+    """Each episode counts the learner's actions from its first decision to its done, the no-op left out."""
+    env = ScriptedOpponentEnv()
+    spec = dataclasses.replace(ScriptedOpponentEnv.SPEC, num_actions=3,
+                               layouts=(p.Layout("warrior_dps", 1, 3),))
+    result, _ = run_evaluation(env, spec, lambda step: np.array([[2, 0]], np.int32), episodes=2, seed=1,
+                               action_names={"warrior_dps": ["noop", "charge_100", "hamstring_1715"]})
+    rows = result.episodes_log()
+    assert [row["actions"] for row in rows] == [{"hamstring_1715": 1}, {}, {"hamstring_1715": 1}, {}]
 
 
 def test_arena_summary_needs_several_arenas():

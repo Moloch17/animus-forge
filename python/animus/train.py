@@ -279,6 +279,9 @@ class TrainingRun:
             flush=True,
         )
         self.arena_names = tuple(arena["name"] for arena in (self.stage or {}).get("arenas", ()))
+        # Each layout's action names, so the evaluations' per-episode logs say which actions were taken.
+        self.action_names = {name: layout.get("action_names", [])
+                             for name, layout in (self.stage or {}).get("layouts", {}).items()}
         validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
                         else None)
 
@@ -449,7 +452,7 @@ class TrainingRun:
         else:
             result, _ = run_evaluation(self.env, self.spec, self.learner_actions, episodes, seed,
                                        baseline=config.eval.baseline, opponents=self.opponents,
-                                       arenas=self.arena_names)
+                                       arenas=self.arena_names, action_names=self.action_names)
             summary = result.summary(self.report)
             baseline_path.write_text(json.dumps({"key": key, "summary": summary}, indent=2))
             self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
@@ -467,7 +470,8 @@ class TrainingRun:
 
         self.progress.write("evaluating", self.update, self.env_steps)
         result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, config.eval.episodes,
-                                           config.eval.seed, opponents=self.opponents, arenas=self.arena_names)
+                                           config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
+                                           action_names=self.action_names)
         summary = result.summary(self.report)
         improved = controller.observe(summary, self.env_steps)
         self.eval_log.write(self.update, self.env_steps, result, summary, tracker, controller.restarts)
@@ -499,7 +503,8 @@ class TrainingRun:
         result, self.step = run_evaluation(
             self.env, self.spec,
             lambda step: self.trainer.act(step.obs, step.mask, step.layout, deterministic=False)[0],
-            config.eval.episodes, config.eval.seed, opponents=self.opponents, arenas=self.arena_names)
+            config.eval.episodes, config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
+            action_names=self.action_names)
         result.policy = "learner_sampled"
         summary = result.summary(self.report)
         self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
@@ -542,7 +547,7 @@ class TrainingRun:
             baseline = self.baseline_for(target.confirm_seed, target.confirm_episodes)
             result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, target.confirm_episodes,
                                                target.confirm_seed, opponents=self.opponents,
-                                               arenas=self.arena_names)
+                                               arenas=self.arena_names, action_names=self.action_names)
         finally:
             trainer.load_state_dict(training_state)
         result.policy = "confirm"
