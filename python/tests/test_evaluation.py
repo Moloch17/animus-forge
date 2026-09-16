@@ -466,3 +466,11 @@ def test_livelocked_counts_episodes_not_cancels():
 def test_livelocked_is_absent_without_cast_counts():
     result = EvalResult("learner", np.array([1.0, 2.0]), np.zeros((2, 0), np.float32), ())
     assert "livelocked" not in result.summary(())
+
+
+def test_failed_seeds_are_the_episodes_short_on_the_metric():
+    infos = np.array([[1, 0], [1, 1], [0, 0], [1, 0], [1, 0]], dtype=np.float32)
+    result = EvalResult("learner", np.zeros(5), infos, ("killed", "died"), layouts=("a",) * 5, seeds=(0, 1, 2, 3, 3))
+    assert result.failed_seeds("clean_kill") == [1, 2]
+    assert result.failed_seeds("killed") == [2]
+    assert result.failed_seeds("unknown") == []

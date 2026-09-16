@@ -1072,7 +1072,9 @@ void AnimusForge::Forge::RemoteDecision()
 
         // A new learner starts from fresh training episodes; whatever ran unobserved is discarded. An evaluation the
         // previous learner left unfinished ends here, or its baseline would keep replacing this learner's actions.
+        // Its replay seeds were its evaluations' losses: this learner sends its own.
         _pool->SetEvaluation(false, 0, 0, {});
+        _pool->SetReplay(0, 0.0f, {});
         _pool->ResetAll();
     }
     else
@@ -1083,16 +1085,17 @@ void AnimusForge::Forge::RemoteDecision()
 
     std::size_t const actionBytes = _pool->Actions.size() * sizeof(int32);
     std::size_t const weightBytes = sizeof(WeightsHeader) + _pool->Spec().Layouts.size() * sizeof(float);
+    std::size_t const replayBytes = sizeof(ReplayHeader) + MAX_REPLAY_SEEDS * sizeof(uint32);
 
-    // ACT, or MODE or WEIGHTS first: a mode switch resets every env and answers with a fresh STEP before the ACT;
-    // weights are applied without an answer.
+    // ACT, or MODE, WEIGHTS or REPLAY first: a mode switch resets every env and answers with a fresh STEP before the
+    // ACT; weights and replay seeds are applied without an answer.
     for (;;)
     {
         MsgType type;
         std::vector<char> payload;
         auto const waitFrom = std::chrono::steady_clock::now();
         bool const received = _server.ReceiveAny(type, payload,
-            std::max({ actionBytes, sizeof(ModeMsg), weightBytes }), onIdle);
+            std::max({ actionBytes, sizeof(ModeMsg), weightBytes, replayBytes }), onIdle);
         WaitedForLearner(waitFrom);
         if (!received)
         {
@@ -1145,10 +1148,32 @@ void AnimusForge::Forge::RemoteDecision()
             continue;
         }
 
+        if (type == MsgType::Replay && payload.size() >= sizeof(ReplayHeader))
+        {
+            ReplayHeader header{};
+            std::memcpy(&header, payload.data(), sizeof(header));
+            if (header.Count > MAX_REPLAY_SEEDS
+                || payload.size() != sizeof(ReplayHeader) + header.Count * sizeof(uint32))
+            {
+                LOG_ERROR("module.animus", "Learner sent REPLAY with {} bytes for {} seeds", payload.size(),
+                    header.Count);
+                _server.DropClient();
+                return;
+            }
+
+            std::vector<uint32> seeds(header.Count);
+            if (header.Count)
+                std::memcpy(seeds.data(), payload.data() + sizeof(ReplayHeader), header.Count * sizeof(uint32));
+
+            // Takes effect as envs reset, like the weights.
+            _pool->SetReplay(header.SeedBase, header.Fraction, std::move(seeds));
+            continue;
+        }
+
         // CLOSE (the client is already gone) or a protocol error: the next decision waits for a new learner.
         if (type != MsgType::Close)
-            LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes where ACT, MODE or WEIGHTS was "
-                "expected", uint32(type), payload.size());
+            LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes where ACT, MODE, WEIGHTS or REPLAY "
+                "was expected", uint32(type), payload.size());
 
         _server.DropClient();
         return;

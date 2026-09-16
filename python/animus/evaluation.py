@@ -102,6 +102,16 @@ class EvalResult:
     def column(self, name: str) -> np.ndarray | None:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
 
+    def failed_seeds(self, metric: str) -> list[int]:
+        """Seed indexes of the episodes where some scored row fell short on `metric` (a 0/1 field per episode: a
+        derived one such as clean_kill, or an episode info column), for replaying them in training."""
+        values = self.derived().get(metric)
+        if values is None:
+            values = self.column(metric)
+        if values is None or not len(self.seeds):
+            return []
+        return sorted({int(seed) for seed, value in zip(self.seeds, values) if value < 1.0})
+
     def derived(self) -> dict[str, np.ndarray]:
         """Per episode, the DERIVED_METRICS the episode info can give: 1.0 where it holds, else 0.0."""
         out = {}

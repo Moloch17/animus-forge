@@ -488,15 +488,17 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
   each one that finished in combat (channels pay through their ticks), and -0.05 for each cast the seat cut short
   itself (the stop-casting action, or moving out of its own cast), however little of it had run, so a start/stop loop
   costs more than an episode can earn. An enemy's interrupt costs only the seconds lost
-- kill: +3, plus up to +3 for the share of the episode length left since the fight was engaged (the bot or its opponent
-  entered combat), plus up to +0.5 for the share of health kept (damage taken is already charged as it happens, so a
+- kill: +10, plus up to +1 for the share of the episode length left since the fight was engaged (the bot or its
+  opponent entered combat), plus up to +0.5 for the share of health kept (damage taken is already charged as it happens, so a
   larger share would pay for surviving over winning). The approach, stealth and preparation before engaging
   cost only the discount
-- death: -3 each time, including after a self-resurrection. With a self-resurrection available the seat has
+- death: -10 each time, including after a self-resurrection. With a self-resurrection available the seat has
   `Resurrection.GraceMs` to use it before the episode ends
-- timeout (creature duel only): -3 when the episode's time runs out with neither side dead. The fight is lost, so the
+- timeout (creature duel only): -10 when the episode's time runs out with neither side dead. The fight is lost, so the
   episode ends as a terminal outcome rather than a cut-off the critic bootstraps past; before it, never engaging was
   the cheapest way to lose
+- winning outweighs winning fast: with the kill at 10, speed at most 1 and a loss at -10, a risky fast opener only pays
+  more than a sure slow win above about 97% odds (at the earlier 3, 3 and -3 it was 79%)
 
 **Pack** (`Pulls.*`): damage x2 of the pack's total health, damage taken x1, approach to the nearest enemy, +0.5 per
 kill, +0.3 per interrupt, the stealth terms. Clear: +2, up to +3 for the episode length left since a pack member

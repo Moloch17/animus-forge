@@ -5,6 +5,7 @@ import struct
 import threading
 
 import numpy as np
+import pytest
 
 from animus import protocol as p
 from animus.env import ForgeEnv
@@ -149,3 +150,13 @@ def test_lockstep_exchange(tmp_path):
     assert len(received_actions) == len(sent)
     for got, want in zip(received_actions, sent):
         np.testing.assert_array_equal(got.reshape(want.shape), want)
+
+
+def test_replay_round_trip():
+    # ReplayHeader in Protocol.h: uint32 seed base, float32 fraction, uint32 count, then count uint32 seed indexes.
+    assert p.REPLAY.size == 12
+    payload = p.encode_replay(1000, 0.2, [7, 3, 7, 12])
+    assert len(payload) == 12 + 3 * 4  # sorted and deduplicated
+    seed_base, fraction, seeds = p.decode_replay(payload)
+    assert seed_base == 1000 and fraction == pytest.approx(0.2) and list(seeds) == [3, 7, 12]
+    assert list(p.decode_replay(p.encode_replay(1000, 0.0, []))[2]) == []

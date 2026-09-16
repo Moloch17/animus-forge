@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import asdict, dataclass, field
+from statistics import NormalDist
 
 from .config import TargetConfig, TrainConfig
 from .evaluation import DERIVED_METRICS
@@ -124,16 +125,39 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
     return report
 
 
+def wilson_bound(share: float, episodes: int, confidence: float, lower: bool) -> float:
+    """The one-sided Wilson bound on a share of `episodes` at `confidence`: the lowest (or highest) true rate the
+    observed share is still consistent with. No episodes bound nothing: 0 below, 1 above."""
+    if episodes <= 0:
+        return 0.0 if lower else 1.0
+    z = NormalDist().inv_cdf(confidence)
+    n = float(episodes)
+    centre = share + z * z / (2.0 * n)
+    spread = z * math.sqrt(share * (1.0 - share) / n + z * z / (4.0 * n * n))
+    bound = (centre - spread if lower else centre + spread) / (1.0 + z * z / n)
+    return min(1.0, max(0.0, bound))
+
+
 def _check_metrics(report: GateReport, row: dict, metrics: dict, prefix: str) -> None:
+    """Bounds on summary means. With `confidence` a share (killed, clean_kill, livelocked) is judged by its Wilson
+    bound over the row's episodes rather than its raw mean: a minimum must hold for the lowest rate the episodes are
+    consistent with and a maximum for the highest, so a class/role cannot pass on a lucky handful of episodes."""
     for name, bounds in metrics.items():
         value = row.get(name)
         if value is None:
             report.fail(f"{prefix}{name}: not in the evaluation summary")
             continue
-        if "min" in bounds:
-            report.check(f"{prefix}{name} (min)", value, bounds["min"], value >= bounds["min"])
-        if "max" in bounds:
-            report.check(f"{prefix}{name} (max)", value, bounds["max"], value <= bounds["max"])
+        confidence = bounds.get("confidence")
+        episodes = int(row.get("episodes") or 0)
+        for kind, lower in (("min", True), ("max", False)):
+            if kind not in bounds:
+                continue
+            judged, label = value, f"{prefix}{name} ({kind})"
+            if confidence is not None:
+                judged = wilson_bound(float(value), episodes, float(confidence), lower)
+                label = f"{prefix}{name} ({kind}, {confidence:.0%} {'lower' if lower else 'upper'} bound)"
+            passed = judged >= bounds[kind] if lower else judged <= bounds[kind]
+            report.check(label, judged, bounds[kind], passed)
 
 
 def _metric_errors(prefix: str, metrics, info_names) -> list[str]:
@@ -143,9 +167,13 @@ def _metric_errors(prefix: str, metrics, info_names) -> list[str]:
     for name, bounds in metrics.items():
         if name not in info_names:
             errors.append(f"{prefix}.{name}: the scenario has no such episode info ({', '.join(info_names)})")
-        if not isinstance(bounds, dict) or not bounds or set(bounds) - {"min", "max"} \
+        if not isinstance(bounds, dict) or not ({"min", "max"} & set(bounds)) \
+                or set(bounds) - {"min", "max", "confidence"} \
                 or not all(isinstance(v, (int, float)) for v in bounds.values()):
-            errors.append(f"{prefix}.{name}: expected {{min: number}} and/or {{max: number}}, got {bounds!r}")
+            errors.append(f"{prefix}.{name}: expected {{min: number}} and/or {{max: number}}, optionally with "
+                          f"{{confidence: number}}, got {bounds!r}")
+        elif "confidence" in bounds and not 0.0 < bounds["confidence"] < 1.0:
+            errors.append(f"{prefix}.{name}.confidence: must be between 0 and 1, got {bounds['confidence']!r}")
     return errors
 
 
@@ -176,9 +204,13 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
         if gates.get("min_over_baseline") is not None and not isinstance(gates["min_over_baseline"], (int, float)):
             errors.append(f"{prefix}.min_over_baseline: expected a number")
         errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), names)
-    metric = config.layout_sampling.metric
-    if config.layout_sampling.enabled and metric and metric not in names:
-        errors.append(f"layout_sampling.metric: {metric} is neither episode info nor a derived field")
+    sampling = config.layout_sampling
+    if sampling.enabled and sampling.metric and sampling.metric not in names:
+        errors.append(f"layout_sampling.metric: {sampling.metric} is neither episode info nor a derived field")
+    if not 0.0 <= sampling.replay_fraction <= 1.0:
+        errors.append("layout_sampling.replay_fraction must be between 0 and 1")
+    if sampling.enabled and sampling.replay_fraction > 0.0 and not sampling.metric:
+        errors.append("layout_sampling.replay_fraction needs layout_sampling.metric to tell lost episodes")
     if target.min_arena_episodes < 0:
         errors.append("target.min_arena_episodes must be >= 0")
     if target.noise_z < 0:

@@ -575,7 +575,11 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   every layout.
 - `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
   these. Two derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying, and
-  `livelocked`, the share stuck in a cast/stop loop.
+  `livelocked`, the share stuck in a cast/stop loop. A bound with `confidence` (for example
+  `{clean_kill: {min: 0.9, confidence: 0.95}}`) judges a share by its one-sided Wilson bound over the group's episodes
+  instead of its raw mean: a minimum must hold for the lowest rate the episodes are consistent with, a maximum for the
+  highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
+  enough episodes still pass (95% of 228 bound at 0.92).
 - `layout_metrics`: the same bounds on every class/role's own episodes, which no baseline can lower.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
@@ -623,6 +627,13 @@ the one the stage is gated on (`clean_kill`): a class/role's need is then the la
 shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
 gate it is failing.
 
+`replay_fraction` replays lost fights. After every training evaluation the learner sends the sim the seed indexes of
+the episodes that fell short on `metric` (a per-episode 0/1 field such as `clean_kill`; protocol `REPLAY`), and that
+share of training resets rebuilds one of them from the same random numbers the evaluation used: the same character
+meets the same opponent, and the fight rolls afresh. A replay reports as an ordinary training episode. Confirmation
+seeds are never sent, so the gate that moves a stage on stays held out, and a new learner session starts with no
+replay seeds.
+
 ### The stage controller (`stage.py`)
 
 After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns an action:
@@ -636,12 +647,13 @@ After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns 
 | Budget reached, target passed | advance | Exit 0, reason `total_env_steps` |
 | Budget reached, below target | halt | Exit 3, reason `budget_below_target` |
 
-With `target.until_passed` (stage1_duel sets it) a stage below its target never halts:
+With `target.until_passed` (stage1_duel sets it) converging below the target does not halt the stage;
+`total_env_steps` stays the ceiling:
 
 | Situation | Action | Learner |
 |---|---|---|
 | Converged, below target, no restarts left | **extend** | Keep training; the convergence test starts a new segment and judges again when it next converges |
-| Budget reached, below target | continue | Keep training past `total_env_steps`, judging every evaluation; the first best that passes and confirms advances (reason `total_env_steps`) |
+| Budget reached, below target | halt | Exit 3, reason `budget_below_target`, as without it |
 
 Under `until_passed` an evaluation that passes the target becomes the best (and `best.pt`) even when a failing one
 scored higher, and a passing best is only replaced by a higher score that passes too, so the networks that pass are

@@ -110,38 +110,38 @@ convergence:
   min_improvement_abs: 0.01
   min_env_steps: 30000000
 
-# Good enough to move on: the best networks beat the fight baseline by 10% overall and match it for every
-# class/role, on the evaluation that set the best and then again on 2048 held-out episodes (a best picked from many
-# evaluations is partly luck). Each score gate allows noise_z standard errors of noise, so a class/role that is
-# really level with its baseline is not failed by the luck of its share of the seeds. These are starting guesses:
-# tune them after a pilot run (eval.jsonl has each class/role's score next to the baseline's). Metric gates check
-# episode info means directly, e.g. metrics: {killed: {min: 0.8}, died: {max: 0.2}}.
+# Good enough to move on: every class/role wins nearly every fight, measured with enough episodes to believe it, on
+# the evaluation that set the best and again on 4096 held-out episodes (a best picked from many evaluations is partly
+# luck).
 #
-# The score gates alone were not enough. They are relative to the scripted baseline, and where it is hopeless they
-# ask for nothing: the first run of this stage passed warlock_dps against a required score of -2.34 and priest_heal
-# against -0.72, so a warlock that killed 65% of the time and sat in a cast/stop loop for a quarter of its episodes
-# moved the stage on. metrics and layout_metrics are absolute floors on the episode info, which no baseline can
-# lower and reward shaping cannot game; layout_metrics applies each to one class/role's own episodes.
+# A win is clean_kill: the opponent killed and the seat never dead (a death or the clock running out is a loss). A
+# share gated with `confidence` is judged by its one-sided Wilson bound over the group's episodes, not its raw mean:
+# the lowest win rate those episodes are still consistent with has to clear the minimum. So thin evidence fails rather
+# than passing on luck, and a few lost fights are allowed where there are enough episodes to show they are rare. With
+# 1024 evaluation episodes a class/role has ~57: all won gives a bound of 0.955, one lost 0.925, two lost 0.899 (a
+# fail). The 4096 confirming episodes give ~228 each, where 95% observed bounds at ~0.92. Overall, 0.95 needs about
+# 985 of the 1024 won (96.2%), and 95.6% of the 4096.
 #
-# The duel is a same-level creature: every fight should be won outright. clean_kill is the share of episodes that
-# killed the opponent without dying (derived from killed and died), and it is required of every class/role on every
-# seed: the evaluation that set the best and the 2048 confirming episodes alike. A single lost fight -- a death, or
-# the clock running out -- fails the stage. until_passed: a stage below its target never halts. It restarts
-# (restarts.max_restarts), then keeps training, past total_env_steps too, until a best that passes is confirmed;
-# eval_episodes.jsonl says which characters and opponents are still losing, and how. The second run of this stage
-# killed in 0.886 of its fights at 60M env steps, mage_dps in 0.68, so expect this to run past the budget.
+# Metric gates are absolute, which no baseline can lower: the first run of this stage passed warlock_dps against a
+# required score of -2.34 while it killed 65% of the time. The score gate that remains keeps every class/role at least
+# level with the scripted fight baseline (within noise_z standard errors); an overall "10% over baseline" gate is gone,
+# because it judged the size of the rewards rather than the fights.
+#
+# until_passed: converging below the target restarts from best.pt (restarts.max_restarts), then keeps training
+# instead of halting, until a best that passes is confirmed or total_env_steps (the ceiling) is reached. A passing
+# evaluation is kept as best.pt over a higher-scoring one that fails.
 target:
-  min_over_baseline: 0.1
+  min_over_baseline: null
   min_layout_over_baseline: 0.0
   min_layout_episodes: 16
   noise_z: 1.0
   metrics:
-    clean_kill: {min: 1.0}
-    livelocked: {max: 0.0}
+    clean_kill: {min: 0.95, confidence: 0.95}
+    livelocked: {max: 0.01}
   layout_metrics:
-    clean_kill: {min: 1.0}
-    livelocked: {max: 0.0}
-  confirm_episodes: 2048
+    clean_kill: {min: 0.90, confidence: 0.95}
+    livelocked: {max: 0.02}
+  confirm_episodes: 4096
   confirm_seed: 50000
   until_passed: true
 
@@ -159,15 +159,20 @@ entropy_floor:
 # furthest below their baseline, and the ones furthest short of clean kills -- the gate every class/role must pass --
 # get more episodes than the ones already clear of both. Without the metric, mage_dps drew no extra data at 0.68
 # clean kills because it beat the scripted mage's score. Evaluation stays evenly spread whatever the weights are.
+#
+# replay_fraction: a fifth of training resets rebuild a fight the last evaluation lost -- the same character and
+# opponent, fresh combat rolls -- so training goes over exactly the fights still being lost. Confirmation seeds are
+# never replayed.
 layout_sampling:
   enabled: true
   strength: 1.0
   max_ratio: 4.0
   metric: clean_kill
+  replay_fraction: 0.2
 
 # Converged below the target is a local optimum: restart from best.pt with 3x the entropy bonus (decaying back with a
-# 10M env step half-life) and fresh optimizers, at most twice. After that -- or at total_env_steps below the target --
-# the learner exits with code 3 and the queue halts on this stage.
+# 10M env step half-life) and fresh optimizers, at most twice. After that it trains on (target.until_passed); at
+# total_env_steps below the target the learner exits with code 3 and the queue halts on this stage.
 restarts:
   max_restarts: 2
   entropy_boost: 3.0

@@ -44,7 +44,7 @@ def read_exact(conn: socket.socket, size: int) -> bytes:
     return data
 
 
-def fake_sim(listener: socket.socket, modes: list) -> None:
+def fake_sim(listener: socket.socket, modes: list, replays: list) -> None:
     """3-decision episodes paying 1 per decision; env 1's second seat is empty (present 0, only the no-op)."""
     conn, _ = listener.accept()
     with conn:
@@ -91,12 +91,18 @@ def fake_sim(listener: socket.socket, modes: list) -> None:
             payload = p.encode_step(SPEC, step)
             try:
                 conn.sendall(p.encode_header(p.MsgType.STEP, len(payload)) + payload)
-                msg_type, length = p.HEADER.unpack(read_exact(conn, p.HEADER.size))
+                # WEIGHTS and REPLAY are applied without an answer, as the sim does: read on to the ACT or MODE.
+                while True:
+                    msg_type, length = p.HEADER.unpack(read_exact(conn, p.HEADER.size))
+                    if msg_type == p.MsgType.CLOSE:
+                        return
+                    body = read_exact(conn, length)
+                    if msg_type == p.MsgType.REPLAY:
+                        replays.append(p.decode_replay(body))
+                    elif msg_type != p.MsgType.WEIGHTS:
+                        break
             except (ConnectionError, OSError):
                 return
-            if msg_type == p.MsgType.CLOSE:
-                return
-            body = read_exact(conn, length)
             decision += 1
             step = blank()
             if msg_type == p.MsgType.MODE:
@@ -121,8 +127,8 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(path)
     listener.listen(1)
-    modes = []
-    server = threading.Thread(target=fake_sim, args=(listener, modes))
+    modes, replays = [], []
+    server = threading.Thread(target=fake_sim, args=(listener, modes, replays))
     server.start()
 
     steps_per_update = 4 * SPEC.num_envs * SPEC.agents_per_env
@@ -160,6 +166,9 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
         evals = list(csv.DictReader(f))
     assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update]
     assert modes.count((True, 2, "")) == 3
+    # After each training evaluation the lost seeds go to the sim (stage1_duel replays clean_kill losses). The fake
+    # episodes have no killed or died columns, so none can be told lost: an empty replay each time.
+    assert len(replays) == 3 and all(len(seeds) == 0 for _, _, seeds in replays)
 
     assert (run_dir / "latest.pt").exists() and (run_dir / "best.pt").exists()
     assert json.loads((run_dir / "progress.json").read_text())["phase"] == "finished"

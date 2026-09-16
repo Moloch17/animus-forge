@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 6
+PROTOCOL_VERSION = 7
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -26,6 +26,7 @@ class MsgType(IntEnum):
     CLOSE = 5
     MODE = 6
     WEIGHTS = 7
+    REPLAY = 8
 
 
 HEADER = struct.Struct("<II")  # type, payload length
@@ -37,6 +38,8 @@ STEP_HEADER = struct.Struct("<Q")  # decision counter
 MODE = struct.Struct(f"<IIII{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, flags, baseline policy
 MODE_FLAG_SCRIPTED_OPPONENTS = 1  # the baseline plays only the opponent seats; the learner the rest
 WEIGHTS_COUNT = struct.Struct("<I")  # then that many float32 weights, one per layout in SPEC order
+REPLAY = struct.Struct("<IfI")  # seed base, share of training resets, count; then that many uint32 seed indexes
+MAX_REPLAY_SEEDS = 65536
 
 
 @dataclass(frozen=True)
@@ -205,6 +208,19 @@ def encode_weights(weights) -> bytes:
 def decode_weights(payload: bytes | bytearray | memoryview) -> np.ndarray:
     (count,) = WEIGHTS_COUNT.unpack_from(payload)
     return np.frombuffer(payload, dtype="<f4", count=count, offset=WEIGHTS_COUNT.size).copy()
+
+
+def encode_replay(seed_base: int, fraction: float, seeds) -> bytes:
+    """REPLAY payload: evaluation seeds (of `seed_base`) that training resets rebuild, `fraction` of the time."""
+    array = np.asarray(sorted(set(int(s) for s in seeds)), dtype="<u4")
+    if len(array) > MAX_REPLAY_SEEDS:
+        raise ValueError(f"at most {MAX_REPLAY_SEEDS} replay seeds, got {len(array)}")
+    return REPLAY.pack(seed_base, float(fraction), len(array)) + array.tobytes()
+
+
+def decode_replay(payload: bytes | bytearray | memoryview) -> tuple[int, float, np.ndarray]:
+    seed_base, fraction, count = REPLAY.unpack_from(payload)
+    return seed_base, fraction, np.frombuffer(payload, dtype="<u4", count=count, offset=REPLAY.size).copy()
 
 
 def encode_header(msg_type: MsgType, length: int) -> bytes:

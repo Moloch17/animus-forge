@@ -85,6 +85,12 @@ class ForgeEnv:
         payload = p.encode_weights(weights)
         self.sock.sendall(p.encode_header(p.MsgType.WEIGHTS, len(payload)) + payload)
 
+    def set_replay(self, seed_base: int, fraction: float, seeds) -> None:
+        """Evaluation seeds of `seed_base` that `fraction` of the training resets rebuild (see protocol REPLAY), in
+        place of the ones sent before; no seeds or a fraction of 0 stops replaying. Nothing is sent back."""
+        payload = p.encode_replay(seed_base, fraction, seeds)
+        self.sock.sendall(p.encode_header(p.MsgType.REPLAY, len(payload)) + payload)
+
     def close(self) -> None:
         try:
             self.sock.sendall(p.encode_header(p.MsgType.CLOSE, 0))

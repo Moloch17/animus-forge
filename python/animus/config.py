@@ -95,10 +95,10 @@ class TargetConfig:
     # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
     confirm_episodes: int = 2048
     confirm_seed: int = 50000
-    # Train until the target passes, however long it takes. Below the target the stage never halts: once the restarts
-    # are used up it keeps training, total_env_steps no longer ends it (past it every evaluation is judged, and the
-    # first best that passes, confirmed, moves the stage on), and an evaluation that passes the target becomes the best
-    # even when a failing one scored higher, while a passing best is only replaced by a better one that passes too.
+    # Keep training below the target instead of halting when it converges: once the restarts are used up the stage
+    # trains on and is judged again at its next convergence. total_env_steps stays the ceiling (reached below the
+    # target, the stage halts). An evaluation that passes the target becomes the best even when a failing one scored
+    # higher, and a passing best is only replaced by a better one that passes too.
     until_passed: bool = False
 
     @property
@@ -177,6 +177,11 @@ class LayoutSamplingConfig:
     # A layout can beat a weak baseline and still fail an absolute gate; this sends the data there too.
     # "" = the baseline gap alone.
     metric: str = ""
+    # Replaying lost fights: after every training evaluation the sim is sent the seeds of the episodes that fell
+    # short on `metric` (a per-episode 0/1 field such as clean_kill), and this share of training resets rebuilds one
+    # of them -- the same character and opponent, with fresh combat rolls -- instead of a new draw. Confirmation seeds
+    # are never sent, so the gate that moves the stage on stays held out. 0 = off.
+    replay_fraction: float = 0.0
 
 
 @dataclass

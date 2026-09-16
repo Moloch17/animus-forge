@@ -54,6 +54,11 @@
  *                            draw each layout, in the SPEC's layout order; the server applies them and waits for
  *                            the ACT without answering. A weight of 1 everywhere is the uniform draw; count must
  *                            match the SPEC's layout count.
+ *   client -> server  REPLAY { u32 seed_base, f32 fraction, u32 count, u32 seed[count] } (instead of ACT) -- that
+ *                            share of training resets rebuilds one of these evaluation seed indexes of seed_base, the
+ *                            same character and opponent the evaluation built (the fight rolls afresh), in place of
+ *                            the seeds sent before; count 0 or fraction 0 stops it. Applied without an answer, like
+ *                            WEIGHTS. A replayed episode reports as a training episode (NO_EPISODE_SEED).
  *   client -> server  CLOSE  {}  (instead of ACT) -- server drops the client and waits for a new one
  *
  * Evaluation (MODE with Mode = 1): episodes seed index 0..Episodes-1 are handed out in order to the envs as
@@ -81,7 +86,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 6;
+    constexpr uint32 PROTOCOL_VERSION = 7;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -98,6 +103,7 @@ namespace AnimusForge
         Close = 5,
         Mode  = 6,
         Weights = 7,
+        Replay = 8,
     };
 
 #pragma pack(push, 1)
@@ -150,6 +156,16 @@ namespace AnimusForge
     /// WEIGHTS payload: Count, then that many float weights (one per layout, in the SPEC's order).
     struct WeightsHeader
     {
+        uint32 Count;
+    };
+
+    /// REPLAY payload: this header, then Count uint32 evaluation seed indexes (at most MAX_REPLAY_SEEDS).
+    constexpr uint32 MAX_REPLAY_SEEDS = 65536;
+
+    struct ReplayHeader
+    {
+        uint32 SeedBase;
+        float Fraction;
         uint32 Count;
     };
 

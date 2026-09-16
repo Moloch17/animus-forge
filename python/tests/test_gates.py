@@ -220,3 +220,37 @@ def test_layout_sampling_metric_must_exist():
     config.layout_sampling.metric = "clean_kills"
     with pytest.raises(ValueError, match="layout_sampling.metric"):
         validate_target(config, ("killed", "died"))
+
+
+def test_a_confidence_bound_needs_enough_episodes():
+    """With confidence, a share is judged by its Wilson bound over the row's episodes: 57 wins of 57 clears 0.90,
+    two losses do not, and a perfect handful proves nothing."""
+    from animus.gates import wilson_bound
+
+    target = TargetConfig(layout_metrics={"clean_kill": {"min": 0.90, "confidence": 0.95}})
+    row = lambda share, episodes: summary(5.0, {"mage_dps": {**layout(5.0, episodes), "clean_kill": share}})
+    assert check_gates(row(1.0, 57), None, target).passed
+    assert check_gates(row(56 / 57, 57), None, target).passed
+    report = check_gates(row(55 / 57, 57), None, target)
+    assert not report.passed and "lower bound" in report.failures[0]
+    assert not check_gates(row(1.0, 16), None, target).passed  # 16 of 16: bound 0.86
+    assert check_gates(row(0.95, 228), None, target).passed
+
+    assert wilson_bound(0.95, 228, 0.95, lower=True) == pytest.approx(0.9205, abs=1e-3)
+    assert wilson_bound(0.0, 0, 0.95, lower=True) == 0.0 and wilson_bound(0.0, 0, 0.95, lower=False) == 1.0
+    # A maximum is judged by the upper bound: 1 livelock in 57 episodes may still be a 7% rate.
+    upper = TargetConfig(layout_metrics={"livelocked": {"max": 0.05, "confidence": 0.95}})
+    assert not check_gates(summary(5.0, {"a": {**layout(5.0, 57), "livelocked": 1 / 57}}), None, upper).passed
+
+
+def test_confidence_must_be_a_probability_beside_a_bound():
+    config = TrainConfig()
+    config.eval.every_env_steps = 1
+    config.target.metrics = {"clean_kill": {"min": 0.9, "confidence": 1.5}}
+    with pytest.raises(ValueError, match="confidence"):
+        validate_target(config, ("killed", "died"))
+    config.target.metrics = {"clean_kill": {"confidence": 0.9}}
+    with pytest.raises(ValueError, match="clean_kill"):
+        validate_target(config, ("killed", "died"))
+    config.target.metrics = {"clean_kill": {"min": 0.9, "confidence": 0.95}}
+    validate_target(config, ("killed", "died"))

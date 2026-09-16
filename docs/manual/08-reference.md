@@ -123,17 +123,17 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.StealthOpener` | 0.5 | | `Pulls.Approach` | 0.5 |
 | `Duel.StealthUtility` | 0.05 | | `Pulls.StealthOpener` | 0.5 |
 | `Duel.StepCost` | 0.0002 | | `Pulls.StealthUtility` | 0.05 |
-| `Duel.Kill` | 3.0 | | `Pulls.Interrupt` | 0.3 |
-| `Duel.FastKill` | 3.0 | | `Pulls.Kill` | 0.5 |
+| `Duel.Kill` | 10.0 | | `Pulls.Interrupt` | 0.3 |
+| `Duel.FastKill` | 1.0 | | `Pulls.Kill` | 0.5 |
 | `Duel.HealthKept` | 0.5 | | `Pulls.StepCost` | 0.0002 |
-| `Duel.Death` | 3.0 | | `Pulls.Clear` | 2.0 |
+| `Duel.Death` | 10.0 | | `Pulls.Clear` | 2.0 |
 | `Duel.MeleeRange` | 3.5 | | `Pulls.FastClear` | 3.0 |
 | `Duel.RangedRange` | 25.0 | | `Pulls.FastPull` | 2.0 |
 | `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 2.0 |
 | `Casting.TimeCompleted` | 0.03 | | `Pulls.PackDeath` | 3.0 |
 | `Resurrection.GraceMs` | 20000 | | `Pulls.GauntletDeath` | 5.0 |
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.OwnerClearScale` | 2.0 |
-| `Duel.Timeout` | 3.0 | | | |
+| `Duel.Timeout` | 10.0 | | | |
 | `Casting.Cancel` | 0.05 | | | |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |
@@ -189,7 +189,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
 
-## 8.3 Wire protocol (version 6)
+## 8.3 Wire protocol (version 7)
 
 A Unix domain stream socket. The sim is the server and the learner the client. All values are little-endian with no
 padding. `src/Bridge/Protocol.h` and `python/animus/protocol.py` must change together, with `PROTOCOL_VERSION` bumped.
@@ -198,10 +198,10 @@ Every message is a header followed by `Length` payload bytes:
 
 ```
 MsgHeader { u32 Type; u32 Length; }                                          8 bytes
-Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE, 7 WEIGHTS
+Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE, 7 WEIGHTS, 8 REPLAY
 ```
 
-**Sequence:** `HELLO → SPEC → STEP → (ACT → STEP | MODE → STEP | WEIGHTS)* → CLOSE`
+**Sequence:** `HELLO → SPEC → STEP → (ACT → STEP | MODE → STEP | WEIGHTS | REPLAY)* → CLOSE`
 
 | Message | Direction | Payload |
 |---|---|---|
@@ -211,6 +211,7 @@ Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE, 7 WEIGHTS
 | `ACT` | learner to sim | `i32 actions[E*A]` |
 | `MODE` | learner to sim, instead of ACT | `ModeMsg` (48 bytes). The sim resets every env and answers with a fresh STEP |
 | `WEIGHTS` | learner to sim, instead of ACT | `u32 Count`, `f32 Weight[Count]`: how often training episodes draw each layout, in SPEC layout order. The sim applies them as envs reset and answers nothing; the ACT follows |
+| `REPLAY` | learner to sim, instead of ACT | `u32 SeedBase`, `f32 Fraction`, `u32 Count`, `u32 Seed[Count]` (at most 65536): that share of training resets rebuilds one of these evaluation seed indexes of `SeedBase`, replacing the seeds sent before (0 seeds or fraction 0 stops it). Answers nothing; a replay reports as a training episode |
 | `CLOSE` | learner to sim, instead of ACT | Empty. The sim drops the client and waits for a new one |
 
 ```

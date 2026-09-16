@@ -10,9 +10,10 @@ The queue (AnimusForge.Queue) moves on to the next stage when the learner exits 
   entropy bonus that decays back, fresh optimizers, optionally shrink and perturb) and the convergence test starts
   over, up to restarts.max_restarts times. After that, or when total_env_steps runs out below the target, the
   learner exits with EXIT_BELOW_TARGET and the queue halts on this stage.
-- With target.until_passed the stage cannot halt below its target: after the restarts it keeps training (EXTEND),
-  past total_env_steps too, until a best that passes the target is confirmed. A passing evaluation is then the best
-  whatever a failing one scored, so the networks that pass are the ones saved, confirmed and moved on with.
+- With target.until_passed a stage that converges below its target does not halt: after the restarts it keeps
+  training (EXTEND) until a best that passes is confirmed. total_env_steps stays the ceiling: reached below the target,
+  the stage halts as before. A passing evaluation is the best whatever a failing one scored, so the networks that pass
+  are the ones saved, confirmed and moved on with.
 
 With no target set, a converged stage moves on as before. The controller only decides; animus.train carries it out.
 """
@@ -123,15 +124,9 @@ class StageController:
 
     def after_eval(self, env_steps: int, confirm: Confirm) -> Outcome:
         """Call after each training evaluation."""
-        converged = self.tracker.converged(env_steps, self.config.convergence.min_env_steps)
-        # Past the budget a stage that trains until it passes is judged at every evaluation, so it moves on as soon
-        # as it passes rather than waiting to converge again.
-        past_budget = self.config.target.until_passed and env_steps >= self.config.total_env_steps
-        if not converged and not past_budget:
+        if not self.tracker.converged(env_steps, self.config.convergence.min_env_steps):
             return self._decide(Outcome(CONTINUE))
-
-        outcome = self._judge(confirm, at_budget=False, converged=converged)
-        return self._decide(outcome)
+        return self._decide(self._judge(confirm, at_budget=False))
 
     def at_budget(self, confirm: Confirm) -> Outcome:
         """Call once total_env_steps is reached (after the final evaluation)."""
@@ -169,8 +164,8 @@ class StageController:
         self.last_outcome = outcome
         return outcome
 
-    def _judge(self, confirm: Confirm, at_budget: bool, converged: bool = True) -> Outcome:
-        done = "total_env_steps" if at_budget or not converged else "converged"
+    def _judge(self, confirm: Confirm, at_budget: bool) -> Outcome:
+        done = "total_env_steps" if at_budget else "converged"
         target = self.config.target
         if not target.enabled:
             return Outcome(ADVANCE, done)
@@ -182,10 +177,9 @@ class StageController:
         if report.passed:
             return Outcome(ADVANCE, done, report, stage)
 
-        if not at_budget and converged and self.restarts < self.config.restarts.max_restarts:
+        if not at_budget and self.restarts < self.config.restarts.max_restarts:
             return Outcome(RESTART, "below_target", report, stage)
-        if target.until_passed:
-            # Converged below the target with no restarts left: train on, and judge again after the next
-            # convergence. Past the budget without converging: train on quietly and judge the next evaluation.
-            return Outcome(EXTEND if converged else CONTINUE, "below_target", report, stage)
+        if target.until_passed and not at_budget:
+            # Converged below the target with no restarts left: train on, and judge again at the next convergence.
+            return Outcome(EXTEND, "below_target", report, stage)
         return Outcome(HALT, "budget_below_target" if at_budget else "below_target", report, stage)

@@ -439,7 +439,9 @@ class TrainingRun:
         baseline_path = self.run_dir / ("eval_baseline.json" if is_eval_seeds
                                         else f"eval_baseline_{seed}_{episodes}.json")
         key = {"policy": config.eval.baseline, "seed": seed, "episodes": episodes, "opponents": self.opponents,
-               "arenas": list(self.arena_names)}
+               "arenas": list(self.arena_names),
+               # The tuning prices the reward terms the baseline is scored in: a change must score it again.
+               "tuning": (self.stage or {}).get("tuning")}
         cached = json.loads(baseline_path.read_text()) if baseline_path.exists() else None
         if cached and cached.get("key") == key:
             summary = cached["summary"]
@@ -484,6 +486,18 @@ class TrainingRun:
             self._save(self.best_path)
 
         self.send_layout_weights(summary, baseline_summary)
+        self.send_replay(result)
+
+    def send_replay(self, result: EvalResult) -> None:
+        """Send the sim the seeds this evaluation lost, for training resets to rebuild (protocol REPLAY)."""
+        sampling = self.config.layout_sampling
+        if not sampling.enabled or sampling.replay_fraction <= 0.0 or not sampling.metric:
+            return
+
+        seeds = result.failed_seeds(sampling.metric)
+        self.env.set_replay(self.config.eval.seed, sampling.replay_fraction, seeds)
+        print(f"Replaying {len(seeds)} lost evaluation episodes in {sampling.replay_fraction:.0%} of training resets",
+              flush=True)
 
     def send_layout_weights(self, summary: dict, baseline: dict | None) -> None:
         """Weight the training episodes toward the class/roles furthest below their baseline (protocol WEIGHTS)."""
@@ -536,9 +550,6 @@ class TrainingRun:
     def handle(self, outcome: Outcome) -> bool:
         """Carry out the controller's decision; True when training stops."""
         if outcome.action not in (ADVANCE, RESTART, HALT, EXTEND):
-            if outcome.gates is not None and not outcome.gates.passed:
-                print(f"Below the target ({outcome.stage}: {'; '.join(outcome.gates.failures)}); training on.",
-                      flush=True)
             return False
         tracker, controller = self.tracker, self.controller
         self.eval_log.write_outcome(self.update, self.env_steps, outcome, controller.restarts)
@@ -552,7 +563,7 @@ class TrainingRun:
         if outcome.action == EXTEND:
             controller.record_extension(self.env_steps)
             print(f"Converged below the target ({outcome.stage}: {failures}) with {controller.restarts} restarts used; "
-                  f"training on until it passes (target.until_passed).", flush=True)
+                  f"training on until it passes or total_env_steps (target.until_passed).", flush=True)
             return False
         if outcome.action == HALT:
             print(f"Below the target after {controller.restarts} restarts ({outcome.stage}: {failures}); best score "
@@ -678,11 +689,9 @@ class TrainingRun:
         self.finished_episodes.clear()
 
     def train(self) -> Outcome:
-        """Train until the stage decides to move on or halt, or the step budget runs out (with target.until_passed
-        the budget does not end it: only passing the target does)."""
+        """Train until the stage decides to move on or halt, or the step budget runs out."""
         config, controller = self.config, self.controller
-        until_passed = config.target.until_passed and config.target.enabled and self.evaluating
-        while until_passed or self.env_steps < config.total_env_steps:
+        while self.env_steps < config.total_env_steps:
             stats, started, rollout_seconds = self.rollout()
             self.log_update(stats, started, rollout_seconds)
             self.maybe_checkpoint()
