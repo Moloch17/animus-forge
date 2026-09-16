@@ -493,6 +493,9 @@ AnimusForge.Curriculum.Characters.NoisyTalentChance = 30
 AnimusForge.Curriculum.Characters.RandomTalentChance = 10
 #   a noisy build moves 1 to this many of its last points
 AnimusForge.Curriculum.Characters.TalentNoisePoints = 5
+#   percent of pet-class characters (hunters, warlocks, death knights with Master of Ghouls, frost mages with Glyph
+#   of Eternal Water) that start with their pet out, as a player arrives with one
+AnimusForge.Curriculum.Characters.PetOutChance = 50
 
 #
 #    AnimusForge.Curriculum.Party.*

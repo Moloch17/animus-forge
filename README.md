@@ -220,10 +220,12 @@ stage: its networks start from scratch.
   the world), summoned at the bot's level 40-50 yd away at a random bearing (a spot in line of sight
   on level ground), facing a random direction, hostile and aggressive. It is out of aggro range, so
   the bot has to close in, and it fights back. The bot gains no XP, so its level never changes.
-- **Pets:** nothing is pre-summoned. Warlock demons, Raise Dead, Water Elemental, Feral Spirit and
+- **Pets:** Warlock demons, Raise Dead, Water Elemental, Feral Spirit and
   the like are ordinary spell actions (with their reagents in the bags). Hunters, whose Call Pet
   needs a pet saved in the database, are offered 4 tameable beasts of different random families
-  each episode through 4 `call_beast` actions; the observation shows each beast's family and pet
+  each episode through 4 `call_beast` actions (a called beast arrives happy, with its talent tree spent; a dead one
+  can be revived or replaced), and half the pet classes start with their pet out (`Characters.PetOutChance`); the
+  observation shows each beast's family and pet
   type (ferocity, tenacity, cunning), so the policy can find the one it prefers.
 - **Actions:** the core actions, then: move to the opponent, move behind it, move to casting range
   (25 yd), back off 10 yd, stop, start auto-attack, send pets to attack, stop casting (the current cast

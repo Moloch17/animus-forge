@@ -104,6 +104,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Characters.NoisyTalentChance` | 30 | | `Pulls.HigherLevelChance` | 25 |
 | `Characters.RandomTalentChance` | 10 | | `Pulls.PartyEliteChance` | 50 |
 | `Characters.TalentNoisePoints` | 5 | | | |
+| `Characters.PetOutChance` | 50 | | | |
 | `Party.SizeWeight1` | 20 | | `Pulls.HigherLevelChance` | 25 |
 | `Party.SizeWeight2` | 20 | | `Pulls.PartyEliteChance` | 50 |
 | `Party.SizeWeight3` | 20 | | `Pulls.NextPullMinMs` | 8000 |

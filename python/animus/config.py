@@ -24,6 +24,9 @@ REPORT_COLUMNS = (
     "dps", "killed", "died", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
     "owner_deaths", "owner_healing", "casts_completed", "casts_cancelled", "cancelled_stopped", "cancelled_moved",
     "cancelled_target", "cancelled_other", "cast_seconds_wasted", "consumables_used", "self_resurrections", "revives",
+    # Pets: logged per episode in eval_episodes.jsonl with the episode's class/role, so a pet class's use of its pet
+    # can be read on its own.
+    "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",
 )
 
 

@@ -316,7 +316,7 @@ Casting goes through `ApplySpellAction`, which builds the `SpellCastTargets` a c
 |---|---|---|
 | `core` | 61 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
 | `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
-| `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
+| `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); each tactical spell's known and cooldown | Select target slot 1-4; tactical spells |
 | `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left; each sustain spell's known and cooldown | Eat, drink; sustain spells |
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally spell's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one cast-on-owner per ally spell, one revive-on-owner per revive |
@@ -580,7 +580,9 @@ Every stage reports these **core columns** per seat:
 - `spell_casts`, `trinket_uses`
 - `present` (0 for an empty party seat; ignore that row), `arena` (index into `stage.json` arenas), `opponent_seat`
 - `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `stealth_utility_casts`,
-  `pet_summoned`, `opponent` (creature entry)
+  `pet_summoned`, `pet_at_start`, `pet_damage_share` (of the seat's damage, what its pets and guardians dealt),
+  `pet_died`, `pet_abilities` (pet bar abilities started), `pet_orders` (stances, follow, stay, sending the pet in),
+  `opponent` (creature entry)
 - `casts_completed`, `casts_cancelled`, `cast_seconds_wasted`, `cancelled_stopped`, `cancelled_moved`,
   `cancelled_target`, `cancelled_other`
 - `consumables_used`, `self_resurrections`
@@ -608,6 +610,22 @@ A new character against a real creature (4.5). Nothing seeds it, so its networks
 offered four beasts each episode through `call_beast` actions, because Call Pet needs a pet saved in the database. The
 observation shows each beast's family and pet type, so the policy can learn its preference. Warlock demons, Raise
 Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. The bot gains no XP.
+
+Pets are played as a player has them:
+
+- **A called beast is fed and talented.** It arrives happy (a freshly tamed beast is unhappy and deals 75% damage) and
+  its talent points are spent (`PetTalents`): the build players took for its tree -- ferocity, tenacity or cunning --
+  point by point through `Player::LearnPetTalent`, the rest at random. Family-specific talents (Dash, Dive, Charge,
+  Swoop, Mobility) are left out, since the core cannot tell which families may take them.
+- **A dead pet can be brought back.** Revive Pet is a hunter action, and `call_beast` is allowed over a dead pet (the
+  corpse is dismissed first).
+- **Half the pet classes arrive with their pet out** (`Characters.PetOutChance`): a hunter one of its offered beasts,
+  a warlock a random demon it knows, a death knight with Master of Ghouls its ghoul, a frost mage with Glyph of Eternal
+  Water its elemental, summoned without a cast and with the summon ready again. The rest summon it themselves, so the
+  policy learns both to get a pet out and to use (or replace) the one it has.
+- **The `fight` baseline uses pets:** out of combat it calls a stable beast or casts its best summon (Felguard,
+  Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental) when no living pet is out, and sends the pet at
+  the target, so the per-class/role gates of pet classes compare with a character that plays its pet.
 
 Learner (`configs/stage1_duel.yaml`, the root every other config extends): hidden `[512, 512]` (every stage keeps
 these sizes, or the trunk can't be copied), gamma 0.997 and lambda 0.985 per 100 ms of game time
