@@ -668,15 +668,29 @@ AnimusForge.Curriculum.Pulls.Interrupt = 0.3
 AnimusForge.Curriculum.Pulls.Kill = 0.5
 #   per decision
 AnimusForge.Curriculum.Pulls.StepCost = 0.0002
+#   gauntlet and owner stages: each pull cleared
 AnimusForge.Curriculum.Pulls.Clear = 2.0
-#   pack: times the episode fraction left after engaging
-AnimusForge.Curriculum.Pulls.FastClear = 3.0
 #   gauntlet: times 1 - time since the pull engaged / 60 s
 AnimusForge.Curriculum.Pulls.FastPull = 2.0
-#   times the fraction of the bot's health not lost this pull
+#   gauntlet and owner stages: times the fraction of the bot's health not lost this pull
 AnimusForge.Curriculum.Pulls.HealthKept = 2.0
-AnimusForge.Curriculum.Pulls.PackDeath = 3.0
 AnimusForge.Curriculum.Pulls.GauntletDeath = 5.0
+#   A single pack (stage2_pack) is won or lost, as the duel is: the clear outweighs finishing it untouched,
+#   and dying or running out of time costs as much as the clear pays. With the gauntlet's Clear and HealthKept
+#   the pack was worth 2 + 2, so keeping health paid as much as winning, and a death cost only 3.
+AnimusForge.Curriculum.Pulls.PackClear = 10.0
+#   pack: times the episode fraction left after engaging
+AnimusForge.Curriculum.Pulls.FastClear = 1.0
+#   pack: times the fraction of the bot's health not lost
+AnimusForge.Curriculum.Pulls.PackHealthKept = 0.5
+AnimusForge.Curriculum.Pulls.PackDeath = 10.0
+#   pack: the clock ran out with the pack and the seat both alive; the episode ends as a lost fight
+AnimusForge.Curriculum.Pulls.Timeout = 10.0
+#   pack: per second the pack has not been engaged once StallGraceMs of the episode are gone
+AnimusForge.Curriculum.Pulls.Stall = 0.05
+AnimusForge.Curriculum.Pulls.StallGraceMs = 15000
+#   pack: per second a ranged spec is hit by a pack member in melee reach
+AnimusForge.Curriculum.Pulls.Spacing = 0.03
 #   owner stages: kills and clears count this many times
 AnimusForge.Curriculum.Pulls.OwnerClearScale = 2.0
 

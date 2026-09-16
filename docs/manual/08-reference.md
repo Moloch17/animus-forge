@@ -127,14 +127,18 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.FastKill` | 1.0 | | `Pulls.Kill` | 0.5 |
 | `Duel.HealthKept` | 0.5 | | `Pulls.StepCost` | 0.0002 |
 | `Duel.Death` | 10.0 | | `Pulls.Clear` | 2.0 |
-| `Duel.MeleeRange` | 3.5 | | `Pulls.FastClear` | 3.0 |
-| `Duel.RangedRange` | 25.0 | | `Pulls.FastPull` | 2.0 |
-| `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 2.0 |
-| `Casting.TimeCompleted` | 0.03 | | `Pulls.PackDeath` | 3.0 |
-| `Resurrection.GraceMs` | 20000 | | `Pulls.GauntletDeath` | 5.0 |
-| `Resurrection.ReviveAlly` | 1.5 | | `Pulls.OwnerClearScale` | 2.0 |
-| `Duel.Timeout` | 10.0 | | | |
-| `Casting.Cancel` | 0.05 | | | |
+| `Duel.MeleeRange` | 3.5 | | `Pulls.FastPull` | 2.0 |
+| `Duel.RangedRange` | 25.0 | | `Pulls.HealthKept` | 2.0 |
+| `Casting.TimeWasted` | 0.03 | | `Pulls.GauntletDeath` | 5.0 |
+| `Casting.TimeCompleted` | 0.03 | | `Pulls.OwnerClearScale` | 2.0 |
+| `Resurrection.GraceMs` | 20000 | | `Pulls.PackClear` | 10.0 |
+| `Resurrection.ReviveAlly` | 1.5 | | `Pulls.FastClear` | 1.0 |
+| `Duel.Timeout` | 10.0 | | `Pulls.PackHealthKept` | 0.5 |
+| `Casting.Cancel` | 0.05 | | `Pulls.PackDeath` | 10.0 |
+| | | | `Pulls.Timeout` | 10.0 |
+| | | | `Pulls.Stall` | 0.05 |
+| | | | `Pulls.StallGraceMs` | 15000 |
+| | | | `Pulls.Spacing` | 0.03 |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |
 | `Actions.StopCastMinMs` | 500 | | | |

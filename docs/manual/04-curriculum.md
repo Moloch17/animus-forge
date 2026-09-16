@@ -15,7 +15,7 @@ stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ s
 | # | Stage | Extends (merges) | Blocks | Seats | Opposition | Episode |
 |---|---|---|---|---|---|---|
 | 1 | `stage1_duel` | none | core, duel, pet | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
-| 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear or death |
+| 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear, death or the 150 s clock (a loss) |
 | 3 | `stage3_gauntlet` | stage2 | + gauntlet | 1 | Pull after pull with breaks | Runs until death or the time limit |
 | 4 | `stage4_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
 | 5 | `stage5_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
@@ -553,8 +553,17 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
   more than a sure slow win above about 97% odds (at the earlier 3, 3 and -3 it was 79%)
 
 **Pack** (`Pulls.*`): damage x2 of the pack's total health, damage taken x1, approach to the nearest enemy, +0.5 per
-kill, +0.3 per interrupt, the stealth terms. Clear: +2, up to +3 for the episode length left since a pack member
-entered combat, up to +2 for health kept. Death -3.
+kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won or lost:
+
+- clear +10 (`PackClear`), up to +1 more for the share of the episode length left since a pack member entered combat
+  (`FastClear`), up to +0.5 for the share of health kept (`PackHealthKept`)
+- death -10 (`PackDeath`); timeout -10 (`Timeout`) when the 150 s run out with the pack and the seat both alive,
+  ending the episode as a lost fight rather than a cut-off the critic bootstraps past
+- stall -0.05 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone
+- spacing -0.03 per second, for a ranged spec, while a living pack member attacks it in melee reach
+
+With the gauntlet's clear and health kept (+2 and up to +2) and a -3 death, keeping health paid as much as clearing
+the pack, and never engaging was the cheapest way to lose.
 
 **Gauntlet**: the pack's per-step terms with damage taken x1.5. Each cleared pull: +2, up to +2 for clearing within a
 minute of engaging it (not of its spawn, so resting, sapping or stealthing in first is free), up to +2 for health kept
@@ -779,8 +788,14 @@ Learner (`configs/stage1_duel.yaml`, the root every other config extends):
 ### Stage 2: `stage2_pack`
 
 Adds the pack block: target slots and the enemy-slot observation (the tactical spells come with the core from stage 1). Linked packs mean pulling one
-enemy pulls all of them. The interrupt reward teaches casting interrupts at the right moment. Config: inherits
-stage 1.
+enemy pulls all of them. The interrupt reward teaches casting interrupts at the right moment. 150 s episodes: a pack
+is up to four of the duel's creatures, which took stage 1's policy about 17 s each. Rewards are the duel's win-first
+ones (4.6).
+
+Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is provisional until the first stage 2
+evaluation shows what a random character can do against a pack: clean wins of at least 85% overall and 75% per
+class/role (Wilson bounds), no difficulty tiers, and `until_passed` off, so a stage that converges short of it halts
+after its restarts instead of training on.
 
 ### Stage 3: `stage3_gauntlet`
 

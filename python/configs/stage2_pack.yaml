@@ -1,16 +1,32 @@
 # Stage 2 of the curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
 # casters included, usually linked. The policy picks targets, interrupts, crowd-controls and clears the pack fast while
-# losing little health. Episodes end when the pack is cleared or the bot dies.
+# losing little health. Episodes end when the pack is cleared, the bot dies or the 150 s clock runs out (a lost fight,
+# as in the duel).
 
 extends: stage1_duel.yaml
 run_name: stage2_pack
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
-# so the duel's 33 s horizon and 12.8 s rollout are both too short to carry credit from a clear back to the
-# opening. These are the gauntlet's numbers, one stage early (~100 s horizon, ~9 s of GAE trace, 25.6 s per
-# rollout), which is the shape the rest of the PvE line uses.
+# so the duel's 33 s horizon is too short to carry credit from a clear back to the opening. These are the gauntlet's
+# numbers, one stage early (~100 s horizon, ~9 s of GAE trace; gamma and lambda are per 100 ms of game time), which is
+# the shape the rest of the PvE line uses.
 rollout_length: 256
 
 mappo:
   gamma: 0.999
   gae_lambda: 0.99
+
+# Provisional. Nobody has measured how often a random character -- a level 12 healer included -- can beat a linked pack
+# of four creatures of its own level, so the duel's floors (95% of base-tier fights won) are not inherited: packs have
+# no difficulty tiers, and a stage with none would judge tier 0 on its overall summary. Until the first stage 2
+# evaluation calibrates them (it scores the fight baseline and the seeded policy on the same seeds), the floors sit
+# lower, judged by the same Wilson bound, and a stage below them halts instead of training on forever: converging short
+# of the target restarts from best.pt as usual, then the plan stops here with the numbers to set the real floors from.
+# With 2048 evaluation episodes a class/role has ~114: 0.75 needs about 83% of them won.
+target:
+  metrics:
+    clean_kill: {min: 0.85, confidence: 0.95}
+  layout_metrics:
+    clean_kill: {min: 0.75, confidence: 0.95}
+  difficulties: {}
+  until_passed: false
