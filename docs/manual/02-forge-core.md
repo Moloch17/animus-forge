@@ -65,7 +65,7 @@ the databases close, then scripts unload, then OpenSSL cleans up.
 ## 2.3 The fixed-tick loop
 
 ```cpp
-uint32 const tickMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 100));
+uint32 const tickMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 250));
 while (!World::IsStopped())
 {
     ++World::m_worldLoopCounter;

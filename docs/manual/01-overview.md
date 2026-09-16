@@ -103,7 +103,7 @@ party, an ambush, a trip or a flag match. Every stage has one arena except stage
 `mix_duel_pvp` pilot, which mixes two.
 
 **Decision.** One step of the environment. On the forge, one world tick equals one decision equals
-`AnimusForge.DecisionMs` of game time (100 ms by default). For each decision, every env scores the last transition,
+`AnimusForge.DecisionMs` of game time (250 ms by default). For each decision, every env scores the last transition,
 resets if the episode ended, observes, receives an action per seat and applies it.
 
 **Lock-step.** With a learner attached, the world thread sends every env's observations to Python and blocks until

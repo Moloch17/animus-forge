@@ -142,7 +142,8 @@ class EvalResult:
         return out
 
     def summary(self, columns: tuple[str, ...]) -> dict:
-        """Score and means of `columns`: overall, per level band, per layout, per arena and per talent build."""
+        """Score and means of `columns`: overall, per level band, per layout, per arena, per talent build and per
+        difficulty tier."""
         present = [c for c in columns if c in self.info_names]
         derived = self.derived()
 
@@ -161,7 +162,8 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}, "builds": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}, "builds": {},
+                  "difficulties": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -178,6 +180,11 @@ class EvalResult:
                 rows = arenas == index
                 if rows.any():
                     result["arenas"][arena] = means(rows)
+        # The creature duel's difficulty tiers (episode info "difficulty"): an evaluation spreads its seeds over them.
+        tiers = self.column("difficulty")
+        if tiers is not None and len(set(tiers.tolist())) > 1:
+            for tier in sorted(set(int(t) for t in tiers.tolist())):
+                result["difficulties"][str(tier)] = means(tiers == tier)
         plans = self.column("talent_plan")
         if plans is not None and len(set(plans.tolist())) > 1:
             for index, plan in enumerate(TALENT_PLANS):
@@ -422,7 +429,8 @@ class ConvergenceTracker:
 
 
 def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...]) -> str:
-    """Multi-line table: overall, per level band, layout, arena and talent build, learner next to baseline."""
+    """Multi-line table: overall, per level band, layout, arena, talent build and difficulty tier, learner next to
+    baseline."""
 
     def cell(row: dict | None, name: str) -> str:
         value = None if row is None else row.get(name)
@@ -430,9 +438,10 @@ def format_summary(summary: dict, baseline: dict | None, columns: tuple[str, ...
 
     names = ["score", *[c for c in columns if c in summary], *[d for d in DERIVED_METRICS if d in summary]]
     rows = [("all", summary, baseline)]
-    for group in ("bands", "layouts", "arenas", "builds"):
+    for group in ("bands", "layouts", "arenas", "builds", "difficulties"):
         for key, row in summary.get(group, {}).items():
-            rows.append((key, row, (baseline or {}).get(group, {}).get(key)))
+            label = f"tier {key}" if group == "difficulties" else key
+            rows.append((label, row, (baseline or {}).get(group, {}).get(key)))
 
     width = max(7, *(len(key) for key, _, _ in rows))
     # "rows": one per agent of each seeded episode (a party episode is up to four), not episodes.

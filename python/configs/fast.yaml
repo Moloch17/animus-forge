@@ -35,6 +35,7 @@ target:
   metrics: {}
   layout_metrics: {}
   arenas: {}
+  difficulties: {}
   confirm_episodes: 64
 
 restarts:

@@ -100,7 +100,11 @@ class TargetConfig:
     # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
     # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
     arenas: dict = field(default_factory=dict)
-    min_arena_episodes: int = 16  # arenas with fewer eval episodes than this are too noisy to gate
+    min_arena_episodes: int = 16  # arenas and tiers with fewer eval episodes than this are too noisy to gate
+    # Per difficulty tier of the creature duel (episode info "difficulty"), the same gates on that tier's episodes
+    # only, e.g. {0: {metrics: {clean_kill: {min: 0.95}}}}. An evaluation spreads its seeds over every tier, and a
+    # floor the base tier must reach says nothing about an elite a level above.
+    difficulties: dict = field(default_factory=dict)
     # Score gates pass when the score is within this many standard errors of what they require (of the difference
     # between the two means, the learner's and the baseline's). Each layout is scored on its share of the episodes
     # only, so without an allowance a class/role that is truly level with its baseline fails about half the time.
@@ -119,11 +123,15 @@ class TargetConfig:
     @property
     def enabled(self) -> bool:
         return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
-                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.arenas))
+                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.arenas) or bool(self.difficulties))
 
     def arena_needs_baseline(self) -> bool:
         return any(isinstance(gates, dict) and gates.get("min_over_baseline") is not None
-                   for gates in self.arenas.values())
+                   for gates in (*self.arenas.values(), *self.difficulties.values()))
+
+    def __post_init__(self) -> None:
+        # YAML reads tier keys as numbers; the summary names tiers as strings.
+        self.difficulties = {str(tier): gates for tier, gates in (self.difficulties or {}).items()}
 
 
 @dataclass

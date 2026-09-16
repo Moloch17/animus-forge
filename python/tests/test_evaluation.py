@@ -214,6 +214,15 @@ def test_episode_log_counts_actions_by_name():
     assert [row["actions"] for row in rows] == [{"hamstring_1715": 1}, {}, {"hamstring_1715": 1}, {}]
 
 
+def test_summary_by_difficulty_tier():
+    infos = np.array([[0.0], [0.0], [2.0]], np.float32)
+    result = EvalResult("learner", np.array([1.0, 3.0, 5.0]), infos, ("difficulty",))
+    tiers = result.summary(())["difficulties"]
+    assert set(tiers) == {"0", "2"} and tiers["0"]["score"] == pytest.approx(2.0) and tiers["2"]["episodes"] == 1
+    assert EvalResult("learner", np.array([1.0]), np.zeros((1, 1), np.float32), ("difficulty",)).summary(())[
+        "difficulties"] == {}
+
+
 def test_arena_summary_needs_several_arenas():
     infos = np.array([[0.0, 0.0], [0.0, 0.0]], np.float32)
     single = EvalResult("learner", np.array([1.0, 2.0]), infos, ("level", "arena"), arenas=("duel",))

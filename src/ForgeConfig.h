@@ -49,7 +49,7 @@ namespace AnimusForge
         uint32 Envs = 64;
         /// AnimusForge.DecisionMs: game time per decision, which is also the forge core's world tick (ForgeUpdateLoop in
         /// ForgeMain.cpp reads the same key): every world update is one decision.
-        uint32 DecisionMs = 100;
+        uint32 DecisionMs = 250;
         uint32 EpisodeSeconds = 60;
 
         std::string Policy;

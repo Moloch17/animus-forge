@@ -75,6 +75,24 @@ def test_arena_gates():
     assert "arena duel: no baseline score to compare with" not in check_gates(learner, None, target).failures
 
 
+def test_difficulty_gates():
+    """Tier keys come as YAML numbers; a stage without tiers is all tier 0."""
+    target = TargetConfig(difficulties={0: {"metrics": {"clean_kill": {"min": 0.9}}}}, min_arena_episodes=16)
+    assert list(target.difficulties) == ["0"]
+    learner = summary(5.0, difficulties={"0": {"score": 12.0, "episodes": 40, "clean_kill": 0.95},
+                                         "3": {"score": 2.0, "episodes": 40, "clean_kill": 0.4}})
+    assert check_gates(learner, None, target).passed
+
+    learner["difficulties"]["0"]["clean_kill"] = 0.8
+    assert check_gates(learner, None, target).failures == ["tier 0 clean_kill (min) 0.8 (needs 0.9)"]
+
+    flat = summary(5.0, clean_kill=0.95)
+    assert check_gates(flat, None, target).passed
+    assert not check_gates(summary(5.0, clean_kill=0.8), None, target).passed
+    missing = TargetConfig(difficulties={2: {"metrics": {"clean_kill": {"min": 0.9}}}})
+    assert "tier 2: not in the evaluation summary" in check_gates(flat, None, missing).failures
+
+
 def test_validate_arena_targets():
     config = TrainConfig()
     config.eval.every_env_steps = 10

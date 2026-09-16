@@ -159,7 +159,8 @@ class EvalLog:
         self.tb.add_scalar("eval/margin", tracker.last_margin, env_steps)
         groups = [*summary.get("bands", {}).items(),
                   *((f"arena_{arena}", values) for arena, values in summary.get("arenas", {}).items()),
-                  *((f"build_{build}", values) for build, values in summary.get("builds", {}).items())]
+                  *((f"build_{build}", values) for build, values in summary.get("builds", {}).items()),
+                  *((f"tier_{tier}", values) for tier, values in summary.get("difficulties", {}).items())]
         for group, values in groups:
             for name, value in values.items():
                 if isinstance(value, float):
@@ -337,7 +338,8 @@ class TrainingRun:
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
         report = tuple(config.eval.report)
         gated = (*config.target.metrics, *config.target.layout_metrics,
-                 *(name for gates in config.target.arenas.values() for name in gates.get("metrics", {})))
+                 *(name for gates in config.target.arenas.values() for name in gates.get("metrics", {})),
+                 *(name for gates in config.target.difficulties.values() for name in gates.get("metrics", {})))
         # Derived fields are computed by the summary itself, not averaged from an episode info column.
         report += tuple(name for name in gated if name not in report and name not in DERIVED_METRICS)
         self.report = report

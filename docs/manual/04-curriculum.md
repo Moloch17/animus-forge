@@ -326,14 +326,19 @@ current one.
 
 Casting goes through `ApplySpellAction`, which builds the `SpellCastTargets` a client would send for the spell.
 
-**Pacing** (`Actions.*`). A decision comes every 100 ms, and a policy free to act on every one re-issues orders no
+**Pacing** (`Actions.*`, `SeatMemory`, the same for forge seats and live companions). A decision comes every
+`DecisionMs` (250 ms), and a policy free to act on every one re-issues orders no
 player would: stage1_duel's warlocks sent their pet in 125 times an episode and started and stopped the same cast
 over and over while never engaging. So the scenario masks, on top of every block's own checks, an action pressed too
 recently: the same action again within `Actions.RepeatMs` (1000 ms; `Actions.MoveRepeatMs`, 300 ms, for movement
 orders, so steering stays responsive), stopping a cast before it has run `Actions.StopCastMinMs` (500 ms), and
 starting a spell the bot stopped itself within `Actions.RecastAfterStopMs` (2000 ms). Spells keep their GCD and
-cooldowns as well. A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows
-how busy a seat was.
+cooldowns as well. Two locks keep a plan from dissolving into dithering: a movement order back the way the last one
+went (in toward the target after one away, or the reverse) waits `Actions.ReverseMoveMs` (1000 ms), and a stance,
+form, presence, aspect, aura, seal, armor or pet stance holds `Actions.ModeLockMs` (5000 ms) before another change of
+its kind (stage1_duel's seats gave 60-140 movement orders a fight; warrior tanks changed stance 22 times, hunters their
+aspect 12). A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows how busy a
+seat was.
 
 **Repeats** (`Actions.Repeat`, every stage). Pacing caps how soon an action can be pressed again, not how often: a
 policy can still press one button every second for a whole episode (stage1_duel's warlocks gave their pet 93 orders an
@@ -347,7 +352,7 @@ counts the charged presses.
 
 | Block | Observation (summary) | Actions |
 |---|---|---|
-| `core` | 62 globals (see below), then 5 features per catalog action (known, cooldown, aura on target, aura on self, stacks), then rank / max rank per class talent, then points per tree / 71 | The catalog |
+| `core` | 67 globals (see below), then 6 features per catalog action (known, cooldown, aura on target, aura on self, stacks, time since the seat pressed it), then rank / max rank per class talent, then points per tree / 71 | The catalog |
 | `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
@@ -360,14 +365,19 @@ counts the charged presses.
 | `travel` (16) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing and height; at the objective; in combat; speed; moving | Mount the fastest ground mount, mount the fastest flying mount, dismount, move to the objective (by path, or straight in the air), climb 15 yd, descend 15 yd |
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 
-The core block's 62 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
+The core block's 67 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
-last-step power change; time into the episode (/ 5 min, `EPISODE_TIME_SCALE_MS`). All are normalised (see
+last-step power change; time into the episode (/ 5 min, `EPISODE_TIME_SCALE_MS`); and what the seat has been doing
+(`SeatMemory`): time since its last movement order, which way that order went (in toward the target, away, neither),
+time since its last stance, form, aspect, aura, seal, armor or pet stance change, and its own and its target's health
+against their average over the last few seconds. All are normalised (see
 `Blocks/CoreBlock.h` for the scale of each). The episode time is elapsed time, not the share of the limit left: a
 companion has no limit, and without a clock a bot standing still out of combat sees the same row every decision, so a
-deterministic policy can repeat a loop forever.
+deterministic policy can repeat a loop forever. A policy sees one observation at a time: without the memory features it
+re-decided from scratch every decision, running in and backing off by turns and dancing between stances. A forge seat
+and a live companion keep the same `SeatMemory`, so a model plays with what it trained with.
 
 Movement and casting constrain each other: movement actions are masked while casting, and cast-time or channelled
 spells are masked while running. The bot turns to face its target whenever it isn't running. Stop casting and cancel
@@ -389,14 +399,22 @@ for each phase: `RewardTerms`, `AddEpisodeInfo`, `ResetEpisode`, `BeforeRebuild`
 **`CreatureEncounter`** (`Opposition::Creature`). It spawns a random creature whose natural level range covers the
 seat's level: normal rank, attackable, default AI with no script, no NPC services, not a civilian, guard or trigger,
 walking on the ground in plain sight (no flying, hovering, swim-only or rooted movement, and no stealth or invisibility
-aura on its addon), and spawned somewhere in the world. The creature is summoned at the seat's level
-(`PendingSummonLevel`) 40-50 yd away at a random line-of-sight bearing on level ground the seat can walk to (a path at
-most 1.5 times the straight line), facing a random way, hostile and aggressive, without health regeneration. It starts
-out of aggro range. A creature with no path to its victim stops and regenerates, then evades home at full health
-after 10 s, which no play can win: after 3 s without a path it is put beside its victim instead (as instance trash is
-with `Creature.Instance.TeleportToUnreachableTarget`). `target_unreachable_seconds` and `target_teleports` count it.
-Rewards are the one-on-one terms (`CombatReward::OneOnOne`). The episode is terminal on the kill or on death with no
-resurrection left.
+aura on its addon), and spawned somewhere in the world. **Difficulty adapts per class/role** (`Difficulty.*`): tier t
+below `EliteTier` (4) is a normal creature t x `LevelsPerTier` (1) levels above the seat, and from `EliteTier` on an
+elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class/role moves up a tier once it wins (kills without
+dying) `RaiseAbove` (90%) of `Window` (200) fights at its tier, and down below `LowerBelow` (60%);
+`ReviewChance` (25%) of its training fights come from a lower tier, so none is forgotten. A fight that simple play wins
+every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier (tier = seed index
+mod (`MaxTier` + 1)), so two checkpoints meet the same fights, and the summary scores each tier on its own
+(`difficulties`; stage targets can gate a tier, `target.difficulties`). Tiers restart at 0 with the worldserver.
+`difficulty` and `opponent_elite` in the episode info say what each fight was. The creature is summoned at the seat's
+level plus its tier's levels (`PendingSummonLevel`) 40-50 yd away at a random line-of-sight bearing on level ground
+the seat can walk to (a path at most 1.5 times the straight line), facing a random way, hostile and aggressive, without
+health regeneration. It starts out of aggro range. A creature with no path to its victim stops and regenerates, then
+evades home at full health after 10 s, which no play can win: after 3 s without a path it is put beside its victim
+instead (as instance trash is with `Creature.Instance.TeleportToUnreachableTarget`). `target_unreachable_seconds` and
+`target_teleports` count it. Rewards are the one-on-one terms (`CombatReward::OneOnOne`). The episode is terminal on the
+kill or on death with no resurrection left.
 
 **`PullsEncounter`** (`Opposition::Pulls`). The pack pool adds creatures whose SmartAI only casts or talks (about 3500
 casters and ability users) to the duel pool.
@@ -753,9 +771,10 @@ Learner (`configs/stage1_duel.yaml`, the root every other config extends):
 - **Evaluation:** every 10M steps and at the start, 1024 seeded episodes against `fight`. Training episodes lean
   toward the class/roles furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
 - **Convergence:** patience 3, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps.
-- **Target:** 10% over baseline overall and at least baseline for every class/role (16+ episodes, 1 standard error of
-  slack), every fight won outright (`clean_kill` 1.0) and no livelocks, overall and for every class/role; confirmed on
-  2048 held-out episodes. Up to 2 restarts with 3x entropy decaying over 10M steps and fresh optimizers.
+- **Target:** at least baseline for every class/role (16+ episodes, 1 standard error of slack) on the same spread of
+  difficulty tiers, 95% of base-tier fights won outright (`clean_kill`, by its Wilson bound; `target.difficulties`),
+  and no livelocks, overall and for every class/role; confirmed on 4096 held-out episodes. Up to 2 restarts with 3x
+  entropy decaying over 10M steps and fresh optimizers.
 
 ### Stage 2: `stage2_pack`
 

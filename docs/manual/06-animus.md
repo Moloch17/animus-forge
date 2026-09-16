@@ -153,8 +153,9 @@ units you and the companions attack. Only living, valid attack targets on your m
   alive and out of combat, and it has been dead 10 s, it stands up with half health.
 - **Out of combat.** More than 100 yd away: teleport to you. With a model and more than 30 yd away: run back behind
   you. Without a model: stay within 6 yd.
-- **Deciding.** Every `Animus.Curriculum.DecisionMs` (100) of accumulated update time, if its model is available,
-  the companion decides.
+- **Deciding.** Every `Animus.Curriculum.DecisionMs` (250) of accumulated update time, if its model is available,
+  the companion decides. It keeps a `SeatMemory` as a forge seat does: the observation's memory features, and the
+  pacing and locks (`Animus.Curriculum.Actions.*`) masked out of its choices, so it plays with the mask it trained with.
 
 **A decision** (`Decide`) mirrors a training seat:
 

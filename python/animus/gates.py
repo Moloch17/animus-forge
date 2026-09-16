@@ -104,25 +104,38 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
     _check_metrics(report, summary, target.metrics, "")
 
     for arena, gates in target.arenas.items():
-        row = summary.get("arenas", {}).get(arena)
-        if row is None or row.get("score") is None:
-            report.fail(f"arena {arena}: not in the evaluation summary")
-            continue
-        if row["episodes"] < target.min_arena_episodes:
-            report.skipped.append(f"arena {arena}: {row['episodes']} episodes")
-            continue
-
-        ratio = gates.get("min_over_baseline")
-        if ratio is not None:
-            base = (baseline or {}).get("arenas", {}).get(arena)
-            if base is None or base.get("score") is None:
-                report.fail(f"arena {arena}: no baseline score to compare with")
-            else:
-                _check_score(report, f"arena {arena} score", row, base, ratio, target.noise_z)
-
-        _check_metrics(report, row, gates.get("metrics", {}), f"arena {arena} ")
+        _check_group(report, f"arena {arena}", summary.get("arenas", {}).get(arena),
+                     (baseline or {}).get("arenas", {}).get(arena), gates, target)
+    for tier, gates in target.difficulties.items():
+        # A stage without difficulty tiers (no creature duel, or one tier) is all tier 0: a stage extending one
+        # that gates tier 0 keeps the same bar.
+        row = summary.get("difficulties", {}).get(tier)
+        base = (baseline or {}).get("difficulties", {}).get(tier)
+        if not summary.get("difficulties") and tier == "0":
+            row, base = summary, baseline
+        _check_group(report, f"tier {tier}", row, base, gates, target)
 
     return report
+
+
+def _check_group(report: GateReport, label: str, row: dict | None, base: dict | None, gates: dict,
+                 target: TargetConfig) -> None:
+    """An arena's or a difficulty tier's gates, on its own rows of the summary."""
+    if row is None or row.get("score") is None:
+        report.fail(f"{label}: not in the evaluation summary")
+        return
+    if row["episodes"] < target.min_arena_episodes:
+        report.skipped.append(f"{label}: {row['episodes']} episodes")
+        return
+
+    ratio = gates.get("min_over_baseline")
+    if ratio is not None:
+        if base is None or base.get("score") is None:
+            report.fail(f"{label}: no baseline score to compare with")
+        else:
+            _check_score(report, f"{label} score", row, base, ratio, target.noise_z)
+
+    _check_metrics(report, row, gates.get("metrics", {}), f"{label} ")
 
 
 def wilson_bound(share: float, episodes: int, confidence: float, lower: bool) -> float:
@@ -203,6 +216,14 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
             continue
         if gates.get("min_over_baseline") is not None and not isinstance(gates["min_over_baseline"], (int, float)):
             errors.append(f"{prefix}.min_over_baseline: expected a number")
+        errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), names)
+    for tier, gates in target.difficulties.items():
+        prefix = f"target.difficulties.{tier}"
+        if not str(tier).isdigit():
+            errors.append(f"{prefix}: a tier is a whole number")
+        if not isinstance(gates, dict) or set(gates) - {"min_over_baseline", "metrics"}:
+            errors.append(f"{prefix}: expected min_over_baseline and/or metrics, got {gates!r}")
+            continue
         errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), names)
     sampling = config.layout_sampling
     if sampling.enabled and sampling.metric and sampling.metric not in names:

@@ -122,7 +122,8 @@ convergence:
   min_improvement_abs: 0.01
   min_env_steps: 30000000
 
-# Good enough to move on: every class/role wins nearly every fight, measured with enough episodes to believe it, on
+# Good enough to move on: every class/role wins nearly every base-tier fight (difficulties.0; the harder tiers weigh in
+# through the score and the per-class/role baseline gate), measured with enough episodes to believe it, on
 # the evaluation that set the best and again on 4096 held-out episodes (a best picked from many evaluations is partly
 # luck).
 #
@@ -148,11 +149,16 @@ target:
   min_layout_episodes: 16
   noise_z: 1.0
   metrics:
-    clean_kill: {min: 0.95, confidence: 0.95}
     livelocked: {max: 0.01}
   layout_metrics:
-    clean_kill: {min: 0.90, confidence: 0.95}
     livelocked: {max: 0.02}
+  # Opponents get harder per class/role as it wins (AnimusForge.Curriculum.Difficulty.*), and an evaluation spreads
+  # its seeds over every tier: the win-rate floors hold on the base tier, where every fight is winnable, and the
+  # harder tiers count through the score (and each class/role against its baseline on the same tiers).
+  difficulties:
+    0:
+      metrics:
+        clean_kill: {min: 0.95, confidence: 0.95}
   confirm_episodes: 4096
   confirm_seed: 50000
   until_passed: true

@@ -124,9 +124,11 @@ AnimusForge.Envs = 64
 #                     needs a restart). Per-decision reward terms are scaled to stay the same per second.
 #                     Models play at this interval (mod-animus: Animus.ClassRole.DecisionMs and
 #                     Animus.Stage.DecisionMs).
-#        Default:     100
+#                     250 ms is about a player's reaction time: a decision there has to count for something,
+#                     where at 100 ms policies re-decided ten times a second and dithered.
+#        Default:     250
 
-AnimusForge.DecisionMs = 100
+AnimusForge.DecisionMs = 250
 
 #
 #    AnimusForge.EpisodeSeconds
@@ -566,6 +568,25 @@ AnimusForge.Curriculum.Duel.MeleeRange = 3.5
 AnimusForge.Curriculum.Duel.RangedRange = 25.0
 
 #
+#    AnimusForge.Curriculum.Difficulty.*
+#        How hard the creature duel's opponents are, per class/role. Tier t below EliteTier is a normal
+#        creature t x LevelsPerTier levels above the seat; from EliteTier on an elite, (t - EliteTier) x
+#        LevelsPerTier levels above. Evaluations spread their seeds over every tier.
+
+#   the hardest tier
+AnimusForge.Curriculum.Difficulty.MaxTier = 6
+#   the first elite tier (above MaxTier: no elites)
+AnimusForge.Curriculum.Difficulty.EliteTier = 4
+AnimusForge.Curriculum.Difficulty.LevelsPerTier = 1
+#   a class/role moves up a tier when it wins (kills without dying) this share of Window fights at its tier ...
+AnimusForge.Curriculum.Difficulty.RaiseAbove = 0.9
+#   ... and down below this share
+AnimusForge.Curriculum.Difficulty.LowerBelow = 0.6
+AnimusForge.Curriculum.Difficulty.Window = 200
+#   percent of training fights drawn from a lower tier, so none is forgotten
+AnimusForge.Curriculum.Difficulty.ReviewChance = 25
+
+#
 #    AnimusForge.Curriculum.Casting.*
 #        Cast-time spells, from the duel stage on.
 
@@ -599,6 +620,12 @@ AnimusForge.Curriculum.Actions.Repeat = 0.02
 AnimusForge.Curriculum.Actions.RepeatWindowMs = 10000
 #   presses of one action within the window that cost nothing
 AnimusForge.Curriculum.Actions.RepeatFree = 3
+#   a movement order back the way the last one went (in toward the target, then away, or the reverse) waits this
+#   long (ms); movement is still free, only the reversal waits
+AnimusForge.Curriculum.Actions.ReverseMoveMs = 1000
+#   a stance, form, presence, aspect, aura, seal, armor or pet stance holds this long before another change of its
+#   kind (ms)
+AnimusForge.Curriculum.Actions.ModeLockMs = 5000
 
 #
 #    AnimusForge.Curriculum.Pulls.*

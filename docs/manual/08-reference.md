@@ -16,7 +16,7 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per scenario of `forge start` (0 = until cancelled) |
 | `AnimusForge.ClassRoles` | `""` = all 18 | Comma-separated class/roles the stages play |
 | `AnimusForge.Envs` | `64` | Parallel envs, one instance each (capped at 12500) |
-| `AnimusForge.DecisionMs` | `100` | Game time per decision, and the world tick |
+| `AnimusForge.DecisionMs` | `250` | Game time per decision, and the world tick |
 | `AnimusForge.EpisodeSeconds` | `60` | Episode length for arenas without their own |
 | `AnimusForge.SpawnPoint.MapId` | `560` | Instanceable map every env starts in (Old Hillsbrad Foothills) |
 | `AnimusForge.SpawnPoint.X/Y/Z/O` | `2741.9`, `1315.2`, `14.0`, `2.96` | Spawn position |
@@ -69,9 +69,9 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 | `Animus.Enable` | `1` | `0`: no summons or stages, existing ones removed, no models loaded |
 | `Animus.ModelDir` | `"animus"` | Model directory, relative to `DataDir` |
 | `Animus.Curriculum.Stage` | `"stage5_party"` | The stage whose models companions play |
-| `Animus.Curriculum.DecisionMs` | `100` | Companion decision interval |
+| `Animus.Curriculum.DecisionMs` | `250` | Companion decision interval |
 | `Animus.Stage.Policy` | `"model"` | Default stage viewer policy |
-| `Animus.Stage.DecisionMs` | `100` | Stage viewer decision interval |
+| `Animus.Stage.DecisionMs` | `250` | Stage viewer decision interval |
 | `Animus.Stage.EpisodeSeconds` | `60` | Episode length for arenas without their own |
 | `Animus.Stage.ClassRoles` | `""` | Characters that appear (doesn't change layouts) |
 | `Animus.Stage.Level` | `0` | Every character's level (0 = random) |
@@ -147,6 +147,15 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Actions.Repeat` | 0.02 | | | |
 | `Actions.RepeatWindowMs` | 10000 | | | |
 | `Actions.RepeatFree` | 3 | | | |
+| `Actions.ReverseMoveMs` | 1000 | | | |
+| `Actions.ModeLockMs` | 5000 | | | |
+| `Difficulty.MaxTier` | 6 | | | |
+| `Difficulty.EliteTier` | 4 | | | |
+| `Difficulty.LevelsPerTier` | 1 | | | |
+| `Difficulty.RaiseAbove` | 0.9 | | | |
+| `Difficulty.LowerBelow` | 0.6 | | | |
+| `Difficulty.Window` | 200 | | | |
+| `Difficulty.ReviewChance` | 25 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|

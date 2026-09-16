@@ -120,7 +120,7 @@ void AnimusForge::ForgeConfig::Load()
             Animus::BotAccounts::MAX_ENVS);
         Envs = Animus::BotAccounts::MAX_ENVS;
     }
-    DecisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 100));
+    DecisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 250));
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");
