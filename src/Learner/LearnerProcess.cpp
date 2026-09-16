@@ -20,6 +20,7 @@
 #include "ForgeConfig.h"
 #include "Log.h"
 #include <filesystem>
+#include <string>
 #include <vector>
 
 namespace
@@ -41,6 +42,13 @@ namespace
 
         if (resume)
             args.emplace_back("--resume");
+
+        // The learner's torch shares the machine with the map update threads; 0 leaves torch's own default.
+        if (config.LearnerTorchThreads)
+        {
+            args.emplace_back("--set");
+            args.emplace_back("torch_threads=" + std::to_string(config.LearnerTorchThreads));
+        }
 
         args.insert(args.end(), config.LearnerArgs.begin(), config.LearnerArgs.end());
         return args;

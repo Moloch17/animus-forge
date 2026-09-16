@@ -74,6 +74,7 @@ namespace
                 { "cancel",    HandleCancel,    SEC_ADMINISTRATOR, Console::Yes },
                 { "skip",      HandleSkip,      SEC_ADMINISTRATOR, Console::Yes },
                 { "run",       HandleRun,       SEC_ADMINISTRATOR, Console::Yes },
+                { "bench",     HandleBench,     SEC_ADMINISTRATOR, Console::Yes },
                 { "export",    HandleExport,    SEC_ADMINISTRATOR, Console::Yes },
                 { "clean",     HandleClean,     SEC_ADMINISTRATOR, Console::Yes },
                 { "progress",  HandleProgress,  SEC_ADMINISTRATOR, Console::Yes },
@@ -103,6 +104,10 @@ namespace
             table.AddRow({ "forge cancel", "stop the plan; the learner saves latest.pt first" });
             table.AddRow({ "forge skip", "end the current scenario and start the next one" });
             table.AddRow({ "forge run <scenario> <policy> [episodes]", "run a scripted or random policy, no learner" });
+            table.AddRow({ "forge bench [scenario]", "time the sim and the learner at every AnimusForge.Bench.* "
+                "thread and env count" });
+            table.AddRow({ "forge bench apply", "write the fastest settings from the last benchmark into the "
+                "configs" });
             table.AddRow({ "forge export [scenario] [best|latest]", "write the scenario's .amdl models to "
                 "AnimusForge.ModelDir" });
             table.AddRow({ "forge clean archive", "delete runs/_archive/" });
@@ -163,6 +168,17 @@ namespace
         static bool HandleRun(ChatHandler* handler, std::string scenario, std::string policy, Optional<uint32> episodes)
         {
             return sAnimusForge->CommandRun(scenario, policy, episodes.value_or(0), Reply(handler));
+        }
+
+        /// `forge bench [scenario]` times the sim at every thread and env count in AnimusForge.Bench.*, then the
+        /// fastest few with the learner. `forge bench apply` writes the winner into the configs.
+        static bool HandleBench(ChatHandler* handler, Optional<std::string> argument)
+        {
+            std::string const value = argument.value_or("");
+            if (value == "apply")
+                return sAnimusForge->CommandBenchApply(Reply(handler));
+
+            return sAnimusForge->CommandBench(value, Reply(handler));
         }
 
         static bool HandleExport(ChatHandler* handler, Optional<std::string> first, Optional<std::string> second)

@@ -237,12 +237,114 @@ AnimusForge.Learner.Config = ""
 AnimusForge.Learner.Args = ""
 
 #
+#    AnimusForge.Learner.TorchThreads
+#        Description: CPU threads the learner's torch may use (--set torch_threads). The learner and the
+#                     sim's map update threads (MapUpdate.Threads in worldserver.conf) share the machine,
+#                     so leaving torch every core can be slower overall. `forge bench` measures both.
+#        Default:     0 - (torch's own default: a thread per core)
+
+AnimusForge.Learner.TorchThreads = 0
+
+#
 #    AnimusForge.Learner.LogFile
 #        Description: File the learner's stdout and stderr are appended to, relative to the directory of
 #                     worldserver.conf or absolute.
 #        Default:     "" - animus-learner.log in LogsDir
 
 AnimusForge.Learner.LogFile = ""
+
+###################################################################################################
+# BENCHMARK
+#
+#    `forge bench [scenario]` measures how fast the sim runs at every MapUpdate.Threads x AnimusForge.Envs
+#    pair below, then runs the fastest few again with the real learner, and reports the env steps per second
+#    of each. It writes bench.json in <OutputDir>/bench and trains nothing: every trial runs in that
+#    directory, so runs/ is untouched. `forge bench apply` writes the winner into worldserver.conf and this
+#    file (the thread count takes effect on the next restart, the env count at the next `forge start`).
+#
+#    `forge status` shows the same measurement while training: env steps/s and where a decision's wall time
+#    goes -- the world tick (the map update), this module (observing and acting) and waiting on the learner.
+#
+#    Note: more envs is not only speed. One learner update is rollout_length x envs x seats env steps, so
+#    changing the env count changes the batch the learner trains on.
+#
+#    AnimusForge.Bench.Scenario
+#        Description: Scenario the trials run, when `forge bench` is given none. A party stage (four seats
+#                     per env) costs more per env than a solo one.
+#        Default:     "stage1_duel"
+
+AnimusForge.Bench.Scenario = "stage1_duel"
+
+#
+#    AnimusForge.Bench.Policy
+#        Description: Local policy the sim-only trials play ("fight", "greedy", "random"). It decides how
+#                     much work a decision is, so keep the one closest to a trained policy.
+#        Default:     "fight"
+
+AnimusForge.Bench.Policy = "fight"
+
+#
+#    AnimusForge.Bench.Threads
+#        Description: MapUpdate.Threads values to try, comma-separated. The sim switches the map update
+#                     pool between trials, so no restart is needed while benchmarking.
+#        Default:     "2, 4, 8, 12, 16, 24"
+
+AnimusForge.Bench.Threads = "2, 4, 8, 12, 16, 24"
+
+#
+#    AnimusForge.Bench.Envs
+#        Description: AnimusForge.Envs values to try, comma-separated.
+#        Default:     "32, 64, 128, 256"
+
+AnimusForge.Bench.Envs = "32, 64, 128, 256"
+
+#
+#    AnimusForge.Bench.MaxEnvs
+#        Description: Never try more envs than this, whatever AnimusForge.Bench.Envs says.
+#        Default:     256
+
+AnimusForge.Bench.MaxEnvs = 256
+
+#
+#    AnimusForge.Bench.WarmupTicks
+#        Description: Decisions a trial runs before it is timed: the first episodes, and for a learner trial
+#                     its start-up and first update.
+#        Default:     300
+
+AnimusForge.Bench.WarmupTicks = 300
+
+#
+#    AnimusForge.Bench.MeasureTicks
+#        Description: Decisions timed per trial. Long enough to cover several learner updates (its rollout
+#                     is rollout_length decisions, 128 by default), or a learner trial only measures the
+#                     rollout and not the update.
+#        Default:     1200
+
+AnimusForge.Bench.MeasureTicks = 1200
+
+#
+#    AnimusForge.Bench.MaxMemoryPercent
+#        Description: Once the machine's memory is this used after a trial, the bigger env counts of that
+#                     thread count are skipped instead of being built.
+#        Default:     80
+
+AnimusForge.Bench.MaxMemoryPercent = 80
+
+#
+#    AnimusForge.Bench.LearnerTop
+#        Description: How many of the fastest sim trials run again with the real learner, which is what
+#                     training actually costs. 0 = sim only.
+#        Default:     3
+
+AnimusForge.Bench.LearnerTop = 3
+
+#
+#    AnimusForge.Bench.LearnerTorchThreads
+#        Description: AnimusForge.Learner.TorchThreads values to try in the learner trials, comma-separated
+#                     (0 = torch's own default). Every value is tried with every setting of LearnerTop.
+#        Default:     "0, 8"
+
+AnimusForge.Bench.LearnerTorchThreads = "0, 8"
 
 ###################################################################################################
 # FAST TEST RUN
@@ -361,6 +463,12 @@ AnimusForge.Progress.Interval = 0
 AnimusForge.Curriculum.Characters.HighLevelFirst = 61
 #   percent of characters drawn from the high levels
 AnimusForge.Curriculum.Characters.HighLevelChance = 50
+#   percent of characters: the standard build with its last points moved (0 = never)
+AnimusForge.Curriculum.Characters.NoisyTalentChance = 30
+#   percent of characters: every talent point spent at random (the rest get the spec's standard build)
+AnimusForge.Curriculum.Characters.RandomTalentChance = 10
+#   a noisy build moves 1 to this many of its last points
+AnimusForge.Curriculum.Characters.TalentNoisePoints = 5
 
 #
 #    AnimusForge.Curriculum.Party.*

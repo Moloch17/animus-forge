@@ -17,13 +17,23 @@
  */
 
 #include "AnimusForge.h"
+#include "Config.h"
 #include "Log.h"
+#include "MapMgr.h"
+#include "MapUpdater.h"
 #include "PoolRegistry.h"
 #include "StageDefinition.h"
 #include "StringFormat.h"
 #include "World.h"
 #include <algorithm>
+#include <boost/json/object.hpp>
+#include <boost/json/array.hpp>
+#include <boost/json/parse.hpp>
+#include <boost/json/serialize.hpp>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 
 namespace
@@ -42,6 +52,34 @@ namespace
     void LogWarn(std::string const& line)
     {
         LOG_WARN("module.animus", "{}", line);
+    }
+
+    /// The worldserver's resident memory, MB (0 when /proc is not there).
+    uint64 ResidentMb()
+    {
+        std::ifstream status("/proc/self/status");
+        for (std::string line; std::getline(status, line);)
+            if (line.rfind("VmRSS:", 0) == 0)
+                return uint64(std::strtoull(line.c_str() + 6, nullptr, 10) / 1024);
+
+        return 0;
+    }
+
+    /// How much of the machine's memory is in use, percent (0 when /proc is not there).
+    uint32 MemoryUsedPercent()
+    {
+        uint64 total = 0;
+        uint64 available = 0;
+        std::ifstream meminfo("/proc/meminfo");
+        for (std::string line; std::getline(meminfo, line);)
+        {
+            if (line.rfind("MemTotal:", 0) == 0)
+                total = std::strtoull(line.c_str() + 9, nullptr, 10);
+            else if (line.rfind("MemAvailable:", 0) == 0)
+                available = std::strtoull(line.c_str() + 13, nullptr, 10);
+        }
+
+        return total ? uint32(100 - std::min<uint64>(100, available * 100 / total)) : 0;
     }
 }
 
@@ -76,6 +114,12 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
 {
     if (!_config.Enable)
         return;
+
+    // Everything between the end of the last decision and here is the world tick: the map update above all.
+    auto const tickStarted = std::chrono::steady_clock::now();
+    if (_lastUpdateEnd && _state != State::Idle && _state != State::Paused)
+        _worldNs += uint64(std::chrono::duration_cast<std::chrono::nanoseconds>(tickStarted - *_lastUpdateEnd).count());
+    _tickLearnerNs = 0;
 
     PollExport();
     ApplyRequest();
@@ -119,6 +163,16 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
         RemoteDecision();
     else
         LocalDecision();
+
+    // What is left of this module's time in the tick, once the waiting on the learner is taken out.
+    auto const tickEnded = std::chrono::steady_clock::now();
+    uint64 const inModule =
+        uint64(std::chrono::duration_cast<std::chrono::nanoseconds>(tickEnded - tickStarted).count());
+    _simNs += inModule > _tickLearnerNs ? inModule - _tickLearnerNs : 0;
+    _lastUpdateEnd = tickEnded;
+
+    if (_benching)
+        BenchTick();
 }
 
 void AnimusForge::Forge::OnShutdown()
@@ -174,6 +228,8 @@ void AnimusForge::Forge::ApplyRequest()
                 break;
             // Only a learner that is running or connected has a run to save.
             bool const learnerSaves = _plan.Remote() && (_learner.IsRunning() || _server.HasClient());
+            if (_benching)
+                BenchEnd();
             _plan.Entries[_plan.Index].Result = Outcome::Cancelled;
             TeardownScenario(true);
             EndPlan(learnerSaves ? "cancelled; the learner saved latest.pt, `forge resume` continues it" : "cancelled");
@@ -245,6 +301,10 @@ bool AnimusForge::Forge::StartCurrent()
         return false;
     }
 
+    // A benchmark trial runs at its own map update thread count; every other entry leaves the pool alone.
+    if (entry.MapThreads)
+        ApplyMapThreads(entry.MapThreads);
+
     _pool = std::make_unique<Animus::EnvPool>(*_scenario, config.Stage());
     if (!_pool->Setup())
         return false;
@@ -274,6 +334,14 @@ bool AnimusForge::Forge::StartCurrent()
     auto const now = std::chrono::steady_clock::now();
     _ticks = 0;
     _decisions = 0;
+    _worldNs = 0;
+    _simNs = 0;
+    _learnerNs = 0;
+    _tickLearnerNs = 0;
+    _lastUpdateEnd.reset();
+    _rateWorldNs = 0;
+    _rateSimNs = 0;
+    _rateLearnerNs = 0;
     _scenarioStarted = now;
     _lastReport = now;
     _lastAct.reset();
@@ -282,6 +350,9 @@ bool AnimusForge::Forge::StartCurrent()
     _rateEpisodes = 0;
     _ticksPerSecond = 0.0;
     _episodesPerSecond = 0.0;
+    _worldMsPerTick = 0.0;
+    _simMsPerTick = 0.0;
+    _learnerMsPerTick = 0.0;
     _monitor.Begin(entry.Scenario);
 
     // From here on the library's damage, heal and spell hooks feed the pool.
@@ -365,6 +436,12 @@ void AnimusForge::Forge::EndPlan(char const* reason)
     _lastPlan = _plan;
 
     LOG_INFO("module.animus", "Plan ended: {}. The sim is idle.", reason);
+
+    if (_benching)
+    {
+        BenchPlanEnded();
+        return;
+    }
 
     if (_plan.Entries.size() > 1)
     {
@@ -494,6 +571,290 @@ void AnimusForge::Forge::ReportStageEnd()
     _monitor.Report(RunConfig(), Snapshot(false), PlanRows(_plan, true), LogInfo, LogWarn, false);
 }
 
+uint32 AnimusForge::Forge::ConfiguredMapThreads()
+{
+    return uint32(std::max<int32>(0, sConfigMgr->GetOption<int32>("MapUpdate.Threads", 1)));
+}
+
+void AnimusForge::Forge::ApplyMapThreads(uint32 threads)
+{
+    MapUpdater* updater = sMapMgr->GetMapUpdater();
+    if (!updater)
+        return;
+
+    // Between decisions, with no map update running: deactivate joins the pool's threads, activate starts new ones.
+    if (updater->activated())
+        updater->deactivate();
+
+    if (threads)
+        updater->activate(threads);
+
+    LOG_DEBUG("module.animus", "Map update threads: {}", threads);
+}
+
+AnimusForge::Forge::Plan AnimusForge::Forge::BenchPlan(std::string const& scenario,
+    std::vector<BenchTrial> const& trials) const
+{
+    Plan plan;
+    plan.Policy = _config.Bench.Policy;
+    for (BenchTrial const& trial : trials)
+    {
+        PlanEntry entry;
+        entry.Scenario = scenario;
+        entry.Config = _config.BenchProfile(trial.Envs, trial.Learner, trial.TorchThreads);
+        entry.MapThreads = trial.MapThreads;
+        plan.Entries.push_back(std::move(entry));
+    }
+
+    // Every trial carries its own settings; the plan's policy is only what `forge status` shows.
+    if (!trials.empty() && trials.front().Learner)
+        plan.Policy = "remote";
+
+    return plan;
+}
+
+void AnimusForge::Forge::BenchTick()
+{
+    // Trials dropped before they ran (out of memory) keep no plan entry: walk past them.
+    while (_benchTrial < _benchTrials.size() && !_benchTrials[_benchTrial].Note.empty())
+        ++_benchTrial;
+
+    if (_benchTrial >= _benchTrials.size())
+        return;
+
+    BenchTrial& trial = _benchTrials[_benchTrial];
+    ForgeConfig const& config = RunConfig();
+
+    // The warm-up covers the first episodes and, for a learner trial, its start-up and first update.
+    if (_ticks == _config.Bench.WarmupTicks)
+    {
+        _benchMeasuredFrom = std::chrono::steady_clock::now();
+        _benchWorldNs = _worldNs;
+        _benchSimNs = _simNs;
+        _benchLearnerNs = _learnerNs;
+        return;
+    }
+
+    if (_ticks < uint64(_config.Bench.WarmupTicks) + _config.Bench.MeasureTicks)
+        return;
+
+    double const seconds = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - _benchMeasuredFrom).count();
+    double const ticks = double(_config.Bench.MeasureTicks);
+    uint32 const agents = _pool ? _pool->Spec().AgentsPerEnv : 1;
+
+    trial.Agents = agents;
+    trial.Envs = config.Envs;
+    trial.EnvStepsPerSecond = seconds > 0.0 ? ticks * double(config.Envs) * double(agents) / seconds : 0.0;
+    trial.WorldMsPerTick = double(_worldNs - _benchWorldNs) / ticks / 1e6;
+    trial.SimMsPerTick = double(_simNs - _benchSimNs) / ticks / 1e6;
+    trial.LearnerMsPerTick = double(_learnerNs - _benchLearnerNs) / ticks / 1e6;
+    trial.MemoryMb = ResidentMb();
+    trial.Measured = true;
+
+    LOG_INFO("module.animus", "Bench {} of {}: {} threads, {} envs{} -> {:.0f} env steps/s (world {:.1f} ms, sim "
+        "{:.1f} ms, learner {:.1f} ms per decision; {} MB)", _benchTrial + 1, _benchTrials.size(), trial.MapThreads,
+        trial.Envs, trial.Learner ? Acore::StringFormat(", learner (torch threads {})",
+            trial.TorchThreads ? std::to_string(trial.TorchThreads) : "default") : "", trial.EnvStepsPerSecond,
+        trial.WorldMsPerTick, trial.SimMsPerTick, trial.LearnerMsPerTick, trial.MemoryMb);
+
+    // Skip what is left of this thread count once the machine is running out of memory: bigger envs only cost more.
+    // The trials go from the plan too, so their envs are never built. Trial i is plan entry _plan.Index + i -
+    // _benchTrial, so both are walked from the back.
+    if (uint32 const used = MemoryUsedPercent(); used > _config.Bench.MaxMemoryPercent)
+    {
+        for (std::size_t i = _benchTrials.size(); i-- > _benchTrial + 1;)
+        {
+            BenchTrial& later = _benchTrials[i];
+            if (later.MapThreads != trial.MapThreads || later.Envs <= trial.Envs || !later.Note.empty())
+                continue;
+
+            later.Note = Acore::StringFormat("skipped: memory {}% used", used);
+            std::size_t const entry = _plan.Index + (i - _benchTrial);
+            if (entry < _plan.Entries.size())
+                _plan.Entries.erase(_plan.Entries.begin() + entry);
+        }
+    }
+
+    ++_benchTrial;
+    FinishCurrent(Outcome::Done);
+}
+
+void AnimusForge::Forge::BenchPlanEnded()
+{
+    // Phase 1 is over: the best few settings run again with the learner, which is what training actually costs.
+    if (!_benchLearnerPhase && _config.Bench.LearnerTop)
+    {
+        std::vector<BenchTrial> best;
+        for (BenchTrial const& trial : _benchTrials)
+            if (trial.Measured)
+                best.push_back(trial);
+
+        std::sort(best.begin(), best.end(), [](BenchTrial const& left, BenchTrial const& right)
+        {
+            return left.EnvStepsPerSecond > right.EnvStepsPerSecond;
+        });
+        best.resize(std::min<std::size_t>(best.size(), _config.Bench.LearnerTop));
+
+        std::vector<BenchTrial> learnerTrials;
+        for (BenchTrial const& trial : best)
+            for (uint32 threads : _config.Bench.LearnerTorchThreads)
+            {
+                BenchTrial next = trial;
+                next.Learner = true;
+                next.TorchThreads = threads;
+                next.Measured = false;
+                next.EnvStepsPerSecond = 0.0;
+                next.Note.clear();
+                learnerTrials.push_back(next);
+            }
+
+        if (!learnerTrials.empty())
+        {
+            _benchLearnerPhase = true;
+            _benchTrials.insert(_benchTrials.end(), learnerTrials.begin(), learnerTrials.end());
+            _benchTrial = _benchTrials.size() - learnerTrials.size();
+
+            LOG_INFO("module.animus", "Bench: the {} fastest settings run again with the learner", best.size());
+            _requested = BenchPlan(_benchScenario, learnerTrials);
+            _request = Request::Start;
+            return;
+        }
+    }
+
+    BenchReport(LogInfo);
+    BenchSave();
+    BenchEnd();
+}
+
+void AnimusForge::Forge::BenchEnd()
+{
+    _benching = false;
+    _benchLearnerPhase = false;
+    ApplyMapThreads(ConfiguredMapThreads());
+}
+
+void AnimusForge::Forge::BenchReport(LineSink const& out) const
+{
+    out(Acore::StringFormat("Benchmark of {} ({} decisions timed per trial, {} ms per decision):", _benchScenario,
+        _config.Bench.MeasureTicks, _config.DecisionMs));
+
+    TextTable table({ { "Threads", TextTable::Align::Right }, { "Envs", TextTable::Align::Right }, { "Learner" },
+        { "Env steps/s", TextTable::Align::Right }, { "World ms", TextTable::Align::Right },
+        { "Sim ms", TextTable::Align::Right }, { "Learner ms", TextTable::Align::Right },
+        { "Memory MB", TextTable::Align::Right } });
+
+    BenchTrial const* winner = nullptr;
+    for (BenchTrial const& trial : _benchTrials)
+    {
+        std::string const learner = !trial.Learner ? "-"
+            : trial.TorchThreads ? Acore::StringFormat("torch {}", trial.TorchThreads) : "torch default";
+
+        if (!trial.Measured)
+        {
+            table.AddRow({ std::to_string(trial.MapThreads), std::to_string(trial.Envs), learner,
+                trial.Note.empty() ? "not run" : trial.Note, "", "", "", "" });
+            continue;
+        }
+
+        table.AddRow({ std::to_string(trial.MapThreads), std::to_string(trial.Envs), learner,
+            Acore::StringFormat("{:.0f}", trial.EnvStepsPerSecond),
+            Acore::StringFormat("{:.1f}", trial.WorldMsPerTick), Acore::StringFormat("{:.1f}", trial.SimMsPerTick),
+            Acore::StringFormat("{:.1f}", trial.LearnerMsPerTick), std::to_string(trial.MemoryMb) });
+
+        // The learner phase is what training costs, so it decides once it has run.
+        bool const better = !winner || (trial.Learner && !winner->Learner)
+            || (trial.Learner == winner->Learner && trial.EnvStepsPerSecond > winner->EnvStepsPerSecond);
+        if (better)
+            winner = &trial;
+    }
+
+    table.Write(out, "  ");
+
+    if (!winner)
+    {
+        out("No trial was measured.");
+        return;
+    }
+
+    out(Acore::StringFormat("Fastest: MapUpdate.Threads = {}, AnimusForge.Envs = {}{} at {:.0f} env steps/s "
+        "({:.1f}x the {} threads / {} envs you run now).", winner->MapThreads, winner->Envs,
+        winner->Learner && winner->TorchThreads
+            ? Acore::StringFormat(", AnimusForge.Learner.TorchThreads = {}", winner->TorchThreads) : "",
+        winner->EnvStepsPerSecond, [&]
+        {
+            for (BenchTrial const& trial : _benchTrials)
+                if (trial.Measured && trial.Learner == winner->Learner && trial.MapThreads == ConfiguredMapThreads()
+                    && trial.Envs == _config.Envs && trial.EnvStepsPerSecond > 0.0)
+                    return winner->EnvStepsPerSecond / trial.EnvStepsPerSecond;
+
+            return 1.0;
+        }(), ConfiguredMapThreads(), _config.Envs));
+
+    if (winner->Envs != _config.Envs)
+        out(Acore::StringFormat("Note: {} envs instead of {} changes what the learner sees in one update (its batch "
+            "is rollout_length x envs x seats), not only the speed.", winner->Envs, _config.Envs));
+
+    out("`forge bench apply` writes these into your configs (the thread count needs a restart).");
+}
+
+void AnimusForge::Forge::BenchSave() const
+{
+    namespace fs = std::filesystem;
+
+    boost::json::object file;
+    file["scenario"] = _benchScenario;
+    file["decision_ms"] = _config.DecisionMs;
+    file["measure_ticks"] = _config.Bench.MeasureTicks;
+    file["warmup_ticks"] = _config.Bench.WarmupTicks;
+    file["cores"] = uint32(std::thread::hardware_concurrency());
+    file["configured_threads"] = ConfiguredMapThreads();
+    file["configured_envs"] = _config.Envs;
+
+    boost::json::array& trials = file["trials"].emplace_array();
+    boost::json::object const* bestEntry = nullptr;
+    double best = 0.0;
+    bool bestLearner = false;
+    for (BenchTrial const& trial : _benchTrials)
+    {
+        boost::json::object& entry = trials.emplace_back(boost::json::object()).get_object();
+        entry["map_threads"] = trial.MapThreads;
+        entry["envs"] = trial.Envs;
+        entry["agents"] = trial.Agents;
+        entry["learner"] = trial.Learner;
+        entry["torch_threads"] = trial.TorchThreads;
+        entry["measured"] = trial.Measured;
+        entry["env_steps_per_second"] = trial.EnvStepsPerSecond;
+        entry["world_ms"] = trial.WorldMsPerTick;
+        entry["sim_ms"] = trial.SimMsPerTick;
+        entry["learner_ms"] = trial.LearnerMsPerTick;
+        entry["memory_mb"] = trial.MemoryMb;
+        if (!trial.Note.empty())
+            entry["note"] = trial.Note;
+
+        if (trial.Measured && ((trial.Learner && !bestLearner) || (trial.Learner == bestLearner
+            && trial.EnvStepsPerSecond > best)))
+        {
+            best = trial.EnvStepsPerSecond;
+            bestLearner = trial.Learner;
+            bestEntry = &entry;
+        }
+    }
+
+    if (bestEntry)
+        file["best"] = *bestEntry;
+
+    std::error_code error;
+    fs::create_directories(_config.Bench.OutputDir, error);
+    fs::path const path = fs::path(_config.Bench.OutputDir) / "bench.json";
+    std::ofstream out(path, std::ios::trunc);
+    out << boost::json::serialize(file);
+    if (!out)
+        LOG_ERROR("module.animus", "Could not write {}", path.string());
+    else
+        LOG_INFO("module.animus", "Bench results: {}", path.string());
+}
+
 AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
 {
     SimSnapshot sim;
@@ -519,10 +880,20 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
 
     // Rates over the time since the last periodic report; a status in between shows the rate so far.
     double const seconds = std::chrono::duration<double>(now - _rateTime).count();
+    uint64 const ticks = _ticks - std::min(_ticks, _rateTicks);
     if (seconds >= 1.0 && _state != State::Paused)
     {
-        _ticksPerSecond = double(_ticks - _rateTicks) / seconds;
+        _ticksPerSecond = double(ticks) / seconds;
         _episodesPerSecond = double(sim.Episodes - std::min(sim.Episodes, _rateEpisodes)) / seconds;
+
+        // Where those decisions' wall time went, per decision.
+        if (ticks)
+        {
+            double const perTick = double(ticks) * 1e6;
+            _worldMsPerTick = double(_worldNs - std::min(_worldNs, _rateWorldNs)) / perTick;
+            _simMsPerTick = double(_simNs - std::min(_simNs, _rateSimNs)) / perTick;
+            _learnerMsPerTick = double(_learnerNs - std::min(_learnerNs, _rateLearnerNs)) / perTick;
+        }
     }
 
     if (advanceRates)
@@ -530,10 +901,17 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
         _rateTime = now;
         _rateTicks = _ticks;
         _rateEpisodes = sim.Episodes;
+        _rateWorldNs = _worldNs;
+        _rateSimNs = _simNs;
+        _rateLearnerNs = _learnerNs;
     }
 
     sim.TicksPerSecond = _ticksPerSecond;
     sim.EpisodesPerSecond = _episodesPerSecond;
+    sim.EnvStepsPerSecond = _ticksPerSecond * double(sim.Envs) * double(sim.AgentsPerEnv);
+    sim.WorldMsPerTick = _worldMsPerTick;
+    sim.SimMsPerTick = _simMsPerTick;
+    sim.LearnerMsPerTick = _learnerMsPerTick;
 
     sim.LearnerRunning = _learner.IsRunning();
     sim.LearnerPid = _learner.IsRunning() ? int32(_learner.Pid()) : -1;
@@ -579,6 +957,14 @@ std::string AnimusForge::Forge::StateName() const
     return "unknown";
 }
 
+void AnimusForge::Forge::WaitedForLearner(std::chrono::steady_clock::time_point from)
+{
+    uint64 const waited = uint64(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now() - from).count());
+    _learnerNs += waited;
+    _tickLearnerNs += waited;
+}
+
 void AnimusForge::Forge::LocalDecision()
 {
     _pool->Collect();
@@ -620,7 +1006,9 @@ void AnimusForge::Forge::RemoteDecision()
     {
         // Blocks until the learner connects; returns false on shutdown, a cancel or skip, or when the scenario's
         // learner has finished its run.
+        auto const waitFrom = std::chrono::steady_clock::now();
         bool const connected = _server.AcceptClient(onAccepting);
+        WaitedForLearner(waitFrom);
 
         if (!connected)
         {
@@ -663,7 +1051,11 @@ void AnimusForge::Forge::RemoteDecision()
     {
         MsgType type;
         std::vector<char> payload;
-        if (!_server.ReceiveAny(type, payload, std::max({ actionBytes, sizeof(ModeMsg), weightBytes }), onIdle))
+        auto const waitFrom = std::chrono::steady_clock::now();
+        bool const received = _server.ReceiveAny(type, payload,
+            std::max({ actionBytes, sizeof(ModeMsg), weightBytes }), onIdle);
+        WaitedForLearner(waitFrom);
+        if (!received)
         {
             _server.DropClient();
             return;

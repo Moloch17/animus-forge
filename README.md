@@ -152,6 +152,12 @@ range and weapon layouts. Every episode builds a new character (the env's bot is
   one (row and prerequisite rules follow `Player::LearnTalent`), so a low-level character has the talents players pick
   first; every build spends exactly 71 points at 80. The glyph slots the level has opened get the spec's standard
   major and minor glyphs the level can use.
+  Not every character gets that build, though: `Characters.NoisyTalentChance` percent stop a few points short and
+  spend the rest at random (`Characters.TalentNoisePoints`), and `Characters.RandomTalentChance` percent spend every
+  point at random, the spec's tree first. A standard build is the same every time for a spec and a level, so a policy
+  trained only on those can ignore the talent features in its observation and memorise the spec; one that meets all
+  three has to read what it was given, as it must on a live server. Each episode reports which it was as
+  `talent_plan`, and every evaluation scores the three separately.
 - **Kit:** every spell of the class trainers up to the level (`trainer`/`trainer_spell`, learn-spells
   resolved), talent-gated ranks when the talent was taken, and class-quest spells trainers do not
   teach (stances, Bear Form, warlock demons, Raise Dead). Weapon and armor skills are the ones the
@@ -323,7 +329,7 @@ Stage 4: the gauntlet fought beside an owner, as a companion fights beside a pla
 
 - **Owner:** a scripted player bot within 2 levels of the companion, of a random role (tank 25%, healer 25%,
   damage dealer 50%) and a class that can fill it, dressed like the companion: one of the role's specs with a
-  standard build and glyphs, its trainer spells and level-appropriate gear. It gets the companion's faction so either
+  talent build and glyphs, its trainer spells and level-appropriate gear. It gets the companion's faction so either
   faction's races can be paired. Between pulls it wanders near the spawn point and recovers health and mana; each
   pull spawns around it. A tank owner starts every pull and taunts enemies off others; a healer owner heals the most
   hurt party member; a damage dealer walks in after 1.5-5 s (and starts the pull itself 30% of the time) and
@@ -600,6 +606,8 @@ and prints its settings; nothing trains until you say so.
 | `forge cancel` | Stop the plan; the learner saves `latest.pt` first, so `forge resume` can continue it |
 | `forge skip` | End the current scenario (the learner saves) and start the next one |
 | `forge run <scenario> <policy> [episodes]` | Run a scripted or random policy without a learner, for N episodes or until cancelled |
+| `forge bench [scenario]` | Time the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then the fastest few with the learner (see [Throughput](#throughput-forge-bench)) |
+| `forge bench apply` | Write the last benchmark's winning settings into `worldserver.conf` and `mod_animus_forge.conf` |
 | `forge export [scenario] [best\|latest]` | Export `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) to `AnimusForge.ModelDir`, in the background |
 | `forge clean archive` | Delete `runs/_archive/` |
 | `forge clean scenario <scenario>` | Delete `runs/<scenario>/` (refused while it runs) |
@@ -686,6 +694,44 @@ forge fast stage2_pack           # just this stage, seeded from the fast run of 
   `fast/runs/<stage>/`, `eval.csv` (the `at_start` evaluation against the later ones, the baseline in
   `eval_baseline.json`), `metrics.csv` (losses, entropy, approx KL) and `finished.json`.
 
+## Throughput (`forge bench`)
+
+Training speed is env steps per second: decisions x envs x seats. `forge status` shows it while training, with
+where a decision's wall time goes:
+
+| Part | What it is | What changes it |
+|---|---|---|
+| **world** | The map update (every env is its own instance map, spread over the `MapUpdater` pool) and the rest of the world tick | `MapUpdate.Threads` in `worldserver.conf`, and how much there is to simulate (envs, seats, pulls) |
+| **sim** | This module in the tick: rewards, observations, action masks and applying actions, all on the world thread | `AnimusForge.Envs` (linear), the stage's blocks and seats |
+| **learner** | The world thread blocked on the learner's actions, and its updates | `AnimusForge.Learner.TorchThreads`, `rollout_length`, the network size, and the GPU for updates |
+
+The three compete: the learner's torch and the map update threads share the same cores. What is fastest is a
+property of your machine, so measure it:
+
+```
+forge bench                      # AnimusForge.Bench.Scenario (stage1_duel), every Threads x Envs pair
+forge bench stage5_party         # a four-seat stage costs more per env
+forge bench apply                # write the winner into the configs
+```
+
+- Each trial starts the scenario with its own thread and env count, warms up (`Bench.WarmupTicks`), and is timed
+  over `Bench.MeasureTicks` decisions with a scripted policy (`Bench.Policy`). The map update pool is switched
+  between trials, so nothing has to restart.
+- The fastest `Bench.LearnerTop` settings then run again with the real learner (x `Bench.LearnerTorchThreads`),
+  which adds inference and updates -- what training actually costs.
+- Nothing is trained: every trial runs in `<OutputDir>/bench/` with evaluation, seeding and distillation off, so
+  `runs/` is untouched. Results go to `bench/bench.json`, and trials are skipped once memory passes
+  `Bench.MaxMemoryPercent`.
+- `forge cancel` stops a benchmark and puts the thread count back.
+- `forge bench apply` rewrites `MapUpdate.Threads`, `AnimusForge.Envs` and (when it helped)
+  `AnimusForge.Learner.TorchThreads` in place, backing each file up as `<file>.before-bench`. The thread count
+  takes effect on the next restart, the env count at the next `forge start`.
+
+**More envs is not only speed.** One learner update is `rollout_length x envs x seats` env steps, so a different
+env count changes the batch PPO trains on (and the number of updates per env step). The report says so when the
+winner's env count differs from the one you run. Treat the env count as a training setting that the benchmark
+prices, not as a free win.
+
 ## Baselines (no Python)
 
 Run a scripted policy from the console and read the episode means in its progress report (or `forge status`):
@@ -719,6 +765,8 @@ worldserver starts the learner itself once the envs are built, for the current s
 - **Configs** may start with `extends: <other>.yaml`: the file is merged over that one, section by section. Every
   curriculum stage extends `stage1_duel.yaml` (directly or through an earlier stage).
 - **Devices:** `train_device: auto` updates on the GPU when torch sees one (CUDA or ROCm), else the CPU.
+  `torch_threads` (0 = torch's default) caps its CPU threads, which share the machine with the sim's map
+  update threads; the sim passes `AnimusForge.Learner.TorchThreads`.
 - **Checkpoints:** `checkpoint_<update>.pt` every `checkpoint_every` updates, keeping the newest `keep_checkpoints`
   (5); `latest.pt` and `best.pt` are always kept.
 - **Fresh or resumed:** `forge start` trains from scratch. Whatever `runs/<scenario>/` held is first moved to

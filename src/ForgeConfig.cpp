@@ -24,6 +24,7 @@
 #include "Tokenize.h"
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <filesystem>
 #include <sstream>
 
@@ -76,6 +77,30 @@ namespace
         }
 
         return entries;
+    }
+}
+
+namespace
+{
+    /// A comma-separated config list of positive numbers, in order, without repeats; invalid entries are logged.
+    std::vector<uint32> GetNumberList(std::string const& key, std::string const& fallback)
+    {
+        std::vector<uint32> numbers;
+        for (std::string const& entry : GetList(key, fallback))
+        {
+            uint32 number = 0;
+            auto const [end, error] = std::from_chars(entry.data(), entry.data() + entry.size(), number);
+            if (error != std::errc() || end != entry.data() + entry.size() || !number)
+            {
+                LOG_ERROR("module.animus", "{} = '{}' is not a positive number; skipped", key, entry);
+                continue;
+            }
+
+            if (std::find(numbers.begin(), numbers.end(), number) == numbers.end())
+                numbers.push_back(number);
+        }
+
+        return numbers;
     }
 }
 
@@ -182,6 +207,40 @@ void AnimusForge::ForgeConfig::Load()
     for (std::string arg; fastArgs >> arg;)
         FastLearnerArgs.push_back(arg);
 
+    LearnerTorchThreads = sConfigMgr->GetOption<uint32>("AnimusForge.Learner.TorchThreads", 0);
+
+    Bench = BenchSettings();
+    Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage1_duel");
+    Bench.Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Policy", "fight");
+    Bench.Threads = GetNumberList("AnimusForge.Bench.Threads", "2, 4, 8, 12, 16, 24");
+    Bench.Envs = GetNumberList("AnimusForge.Bench.Envs", "32, 64, 128, 256");
+    Bench.MaxEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MaxEnvs", 256));
+    Bench.WarmupTicks = sConfigMgr->GetOption<uint32>("AnimusForge.Bench.WarmupTicks", 300);
+    Bench.MeasureTicks = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MeasureTicks", 1200));
+    Bench.MaxMemoryPercent = std::clamp<uint32>(
+        sConfigMgr->GetOption<uint32>("AnimusForge.Bench.MaxMemoryPercent", 80), 1, 100);
+    Bench.LearnerTop = sConfigMgr->GetOption<uint32>("AnimusForge.Bench.LearnerTop", 3);
+    // 0 means torch's own default, so this list keeps zeroes: it is read as "the default" rather than "no threads".
+    Bench.LearnerTorchThreads.clear();
+    for (std::string const& entry : GetList("AnimusForge.Bench.LearnerTorchThreads", "0, 8"))
+    {
+        uint32 number = 0;
+        auto const [end, error] = std::from_chars(entry.data(), entry.data() + entry.size(), number);
+        if (error == std::errc() && end == entry.data() + entry.size()
+            && std::find(Bench.LearnerTorchThreads.begin(), Bench.LearnerTorchThreads.end(), number)
+                == Bench.LearnerTorchThreads.end())
+            Bench.LearnerTorchThreads.push_back(number);
+    }
+    if (Bench.LearnerTorchThreads.empty())
+        Bench.LearnerTorchThreads.push_back(0);
+
+    Bench.OutputDir = (fs::path(OutputDir) / "bench").lexically_normal().string();
+
+    if (Bench.Threads.empty())
+        Bench.Threads.push_back(std::max<uint32>(1, sConfigMgr->GetOption<uint32>("MapUpdate.Threads", 1)));
+    if (Bench.Envs.empty())
+        Bench.Envs.push_back(Envs);
+
     SpawnMapId = sConfigMgr->GetOption<uint32>("AnimusForge.SpawnPoint.MapId", 560);
     SpawnPosition.Relocate(
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.X", 2741.9f),
@@ -214,6 +273,24 @@ fs::path AnimusForge::ForgeConfig::RunsDir() const
 fs::path AnimusForge::ForgeConfig::LayoutsDir() const
 {
     return fs::path(OutputDir) / "layouts";
+}
+
+AnimusForge::ForgeConfig AnimusForge::ForgeConfig::BenchProfile(uint32 envs, bool remote, uint32 torchThreads) const
+{
+    ForgeConfig bench = *this;
+    bench.Policy = remote ? "remote" : Bench.Policy;
+    bench.Envs = std::min(std::max<uint32>(1, envs), Animus::BotAccounts::MAX_ENVS);
+    bench.LearnerTorchThreads = torchThreads;
+    bench.OutputDir = Bench.OutputDir;
+    bench.ModelDir = (fs::path(Bench.OutputDir) / "models").string();
+
+    // A timed run only has to train: no evaluation, no seeding from other runs, no distillation, and a budget it
+    // never reaches. AnimusForge.Learner.Args still win over these (--set is applied in order).
+    bench.LearnerArgs = { "--set", "eval.every_env_steps=0", "--set", "eval.at_start=false", "--set", "init_from=[]",
+        "--set", "merge_from=[]", "--set", "distill.teachers=\"\"", "--set", "total_env_steps=1000000000000",
+        "--set", "checkpoint_every=1000000", "--set", "convergence.patience=0" };
+    bench.LearnerArgs.insert(bench.LearnerArgs.end(), LearnerArgs.begin(), LearnerArgs.end());
+    return bench;
 }
 
 AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile() const

@@ -219,6 +219,7 @@ from an in-game administrator's chat.
 | `forge cancel` | End the plan. The learner saves `latest.pt` first |
 | `forge skip` | End the current scenario (the learner saves) and start the next |
 | `forge run <scenario> <policy> [episodes]` | A local plan: `random`, `greedy` or `fight`, for N episodes or until cancelled. `forge run <s> remote` is refused (use `start`) |
+| `forge bench [scenario]` | Time the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then the fastest few with the learner; `forge bench apply` writes the winner into the configs |
 | `forge export [scenario] [best\|latest]` | Background `python -m animus.export` of `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) into `ModelDir`, with the layout manifests. Output in `animus-export.log`. One export at a time. Works while training |
 | `forge clean archive \| scenario <s> \| exports \| fast \| logs \| all` | Delete `runs/_archive/`, one run, exported models and manifests, the fast output, the learner and export logs, or everything (idle only). Each refuses while it would delete something in use, and lists every removal with its size |
 | `forge progress [seconds\|off]` | Show or set the periodic report interval |
@@ -335,7 +336,8 @@ Top-level keys:
 - run: `run_name`, `runs_dir`, `layouts_dir`, `socket`, `seed`
 - budget and logging: `total_env_steps` (decisions x envs x agents), `rollout_length`, `log_every`,
   `checkpoint_every`, `keep_checkpoints`
-- devices: `train_device` (`auto` = CUDA/ROCm if torch sees a GPU), `rollout_device` (`cpu`)
+- devices: `train_device` (`auto` = CUDA/ROCm if torch sees a GPU), `rollout_device` (`cpu`), `torch_threads`
+  (0 = torch's default; the sim sets it from `AnimusForge.Learner.TorchThreads`)
 - seeding: `init_from` (`auto` = the stage's seed chain), `merge_from` (`auto` = the stage's merges)
 - sections: `mappo`, `distill`, `eval`, `convergence`, `target`, `restarts`
 

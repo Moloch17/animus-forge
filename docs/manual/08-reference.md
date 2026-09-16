@@ -28,7 +28,18 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Learner.Python` | `""` = `<WorkDir>/.venv/bin/python`, else `python3` | Interpreter |
 | `AnimusForge.Learner.Config` | `""` = `configs/<scenario>.yaml` | One config for every scenario |
 | `AnimusForge.Learner.Args` | `""` | Extra arguments for every learner (`--set key=value ...`) |
+| `AnimusForge.Learner.TorchThreads` | `0` | CPU threads for the learner's torch (`--set torch_threads`); 0 = torch's default |
 | `AnimusForge.Learner.LogFile` | `""` = `<LogsDir>/animus-learner.log` | Learner output |
+| `AnimusForge.Bench.Scenario` | `"stage1_duel"` | What `forge bench` times without a name |
+| `AnimusForge.Bench.Policy` | `"fight"` | Local policy the sim-only trials play |
+| `AnimusForge.Bench.Threads` | `"2, 4, 8, 12, 16, 24"` | `MapUpdate.Threads` values tried |
+| `AnimusForge.Bench.Envs` | `"32, 64, 128, 256"` | `AnimusForge.Envs` values tried |
+| `AnimusForge.Bench.MaxEnvs` | `256` | Never try more envs than this |
+| `AnimusForge.Bench.WarmupTicks` | `300` | Decisions before a trial is timed |
+| `AnimusForge.Bench.MeasureTicks` | `1200` | Decisions timed per trial |
+| `AnimusForge.Bench.MaxMemoryPercent` | `80` | Skip bigger envs once memory is this used |
+| `AnimusForge.Bench.LearnerTop` | `3` | Fastest sim trials re-timed with the learner (0 = sim only) |
+| `AnimusForge.Bench.LearnerTorchThreads` | `"0, 8"` | Torch thread counts tried with the learner |
 | `AnimusForge.Fast.Queue` | `""` | What `forge fast` trains without names; empty = every curriculum stage in order |
 | `AnimusForge.Fast.Envs` | `32` | Fast profile envs |
 | `AnimusForge.Fast.Level` | `20` | Fast profile level (0 = random) |
@@ -42,7 +53,11 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 
 Relative path keys are relative to the directory of the loaded `worldserver.conf`, except `Fast.OutputDir`.
 
-The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads` (set to physical cores),
+`forge bench` writes `<OutputDir>/bench/bench.json`: every trial (`map_threads`, `envs`, `agents`, `learner`,
+`torch_threads`, `env_steps_per_second`, `world_ms`, `sim_ms`, `learner_ms`, `memory_mb`) and the winning one as
+`best`, which `forge bench apply` reads.
+
+The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads` (what `forge bench` tunes),
 `Console.Enable`, `LogsDir`, `DataDir`, the database info keys, and `Updates.AutoSetup`.
 
 ### mod-animus (`mod_animus.conf`)
@@ -84,6 +99,9 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 |---|---|---|---|---|
 | `Characters.HighLevelFirst` | 61 | | `Pulls.LinkedChance` | 70 |
 | `Characters.HighLevelChance` | 50 | | `Pulls.EliteChance` | 15 |
+| `Characters.NoisyTalentChance` | 30 | | `Pulls.HigherLevelChance` | 25 |
+| `Characters.RandomTalentChance` | 10 | | `Pulls.PartyEliteChance` | 50 |
+| `Characters.TalentNoisePoints` | 5 | | | |
 | `Party.SizeWeight1` | 20 | | `Pulls.HigherLevelChance` | 25 |
 | `Party.SizeWeight2` | 20 | | `Pulls.PartyEliteChance` | 50 |
 | `Party.SizeWeight3` | 20 | | `Pulls.NextPullMinMs` | 8000 |

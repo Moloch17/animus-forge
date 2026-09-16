@@ -66,6 +66,9 @@ namespace AnimusForge
         std::string LearnerConfig;      // AnimusForge.Learner.Config; empty = configs/<scenario>.yaml
         std::string LearnerLogFile;     // resolved: never empty after Load
         std::vector<std::string> LearnerArgs;   // AnimusForge.Learner.Args, split on whitespace
+        /// AnimusForge.Learner.TorchThreads: CPU threads the learner's torch uses (0 = torch's own default). The
+        /// learner runs beside the map update threads on the same cores, so `forge bench` sweeps both.
+        uint32 LearnerTorchThreads = 0;
         std::vector<std::string> ClassRoles;    // AnimusForge.ClassRoles; empty = every class/role
 
         /// AnimusForge.SpawnPoint.*: the instanceable map and position every env's bots start at.
@@ -91,10 +94,33 @@ namespace AnimusForge
         std::string FastLearnerOverlay;             // resolved: never empty after Load
         std::vector<std::string> FastLearnerArgs;
 
+        /// AnimusForge.Bench.*: what `forge bench` measures (see BenchProfile and Forge::CommandBench).
+        struct BenchSettings
+        {
+            std::string Scenario = "stage1_duel";   // the scenario every trial runs
+            std::string Policy = "fight";           // the local policy of the sim-only trials
+            std::vector<uint32> Threads;            // MapUpdate.Threads values to try
+            std::vector<uint32> Envs;               // AnimusForge.Envs values to try
+            uint32 MaxEnvs = 256;                   // never try more envs than this
+            uint32 WarmupTicks = 300;               // decisions run before a trial is timed
+            uint32 MeasureTicks = 1200;             // decisions timed
+            uint32 MaxMemoryPercent = 80;           // skip bigger envs once the machine's memory is this used
+            uint32 LearnerTop = 3;                  // sim trials re-timed with the learner (0 = none)
+            std::vector<uint32> LearnerTorchThreads;    // torch thread counts to try with the learner
+            std::string OutputDir;                  // resolved: <OutputDir>/bench, never empty after Load
+        };
+
+        BenchSettings Bench;
+
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
         /// What the scenario and its env pool take from these settings (animus-lib's StageSettings).
         [[nodiscard]] Animus::StageSettings Stage() const;
+
+        /// These settings for one `forge bench` trial: `envs` envs, everything in the bench output directory (so a
+        /// trial never archives, seeds from or overwrites a real run), and a learner that only trains -- no
+        /// evaluation, no seeding, no distillation -- when `remote`.
+        [[nodiscard]] ForgeConfig BenchProfile(uint32 envs, bool remote, uint32 torchThreads) const;
 
         /// These settings with the fast profile applied: fewer envs, a few class/roles at one level, and the learner's
         /// quick convergence settings (FastLearnerOverlay). Everything goes to FastOutputDir (runs,

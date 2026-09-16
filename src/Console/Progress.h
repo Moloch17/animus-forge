@@ -68,6 +68,11 @@ namespace AnimusForge
         double ScenarioSeconds = 0.0;       // wall time since the scenario started
         double TicksPerSecond = 0.0;        // sim ticks per wall second over the last interval
         double EpisodesPerSecond = 0.0;     // over the last interval
+        double EnvStepsPerSecond = 0.0;     // ticks x envs x agents per wall second
+        // Where a decision's wall time goes, ms (the parts add up to one decision):
+        double WorldMsPerTick = 0.0;        // the map update and the rest of the world tick
+        double SimMsPerTick = 0.0;          // observing, rewarding and applying actions
+        double LearnerMsPerTick = 0.0;      // blocked on the learner
         bool LearnerRunning = false;
         int32 LearnerPid = -1;
         bool LearnerConnected = false;

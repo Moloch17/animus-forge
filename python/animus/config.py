@@ -166,6 +166,9 @@ class TrainConfig:
 
     train_device: str = AUTO  # "auto": cuda when torch sees a GPU (ROCm included), else cpu
     rollout_device: str = "cpu"  # one small forward pass per decision is faster on the CPU
+    # CPU threads torch may use; 0 = torch's own default (a thread per core). The learner shares the machine with the
+    # sim's map update threads, so fewer can be faster overall (the sim's `forge bench` sweeps both).
+    torch_threads: int = 0
 
     # Checkpoints to seed the networks from (see animus.bootstrap): the first candidate that exists. "auto" takes the
     # stage's seed chain from the sim's stage.json (the closest earlier stage that has been trained); a list names

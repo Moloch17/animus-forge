@@ -22,10 +22,16 @@
  */
 
 #include "AnimusForge.h"
+#include "Config.h"
 #include "Log.h"
 #include "StringFormat.h"
 #include <algorithm>
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -55,6 +61,90 @@ namespace
                 total += it->file_size(error);
 
         return total;
+    }
+
+    /// This module's config file, beside the worldserver's: <config dir>/modules/mod_animus_forge.conf.
+    fs::path ModuleConfigFile()
+    {
+        fs::path const worldserver = sConfigMgr->GetFilename();
+        fs::path const dir = worldserver.has_parent_path() ? worldserver.parent_path() : fs::path(".");
+        return dir / "modules" / "mod_animus_forge.conf";
+    }
+
+    /// Set `key` to `value` in a config file, keeping every comment and every other key; the file is backed up to
+    /// <file>.before-bench first, and a key the file does not have is appended. False (with a reply) on failure.
+    bool WriteConfigValue(fs::path const& file, std::string const& key, std::string const& value,
+        AnimusForge::LineSink const& out)
+    {
+        std::error_code error;
+        if (!fs::is_regular_file(file, error))
+        {
+            out(Acore::StringFormat("  {} does not exist; set {} = {} by hand.", file.string(), key, value));
+            return false;
+        }
+
+        std::vector<std::string> lines;
+        {
+            std::ifstream input(file);
+            for (std::string line; std::getline(input, line);)
+                lines.push_back(line);
+            if (!input.eof() && input.fail())
+            {
+                out(Acore::StringFormat("  Could not read {}.", file.string()));
+                return false;
+            }
+        }
+
+        bool replaced = false;
+        for (std::string& line : lines)
+        {
+            std::size_t const start = line.find_first_not_of(" \t");
+            if (start == std::string::npos || line[start] == '#')
+                continue;
+
+            std::size_t const equals = line.find('=', start);
+            if (equals == std::string::npos)
+                continue;
+
+            std::string name = line.substr(start, equals - start);
+            name.erase(name.find_last_not_of(" \t") + 1);
+            if (name != key)
+                continue;
+
+            line = key + " = " + value;
+            replaced = true;
+        }
+
+        if (!replaced)
+            lines.push_back(key + " = " + value);
+
+        fs::copy_file(file, fs::path(file).concat(".before-bench"), fs::copy_options::overwrite_existing, error);
+        if (error)
+            out(Acore::StringFormat("  Could not back {} up ({}); writing it anyway.", file.string(),
+                error.message()));
+
+        fs::path const partial = fs::path(file).concat(".partial");
+        {
+            std::ofstream output(partial, std::ios::trunc);
+            for (std::string const& line : lines)
+                output << line << "\n";
+            if (!output)
+            {
+                out(Acore::StringFormat("  Could not write {}.", partial.string()));
+                return false;
+            }
+        }
+
+        fs::rename(partial, file, error);
+        if (error)
+        {
+            out(Acore::StringFormat("  Could not replace {} ({}).", file.string(), error.message()));
+            return false;
+        }
+
+        out(Acore::StringFormat("  {}: {} = {}{}", file.string(), key, value,
+            replaced ? "" : " (added at the end)"));
+        return true;
     }
 
     std::string Bytes(uintmax_t bytes)
@@ -568,6 +658,125 @@ bool AnimusForge::Forge::CommandRun(std::string const& scenario, std::string con
 
     out(Acore::StringFormat("Running {} with policy {} {}.", scenario, policy,
         episodes ? Acore::StringFormat("for {} episodes", Format::Count(episodes)) : "until `forge cancel`"));
+    return true;
+}
+
+bool AnimusForge::Forge::CommandBench(std::string const& scenario, LineSink const& out)
+{
+    if (!Enabled(out))
+        return false;
+
+    if (_state != State::Idle || _request == Request::Start)
+    {
+        out(Acore::StringFormat("{} is {}: `forge cancel` it first.", _current, StateName()));
+        return false;
+    }
+
+    std::string const benchScenario = scenario.empty() ? _config.Bench.Scenario : scenario;
+    if (!ValidScenario(benchScenario, out))
+        return false;
+
+    if (!KnowsPolicy(_config.Bench.Policy) && _config.Bench.Policy != "random")
+        out(Acore::StringFormat("  AnimusForge.Bench.Policy '{}' may not exist for {}; a trial that cannot run it is "
+            "reported as failed.", _config.Bench.Policy, benchScenario));
+
+    // Every thread count against every env count, smaller envs first: a memory-heavy trial then only skips the
+    // bigger ones of its thread count.
+    _benchTrials.clear();
+    std::vector<uint32> envs = _config.Bench.Envs;
+    std::sort(envs.begin(), envs.end());
+    for (uint32 threads : _config.Bench.Threads)
+        for (uint32 count : envs)
+        {
+            if (count > _config.Bench.MaxEnvs)
+                continue;
+
+            BenchTrial trial;
+            trial.MapThreads = threads;
+            trial.Envs = count;
+            _benchTrials.push_back(trial);
+        }
+
+    if (_benchTrials.empty())
+    {
+        out("Nothing to benchmark: AnimusForge.Bench.Threads and .Envs are empty (or over .MaxEnvs).");
+        return false;
+    }
+
+    _benching = true;
+    _benchLearnerPhase = false;
+    _benchTrial = 0;
+    _benchScenario = benchScenario;
+
+    _requested = BenchPlan(benchScenario, _benchTrials);
+    _request = Request::Start;
+
+    uint32 const perTrial = (_config.Bench.WarmupTicks + _config.Bench.MeasureTicks) * _config.DecisionMs / 1000;
+    out(Acore::StringFormat("Benchmarking {} with policy {}: {} trials of about {} s of game time each, then the {} "
+        "fastest again with the learner. `forge cancel` stops it.", benchScenario, _config.Bench.Policy,
+        _benchTrials.size(), perTrial, _config.Bench.LearnerTop));
+    out("  Nothing is trained: every trial runs in the bench output directory and real runs are untouched.");
+    return true;
+}
+
+bool AnimusForge::Forge::CommandBenchApply(LineSink const& out)
+{
+    namespace fs = std::filesystem;
+
+    if (!Enabled(out))
+        return false;
+
+    if (_benching)
+    {
+        out("The benchmark is still running: `forge cancel` or wait for it to finish.");
+        return false;
+    }
+
+    fs::path const path = fs::path(_config.Bench.OutputDir) / "bench.json";
+    std::error_code error;
+    if (!fs::exists(path, error))
+    {
+        out(Acore::StringFormat("No benchmark results in {}: run `forge bench` first.", path.string()));
+        return false;
+    }
+
+    std::ifstream file(path);
+    std::string const text((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    boost::json::value parsed = boost::json::parse(text, error);
+    if (error || !parsed.is_object() || !parsed.as_object().contains("best"))
+    {
+        out(Acore::StringFormat("{} has no winning trial; run `forge bench` again.", path.string()));
+        return false;
+    }
+
+    boost::json::object const& best = parsed.as_object().at("best").as_object();
+    auto const number = [&best](char const* key) -> uint32
+    {
+        auto const value = best.if_contains(key);
+        return value && value->is_int64() ? uint32(value->as_int64()) : 0;
+    };
+
+    uint32 const threads = number("map_threads");
+    uint32 const envs = number("envs");
+    uint32 const torchThreads = number("torch_threads");
+    if (!threads || !envs)
+    {
+        out(Acore::StringFormat("{} does not name a thread and env count.", path.string()));
+        return false;
+    }
+
+    bool ok = WriteConfigValue(sConfigMgr->GetFilename(), "MapUpdate.Threads", std::to_string(threads), out);
+    ok = WriteConfigValue(ModuleConfigFile(), "AnimusForge.Envs", std::to_string(envs), out) && ok;
+    if (torchThreads)
+        ok = WriteConfigValue(ModuleConfigFile(), "AnimusForge.Learner.TorchThreads", std::to_string(torchThreads),
+            out) && ok;
+
+    if (!ok)
+        return false;
+
+    out(Acore::StringFormat("Applied: MapUpdate.Threads = {}, AnimusForge.Envs = {}{}.", threads, envs,
+        torchThreads ? Acore::StringFormat(", AnimusForge.Learner.TorchThreads = {}", torchThreads) : ""));
+    out("  The thread count takes effect when the worldserver restarts; the env count at the next `forge start`.");
     return true;
 }
 

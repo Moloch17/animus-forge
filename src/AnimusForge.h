@@ -60,6 +60,10 @@ namespace AnimusForge
         bool CommandCancel(LineSink const& out);
         bool CommandSkip(LineSink const& out);
         bool CommandRun(std::string const& scenario, std::string const& policy, uint32 episodes, LineSink const& out);
+        /// `forge bench [scenario]`: time the sim at every AnimusForge.Bench.Threads x Envs pair, then the best few
+        /// with the learner, and report what runs fastest. `forge bench apply` writes the winner into the configs.
+        bool CommandBench(std::string const& scenario, LineSink const& out);
+        bool CommandBenchApply(LineSink const& out);
         bool CommandExport(std::string scenario, std::string const& checkpoint, LineSink const& out);
         bool CommandClean(std::string const& target, std::string const& scenario, LineSink const& out);
         void CommandProgress(std::optional<uint32> seconds, LineSink const& out);
@@ -100,6 +104,27 @@ namespace AnimusForge
             std::string Scenario;
             bool Resume = false;
             Outcome Result = Outcome::None;
+            /// Settings this entry runs with, when they are not the plan's (a benchmark trial's envs and learner).
+            std::optional<ForgeConfig> Config;
+            /// MapUpdate.Threads for this entry; 0 = leave the pool as it is (every entry but a benchmark trial's).
+            uint32 MapThreads = 0;
+        };
+
+        /// One `forge bench` trial: settings, and what they ran at.
+        struct BenchTrial
+        {
+            uint32 MapThreads = 0;
+            uint32 Envs = 0;
+            uint32 TorchThreads = 0;        // learner trials only; 0 = torch's own default
+            bool Learner = false;           // false: a local policy, so the sim alone is timed
+            uint32 Agents = 1;              // seats per env of the benchmarked scenario
+            double EnvStepsPerSecond = 0.0;
+            double WorldMsPerTick = 0.0;    // map update and the rest of the world tick
+            double SimMsPerTick = 0.0;      // observing, rewarding and applying actions
+            double LearnerMsPerTick = 0.0;  // blocked on the learner
+            uint64 MemoryMb = 0;            // the worldserver's resident memory at the end of the trial
+            bool Measured = false;
+            std::string Note;               // why it was not measured
         };
 
         /// Scenarios run one after another.
@@ -155,8 +180,33 @@ namespace AnimusForge
         /// The settings a plan runs with: the configured ones, or the fast profile for `forge fast`.
         [[nodiscard]] ForgeConfig const& ConfigFor(Plan const& plan) const { return plan.Fast ? _fastConfig : _config; }
 
-        /// The settings of the running (or last started) plan.
-        [[nodiscard]] ForgeConfig const& RunConfig() const { return ConfigFor(_plan); }
+        /// The settings of the running (or last started) plan: a benchmark trial's own, else the plan's.
+        [[nodiscard]] ForgeConfig const& RunConfig() const
+        {
+            PlanEntry const& entry = _plan.Entries[_plan.Index];
+            return entry.Config ? *entry.Config : ConfigFor(_plan);
+        }
+
+        /// The world thread was blocked on the learner from `from` until now.
+        void WaitedForLearner(std::chrono::steady_clock::time_point from);
+
+        /// Set the map update pool's thread count (a benchmark trial's, or the configured one again). Between ticks
+        /// only: it joins the pool's threads and starts new ones.
+        void ApplyMapThreads(uint32 threads);
+        /// MapUpdate.Threads as configured, which every trial is restored to when the benchmark ends.
+        [[nodiscard]] static uint32 ConfiguredMapThreads();
+
+        /// Every trial the benchmark still has to run, as a plan (phase 1: the sim alone).
+        [[nodiscard]] Plan BenchPlan(std::string const& scenario, std::vector<BenchTrial> const& trials) const;
+        /// The running trial: nothing until its warm-up is over, then its timing, then the next trial.
+        void BenchTick();
+        /// The benchmark's plan ended: start the learner phase, or report and stop.
+        void BenchPlanEnded();
+        void BenchReport(LineSink const& out) const;
+        /// <bench>/bench.json: every trial, the winner and the machine, for `forge bench apply`.
+        void BenchSave() const;
+        /// Give up on the benchmark: the map update pool goes back to the configured thread count.
+        void BenchEnd();
 
         /// Console commands, the export process and the periodic report, while the world thread waits.
         void Pump();
@@ -212,11 +262,35 @@ namespace AnimusForge
         std::chrono::steady_clock::time_point _lastReport;
         std::optional<std::chrono::steady_clock::time_point> _lastAct;
 
+        /// Where a tick's wall time goes, since the scenario started (ns). Reported per tick, and what the benchmark
+        /// compares settings by.
+        uint64 _worldNs = 0;            // between one decision and the next: the map update and the world tick
+        uint64 _simNs = 0;              // this module's own work in the tick
+        uint64 _learnerNs = 0;          // blocked on the learner (waiting for it to connect, or for its actions)
+        uint64 _tickLearnerNs = 0;      // ... of the tick being processed
+        std::optional<std::chrono::steady_clock::time_point> _lastUpdateEnd;
+
+        std::vector<BenchTrial> _benchTrials;       // phase 1 and, once it is over, phase 2
+        std::size_t _benchTrial = 0;                // the trial the running plan entry is
+        bool _benching = false;
+        bool _benchLearnerPhase = false;
+        std::string _benchScenario;
+        std::chrono::steady_clock::time_point _benchMeasuredFrom;
+        uint64 _benchWorldNs = 0;       // the counters when the measurement started
+        uint64 _benchSimNs = 0;
+        uint64 _benchLearnerNs = 0;
+
         std::chrono::steady_clock::time_point _rateTime;
         uint64 _rateTicks = 0;
         uint64 _rateEpisodes = 0;
+        uint64 _rateWorldNs = 0;
+        uint64 _rateSimNs = 0;
+        uint64 _rateLearnerNs = 0;
         double _ticksPerSecond = 0.0;
         double _episodesPerSecond = 0.0;
+        double _worldMsPerTick = 0.0;
+        double _simMsPerTick = 0.0;
+        double _learnerMsPerTick = 0.0;
 
         std::string _exportScenario;
         std::string _exportModelDir;

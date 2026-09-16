@@ -360,11 +360,23 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 
 ## 7.11 Performance
 
-- **Know which side is the bottleneck.** `forge status` shows sim ticks per second and the learner's env steps per
-  second. In remote mode every decision is one Python round trip for all envs.
+- **Measure it: `forge bench`.** It times the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then runs the
+  fastest few again with the real learner (x `Bench.LearnerTorchThreads`), and reports the env steps per second of
+  each. Trials run in `<OutputDir>/bench/` with evaluation, seeding and distillation off, so no real run is touched;
+  the results are in `bench/bench.json`, and `forge bench apply` writes the winner into `worldserver.conf` and
+  `mod_animus_forge.conf` (backing both up). `forge cancel` stops a sweep and restores the configured thread count.
+- **Know which side is the bottleneck.** `forge status` shows env steps per second and where a decision's wall time
+  goes: **world** (the map update, spread over `MapUpdate.Threads`; every env is its own instance), **sim** (this
+  module's rewards, observations and actions, on the world thread, linear in envs) and **learner** (blocked on its
+  actions and updates). In remote mode every decision is one Python round trip for all envs.
   - If the learner's forward pass dominates (high CPU in the learner process, the world thread idle waiting), fewer,
     larger batches help: raise `AnimusForge.Envs`.
   - If the world thread dominates, more map threads (`MapUpdate.Threads`) and fewer class/roles or simpler arenas help.
+  - The learner's torch and the map update threads share the cores: `AnimusForge.Learner.TorchThreads` caps torch,
+    and the benchmark sweeps both together.
+- **Envs are also a training setting.** One update is `rollout_length x envs x seats` env steps, so a different env
+  count changes the batch PPO trains on, not only the speed. `forge bench` says so when its winner differs from the
+  env count you train with.
 - **Updates versus rollouts.** `update_seconds` in `metrics.csv` is time spent in PPO updates, which a GPU speeds up.
   Rollouts stay on the CPU on purpose. Serially that time is sim idle time: `env_steps_per_sec` in `metrics.csv` is the
   rollout's own rate, and the rate over the wall clock is lower by the update's share. `overlap_updates` runs the

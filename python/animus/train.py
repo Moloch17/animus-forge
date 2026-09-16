@@ -155,8 +155,9 @@ class EvalLog:
             if isinstance(value, float):
                 self.tb.add_scalar(f"eval/{name}", value, env_steps)
         self.tb.add_scalar("eval/margin", tracker.last_margin, env_steps)
-        groups = [*summary.get("bands", {}).items(), *((f"arena_{arena}", values)
-                                                       for arena, values in summary.get("arenas", {}).items())]
+        groups = [*summary.get("bands", {}).items(),
+                  *((f"arena_{arena}", values) for arena, values in summary.get("arenas", {}).items()),
+                  *((f"build_{build}", values) for build, values in summary.get("builds", {}).items())]
         for group, values in groups:
             for name, value in values.items():
                 if isinstance(value, float):
@@ -221,6 +222,12 @@ def make_distiller(config: TrainConfig, spec, stage: dict | None, parents: list[
     return Distiller(stage, teachers)
 
 
+def use_threads(threads: int) -> None:
+    """CPU threads for torch (0 = its own default): the learner runs beside the sim's map update threads."""
+    if threads > 0:
+        torch.set_num_threads(threads)
+
+
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -237,6 +244,7 @@ class TrainingRun:
 
     def __init__(self, config: TrainConfig, resume: bool):
         self.config = config
+        use_threads(config.torch_threads)
         seed_everything(config.seed)
 
         self.run_dir = Path(config.runs_dir) / config.run_name

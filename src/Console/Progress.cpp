@@ -356,9 +356,13 @@ void AnimusForge::ProgressMonitor::ReportTraining(ForgeConfig const& config, Sim
         warnings.push_back(Acore::StringFormat("The learner exited unexpectedly; see {}. `forge resume` continues from "
             "its last checkpoint, `forge cancel` stops the plan", config.LearnerLogFile));
 
-    table.AddRow({ "sim", Acore::StringFormat("{} ticks/s", Format::Count(uint64(sim.TicksPerSecond))),
-        Acore::StringFormat("{} envs x {} agents, {} decisions", sim.Envs, sim.AgentsPerEnv,
-            Format::Count(sim.Decisions)) });
+    table.AddRow({ "sim", Acore::StringFormat("{} env steps/s", Format::Count(uint64(sim.EnvStepsPerSecond))),
+        Acore::StringFormat("{} envs x {} agents, {} decisions/s, {} decisions", sim.Envs, sim.AgentsPerEnv,
+            Format::Count(uint64(sim.TicksPerSecond)), Format::Count(sim.Decisions)) });
+    table.AddRow({ "per decision", Acore::StringFormat("{:.1f} ms",
+        sim.WorldMsPerTick + sim.SimMsPerTick + sim.LearnerMsPerTick),
+        Acore::StringFormat("world {:.1f} ms (map update), sim {:.1f} ms, learner {:.1f} ms", sim.WorldMsPerTick,
+            sim.SimMsPerTick, sim.LearnerMsPerTick) });
 
     if (!progress)
     {
@@ -505,9 +509,13 @@ void AnimusForge::ProgressMonitor::ReportLocal(SimSnapshot const& sim, LineSink 
     info(header + " | " + sim.State + " | " + Format::Duration(sim.ScenarioSeconds));
 
     TextTable table({ { "Metric" }, { "Value", TextTable::Align::Right }, { "Note" } });
-    table.AddRow({ "sim", Acore::StringFormat("{} ticks/s", Format::Count(uint64(sim.TicksPerSecond))),
-        Acore::StringFormat("{} envs x {} agents, {} decisions", sim.Envs, sim.AgentsPerEnv,
-            Format::Count(sim.Decisions)) });
+    table.AddRow({ "sim", Acore::StringFormat("{} env steps/s", Format::Count(uint64(sim.EnvStepsPerSecond))),
+        Acore::StringFormat("{} envs x {} agents, {} decisions/s, {} decisions", sim.Envs, sim.AgentsPerEnv,
+            Format::Count(uint64(sim.TicksPerSecond)), Format::Count(sim.Decisions)) });
+    table.AddRow({ "per decision", Acore::StringFormat("{:.1f} ms",
+        sim.WorldMsPerTick + sim.SimMsPerTick + sim.LearnerMsPerTick),
+        Acore::StringFormat("world {:.1f} ms (map update), sim {:.1f} ms, learner {:.1f} ms", sim.WorldMsPerTick,
+            sim.SimMsPerTick, sim.LearnerMsPerTick) });
 
     std::string episodes = Format::Count(sim.Episodes);
     std::string note = Acore::StringFormat("{:.1f}/s", sim.EpisodesPerSecond);
