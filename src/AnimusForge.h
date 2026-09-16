@@ -110,7 +110,7 @@ namespace AnimusForge
             bool Resume = false;
             Outcome Result = Outcome::None;
             /// Settings this entry runs with, when they are not the plan's (a benchmark trial's envs and learner).
-            std::optional<ForgeConfig> Config;
+            std::optional<ForgeConfig> Config = std::nullopt;
             /// MapUpdate.Threads for this entry; 0 = leave the pool as it is (every entry but a benchmark trial's).
             uint32 MapThreads = 0;
         };
