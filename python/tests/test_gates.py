@@ -156,3 +156,41 @@ def test_noise_allowance_is_validated():
     config.target.noise_z = -1.0
     with pytest.raises(ValueError, match="noise_z"):
         validate_target(config, ("killed",))
+
+
+def test_layout_metrics_floor_is_absolute():
+    """A layout that beats its own baseline can still be bad: where the scripted baseline is hopeless, beating it
+    asks for nothing (stage1_duel passed warlock_dps against a required score of -2.34)."""
+    target = TargetConfig(min_layout_over_baseline=0.0, layout_metrics={"killed": {"min": 0.75}})
+    learner = summary(5.0, {"warlock_dps": {**layout(4.7), "killed": 0.65},
+                            "warrior_dps": {**layout(7.9), "killed": 0.89}})
+    base = summary(4.0, {"warlock_dps": layout(-2.3), "warrior_dps": layout(6.8)})
+
+    report = check_gates(learner, base, target)
+    assert not report.passed
+    assert report.failures == ["warlock_dps killed (min) 0.65 (needs 0.75)"]  # both score gates passed
+
+    learner["layouts"]["warlock_dps"]["killed"] = 0.8
+    assert check_gates(learner, base, target).passed
+
+
+def test_layout_metrics_skip_thin_layouts():
+    target = TargetConfig(layout_metrics={"killed": {"min": 0.75}}, min_layout_episodes=16)
+    learner = summary(5.0, {"mage_dps": {**layout(1.0, 4), "killed": 0.0}})
+    report = check_gates(learner, None, target)
+    assert report.passed
+    assert report.skipped == ["mage_dps: 4 episodes"]
+
+
+def test_livelocked_is_gateable_though_it_is_not_episode_info():
+    """The share of episodes stuck in a cast/stop loop is derived by the summary, not averaged from an info
+    column, so validation has to allow it by name."""
+    config = TrainConfig()
+    config.eval.every_env_steps = 1
+    config.target.metrics = {"livelocked": {"max": 0.01}}
+    config.target.layout_metrics = {"livelocked": {"max": 0.05}}
+    validate_target(config, ("killed", "died"))
+
+    target = TargetConfig(layout_metrics={"livelocked": {"max": 0.05}})
+    learner = summary(5.0, {"warlock_dps": {**layout(4.7), "livelocked": 0.248}})
+    assert not check_gates(learner, None, target).passed

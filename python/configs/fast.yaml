@@ -33,6 +33,7 @@ target:
   min_over_baseline: null
   min_layout_over_baseline: null
   metrics: {}
+  layout_metrics: {}
   arenas: {}
   confirm_episodes: 64
 

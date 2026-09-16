@@ -33,6 +33,17 @@ LEVEL_BANDS = ((1, 20), (21, 40), (41, 60), (61, 80))
 # Scored as its own group so a run shows whether the policy plays a build it was not handed the recipe for.
 TALENT_PLANS = ("standard", "noisy", "random")
 
+# An episode that cancelled at least this many of its own casts did not merely waste a few: with a decision every
+# 100 ms it spent the episode in a start-cast / stop-cast loop. Deterministic actions cannot break out of one --
+# the state that chose to stop recurs unchanged -- so a policy can carry it into evaluation and into the exported
+# model while its sampled training rollouts look healthy. stage1_duel: a quarter of warlock episodes, up to 299
+# cancels in a 60 s episode, scoring 3.30 where the rest scored 7.52.
+LIVELOCK_CANCELS = 20
+
+# Summary fields derived from the episode info rather than averaged straight from them. Gateable like any metric
+# (target.metrics, target.layout_metrics); they are not episode info names, so validation allows them by name.
+DERIVED_METRICS = ("livelocked",)
+
 
 @dataclass
 class EvalResult:
@@ -95,6 +106,12 @@ class EvalResult:
             for name in present:
                 values = self.column(name)[rows]
                 out[name] = float(values.mean()) if len(values) else None
+            # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a
+            # tail, not a shift (stage1_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
+            cancels = self.column("casts_cancelled")
+            if cancels is not None:
+                picked = cancels[rows]
+                out["livelocked"] = float((picked >= LIVELOCK_CANCELS).mean()) if len(picked) else None
             return out
 
         everything = np.ones(self.episodes, dtype=bool)

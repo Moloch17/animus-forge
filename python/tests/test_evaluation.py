@@ -10,7 +10,7 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import ConvergenceTracker, EvalResult, layout_weights, run_evaluation
+from animus.evaluation import LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, layout_weights, run_evaluation
 from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
@@ -392,3 +392,28 @@ def test_layout_weights_are_even_without_a_spread_or_a_baseline():
     assert layout_weights(summary, baseline, 1.0, 3.0) == {"a": 1.0, "b": 1.0}
     assert layout_weights(summary, baseline, 0.0, 3.0) == {"a": 1.0, "b": 1.0}  # strength 0 = uniform
     assert layout_weights({"layouts": {}}, baseline, 1.0, 3.0) == {}
+
+
+def test_livelocked_counts_episodes_not_cancels():
+    """A start-cast / stop-cast loop is a tail, not a shift: stage1_duel's warlock had a median of 4 cancels an
+    episode and a maximum of 299, so a mean of casts_cancelled hides it. Counted per episode, per layout."""
+    cancels = np.array([0.0, 2.0, float(LIVELOCK_CANCELS), 299.0], dtype=np.float32)
+    result = EvalResult(
+        policy="learner",
+        returns=np.array([7.5, 7.5, 3.3, 0.1]),
+        infos=cancels.reshape(4, 1),
+        info_names=("casts_cancelled",),
+        layouts=("mage_dps", "mage_dps", "warlock_dps", "warlock_dps"),
+        seeds=(0, 1, 2, 3),
+    )
+    summary = result.summary(("casts_cancelled",))
+    assert summary["livelocked"] == pytest.approx(0.5)
+    assert summary["layouts"]["mage_dps"]["livelocked"] == pytest.approx(0.0)
+    assert summary["layouts"]["warlock_dps"]["livelocked"] == pytest.approx(1.0)
+    # The mean is unchanged by how the cancels are spread; the share of stuck episodes is the signal.
+    assert summary["casts_cancelled"] == pytest.approx(80.25)
+
+
+def test_livelocked_is_absent_without_cast_counts():
+    result = EvalResult("learner", np.array([1.0, 2.0]), np.zeros((2, 0), np.float32), ())
+    assert "livelocked" not in result.summary(())

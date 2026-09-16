@@ -9,6 +9,12 @@ episodes: without it a layout that is genuinely level with the baseline fails ab
 episode info
 means directly (killed, died, ...), which reward shaping cannot game. A stage that mixes arenas can gate each arena
 on its own episodes (target.arenas), so one situation cannot hide behind the others either.
+
+A gate relative to the baseline is only as demanding as the baseline is good, and where the scripted policy is
+hopeless it demands nothing: stage1_duel passed warlock_dps against a required score of -2.34 while it killed 65%
+of the time and spent a quarter of its episodes in a cast/stop loop. target.metrics and target.layout_metrics are
+the absolute floors that no baseline can lower, and they read derived summary fields (livelocked) as well as
+episode info.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ import math
 from dataclasses import asdict, dataclass, field
 
 from .config import TargetConfig, TrainConfig
+from .evaluation import DERIVED_METRICS
 
 
 @dataclass
@@ -85,6 +92,14 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
             else:
                 _check_score(report, f"{name} score", row, base, target.min_layout_over_baseline, target.noise_z)
 
+    # Absolute per-layout bounds, which no baseline can lower. Checked whatever min_layout_over_baseline is set to.
+    if target.layout_metrics:
+        for name, row in summary.get("layouts", {}).items():
+            if row["episodes"] < target.min_layout_episodes:
+                report.skipped.append(f"{name}: {row['episodes']} episodes")
+            else:
+                _check_metrics(report, row, target.layout_metrics, f"{name} ")
+
     _check_metrics(report, summary, target.metrics, "")
 
     for arena, gates in target.arenas.items():
@@ -147,7 +162,10 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
         errors.append("target.min_over_baseline / min_layout_over_baseline need eval.baseline")
     if config.eval.opponent_baseline and not config.eval.baseline:
         errors.append("eval.opponent_baseline needs eval.baseline")
-    errors += _metric_errors("target.metrics", target.metrics, info_names)
+    # Derived summary fields (livelocked) are gateable by name although they are not episode info.
+    names = (*info_names, *DERIVED_METRICS)
+    errors += _metric_errors("target.metrics", target.metrics, names)
+    errors += _metric_errors("target.layout_metrics", target.layout_metrics, names)
     for arena, gates in target.arenas.items():
         prefix = f"target.arenas.{arena}"
         if arena_names is not None and arena not in arena_names:
@@ -157,7 +175,7 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
             continue
         if gates.get("min_over_baseline") is not None and not isinstance(gates["min_over_baseline"], (int, float)):
             errors.append(f"{prefix}.min_over_baseline: expected a number")
-        errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), info_names)
+        errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), names)
     if target.min_arena_episodes < 0:
         errors.append("target.min_arena_episodes must be >= 0")
     if target.noise_z < 0:

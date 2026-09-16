@@ -37,7 +37,8 @@ from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
-from .evaluation import ConvergenceTracker, EvalResult, format_summary, layout_weights, run_evaluation
+from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, format_summary, layout_weights,
+                         run_evaluation)
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
@@ -331,9 +332,10 @@ class TrainingRun:
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
         report = tuple(config.eval.report)
-        report += tuple(name for name in config.target.metrics if name not in report)
-        for gates in config.target.arenas.values():
-            report += tuple(name for name in gates.get("metrics", {}) if name not in report)
+        gated = (*config.target.metrics, *config.target.layout_metrics,
+                 *(name for gates in config.target.arenas.values() for name in gates.get("metrics", {})))
+        # Derived fields are computed by the summary itself, not averaged from an episode info column.
+        report += tuple(name for name in gated if name not in report and name not in DERIVED_METRICS)
         self.report = report
         self.eval_log = EvalLog(self.run_dir, self.logger.tb, report)
         # Self-play arenas scored against the baseline as their opponent (eval.opponent_baseline).

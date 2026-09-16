@@ -73,6 +73,12 @@ class TargetConfig:
     min_layout_episodes: int = 16
     # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
     metrics: dict = field(default_factory=dict)
+    # The same bounds, checked on every class/role's own episodes. min_layout_over_baseline only asks a layout to
+    # beat its own baseline, which says nothing where the scripted baseline is itself hopeless: stage1_duel passed
+    # warlock_dps against a required score of -2.34 and priest_heal against -0.72, so a warlock that killed 65% of
+    # the time and livelocked in a quarter of its episodes cleared the gate. An absolute floor cannot be lowered by
+    # a bad baseline. Same shape as metrics, and derived summary fields (livelocked) can be gated too.
+    layout_metrics: dict = field(default_factory=dict)
     # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
     # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
     arenas: dict = field(default_factory=dict)
@@ -90,7 +96,7 @@ class TargetConfig:
     @property
     def enabled(self) -> bool:
         return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
-                or bool(self.metrics) or bool(self.arenas))
+                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.arenas))
 
     def arena_needs_baseline(self) -> bool:
         return any(isinstance(gates, dict) and gates.get("min_over_baseline") is not None

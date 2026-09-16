@@ -132,6 +132,8 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
         "train_device=cpu", "mappo.hidden=[8, 8]", "mappo.epochs=1", "mappo.minibatches=1",
         f"eval.every_env_steps={steps_per_update}", "eval.episodes=2", "eval.baseline=''",
         "convergence.patience=0", "target.min_over_baseline=null", "target.min_layout_over_baseline=null",
+        # The fake scenario's episode info is not the duel's, so its metric gates cannot be checked here.
+        "target.metrics={}", "target.layout_metrics={}",
     ])
 
     exit_code = TrainingRun(config, resume=False).run()
