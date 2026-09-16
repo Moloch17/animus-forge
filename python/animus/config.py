@@ -29,6 +29,10 @@ REPORT_COLUMNS = (
     "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",
     # Fights no play could win (a creature with no path to the seat), and one action pressed over and over.
     "target_unreachable_seconds", "target_teleports", "repeated_presses",
+    # Style: where the seat's own damage came from (with pet_damage_share they add up to 1), how much of the fight it
+    # spent within melee reach, and how much its pet held the opponent. Read by spec: a hunter's shots cannot be used
+    # in melee reach, so in_melee_share is the share of the fight it played melee.
+    "melee_damage_share", "shot_damage_share", "spell_damage_share", "in_melee_share", "target_on_pet_share",
 )
 
 

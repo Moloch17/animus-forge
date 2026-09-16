@@ -574,9 +574,13 @@ objective changes, so a flag changing hands pays nothing by itself.
   5. with the pet block and a pet class: out of combat with no living pet, call a stable beast or cast the best summon
      (Felguard, Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental); with a pet out, send it at the
      target,
-  6. start auto-attack,
-  7. move to a living target that is far away while not already moving,
-  8. otherwise `greedy`.
+  6. a spec of the ranged band (hunters, casters, healers) holds range: more than 28 yd from a living target, move
+     to casting range (24 yd); with the target out of line of sight, move toward it; a hunter the target is hitting
+     in melee reach while its pet attacks the target backs off 10 yd (its shots can't be used there) and lets the
+     pet hold it; auto-attack only once the target is in melee reach (a hunter with no pet yet, or one still held),
+  7. a melee spec starts auto-attack,
+  8. and moves to a living target beyond melee reach while not already moving,
+  9. otherwise `greedy`.
 
 They are the reference numbers a trained policy has to beat (evaluation baseline) and a mechanics smoke test
 (`forge run <stage> fight`).
@@ -644,6 +648,17 @@ Every stage reports these **core columns** per seat:
   evading, and engaged without line of sight to it), `target_unreachable_seconds` and `target_teleports` (creature duel:
   the opponent without a path to its victim, and put beside it for that), `actions_per_minute` (actions other than the
   no-op), `repeated_presses` (presses charged by `Actions.Repeat`)
+- how the seat fights, to grade a spec's playstyle (they reward nothing):
+  - `melee_damage_share`, `shot_damage_share`, `spell_damage_share`: the seat's own damage by the game's damage class
+    (`SpellInfo::DmgClass`), as shares of all its damage, so with `pet_damage_share` they add up to 1. Melee is melee
+    swings and melee abilities (Raptor Strike, Sinister Strike), shots are ranged weapon attacks (Auto Shot, Steady
+    Shot, a wand) and spells are the rest, DoTs included. The damage hook doesn't say which spell dealt a hit, so the
+    library notes the spell in `ModifySpellDamageTaken` and `ModifyPeriodicDamageAurasTick`, which run just before it
+    for the same attacker and victim. Spell damage it can't match counts as a spell
+  - `in_melee_share`, `target_on_pet_share` (one-on-one arenas): the share of the fight, engaged with the seat alive,
+    it spent within melee reach of the opponent, and the share the opponent spent attacking its pet or guardian. A
+    hunter's shots can't be used inside melee reach (`SPELL_FAILED_TOO_CLOSE`), so for a hunter `in_melee_share` is
+    the share of the fight it played melee. For a caster it is mostly where the opponent chose to fight
 
 Encounters then add their own columns:
 
