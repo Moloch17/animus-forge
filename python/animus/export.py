@@ -58,12 +58,33 @@ def layout_layers(actor_state: dict[str, torch.Tensor], layout: int) -> list[tup
         return weight, bias
 
     trunk = sorted({int(m.group(1)) for key in actor_state if (m := _TRUNK_KEY.match(key))})
-    layers = [pair(f"adapters.{layout}"), *(pair(f"trunk.layers.{i}") for i in trunk), pair(f"heads.{layout}")]
+    adapter = fold_normalisation(actor_state, layout, *pair(f"adapters.{layout}"))
+    layers = [adapter, *(pair(f"trunk.layers.{i}") for i in trunk), pair(f"heads.{layout}")]
 
     for (prev, _), (weight, _) in zip(layers, layers[1:]):
         if weight.shape[1] != prev.shape[0]:
             raise ValueError(f"layer input {weight.shape[1]} does not match previous output {prev.shape[0]}")
     return layers
+
+
+def fold_normalisation(actor_state: dict[str, torch.Tensor], layout: int, weight: np.ndarray,
+                       bias: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Fold the layout's observation statistics into its adapter, so the exported model takes raw features.
+
+    The learner feeds the adapter (x - mean) / sd (mappo.networks.RunningNorm), which is affine, so
+    W((x - mean) / sd) + b is the ordinary layer (W / sd)x + (b - W(mean / sd)) -- and the file format, and the
+    sim that runs it, stay exactly as they were. A checkpoint without statistics (or one that never trained)
+    folds nothing.
+    """
+    mean_key, var_key, count_key = (f"norms.{layout}.{name}" for name in ("mean", "var", "count"))
+    if mean_key not in actor_state or float(actor_state[count_key]) == 0.0:
+        return weight, bias
+
+    mean = actor_state[mean_key].detach().cpu().numpy().astype("<f8")
+    # The epsilon RunningNorm.forward adds under the root; keep the two in step.
+    deviation = np.sqrt(actor_state[var_key].detach().cpu().numpy().astype("<f8") + 1e-5)
+    folded = weight.astype("<f8") / deviation
+    return (folded.astype("<f4"), (bias.astype("<f8") - folded @ mean).astype("<f4"))
 
 
 def with_agent_column(layers: list[tuple[np.ndarray, np.ndarray]]) -> list[tuple[np.ndarray, np.ndarray]]:

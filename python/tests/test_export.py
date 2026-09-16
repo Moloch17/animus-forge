@@ -112,3 +112,45 @@ def test_layout_manifests_are_exported_beside_their_models(tmp_path):
 
     assert (out / "warrior_dps_duel.json").read_text() == '{"model":"warrior_dps_duel"}\n'
     assert not (out / "priest_heal_duel.json").exists()  # no manifest written for it
+
+
+def test_export_folds_observation_statistics_into_the_adapter(tmp_path):
+    """An exported model takes raw features: the normalisation the learner applies is folded into layer one.
+
+    Without the fold the sim would run every model on unnormalised inputs and quietly play something else.
+    """
+    actor = wide_actor()
+
+    # Give each layout statistics well away from the identity, as a trained run would have.
+    rng = np.random.default_rng(7)
+    for index, (obs_dim, _) in enumerate(LAYOUTS):
+        rows = torch.from_numpy((rng.standard_normal((512, obs_dim)) * 40.0 + 15.0).astype(np.float32))
+        actor.norms[index].update(rows)
+        assert float(actor.norms[index].count) == 512
+
+    out = tmp_path / "models"
+    out.mkdir()
+    written = export_layouts(actor.state_dict(), spec_for("stage1_duel"), out, duel_stage_dir(tmp_path))
+
+    max_obs, max_actions = max(o for o, _ in LAYOUTS), max(a for _, a in LAYOUTS)
+    for index, ((obs_dim, num_actions), path) in enumerate(zip(LAYOUTS, written)):
+        model = read_amdl(path)
+        for _ in range(16):
+            obs = (rng.standard_normal(obs_dim) * 40.0 + 15.0).astype(np.float32)
+            mask = rng.integers(0, 2, num_actions).astype(np.uint8)
+            mask[0] = 1
+
+            action, logits = reference_decide(model, obs, mask)
+
+            padded_obs = np.zeros(max_obs, np.float32)
+            padded_obs[:obs_dim] = obs
+            padded_mask = np.zeros(max_actions, np.uint8)
+            padded_mask[:num_actions] = mask
+            dist = actor(torch.from_numpy(padded_obs)[None], torch.tensor([index]),
+                         torch.from_numpy(padded_mask)[None])
+
+            torch_logits = dist.logits[0, :num_actions].detach().numpy()
+            allowed = mask.astype(bool)
+            shift = logits[allowed][0] - torch_logits[allowed][0]
+            np.testing.assert_allclose(logits[allowed], torch_logits[allowed] + shift, rtol=1e-3, atol=1e-3)
+            assert action == int(dist.probs.argmax(dim=-1))

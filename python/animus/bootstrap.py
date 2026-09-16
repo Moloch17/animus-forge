@@ -72,6 +72,27 @@ def _seed_adapter_blocks(new: dict, old: dict, prefix: str, common) -> None:
     new[f"{prefix}.bias"].copy_(old[f"{prefix}.bias"])
 
 
+def _seed_norm_blocks(new: dict, old: dict, prefix: str, common) -> None:
+    """Carry an observation normaliser's statistics across, feature by feature, for the blocks both stages have.
+
+    They are per input feature, so they remap exactly like the adapter columns beside them. A feature the new
+    stage adds keeps its starting mean 0 and variance 1 until the first rollouts describe it."""
+    for name in ("mean", "var"):
+        new_stat, old_stat = new[f"{prefix}.{name}"], old[f"{prefix}.{name}"]
+        new_stat.copy_(torch.zeros_like(new_stat) if name == "mean" else torch.ones_like(new_stat))
+        for ((old_first, count), _), ((new_first, _), _) in common:
+            new_stat[new_first : new_first + count] = old_stat[old_first : old_first + count]
+
+    new[f"{prefix}.count"].copy_(old[f"{prefix}.count"])
+
+
+def _seed_norm(new: dict, old: dict, prefix: str) -> None:
+    """The same statistics, when the layouts line up feature for feature."""
+    for name in ("mean", "var", "count"):
+        if new[f"{prefix}.{name}"].shape == old[f"{prefix}.{name}"].shape:
+            new[f"{prefix}.{name}"].copy_(old[f"{prefix}.{name}"])
+
+
 def _seed_head_blocks(new: dict, old: dict, prefix: str, common) -> None:
     new_w, old_w = new[f"{prefix}.weight"], old[f"{prefix}.weight"]
     if new_w.shape[1] != old_w.shape[1]:
@@ -115,6 +136,12 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
             f"adapters.{index}.weight": old_network[f"adapters.{old_index}.weight"],
             f"adapters.{index}.bias": old_network[f"adapters.{old_index}.bias"],
         }) for network, old_network in ((actor, old["actor"]), (critic, old["critic"]))]
+        # The observation statistics belong to the same features as the adapter columns.
+        norms = [(network, {
+            f"norms.{index}.{name}": old_network[f"norms.{old_index}.{name}"]
+            for name in ("mean", "var", "count")
+        }) for network, old_network in ((actor, old["actor"]), (critic, old["critic"]))
+            if f"norms.{old_index}.mean" in old_network]
         head = {
             f"heads.{index}.weight": old["actor"][f"heads.{old_index}.weight"],
             f"heads.{index}.bias": old["actor"][f"heads.{old_index}.bias"],
@@ -126,10 +153,14 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
             common = _common_blocks(old_blocks, new_blocks, layout.name)
             for network, remapped in adapters:
                 _seed_adapter_blocks(network, remapped, f"adapters.{index}", common)
+            for network, remapped in norms:
+                _seed_norm_blocks(network, remapped, f"norms.{index}", common)
             _seed_head_blocks(actor, head, f"heads.{index}", common)
         else:
             for network, remapped in adapters:
                 _seed_adapter(network, remapped, f"adapters.{index}")
+            for network, remapped in norms:
+                _seed_norm(network, remapped, f"norms.{index}")
             _seed_head(actor, head, f"heads.{index}")
 
     trainer.actor.load_state_dict(actor)

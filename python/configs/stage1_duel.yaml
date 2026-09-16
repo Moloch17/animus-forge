@@ -40,9 +40,13 @@ train_device: auto
 rollout_device: cpu
 
 mappo:
-  # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space. Every stage
-  # keeps these sizes, or seeding from the earlier stage cannot copy the trunk.
-  hidden: [512, 512]
+  # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space.
+  # The first width is the per-class/role adapter, the rest are the shared trunk (_Trunk pairs the widths), so
+  # [512, 512] gave 18 adapters of 512 and one shared layer: 94% of the parameters were private to a layout,
+  # each trained on its own share of a rollout. [256, 512, 512] halves the adapters and gives the trunk two
+  # layers, so the capacity sits where every class/role trains it. Every stage must use the same widths, or
+  # seeding cannot copy the trunk.
+  hidden: [256, 512, 512]
   # gamma and gae_lambda are per 100 ms of game time (reference_decision_ms), compounded to AnimusForge.DecisionMs, so
   # horizons stay the same in seconds at any decision interval; the learner prints them at start.
   # Kills take tens of seconds including the approach: a ~33 s horizon. The GAE trace (gamma x lambda) carries credit

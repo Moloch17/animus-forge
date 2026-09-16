@@ -124,12 +124,12 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.StepCost` | 0.0002 | | `Pulls.StealthUtility` | 0.05 |
 | `Duel.Kill` | 2.0 | | `Pulls.Interrupt` | 0.3 |
 | `Duel.FastKill` | 3.0 | | `Pulls.Kill` | 0.5 |
-| `Duel.HealthKept` | 2.0 | | `Pulls.StepCost` | 0.0002 |
+| `Duel.HealthKept` | 1.0 | | `Pulls.StepCost` | 0.0002 |
 | `Duel.Death` | 3.0 | | `Pulls.Clear` | 2.0 |
 | `Duel.MeleeRange` | 3.5 | | `Pulls.FastClear` | 3.0 |
 | `Duel.RangedRange` | 25.0 | | `Pulls.FastPull` | 2.0 |
-| `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 2.0 |
-| `Casting.TimeCompleted` | 0.03 | | `Pulls.PackDeath` | 3.0 |
+| `Casting.TimeWasted` | 0.03 | | `Pulls.HealthKept` | 1.0 |
+| `Casting.TimeCompleted` | 0.0 | | `Pulls.PackDeath` | 3.0 |
 | `Resurrection.GraceMs` | 20000 | | `Pulls.GauntletDeath` | 5.0 |
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.OwnerClearScale` | 2.0 |
 

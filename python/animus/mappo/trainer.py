@@ -11,7 +11,7 @@ import torch
 from torch import nn
 
 from .buffer import RolloutBuffer
-from .networks import LayoutActor, LayoutCritic, skip_distribution_checks
+from .networks import LayoutActor, LayoutCritic, skip_distribution_checks, update_norms
 from .valuenorm import ValueNorm
 
 
@@ -45,6 +45,10 @@ class MappoConfig:
     # Stop an update early once its epochs have moved the policy this far in KL (0 = never). PPO's clipping
     # bounds each step, not the sum of a rollout's epochs.
     target_kl: float = 0.0
+    # Centre and scale each layout's observations by what training has actually seen. The features are on very
+    # different scales and meet tanh first, which saturates on anything far from zero. The statistics come from
+    # the rollouts, travel in the checkpoint, and are folded into the adapter when a model is exported.
+    normalise_observations: bool = True
 
 
 #: An epoch may exceed the target this far before the update stops: the measure is noisy over one epoch.
@@ -207,6 +211,14 @@ class MappoTrainer:
         # How much of the returns' spread the critic already accounts for, on the values it produced during the
         # rollout. value_loss is reported in normalised space and shrinks with the normaliser, so it cannot say
         # whether the critic actually fits; this can. 0 = no better than predicting the mean, 1 = perfect.
+        # From this rollout, before it is learned from: the data the update is about to fit is the distribution
+        # the statistics should describe. The rollout that produced it ran on the previous ones, which is the
+        # usual one-update lag and is what keeps the acting and training views of a feature identical.
+        if cfg.normalise_observations:
+            update_norms(self.actor.norms, data["obs"], data["layout"], self.actor.obs_dims)
+            update_norms(self.critic.norms, data["obs"], data["layout"], self.critic.obs_dims)
+            self.critic.state_norm.update(data["state"])
+
         returns, values = data["returns"], data["values"]
         variance = returns.var()
         explained = 1.0 - (returns - values).var() / variance if float(variance) > 0.0 else torch.zeros(())

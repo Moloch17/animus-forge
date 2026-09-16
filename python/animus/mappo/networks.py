@@ -48,6 +48,55 @@ def masked_distribution(logits: torch.Tensor, mask: torch.Tensor) -> Categorical
     return Categorical(logits=logits.masked_fill(~mask, MASKED_LOGIT))
 
 
+class RunningNorm(nn.Module):
+    """Per-feature mean and variance of the observations the policy has been trained on.
+
+    The features arrive on wildly different scales -- a level in 1..80, yards, fractions of health, gear
+    ratings -- and meet `tanh` as the first nonlinearity, which saturates on anything far from zero. Centring
+    and scaling them is what lets the first layer see all of them at once.
+
+    It is an affine map with no clipping, so `animus.export` can fold it into the adapter that follows and the
+    exported model stays an ordinary MLP. The statistics are buffers: they travel in the checkpoint, and a
+    stage that seeds from another carries them across for the blocks it keeps (animus.bootstrap).
+    """
+
+    def __init__(self, dim: int, epsilon: float = 1e-5):
+        super().__init__()
+        self.epsilon = epsilon
+        self.register_buffer("mean", torch.zeros(dim))
+        self.register_buffer("var", torch.ones(dim))
+        self.register_buffer("count", torch.zeros(()))
+
+    @torch.no_grad()
+    def update(self, rows: torch.Tensor) -> None:
+        """Fold a batch of observations into the statistics (Chan's parallel variance)."""
+        if rows.shape[0] == 0:
+            return
+
+        batch_count = torch.tensor(float(rows.shape[0]), device=self.count.device)
+        batch_mean, batch_var = rows.mean(dim=0), rows.var(dim=0, unbiased=False)
+        total = self.count + batch_count
+        delta = batch_mean - self.mean
+        self.mean += delta * (batch_count / total)
+        self.var.copy_((self.var * self.count + batch_var * batch_count
+                        + delta.pow(2) * (self.count * batch_count / total)) / total)
+        self.count.copy_(total)
+
+    def forward(self, rows: torch.Tensor) -> torch.Tensor:
+        if float(self.count) == 0.0:
+            return rows  # nothing seen yet: the raw features are the best estimate of themselves
+
+        return (rows - self.mean) / torch.sqrt(self.var + self.epsilon)
+
+    @torch.no_grad()
+    def scale(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """(mean, standard deviation) as the fold in `animus.export` needs them; identity before any update."""
+        if float(self.count) == 0.0:
+            return torch.zeros_like(self.mean), torch.ones_like(self.var)
+
+        return self.mean.clone(), torch.sqrt(self.var + self.epsilon)
+
+
 class _Trunk(nn.Module):
     """tanh, then Linear + tanh for every hidden layer after the first."""
 
@@ -71,6 +120,13 @@ def skip_distribution_checks() -> None:
     torch.distributions.Distribution.set_default_validate_args(False)
 
 
+@torch.no_grad()
+def update_norms(norms: nn.ModuleList, obs: torch.Tensor, layout: torch.Tensor, obs_dims) -> None:
+    """Fold a rollout's observations into each layout's statistics, each from its own rows and own features."""
+    for index, rows in _per_layout(layout, len(norms)):
+        norms[index].update(obs[rows, : obs_dims[index]])
+
+
 def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tensor]]:
     """(layout, row indices) for every layout present in the batch."""
     if count == 1:
@@ -89,6 +145,7 @@ class LayoutActor(nn.Module):
         self.obs_dims = [obs for obs, _ in layouts]
         self.action_counts = [actions for _, actions in layouts]
         self.max_actions = max(self.action_counts)
+        self.norms = nn.ModuleList(RunningNorm(obs) for obs, _ in layouts)
         self.adapters = nn.ModuleList(_linear(obs, hidden[0], math.sqrt(2)) for obs, _ in layouts)
         self.trunk = _Trunk(hidden)
         self.heads = nn.ModuleList(_linear(hidden[-1], actions, 0.01) for _, actions in layouts)
@@ -102,7 +159,7 @@ class LayoutActor(nn.Module):
         width = self.adapters[0].out_features
         hidden = obs.new_zeros(obs.shape[0], width)
         for index, rows in groups:
-            hidden[rows] = self.adapters[index](obs[rows, : self.obs_dims[index]])
+            hidden[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
         hidden = self.trunk(hidden)
 
         logits = obs.new_full((obs.shape[0], mask.shape[-1]), MASKED_LOGIT)
@@ -123,7 +180,9 @@ class LayoutCritic(nn.Module):
         if not hidden:
             raise ValueError("the critic needs at least one hidden layer")
         self.obs_dims = [obs for obs, _ in layouts]
+        self.state_norm = RunningNorm(state_dim)
         self.state_encoder = _linear(state_dim, hidden[0], math.sqrt(2))
+        self.norms = nn.ModuleList(RunningNorm(obs) for obs, _ in layouts)
         self.adapters = nn.ModuleList(_linear(obs, hidden[0], math.sqrt(2)) for obs, _ in layouts)
         self.trunk = _Trunk(hidden)
         self.head = _linear(hidden[-1], 1, 1.0)
@@ -133,8 +192,8 @@ class LayoutCritic(nn.Module):
         lead = obs.shape[:-1]
         state, obs, layout = state.reshape(-1, state.shape[-1]), obs.reshape(-1, obs.shape[-1]), layout.reshape(-1)
 
-        hidden = self.state_encoder(state)
+        hidden = self.state_encoder(self.state_norm(state))
         own = torch.zeros_like(hidden)
         for index, rows in _per_layout(layout, len(self.adapters)):
-            own[rows] = self.adapters[index](obs[rows, : self.obs_dims[index]])
+            own[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
         return self.head(self.trunk(hidden + own)).reshape(lead)
