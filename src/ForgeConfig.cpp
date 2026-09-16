@@ -290,7 +290,12 @@ AnimusForge::ForgeConfig AnimusForge::ForgeConfig::BenchProfile(uint32 envs, boo
 
     // A timed run only has to train: no evaluation, no seeding from other runs, no distillation, and a budget it
     // never reaches. AnimusForge.Learner.Args still win over these (--set is applied in order).
-    bench.LearnerArgs = { "--set", "eval.every_env_steps=0", "--set", "eval.at_start=false", "--set", "init_from=[]",
+    //
+    // The evaluation interval is pushed out of reach rather than set to 0: a stage whose target has gates needs an
+    // interval to check them at, and the learner refuses the pair at startup. With eval.at_start off and a budget
+    // nothing reaches, an interval this large is the same as none.
+    bench.LearnerArgs = { "--set", "eval.every_env_steps=1000000000000", "--set", "eval.at_start=false",
+        "--set", "init_from=[]",
         "--set", "merge_from=[]", "--set", "distill.teachers=\"\"", "--set", "total_env_steps=1000000000000",
         "--set", "checkpoint_every=1000000", "--set", "convergence.patience=0" };
     bench.LearnerArgs.insert(bench.LearnerArgs.end(), LearnerArgs.begin(), LearnerArgs.end());
