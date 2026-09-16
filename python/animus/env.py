@@ -76,6 +76,15 @@ class ForgeEnv:
         self._pending = self._receive_step()
         return self._pending
 
+    def set_layout_weights(self, weights) -> None:
+        """How often training episodes draw each layout, in the SPEC's layout order (see protocol WEIGHTS).
+
+        The sim applies them to the episodes it builds from now on and sends nothing back: the next step() carries
+        the answer to its ACT as usual. Evaluation episodes stay evenly spread whatever the weights are.
+        """
+        payload = p.encode_weights(weights)
+        self.sock.sendall(p.encode_header(p.MsgType.WEIGHTS, len(payload)) + payload)
+
     def close(self) -> None:
         try:
             self.sock.sendall(p.encode_header(p.MsgType.CLOSE, 0))

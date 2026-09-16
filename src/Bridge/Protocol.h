@@ -50,6 +50,10 @@
  *   client -> server  ACT    { i32 actions[E*A] }
  *   client -> server  MODE   ModeMsg (instead of ACT) -- switch between training and evaluation; the server
  *                            resets every env and answers with a fresh STEP (zero reward and done)
+ *   client -> server  WEIGHTS { u32 count, f32 weight[count] } (instead of ACT) -- how often training episodes
+ *                            draw each layout, in the SPEC's layout order; the server applies them and waits for
+ *                            the ACT without answering. A weight of 1 everywhere is the uniform draw; count must
+ *                            match the SPEC's layout count.
  *   client -> server  CLOSE  {}  (instead of ACT) -- server drops the client and waits for a new one
  *
  * Evaluation (MODE with Mode = 1): episodes seed index 0..Episodes-1 are handed out in order to the envs as
@@ -60,7 +64,8 @@
  * same seeds; with MODE_FLAG_SCRIPTED_OPPONENTS as well, the policy plays only the opponent seats of self-play
  * episodes and the learner's actions the rest (learner against a scripted opponent). MODE with Mode = 0 returns to
  * unseeded training episodes. Every new session (HELLO) starts in training mode, whatever mode the previous learner
- * left the sim in.
+ * left the sim in. Evaluation episodes always draw layouts evenly, whatever WEIGHTS asked for: seeded episode index
+ * i plays layout i % (layout count), so every class/role is scored on its own equal share of the seeds.
  *
  * The first STEP after SPEC carries freshly reset envs: its reward and done arrays are zero and
  * must not be recorded as a transition. A truncated episode (done, not terminated) bootstraps from
@@ -76,7 +81,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 5;
+    constexpr uint32 PROTOCOL_VERSION = 6;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -92,6 +97,7 @@ namespace AnimusForge
         Act   = 4,
         Close = 5,
         Mode  = 6,
+        Weights = 7,
     };
 
 #pragma pack(push, 1)
@@ -139,6 +145,12 @@ namespace AnimusForge
         uint32 Episodes;                    // seeded evaluation episodes
         uint32 Flags;                       // MODE_FLAG_*
         char Baseline[POLICY_NAME_SIZE];    // scripted policy to run instead of the learner's; empty = learner
+    };
+
+    /// WEIGHTS payload: Count, then that many float weights (one per layout, in the SPEC's order).
+    struct WeightsHeader
+    {
+        uint32 Count;
     };
 
     struct StepHeader

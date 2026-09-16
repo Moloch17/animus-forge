@@ -3,13 +3,17 @@
 Scores are only comparable within one scenario, so the score gates are relative to the scripted baseline scored on
 the same seeds: "score >= baseline + ratio x |baseline|" reads as "ratio better than the baseline" whatever the sign
 of the scenario's reward. The overall gate keeps the average up; the per-layout floor keeps a class/role from
-hiding behind it, because the next stage seeds every layout from these networks. Metric gates check episode info
+hiding behind it, because the next stage seeds every layout from these networks. Score gates allow for evaluation
+noise (target.noise_z standard errors of the difference), because a class/role holds only its share of the seeded
+episodes: without it a layout that is genuinely level with the baseline fails about half the time. Metric gates check
+episode info
 means directly (killed, died, ...), which reward shaping cannot game. A stage that mixes arenas can gate each arena
 on its own episodes (target.arenas), so one situation cannot hide behind the others either.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 
 from .config import TargetConfig, TrainConfig
@@ -40,6 +44,22 @@ def required_score(baseline: float, ratio: float) -> float:
     return baseline + ratio * abs(baseline)
 
 
+def noise_allowance(row: dict, base: dict, z: float) -> float:
+    """How far below the required score still counts as passing: `z` standard errors of the difference between the
+    two scores. Both are means over a sample of seeded episodes, so both carry noise."""
+    if z <= 0.0:
+        return 0.0
+    stderr = float(row.get("stderr") or 0.0)
+    base_stderr = float(base.get("stderr") or 0.0)
+    return z * math.sqrt(stderr ** 2 + base_stderr ** 2)
+
+
+def _check_score(report: GateReport, gate: str, row: dict, base: dict, ratio: float, z: float) -> None:
+    """A score gate: the required score, less what evaluation noise can explain."""
+    required = required_score(base["score"], ratio)
+    report.check(gate, row["score"], required, row["score"] >= required - noise_allowance(row, base, z))
+
+
 def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfig) -> GateReport:
     """Check `summary` (EvalResult.summary) against the target; `baseline` is the baseline's summary, same seeds."""
     report = GateReport()
@@ -53,8 +73,7 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
             return report
 
     if target.min_over_baseline is not None:
-        required = required_score(baseline["score"], target.min_over_baseline)
-        report.check("score", summary["score"], required, summary["score"] >= required)
+        _check_score(report, "score", summary, baseline, target.min_over_baseline, target.noise_z)
 
     if target.min_layout_over_baseline is not None:
         for name, row in summary.get("layouts", {}).items():
@@ -64,8 +83,7 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
             elif row["episodes"] < target.min_layout_episodes:
                 report.skipped.append(f"{name}: {row['episodes']} episodes")
             else:
-                required = required_score(base["score"], target.min_layout_over_baseline)
-                report.check(f"{name} score", row["score"], required, row["score"] >= required)
+                _check_score(report, f"{name} score", row, base, target.min_layout_over_baseline, target.noise_z)
 
     _check_metrics(report, summary, target.metrics, "")
 
@@ -84,8 +102,7 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
             if base is None or base.get("score") is None:
                 report.fail(f"arena {arena}: no baseline score to compare with")
             else:
-                required = required_score(base["score"], ratio)
-                report.check(f"arena {arena} score", row["score"], required, row["score"] >= required)
+                _check_score(report, f"arena {arena} score", row, base, ratio, target.noise_z)
 
         _check_metrics(report, row, gates.get("metrics", {}), f"arena {arena} ")
 
@@ -143,6 +160,8 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
         errors += _metric_errors(f"{prefix}.metrics", gates.get("metrics", {}), info_names)
     if target.min_arena_episodes < 0:
         errors.append("target.min_arena_episodes must be >= 0")
+    if target.noise_z < 0:
+        errors.append("target.noise_z must be >= 0")
     if target.confirm_episodes < 0:
         errors.append("target.confirm_episodes must be >= 0")
     if config.restarts.max_restarts < 0:

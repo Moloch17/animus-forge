@@ -366,10 +366,15 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
     larger batches help: raise `AnimusForge.Envs`.
   - If the world thread dominates, more map threads (`MapUpdate.Threads`) and fewer class/roles or simpler arenas help.
 - **Updates versus rollouts.** `update_seconds` in `metrics.csv` is time spent in PPO updates, which a GPU speeds up.
-  Rollouts stay on the CPU on purpose.
+  Rollouts stay on the CPU on purpose. Serially that time is sim idle time: `env_steps_per_sec` in `metrics.csv` is the
+  rollout's own rate, and the rate over the wall clock is lower by the update's share. `overlap_updates` runs the
+  update on a worker thread while the sim collects the next rollout and closes most of that gap; the rollout then acts
+  on the update before last, and update stats are logged one update late.
 - **Evaluation cost.** Every evaluation resets all envs and runs `eval.episodes` seeded episodes plus confirmation
   episodes. Large evaluations every few million steps can take a significant share of wall time. `eval.every_env_steps`
-  and `eval.episodes` trade that time against the reliability of convergence decisions.
+  and `eval.episodes` trade that time against the reliability of convergence decisions -- but the trade is cheap in the
+  curriculum stages: an evaluation is seconds of sim time against tens of minutes of training, while its noise sets the
+  convergence margin and the per-class/role gates. Too few episodes is the more common mistake.
 - **Asset builds** take a few seconds per class/role at the start of each stage (trainer data and item pools). This is
   expected.
 - **Memory.** Instances are created once and reused. Bots reuse two GUIDs per slot. Steadily growing memory during a run

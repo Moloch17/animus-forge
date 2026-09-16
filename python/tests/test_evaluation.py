@@ -10,7 +10,7 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import ConvergenceTracker, EvalResult, run_evaluation
+from animus.evaluation import ConvergenceTracker, EvalResult, layout_weights, run_evaluation
 from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
@@ -337,3 +337,42 @@ def test_init_from_falls_back_to_latest(tmp_path):
     assert init_from_checkpoint(str(run / "best.pt")) == run / "latest.pt"
     (run / "best.pt").write_text("x")
     assert init_from_checkpoint(str(run / "best.pt")) == run / "best.pt"
+
+
+def result_with_layouts(returns, layouts, seeds=None):
+    returns = np.array(returns, dtype=np.float64)
+    return EvalResult(
+        policy="learner",
+        returns=returns,
+        infos=np.arange(len(returns) * 2, dtype=np.float32).reshape(len(returns), 2),
+        info_names=("present", "killed"),
+        layouts=tuple(layouts),
+        seeds=tuple(seeds if seeds is not None else range(len(returns))),
+    )
+
+
+def test_episodes_log_has_one_row_per_episode():
+    result = result_with_layouts([1.0, 2.0], ["rogue_dps", "mage_dps"], seeds=[4, 9])
+    rows = result.episodes_log(("killed",))
+    assert [row["seed"] for row in rows] == [4, 9]
+    assert [row["layout"] for row in rows] == ["rogue_dps", "mage_dps"]
+    assert [row["return"] for row in rows] == [1.0, 2.0]
+    assert rows[0]["killed"] == 1.0 and "present" not in rows[0]  # only the reported columns
+
+
+def test_layout_weights_favour_the_layouts_below_baseline():
+    summary = {"layouts": {"rogue_dps": {"score": 6.0}, "mage_dps": {"score": 9.0}, "priest_dps": {"score": 8.0}}}
+    baseline = {"layouts": {"rogue_dps": {"score": 8.5}, "mage_dps": {"score": 4.0}, "priest_dps": {"score": 8.0}}}
+    weights = layout_weights(summary, baseline, strength=1.0, max_ratio=3.0)
+
+    assert weights["rogue_dps"] > weights["priest_dps"] > weights["mage_dps"]
+    assert np.mean(list(weights.values())) == pytest.approx(1.0)  # the episode count is unchanged
+    assert max(weights.values()) / min(weights.values()) <= 3.0 + 1e-6
+
+
+def test_layout_weights_are_even_without_a_spread_or_a_baseline():
+    summary = {"layouts": {"a": {"score": 5.0}, "b": {"score": 5.0}}}
+    baseline = {"layouts": {"a": {"score": 4.0}, "b": {"score": 4.0}}}
+    assert layout_weights(summary, baseline, 1.0, 3.0) == {"a": 1.0, "b": 1.0}
+    assert layout_weights(summary, baseline, 0.0, 3.0) == {"a": 1.0, "b": 1.0}  # strength 0 = uniform
+    assert layout_weights({"layouts": {}}, baseline, 1.0, 3.0) == {}

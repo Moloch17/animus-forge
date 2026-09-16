@@ -25,6 +25,7 @@ import csv
 import json
 import random
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -36,7 +37,7 @@ from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
-from .evaluation import ConvergenceTracker, EvalResult, format_summary, run_evaluation
+from .evaluation import ConvergenceTracker, EvalResult, format_summary, layout_weights, run_evaluation
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
@@ -104,17 +105,20 @@ def save_checkpoint(
 
 
 class EvalLog:
-    """eval.csv (one row per evaluation), eval.jsonl (the full summary, level bands included) and stage.jsonl (each
-    decision to move on, restart or halt, with the gates behind it)."""
+    """eval.csv (one row per evaluation), eval.jsonl (the full summary, level bands included), eval_episodes.jsonl
+    (one row per scored episode) and stage.jsonl (each decision to move on, restart or halt, with the gates behind
+    it)."""
 
     COLUMNS = ["update", "env_steps", "policy", "episodes", "score", "stderr", "margin", "best", "evals_since_best",
                "restarts", "seconds"]
 
-    def __init__(self, run_dir: Path, tb):
+    def __init__(self, run_dir: Path, tb, report: tuple[str, ...] = ()):
         self.csv_path = run_dir / "eval.csv"
         self.jsonl_path = run_dir / "eval.jsonl"
+        self.episodes_path = run_dir / "eval_episodes.jsonl"
         self.stage_path = run_dir / "stage.jsonl"
         self.tb = tb
+        self.report = report
 
     def write(self, update: int, env_steps: int, result: EvalResult, summary: dict, tracker: ConvergenceTracker,
               restarts: int = 0) -> None:
@@ -139,6 +143,11 @@ class EvalLog:
             writer.writerow(row)
         with self.jsonl_path.open("a") as f:
             f.write(json.dumps({**row, "summary": summary}) + "\n")
+
+        # The episodes behind the summary: which seeds a class/role failed, not just that its mean is low.
+        with self.episodes_path.open("a") as f:
+            for episode in result.episodes_log(self.report):
+                f.write(json.dumps({"update": update, "env_steps": env_steps, **episode}) + "\n")
 
         if self.tb is None or result.policy != "learner":
             return
@@ -290,8 +299,18 @@ class TrainingRun:
         self.env_steps = 0
         self._load_or_seed()
 
-        self.buffer = RolloutBuffer(config.rollout_length, spec.num_envs, spec.agents_per_env, spec.obs_dim,
-                                    spec.state_dim, spec.num_actions)
+        def new_buffer() -> RolloutBuffer:
+            return RolloutBuffer(config.rollout_length, spec.num_envs, spec.agents_per_env, spec.obs_dim,
+                                 spec.state_dim, spec.num_actions)
+
+        self.buffer = new_buffer()
+        # Overlapped updates fill this one while the update reads the other; they swap after every rollout.
+        self.spare_buffer = new_buffer() if config.overlap_updates else None
+        self.pending_update: Future | None = None
+        self.carried_stats: dict[str, float] | None = None  # an update drained outside a rollout, still to log
+        self.rollout_reward = 0.0
+        self.updater = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update") \
+            if config.overlap_updates else None
         columns = [
             "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
             *(f"episode_{name}" for name in spec.episode_info_names),
@@ -299,13 +318,13 @@ class TrainingRun:
             "distill_kl", "distill_rows",
         ]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
-        self.eval_log = EvalLog(self.run_dir, self.logger.tb)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
         report = tuple(config.eval.report)
         report += tuple(name for name in config.target.metrics if name not in report)
         for gates in config.target.arenas.values():
             report += tuple(name for name in gates.get("metrics", {}) if name not in report)
         self.report = report
+        self.eval_log = EvalLog(self.run_dir, self.logger.tb, report)
         # Self-play arenas scored against the baseline as their opponent (eval.opponent_baseline).
         self.opponents = config.eval.baseline if config.eval.opponent_baseline else ""
         self.baselines: dict[tuple[int, int], dict] = {}
@@ -380,6 +399,7 @@ class TrainingRun:
                 "stage": self.stage}
 
     def _save(self, path: Path) -> None:
+        self.drain_update()
         save_checkpoint(path, self.trainer, self.config, self.spec, self.update, self.env_steps,
                         self._checkpoint_extra())
 
@@ -424,6 +444,7 @@ class TrainingRun:
 
     def evaluate(self) -> None:
         """Score the networks on the seeds (and the baseline once per run); the next training STEP becomes current."""
+        self.drain_update()
         config, tracker, controller = self.config, self.tracker, self.controller
         controller.baseline_summary = self.baseline_for(config.eval.seed, config.eval.episodes)
         baseline_summary = controller.baseline_summary
@@ -449,8 +470,24 @@ class TrainingRun:
         if improved:
             self._save(self.best_path)
 
+        self.send_layout_weights(summary, baseline_summary)
+
+    def send_layout_weights(self, summary: dict, baseline: dict | None) -> None:
+        """Weight the training episodes toward the class/roles furthest below their baseline (protocol WEIGHTS)."""
+        sampling = self.config.layout_sampling
+        if not sampling.enabled or baseline is None or not summary.get("layouts"):
+            return
+
+        weights = layout_weights(summary, baseline, sampling.strength, sampling.max_ratio)
+        names = [layout.name for layout in self.spec.layouts]
+        self.env.set_layout_weights([weights.get(name, 1.0) for name in names])
+        heaviest = sorted(weights.items(), key=lambda item: -item[1])[:3]
+        print("Layout weights: " + ", ".join(f"{name} {weight:.2f}" for name, weight in heaviest)
+              + f" (of {len(weights)} class/roles)", flush=True)
+
     def confirm_best(self) -> tuple[dict, dict | None]:
         """Score best.pt on the held-out confirmation seeds, then put the training networks back."""
+        self.drain_update()
         target, trainer = self.config.target, self.trainer
         training_state = copy.deepcopy(trainer.state_dict())
         trainer.load_state_dict(torch.load(self.best_path, map_location="cpu", weights_only=False)["trainer"],
@@ -472,6 +509,7 @@ class TrainingRun:
     # ------------------------------------------------------------------ stage decisions
 
     def restart_from_best(self) -> None:
+        self.drain_update()
         r = self.config.restarts
         self.trainer.load_state_dict(torch.load(self.best_path, map_location="cpu", weights_only=False)["trainer"],
                                      load_optimizers=False)
@@ -506,13 +544,28 @@ class TrainingRun:
 
     # ------------------------------------------------------------------ training
 
+    def finish_update(self) -> dict[str, float] | None:
+        """Wait for an overlapped update to finish and hand its weights to the rollout networks. None if none ran."""
+        if self.pending_update is None:
+            return None
+
+        pending, self.pending_update = self.pending_update, None
+        stats = pending.result()  # an update that raised re-raises here, on the training thread
+        self.trainer.sync_rollout()
+        return stats
+
+    def drain_update(self) -> None:
+        """Finish any overlapped update, so the networks are whole: before an evaluation, a checkpoint or a restart.
+        Its stats are kept for the next logged row."""
+        if (stats := self.finish_update()) is not None:
+            self.carried_stats = stats
+
     def rollout(self) -> tuple[dict[str, float], float, float]:
         """Fill the buffer from the sim and update the networks; returns (update stats, start time, rollout s)."""
         spec, trainer, buffer = self.spec, self.trainer, self.buffer
         envs, agents = spec.num_envs, spec.agents_per_env
         buffer.reset()
         started = time.perf_counter()
-        trainer.entropy_coef = self.controller.entropy_coef(self.env_steps)
 
         while not buffer.full:
             step = self.step
@@ -535,12 +588,30 @@ class TrainingRun:
 
         rollout_seconds = time.perf_counter() - started
         buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts)
+        # Read before the buffers swap below: log_update runs on the rollout that has just been collected.
+        self.rollout_reward = buffer.mean_reward()
+        trainer.entropy_coef = self.controller.entropy_coef(self.env_steps)
         if self.distiller is not None:
             self.distiller.coef = self.config.distill.coef_at(self.env_steps)
-        stats = trainer.update(buffer, self.distiller)
 
         self.update += 1
         self.env_steps += self.config.rollout_length * envs * agents
+
+        if self.updater is None:
+            stats = trainer.update(buffer, self.distiller)
+            return stats, started, rollout_seconds
+
+        # Overlapped: the update of the rollout before last has been running while this one was collected. Take its
+        # stats and its weights, then hand this rollout to the worker and collect the next one meanwhile. The
+        # networks are synced on the join, so the rollout that follows acts on the weights of the update before it.
+        stats = self.finish_update()
+        self.pending_update = self.updater.submit(trainer.update, buffer, self.distiller, sync=False)
+        self.buffer, self.spare_buffer = self.spare_buffer, buffer
+        if stats is None:
+            stats, self.carried_stats = self.carried_stats, None
+        if stats is None:
+            # The very first update has nothing to overlap with; wait for it, so every update has a logged row.
+            stats = self.finish_update()
         return stats, started, rollout_seconds
 
     def log_update(self, stats: dict[str, float], started: float, rollout_seconds: float) -> None:
@@ -553,7 +624,7 @@ class TrainingRun:
             "env_steps": self.env_steps,
             "env_steps_per_sec": config.rollout_length * spec.num_envs * spec.agents_per_env / rollout_seconds,
             "update_seconds": time.perf_counter() - started - rollout_seconds,
-            "reward_per_decision": self.buffer.mean_reward(),
+            "reward_per_decision": self.rollout_reward,
             "episodes": len(self.finished_episodes),
             "entropy_coef": self.trainer.entropy_coef,
             **({"distill_coef": self.distiller.coef} if self.distiller is not None else {}),
@@ -634,6 +705,9 @@ class TrainingRun:
             print(f"{self.config.run_name} finished: {outcome.reason}", flush=True)
         self.progress.write("finished" if outcome else "stopped", self.update, self.env_steps,
                             outcome.reason if outcome else "", advanced=bool(outcome and outcome.action == ADVANCE))
+        self.drain_update()
+        if self.updater is not None:
+            self.updater.shutdown()
         self.logger.close()
         self.env.close()
 

@@ -561,8 +561,20 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   `min_arena_episodes`.
 - `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass
   again, because a best picked out of many evaluations is partly luck.
+- `noise_z`: how much evaluation noise a score gate forgives, in standard errors of the difference between the two
+  scores. A class/role is scored on its share of the episodes only, so at `0` one that is really level with its
+  baseline fails about half the time.
 
 With no gates set, a converged stage advances.
+
+### Where the episodes go (`layout_sampling`)
+
+Training episodes draw a class/role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
+the learner sends the sim a weight per class/role after every evaluation (protocol `WEIGHTS`), from the gap between
+that class/role's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
+on the size of the scenario's rewards. `strength` scales the effect (0 = even), `max_ratio` caps the spread between
+the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
+are spent. Evaluation episodes stay evenly spread over the class/roles whatever the weights are.
 
 ### The stage controller (`stage.py`)
 

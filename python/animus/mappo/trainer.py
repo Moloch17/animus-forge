@@ -96,6 +96,11 @@ class MappoTrainer:
 
     # ------------------------------------------------------------------ rollout
 
+    def sync_rollout(self) -> None:
+        """Copy the trained weights to the rollout networks. `update(sync=False)` leaves this to the caller, which
+        overlapping an update with the next rollout needs: the rollout reads these copies while the update runs."""
+        self._sync_rollout()
+
     def _sync_rollout(self) -> None:
         self._rollout_actor.load_state_dict(self.actor.state_dict())
         self._rollout_critic.load_state_dict(self.critic.state_dict())
@@ -126,7 +131,7 @@ class MappoTrainer:
 
     # ------------------------------------------------------------------ update
 
-    def update(self, buffer: RolloutBuffer, auxiliary=None) -> dict[str, float]:
+    def update(self, buffer: RolloutBuffer, auxiliary=None, sync: bool = True) -> dict[str, float]:
         """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         cfg = self.config
@@ -198,7 +203,8 @@ class MappoTrainer:
                     stats["approx_kl"] += ((ratio - 1) - log_ratio).mean().item()
                 updates += 1
 
-        self._sync_rollout()
+        if sync:
+            self._sync_rollout()
         result = {k: v / max(1, updates) for k, v in stats.items()}
         result.update({k: v / auxiliary_updates for k, v in auxiliary_stats.items()})
         return result

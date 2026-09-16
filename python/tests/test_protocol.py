@@ -71,6 +71,15 @@ def test_mode_matches_cpp_layout():
     assert p.MODE.unpack(p.encode_mode(True, 1, 2, "fight", opponents_only=True))[3] == p.MODE_FLAG_SCRIPTED_OPPONENTS
 
 
+def test_weights_round_trip():
+    # WeightsHeader in Protocol.h: one uint32 count, then that many float32 weights.
+    assert p.WEIGHTS_COUNT.size == 4
+    payload = p.encode_weights([1.0, 2.5, 0.0])
+    assert len(payload) == 4 + 3 * 4
+    assert list(p.decode_weights(payload)) == [1.0, 2.5, 0.0]
+    assert list(p.decode_weights(p.encode_weights([]))) == []
+
+
 def test_step_round_trip_and_size():
     step = make_step(7, np.random.default_rng(0))
     payload = p.encode_step(SPEC, step)

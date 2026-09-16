@@ -37,6 +37,7 @@ class EvalResult:
     infos: np.ndarray  # [n, K] episode info, same order
     info_names: tuple[str, ...]
     layouts: tuple[str, ...] = ()  # [n] each agent's layout name
+    seeds: tuple[int, ...] = ()  # [n] the seed index of each row's episode, for the per-episode log
     arenas: tuple[str, ...] = ()  # the stage's arena names, indexed by the episode info column "arena"
     seconds: float = 0.0
     decisions: int = 0
@@ -52,6 +53,27 @@ class EvalResult:
     @property
     def stderr(self) -> float:
         return standard_error(self.returns)
+
+    def episodes_log(self, columns: tuple[str, ...]) -> list[dict]:
+        """One row per scored episode: its seed, layout, return and `columns` of its episode info.
+
+        The summaries average these away, and an average cannot say whether a class/role is a little worse
+        everywhere or fine except for a handful of episodes it never finishes -- which is what a per-layout gate
+        actually turns on. Written to eval_episodes.jsonl by the training run.
+        """
+        present = [c for c in columns if c in self.info_names]
+        rows = []
+        for index in range(self.episodes):
+            row = {
+                "policy": self.policy,
+                "seed": int(self.seeds[index]) if index < len(self.seeds) else -1,
+                "layout": self.layouts[index] if index < len(self.layouts) else "",
+                "return": float(self.returns[index]),
+            }
+            for name in present:
+                row[name] = float(self.infos[index, self.info_names.index(name)])
+            rows.append(row)
+        return rows
 
     def column(self, name: str) -> np.ndarray | None:
         return self.infos[:, self.info_names.index(name)] if name in self.info_names else None
@@ -90,6 +112,33 @@ class EvalResult:
                 if rows.any():
                     result["arenas"][arena] = means(rows)
         return result
+
+
+def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float) -> dict[str, float]:
+    """How often training episodes should draw each layout, from the gap to the baseline's score for that layout.
+
+    A stage is gated on its weakest class/role, so an episode of a layout that trails its baseline is worth more
+    than one of a layout that is already clear of it. The gaps are measured in their own standard deviations, so
+    the weights do not depend on the size of the scenario's rewards, and the spread is capped: the heaviest layout
+    draws at most `max_ratio` times the lightest, whatever the scores are. Weights average 1 (the even draw).
+    """
+    rows = summary.get("layouts", {})
+    names = [name for name, row in rows.items() if row.get("score") is not None]
+    if not names or strength <= 0.0 or max_ratio <= 1.0:
+        return {name: 1.0 for name in rows}
+
+    base = (baseline or {}).get("layouts", {})
+    gaps = np.array([float(base.get(name, {}).get("score") or 0.0) - float(rows[name]["score"]) for name in names])
+    spread = float(gaps.std())
+    if spread <= 1e-9:
+        return {name: 1.0 for name in names}
+
+    weights = np.exp(strength * np.clip((gaps - gaps.mean()) / spread, -3.0, 3.0))
+    # Cap the spread, then centre on 1 so the total number of episodes is unchanged.
+    limit = math.sqrt(max_ratio)
+    weights = np.clip(weights / float(np.exp(np.log(weights).mean())), 1.0 / limit, limit)
+    weights /= float(weights.mean())
+    return {name: float(weight) for name, weight in zip(names, weights)}
 
 
 def standard_error(values: np.ndarray) -> float:
@@ -151,12 +200,14 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         print(f"Evaluation stopped after {decisions} decisions with {len(finished)} of {episodes} episodes", flush=True)
 
     rows = [row for index in sorted(finished) for row in finished[index]]
+    seeds = [index for index in sorted(finished) for _ in finished[index]]
     result = EvalResult(
         policy=baseline or "learner",
         returns=np.array([row[0] for row in rows], dtype=np.float64),
         infos=np.array([row[1] for row in rows], dtype=np.float32).reshape(len(rows), spec.episode_info_dim),
         info_names=tuple(spec.episode_info_names),
         layouts=tuple(row[2] for row in rows),
+        seeds=tuple(seeds),
         arenas=tuple(arenas),
         seconds=time.perf_counter() - started,
         decisions=decisions,

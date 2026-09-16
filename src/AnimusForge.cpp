@@ -655,13 +655,15 @@ void AnimusForge::Forge::RemoteDecision()
         return;
 
     std::size_t const actionBytes = _pool->Actions.size() * sizeof(int32);
+    std::size_t const weightBytes = sizeof(WeightsHeader) + _pool->Spec().Layouts.size() * sizeof(float);
 
-    // ACT, or MODE first: a mode switch resets every env and answers with a fresh STEP before the ACT.
+    // ACT, or MODE or WEIGHTS first: a mode switch resets every env and answers with a fresh STEP before the ACT;
+    // weights are applied without an answer.
     for (;;)
     {
         MsgType type;
         std::vector<char> payload;
-        if (!_server.ReceiveAny(type, payload, std::max(actionBytes, sizeof(ModeMsg)), onIdle))
+        if (!_server.ReceiveAny(type, payload, std::max({ actionBytes, sizeof(ModeMsg), weightBytes }), onIdle))
         {
             _server.DropClient();
             return;
@@ -691,10 +693,31 @@ void AnimusForge::Forge::RemoteDecision()
             continue;
         }
 
+        if (type == MsgType::Weights && payload.size() >= sizeof(WeightsHeader))
+        {
+            WeightsHeader header{};
+            std::memcpy(&header, payload.data(), sizeof(header));
+            if (payload.size() != sizeof(WeightsHeader) + header.Count * sizeof(float))
+            {
+                LOG_ERROR("module.animus", "Learner sent WEIGHTS with {} bytes for {} weights", payload.size(),
+                    header.Count);
+                _server.DropClient();
+                return;
+            }
+
+            std::vector<float> weights(header.Count);
+            if (header.Count)
+                std::memcpy(weights.data(), payload.data() + sizeof(WeightsHeader), header.Count * sizeof(float));
+
+            // Takes effect as envs reset; the episodes already running keep the class/roles they were built with.
+            _pool->SetLayoutWeights(weights);
+            continue;
+        }
+
         // CLOSE (the client is already gone) or a protocol error: the next decision waits for a new learner.
         if (type != MsgType::Close)
-            LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes where ACT or MODE was expected",
-                uint32(type), payload.size());
+            LOG_ERROR("module.animus", "Learner sent message type {} with {} bytes where ACT, MODE or WEIGHTS was "
+                "expected", uint32(type), payload.size());
 
         _server.DropClient();
         return;

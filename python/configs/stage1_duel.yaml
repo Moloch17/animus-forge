@@ -25,6 +25,11 @@ init_from: auto
 # (see restarts).
 total_env_steps: 300000000
 rollout_length: 128
+
+# Update the networks on a worker thread while the sim collects the next rollout, instead of standing idle for it
+# (~20% more env steps per second here). The rollout then acts on the update before last: one update staler than
+# the serial loop, which PPO's clipping already accounts for.
+overlap_updates: true
 log_every: 1
 checkpoint_every: 25
 keep_checkpoints: 5
@@ -57,14 +62,18 @@ mappo:
   max_grad_norm: 0.5
   use_value_norm: true
 
-# Seeded evaluation (animus.evaluation): every every_env_steps the networks play the same 128 characters and opponents
-# with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band and per-class/role
-# stats next to the baseline, scored once per run on the same seeds. The best networks go to best.pt and are the ones
-# the next stage seeds from.
+# Seeded evaluation (animus.evaluation): every every_env_steps the networks play the same 1024 characters and
+# opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band and
+# per-class/role stats next to the baseline, scored once per run on the same seeds, and eval_episodes.jsonl every
+# episode behind them. The best networks go to best.pt and are the ones the next stage seeds from.
+#
+# 1024 episodes spread over the 18 class/roles leave ~57 each: enough that a class/role's score means something and
+# that the convergence margin (which is set by the score's standard error) tracks learning rather than noise. The
+# whole evaluation is ~80 s of sim time against the ~30 min of training between two of them.
 eval:
   every_env_steps: 10000000
   at_start: true
-  episodes: 128
+  episodes: 1024
   seed: 1000
   deterministic: true
   baseline: fight
@@ -81,17 +90,27 @@ convergence:
   min_env_steps: 30000000
 
 # Good enough to move on: the best networks beat the fight baseline by 10% overall and match it for every
-# class/role, on the evaluation that set the best and then again on 512 held-out episodes (a best picked from many
-# evaluations is partly luck). These are starting guesses: tune them after a pilot run (eval.jsonl has each
-# class/role's score next to the baseline's). Metric gates check episode info means directly, e.g.
-# metrics: {killed: {min: 0.8}, died: {max: 0.2}}.
+# class/role, on the evaluation that set the best and then again on 2048 held-out episodes (a best picked from many
+# evaluations is partly luck). Each score gate allows noise_z standard errors of noise, so a class/role that is
+# really level with its baseline is not failed by the luck of its share of the seeds. These are starting guesses:
+# tune them after a pilot run (eval.jsonl has each class/role's score next to the baseline's). Metric gates check
+# episode info means directly, e.g. metrics: {killed: {min: 0.8}, died: {max: 0.2}}.
 target:
   min_over_baseline: 0.1
   min_layout_over_baseline: 0.0
   min_layout_episodes: 16
+  noise_z: 1.0
   metrics: {}
-  confirm_episodes: 512
+  confirm_episodes: 2048
   confirm_seed: 50000
+
+# Where the data goes: after every evaluation the sim is told how often to build each class/role, so the ones
+# furthest below their baseline -- the ones the per-class/role gate turns on -- get more episodes than the ones
+# already clear of it. Evaluation stays evenly spread over the class/roles whatever the weights are.
+layout_sampling:
+  enabled: true
+  strength: 1.0
+  max_ratio: 3.0
 
 # Converged below the target is a local optimum: restart from best.pt with 3x the entropy bonus (decaying back with a
 # 10M env step half-life) and fresh optimizers, at most twice. After that -- or at total_env_steps below the target --

@@ -12,8 +12,8 @@ def summary(score, layouts=None, **metrics):
     return {"score": score, "episodes": 100, "layouts": layouts or {}, **metrics}
 
 
-def layout(score, episodes=32):
-    return {"score": score, "episodes": episodes}
+def layout(score, episodes=32, stderr=0.0):
+    return {"score": score, "episodes": episodes, "stderr": stderr}
 
 
 def test_required_score_is_sign_safe():
@@ -129,3 +129,30 @@ def test_validate_target():
 def test_shipped_configs_load_and_validate(path):
     config = TrainConfig.load(path)
     validate_target(config, tuple(config.target.metrics))
+
+
+def test_score_gate_allows_evaluation_noise():
+    # A layout half a point below its baseline, measured to +/- 0.5: within a standard error of the difference.
+    target = TargetConfig(min_layout_over_baseline=0.0, noise_z=1.0)
+    learner = summary(5.0, {"rogue_dps": layout(7.5, stderr=0.5)})
+    base = summary(5.0, {"rogue_dps": layout(8.0, stderr=0.2)})
+    assert check_gates(learner, base, target).passed
+
+    # Same gap, a well-measured score: now it is a real difference.
+    sharp_learner = summary(5.0, {"rogue_dps": layout(7.5, stderr=0.05)})
+    sharp_base = summary(5.0, {"rogue_dps": layout(8.0, stderr=0.05)})
+    report = check_gates(sharp_learner, sharp_base, target)
+    assert not report.passed and report.failures == ["rogue_dps score 7.5 (needs 8)"]
+
+    # And noise_z 0 compares the raw means, whatever the standard errors say.
+    assert not check_gates(learner, base, TargetConfig(min_layout_over_baseline=0.0, noise_z=0.0)).passed
+
+
+def test_noise_allowance_is_validated():
+    config = TrainConfig()
+    config.eval.every_env_steps = 1
+    config.eval.baseline = "fight"
+    config.target.min_over_baseline = 0.1
+    config.target.noise_z = -1.0
+    with pytest.raises(ValueError, match="noise_z"):
+        validate_target(config, ("killed",))

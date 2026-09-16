@@ -149,6 +149,11 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     # Empty seats earn nothing and are not samples: every present seat earns 1 per decision.
     assert all(float(row["reward_per_decision"]) == pytest.approx(1.0) for row in rows)
 
+    # Every scored episode is logged, so a class/role's failures can be read back seed by seed.
+    episodes = [json.loads(line) for line in (run_dir / "eval_episodes.jsonl").read_text().splitlines()]
+    assert {row["layout"] for row in episodes} <= {"warrior_dps", "mage_dps"}
+    assert all("return" in row and row["seed"] >= 0 for row in episodes)
+
     with (run_dir / "eval.csv").open() as f:
         evals = list(csv.DictReader(f))
     assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update]

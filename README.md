@@ -743,6 +743,11 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
   reseeded from (`eval.seed`, *i*): the same race, level, spec, talents, gear, opponents and spawn points
   every evaluation, whatever the env count. Combat rolls stay random, so scores are averages, not replays.
   Afterwards the learner switches back and training resumes from fresh episodes.
+- **Even over the class/roles:** seed *i* plays layout *i % (layout count)*, so each class/role is scored on an
+  equal share of the seeds and its score is measured as well as the run's. `eval.episodes` is what makes those
+  per-class/role scores (and the convergence margin, which the score's standard error sets) mean anything: 1024
+  episodes over 18 class/roles leave ~57 each, and cost seconds of sim time against the training between two
+  evaluations.
 - **Policy:** argmax actions (`eval.deterministic`). The score is the mean episode return -- the scenario's
   own reward -- so it measures what training optimises and compares checkpoints of one scenario.
 - **Baseline:** `eval.baseline` (`fight` for the curriculum stages; `greedy`, the first usable spell or trinket, also exists) is played by the sim on the
@@ -755,7 +760,10 @@ networks on **seeded evaluation episodes** as they train (`eval:` in the YAML, `
 - **Output:** the log prints the score with its standard error, the best so far and a table of score and key
   episode stats (`eval.report`) overall, per level band (1-20, 21-40, 41-60, 61-80), per class/role and, for a stage
   that mixes arenas, per arena, learner next to baseline. `eval.csv` has one row per evaluation, `eval.jsonl` the
-  full tables, TensorBoard `eval/*`, `eval_<band>/*` and `eval_arena_<arena>/*`.
+  full tables, `eval_episodes.jsonl` one row per scored episode (its seed, class/role, return and reported episode
+  info) so a class/role's failures can be read seed by seed rather than as a mean, TensorBoard `eval/*`,
+  `eval_<band>/*` and `eval_arena_<arena>/*`. `python -m animus.evaluate --episodes-file PATH` writes the same
+  rows for one checkpoint.
 - **Best model:** each new best score saves `best.pt`; the stages that extend this one seed from it (see
   Bootstrapping; its `latest.pt` if there is no best).
 
@@ -774,7 +782,10 @@ A stage ends on two questions (`animus/stage.py`), not on a fixed episode count:
   arenas can gate each arena on its own episodes: `arenas: {duel: {min_over_baseline: 0.1}, pvp_scripted:
   {metrics: {won: {min: 0.5}}}}`, skipping an arena with fewer than `min_arena_episodes`. They are checked on
   the evaluation that set the best, then again on `confirm_episodes` held-out episodes (`confirm_seed`),
-  because a best picked out of many evaluations is partly luck. With no gates set, a converged stage moves on.
+  because a best picked out of many evaluations is partly luck. Each score gate passes within `noise_z` standard
+  errors of what it requires (of the difference between the two scores): a class/role holds only its share of the
+  episodes, so without that allowance one that is really level with its baseline fails about half the time. With
+  no gates set, a converged stage moves on.
 - **Stuck below the target? (`restarts:`)** Converging below the target is treated as a local optimum: the
   networks reload `best.pt`, the entropy bonus is multiplied by `entropy_boost` and decays back with
   `entropy_half_life_env_steps`, the optimizers start fresh (`reset_optimizers`) and, optionally, the weights are
@@ -917,4 +928,6 @@ Their account ids come from animus-lib's `BotAccounts.h`, one range per kind of 
 - **Scripted owner and PvP opponent:** the companion and party stages' owner and stage 6's enemy player are
   scripts; the party's other members and stage 7's opponent are learned.
 - **Throughput** in `remote` mode is bounded by one Python round trip per decision for all envs.
-  Raise `Envs` until the learner, not the world thread, is the bottleneck.
+  Raise `Envs` until the learner, not the world thread, is the bottleneck. With `overlap_updates` the PPO update
+  runs on a worker thread while the sim collects the next rollout, instead of the sim standing idle for it; the
+  rollout then acts on the update before last, one update staler than the serial loop.

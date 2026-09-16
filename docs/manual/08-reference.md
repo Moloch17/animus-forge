@@ -162,7 +162,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
 
-## 8.3 Wire protocol (version 5)
+## 8.3 Wire protocol (version 6)
 
 A Unix domain stream socket. The sim is the server and the learner the client. All values are little-endian with no
 padding. `src/Bridge/Protocol.h` and `python/animus/protocol.py` must change together, with `PROTOCOL_VERSION` bumped.
@@ -171,10 +171,10 @@ Every message is a header followed by `Length` payload bytes:
 
 ```
 MsgHeader { u32 Type; u32 Length; }                                          8 bytes
-Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE
+Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE, 7 WEIGHTS
 ```
 
-**Sequence:** `HELLO → SPEC → STEP → (ACT → STEP | MODE → STEP)* → CLOSE`
+**Sequence:** `HELLO → SPEC → STEP → (ACT → STEP | MODE → STEP | WEIGHTS)* → CLOSE`
 
 | Message | Direction | Payload |
 |---|---|---|
@@ -183,6 +183,7 @@ Type: 1 HELLO, 2 SPEC, 3 STEP, 4 ACT, 5 CLOSE, 6 MODE
 | `STEP` | sim to learner | See below |
 | `ACT` | learner to sim | `i32 actions[E*A]` |
 | `MODE` | learner to sim, instead of ACT | `ModeMsg` (48 bytes). The sim resets every env and answers with a fresh STEP |
+| `WEIGHTS` | learner to sim, instead of ACT | `u32 Count`, `f32 Weight[Count]`: how often training episodes draw each layout, in SPEC layout order. The sim applies them as envs reset and answers nothing; the ACT follows |
 | `CLOSE` | learner to sim, instead of ACT | Empty. The sim drops the client and waits for a new one |
 
 ```
@@ -220,6 +221,9 @@ ModeMsg   { u32 Mode;          // 0 training, 1 evaluation
 
 The first STEP after SPEC, and the STEP answering a MODE, carry freshly reset envs with zero rewards and dones. Neither
 is a transition. Every new session starts in training mode.
+
+Evaluation episodes ignore `WEIGHTS`: seed index *i* plays layout *i % (layout count)*, so every class/role is scored
+on an equal share of the seeds.
 
 ## 8.4 File formats
 
@@ -296,6 +300,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `progress.json` | Every update and evaluation | For the console |
 | `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |
 | `eval.jsonl` | Every evaluation | The same plus the full summary (bands, layouts, arenas) |
+| `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return and the reported episode info |
 | `eval_baseline.json` | Once per run | The baseline summary and its cache key |
 | `eval_baseline_<seed>_<episodes>.json` | Confirmation | Baseline on the confirmation seeds |
 | `stage.jsonl` | Each advance, restart or halt | Decision, reason, gates |

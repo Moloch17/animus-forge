@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 5
+PROTOCOL_VERSION = 6
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -25,6 +25,7 @@ class MsgType(IntEnum):
     ACT = 4
     CLOSE = 5
     MODE = 6
+    WEIGHTS = 7
 
 
 HEADER = struct.Struct("<II")  # type, payload length
@@ -35,6 +36,7 @@ LAYOUT = struct.Struct(f"<II{LAYOUT_NAME_SIZE}s")  # obs dim, actions, name
 STEP_HEADER = struct.Struct("<Q")  # decision counter
 MODE = struct.Struct(f"<IIII{POLICY_NAME_SIZE}s")  # mode, seed base, episodes, flags, baseline policy
 MODE_FLAG_SCRIPTED_OPPONENTS = 1  # the baseline plays only the opponent seats; the learner the rest
+WEIGHTS_COUNT = struct.Struct("<I")  # then that many float32 weights, one per layout in SPEC order
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,19 @@ def decode_mode(payload: bytes) -> tuple[bool, int, int, str, bool]:
     mode, seed_base, episodes, flags, name = MODE.unpack(payload)
     return (bool(mode), seed_base, episodes, name.split(b"\0", 1)[0].decode("ascii"),
             bool(flags & MODE_FLAG_SCRIPTED_OPPONENTS))
+
+
+def encode_weights(weights) -> bytes:
+    """WEIGHTS payload: how often training episodes draw each layout, in the SPEC's layout order."""
+    array = np.asarray(weights, dtype="<f4")
+    if array.ndim != 1:
+        raise ValueError("layout weights must be a flat sequence, one per layout")
+    return WEIGHTS_COUNT.pack(len(array)) + array.tobytes()
+
+
+def decode_weights(payload: bytes | bytearray | memoryview) -> np.ndarray:
+    (count,) = WEIGHTS_COUNT.unpack_from(payload)
+    return np.frombuffer(payload, dtype="<f4", count=count, offset=WEIGHTS_COUNT.size).copy()
 
 
 def encode_header(msg_type: MsgType, length: int) -> bytes:

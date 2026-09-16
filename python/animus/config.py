@@ -33,7 +33,11 @@ class EvalConfig:
 
     every_env_steps: int = 0  # evaluate after this many training env steps; 0 = never
     at_start: bool = True  # also evaluate the starting (seeded or fresh) networks before training
-    episodes: int = 128  # seeded episodes per evaluation
+    # Seeded episodes per evaluation. The score's standard error falls with the square root of this, and that error
+    # sets the convergence margin (a new best must clear it) and the per-layout gates' noise allowance, so too few
+    # episodes hide real progress behind noise. An evaluation costs seconds against tens of minutes of training
+    # between them: prefer more. Spread over the stage's layouts, each needs its own share (target.min_layout_episodes).
+    episodes: int = 1024
     seed: int = 1000  # seed base: which characters and opponents
     deterministic: bool = True  # argmax actions instead of sampling
     baseline: str = ""  # sim scripted policy scored once per run on the same seeds ("greedy", "fight")
@@ -73,9 +77,14 @@ class TargetConfig:
     # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
     arenas: dict = field(default_factory=dict)
     min_arena_episodes: int = 16  # arenas with fewer eval episodes than this are too noisy to gate
+    # Score gates pass when the score is within this many standard errors of what they require (of the difference
+    # between the two means, the learner's and the baseline's). Each layout is scored on its share of the episodes
+    # only, so without an allowance a class/role that is truly level with its baseline fails about half the time.
+    # 0 = compare the raw means.
+    noise_z: float = 1.0
     # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
     # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
-    confirm_episodes: int = 512
+    confirm_episodes: int = 2048
     confirm_seed: int = 50000
 
     @property
@@ -121,6 +130,21 @@ class DistillConfig:
 
 
 @dataclass
+class LayoutSamplingConfig:
+    """Training episodes draw a class/role uniformly, so each layout gets its share of the data whatever it is
+    worth. A stage is gated on its weakest layout, though, so the data is worth most where the score is furthest
+    below the baseline. After every evaluation the learner sends the sim a weight per layout (protocol WEIGHTS) and
+    training episodes draw layouts in proportion; evaluation stays uniform, whatever the weights are.
+
+    Needs eval.every_env_steps and eval.baseline: the weights come from the gap to the baseline's per-layout score.
+    """
+
+    enabled: bool = False
+    strength: float = 1.0  # e^(strength x gap in standard deviations of the gaps): 0 = uniform
+    max_ratio: float = 3.0  # the heaviest layout draws at most this many times the lightest
+
+
+@dataclass
 class TrainConfig:
     run_name: str = "run"
     runs_dir: str = "runs"  # the sim passes AnimusForge.OutputDir/runs
@@ -133,6 +157,12 @@ class TrainConfig:
     log_every: int = 1  # updates
     checkpoint_every: int = 25  # updates
     keep_checkpoints: int = 5  # numbered checkpoint_*.pt files kept (latest.pt and best.pt always are); 0 = all
+
+    # Run the PPO update on a worker thread, so the sim collects the next rollout instead of waiting for it. The
+    # rollout then acts on the weights of the update before last (the rollout networks are synced when the update is
+    # joined, one rollout later), which is data one update staler than the strictly serial loop; its log_probs come
+    # from the same weights, so the PPO ratio stays consistent. Update stats are logged one update late as well.
+    overlap_updates: bool = False
 
     train_device: str = AUTO  # "auto": cuda when torch sees a GPU (ROCm included), else cpu
     rollout_device: str = "cpu"  # one small forward pass per decision is faster on the CPU
@@ -152,6 +182,7 @@ class TrainConfig:
     convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
     target: TargetConfig = field(default_factory=TargetConfig)
     restarts: RestartConfig = field(default_factory=RestartConfig)
+    layout_sampling: LayoutSamplingConfig = field(default_factory=LayoutSamplingConfig)
 
     def resolved_init_from(self, stage: dict | None) -> list[str]:
         if self.init_from == AUTO:

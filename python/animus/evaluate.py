@@ -11,6 +11,7 @@ its own attached (AnimusForge.Learner.AutoStart = 0).
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import asdict
 
 import torch
@@ -32,6 +33,9 @@ def main() -> None:
                         help="self-play arenas: the baseline plays the other side (needs --baseline)")
     parser.add_argument("--socket", help="override the socket stored in the checkpoint config")
     parser.add_argument("--stochastic", action="store_true", help="sample actions instead of taking the argmax")
+    parser.add_argument("--episodes-file", metavar="PATH",
+                        help="write one JSON line per scored episode (seed, layout, return, episode info) there, as "
+                             "training writes eval_episodes.jsonl: which seeds a class/role fails, not just its mean")
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -64,13 +68,21 @@ def main() -> None:
     try:
         env.reset()
         baseline = None
+        baseline_result = None
         if args.baseline:
-            result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline,
-                                       opponents=opponents, arenas=arenas)
-            baseline = result.summary(REPORT_COLUMNS)
+            baseline_result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, baseline=args.baseline,
+                                                opponents=opponents, arenas=arenas)
+            baseline = baseline_result.summary(REPORT_COLUMNS)
         result, _ = run_evaluation(env, spec, actions, args.episodes, args.seed, opponents=opponents, arenas=arenas)
     finally:
         env.close()
+
+    if args.episodes_file:
+        with open(args.episodes_file, "w") as f:
+            for episodes in ([baseline_result] if baseline else []) + [result]:
+                for row in episodes.episodes_log(REPORT_COLUMNS):
+                    f.write(json.dumps(row) + "\n")
+        print(f"Wrote {args.episodes_file}")
 
     print(f"{spec.scenario} (update {checkpoint['update']}): score {result.score:.4g} over {result.episodes} seeded "
           f"episodes, {'stochastic' if args.stochastic else 'greedy'} policy [learner/{args.baseline or '-'}]")
