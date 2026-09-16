@@ -653,6 +653,10 @@ class TrainingRun:
                 row[f"episode_{name}"] = float(value)
         row.update(stats)
 
+        # The floor reads the entropy this update reached against how many actions were legal for it.
+        if "entropy" in row:
+            self.controller.observe_entropy(row["entropy"], self.rollout_allowed_actions)
+
         self.logger.log(self.update, row)
         self.progress.training(row)
         self.progress.write("training", self.update, self.env_steps)

@@ -16,6 +16,8 @@ With no target set, a converged stage moves on as before. The controller only de
 
 from __future__ import annotations
 
+import math
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -57,6 +59,8 @@ class StageController:
         self.best_summary: dict | None = None
         self.baseline_summary: dict | None = None
         self.last_outcome: Outcome | None = None
+        # What the entropy floor multiplies mappo.entropy_coef by; 1 until the floor has reason to raise it.
+        self.entropy_scale = 1.0
 
     def observe(self, summary: dict, env_steps: int) -> bool:
         """Record a learner evaluation; True if its networks are the new best (save them to best.pt)."""
@@ -66,13 +70,30 @@ class StageController:
         return improved
 
     def entropy_coef(self, env_steps: int) -> float:
-        base = self.config.mappo.entropy_coef
+        base = self.config.mappo.entropy_coef * self.entropy_scale
         r = self.config.restarts
         if self.restart_env_steps is None or r.entropy_boost == 1.0:
             return base
         elapsed = max(0, env_steps - self.restart_env_steps)
         decay = 0.5 ** (elapsed / r.entropy_half_life_env_steps) if r.entropy_half_life_env_steps > 0 else 0.0
         return base * (1.0 + (r.entropy_boost - 1.0) * decay)
+
+    def observe_entropy(self, entropy: float, allowed_actions: float) -> None:
+        """Move the entropy floor after an update: `entropy` is the policy's, over `allowed_actions` legal ones.
+
+        The ceiling a masked policy can reach is ln(allowed actions), so that -- not the padded action count --
+        is what the target is a fraction of. The scale only ever sits between 1 and max_boost: below the target
+        it climbs, above it falls back to the configured coefficient, so a policy that is converging on its own
+        is never held open.
+        """
+        floor = self.config.entropy_floor
+        if floor.fraction <= 0.0 or allowed_actions <= 1.0:
+            return
+
+        target = floor.fraction * math.log(allowed_actions)
+        wanted = min(floor.max_boost, self.entropy_scale * 1.5) if entropy < target else 1.0
+        self.entropy_scale += floor.rate * (wanted - self.entropy_scale)
+        self.entropy_scale = min(max(self.entropy_scale, 1.0), max(1.0, floor.max_boost))
 
     def after_eval(self, env_steps: int, confirm: Confirm) -> Outcome:
         """Call after each training evaluation."""

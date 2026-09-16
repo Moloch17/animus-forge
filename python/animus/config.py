@@ -112,6 +112,22 @@ class RestartConfig:
 
 
 @dataclass
+class EntropyFloorConfig:
+    """Keep exploration from collapsing, measured against how many actions were actually legal.
+
+    A masked action space makes a flat entropy coefficient hard to reason about: the ceiling is ln(legal
+    actions), which swings with level, cooldowns and the global cooldown, and is nothing like ln(the padded
+    action count). This raises mappo.entropy_coef when the policy's entropy falls below `fraction` of that
+    ceiling and lets it fall back to the configured value once it is above -- a floor, never a ceiling, so it
+    cannot hold a converging policy stochastic.
+    """
+
+    fraction: float = 0.0  # of ln(allowed actions); 0 = off, the coefficient stays where it is configured
+    max_boost: float = 4.0  # never raise the coefficient past this many times the configured one
+    rate: float = 0.05  # how fast it moves per update, as a fraction of the distance
+
+
+@dataclass
 class DistillConfig:
     """Kickstarting a merge stage (animus.distill): on the decisions of each arena that has a teacher -- the parent
     stage whose model already plays it -- the policy loss gains coef x KL(teacher || policy), and coef decays with
@@ -186,6 +202,7 @@ class TrainConfig:
     target: TargetConfig = field(default_factory=TargetConfig)
     restarts: RestartConfig = field(default_factory=RestartConfig)
     layout_sampling: LayoutSamplingConfig = field(default_factory=LayoutSamplingConfig)
+    entropy_floor: EntropyFloorConfig = field(default_factory=EntropyFloorConfig)
 
     def resolved_init_from(self, stage: dict | None) -> list[str]:
         if self.init_from == AUTO:

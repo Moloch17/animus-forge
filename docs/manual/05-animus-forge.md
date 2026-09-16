@@ -581,6 +581,15 @@ With no gates set, a converged stage advances.
 - `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
   clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
 
+### Keeping exploration alive (`entropy_floor`)
+
+A masked policy's entropy ceiling is `ln(legal actions)`, which swings with level, cooldowns and the global
+cooldown and is nothing like `ln(padded action count)` -- so a flat `mappo.entropy_coef` says little about
+whether the policy still explores. With `fraction` set, the coefficient climbs (to at most `max_boost` times the
+configured one, at `rate` per update) while entropy sits below that share of the ceiling, and falls straight
+back once it recovers. It is a floor, never a ceiling: a policy converging on its own is never held open. Read
+`entropy` against `allowed_actions` in `metrics.csv`.
+
 ### Where the episodes go (`layout_sampling`)
 
 Training episodes draw a class/role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`

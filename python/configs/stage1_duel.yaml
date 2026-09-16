@@ -117,6 +117,16 @@ target:
   confirm_episodes: 2048
   confirm_seed: 50000
 
+# Exploration has a floor, measured against what the mask allowed. A masked policy's ceiling is
+# ln(legal actions) -- about ln(9) in this stage, not ln(82) -- so a flat coefficient says little about whether
+# the policy still explores. Below 30% of that ceiling the coefficient climbs (up to 4x), and it falls straight
+# back once entropy recovers, so a policy converging on its own is never held open. allowed_actions and entropy
+# in metrics.csv are the pair to read. fraction: 0 turns it off.
+entropy_floor:
+  fraction: 0.3
+  max_boost: 4.0
+  rate: 0.05
+
 # Where the data goes: after every evaluation the sim is told how often to build each class/role, so the ones
 # furthest below their baseline -- the ones the per-class/role gate turns on -- get more episodes than the ones
 # already clear of it. Evaluation stays evenly spread over the class/roles whatever the weights are.

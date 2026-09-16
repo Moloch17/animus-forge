@@ -4,3 +4,13 @@
 
 extends: stage1_duel.yaml
 run_name: stage2_pack
+
+# A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
+# so the duel's 33 s horizon and 12.8 s rollout are both too short to carry credit from a clear back to the
+# opening. These are the gauntlet's numbers, one stage early (~100 s horizon, ~9 s of GAE trace, 25.6 s per
+# rollout), which is the shape the rest of the PvE line uses.
+rollout_length: 256
+
+mappo:
+  gamma: 0.999
+  gae_lambda: 0.99

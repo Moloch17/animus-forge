@@ -9,6 +9,10 @@ run_name: stage10_flight
 
 total_env_steps: 150000000
 
+# gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
+# critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
+rollout_length: 256
+
 mappo:
   # A trip of 700 yd plans takeoff and landing tens of seconds apart.
   gamma: 0.999

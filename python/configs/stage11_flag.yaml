@@ -11,6 +11,10 @@ run_name: stage11_flag
 
 total_env_steps: 300000000
 
+# gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
+# critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
+rollout_length: 256
+
 mappo:
   # A capture is a minute of riding, fighting and carrying.
   gamma: 0.999

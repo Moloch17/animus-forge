@@ -154,3 +154,41 @@ def test_trainer_restart_hooks():
     old_opt = trainer.actor_opt
     trainer.reset_optimizers()
     assert trainer.actor_opt is not old_opt and not trainer.actor_opt.state
+
+
+def test_entropy_floor_lifts_a_collapsing_policy_and_lets_go():
+    """The floor raises the coefficient while entropy is under its share of ln(legal actions), never above."""
+    from animus.config import TrainConfig
+    from animus.stage import StageController
+
+    config = TrainConfig()
+    config.mappo.entropy_coef = 0.01
+    config.entropy_floor.fraction = 0.3
+    config.entropy_floor.max_boost = 4.0
+    config.entropy_floor.rate = 0.5
+    controller = StageController(config)
+
+    assert controller.entropy_coef(0) == pytest.approx(0.01)
+
+    # Nine legal actions: the ceiling is ln(9) = 2.20, so the target is 0.66.
+    for _ in range(20):
+        controller.observe_entropy(0.2, 9.0)  # collapsed
+    lifted = controller.entropy_coef(0)
+    assert lifted > 0.01, "a collapsed policy should raise the coefficient"
+    assert lifted <= 0.01 * 4.0 + 1e-9, "never past max_boost"
+
+    for _ in range(40):
+        controller.observe_entropy(1.5, 9.0)  # well above the target again
+    assert controller.entropy_coef(0) == pytest.approx(0.01, rel=1e-2), "it has to let go once entropy recovers"
+
+
+def test_entropy_floor_is_off_by_default():
+    from animus.config import TrainConfig
+    from animus.stage import StageController
+
+    config = TrainConfig()
+    config.mappo.entropy_coef = 0.02
+    controller = StageController(config)
+    for _ in range(10):
+        controller.observe_entropy(0.0, 50.0)
+    assert controller.entropy_coef(0) == pytest.approx(0.02)
