@@ -1171,6 +1171,11 @@ bool AnimusForge::Forge::KnowsPolicy(std::string const& policy) const
     if (policy == "random")
         return true;
 
+    // Only a built scenario can answer, and `forge bench` asks while the forge is idle, where there is none:
+    // say yes rather than crash on it. A trial that turns out not to know the policy reports as failed.
+    if (!_scenario)
+        return true;
+
     // ScriptedAction answers whether the scenario has the policy; a blank row is enough to ask.
     Animus::ScenarioSpec const spec = _scenario->Spec();
     std::vector<float> obs(spec.ObsDim, 0.0f);
