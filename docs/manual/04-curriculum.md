@@ -589,7 +589,22 @@ objective changes, so a flag changing hands pays nothing by itself.
      pet hold it; auto-attack only once the target is in melee reach (a hunter with no pet yet, or one still held),
   7. a melee spec starts auto-attack,
   8. and moves to a living target beyond melee reach while not already moving,
-  9. otherwise `greedy`.
+  9. otherwise its rotation (not `greedy`), first match wins:
+     - in no form, the spec's own: Moonkin Form (balance), Cat Form (feral cat), Dire Bear or Bear Form (feral bear),
+       Shadowform (shadow). Other forms and stances are never cast; `SeatCharacter::PrepareFighter` puts a warrior in
+       its stance,
+     - the first allowed damaging spell in catalog order: school or weapon damage, a leech, or a melee or ranged
+       weapon attack. A spell that only ticks is cast while its aura isn't on the target, and crowd control that
+       damage breaks (confuse, fear, transform) never,
+     - out of combat, a buff that isn't on the bot: an aura with no cooldown of its own, not speed, stealth,
+       invisibility or feigning death, and at most one of each exclusive kind (a seal, a paladin aura, an armor, an
+       aspect),
+     - otherwise nothing.
+
+     A cast resets the caster's swing timer (`Spell::cast`), and the first spell in catalog order is often a buff that
+     can be cast again forever. `greedy` presses one every decision the pacing allows, so a paladin with a slow
+     two-hander never lands a swing, and a caster holding range casts Lightning Shield or Inner Fire instead of ever
+     starting the fight.
 
 They are the reference numbers a trained policy has to beat (evaluation baseline) and a mechanics smoke test
 (`forge run <stage> fight`).
