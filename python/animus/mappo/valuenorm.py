@@ -7,13 +7,13 @@ from torch import nn
 
 
 class ValueNorm(nn.Module):
-    def __init__(self, beta: float = 0.99999, epsilon: float = 1e-5):
+    def __init__(self, beta: float = 0.99, epsilon: float = 1e-5):
         super().__init__()
         self.beta = beta
         self.epsilon = epsilon
-        self.register_buffer("running_mean", torch.zeros((), dtype=torch.float64))
-        self.register_buffer("running_mean_sq", torch.zeros((), dtype=torch.float64))
-        self.register_buffer("debiasing_term", torch.zeros((), dtype=torch.float64))
+        self.register_buffer("running_mean", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("running_mean_sq", torch.zeros((), dtype=torch.float32))
+        self.register_buffer("debiasing_term", torch.zeros((), dtype=torch.float32))
 
     def _stats(self) -> tuple[torch.Tensor, torch.Tensor]:
         debias = self.debiasing_term.clamp(min=self.epsilon)
@@ -24,15 +24,15 @@ class ValueNorm(nn.Module):
 
     @torch.no_grad()
     def update(self, values: torch.Tensor) -> None:
-        values = values.detach().to(torch.float64)
+        values = values.detach().to(torch.float32)
         self.running_mean.mul_(self.beta).add_(values.mean() * (1.0 - self.beta))
         self.running_mean_sq.mul_(self.beta).add_((values**2).mean() * (1.0 - self.beta))
         self.debiasing_term.mul_(self.beta).add_(1.0 - self.beta)
 
     def normalize(self, values: torch.Tensor) -> torch.Tensor:
         mean, var = self._stats()
-        return ((values.to(torch.float64) - mean) / var.sqrt()).to(values.dtype)
+        return ((values.to(torch.float32) - mean) / var.sqrt()).to(values.dtype)
 
     def denormalize(self, values: torch.Tensor) -> torch.Tensor:
         mean, var = self._stats()
-        return (values.to(torch.float64) * var.sqrt() + mean).to(values.dtype)
+        return (values.to(torch.float32) * var.sqrt() + mean).to(values.dtype)

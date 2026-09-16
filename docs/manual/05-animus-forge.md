@@ -569,6 +569,18 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
 
 With no gates set, a converged stage advances.
 
+### Keeping the update honest (`mappo`)
+
+- `value_norm_beta`: how fast the value normaliser follows the returns (0.99 halves its old statistics every
+  ~69 updates). The returns drift upwards as the policy improves; statistics that average the whole run leave the
+  critic fitting a scale it has outgrown, and `value_loss` -- reported in normalised space -- shrinks either way.
+  `explained_variance` in `metrics.csv` is the honest read.
+- `per_layout_advantages` and `min_layout_rows`: centre and scale each class/role's advantages on its own rows,
+  falling back to the rollout's statistics for a layout with fewer rows than the minimum. The class/roles share a
+  trunk but not a return scale, so one global scale lets the widest-spread of them set the shared gradient.
+- `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
+  clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
+
 ### Where the episodes go (`layout_sampling`)
 
 Training episodes draw a class/role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`

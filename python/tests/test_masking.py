@@ -170,3 +170,51 @@ def test_rollout_networks_mirror_the_trained_ones_after_an_update():
             assert torch.equal(trained.cpu(), copied.cpu()), f"{name} was not mirrored"
     if trainer.value_norm is not None:
         assert torch.equal(trainer.value_norm.running_mean.cpu(), trainer._rollout_value_norm.running_mean.cpu())
+
+
+def test_advantages_are_normalised_within_each_layout():
+    """Each layout's rows come out centred and scaled on their own, so one scale cannot speak for the others."""
+    trainer = MappoTrainer([(4, 3), (4, 3)], 5, MappoConfig(hidden=(8, 8), per_layout_advantages=True,
+                                                            min_layout_rows=4))
+    layout = torch.tensor([0] * 8 + [1] * 8)
+    advantages = torch.cat([torch.arange(8, dtype=torch.float32), torch.arange(8, dtype=torch.float32) * 100 + 500])
+
+    out = trainer._normalise_advantages(advantages, layout)
+    for index in (0, 1):
+        rows = out[layout == index]
+        assert abs(float(rows.mean())) < 1e-5
+        assert abs(float(rows.std()) - 1.0) < 0.2
+
+    # With it off, the two groups keep their very different offsets.
+    trainer.config.per_layout_advantages = False
+    flat = trainer._normalise_advantages(advantages, layout)
+    assert float(flat[layout == 0].mean()) < -0.5 < float(flat[layout == 1].mean())
+
+
+def test_small_layout_groups_fall_back_to_the_rollout_statistics():
+    trainer = MappoTrainer([(4, 3), (4, 3)], 5, MappoConfig(hidden=(8, 8), per_layout_advantages=True,
+                                                            min_layout_rows=8))
+    layout = torch.tensor([0] * 12 + [1] * 2)  # the second layout is too thin to measure a spread with
+    advantages = torch.arange(14, dtype=torch.float32)
+
+    out = trainer._normalise_advantages(advantages, layout)
+    whole = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    assert torch.allclose(out[layout == 1], whole[layout == 1])
+    assert abs(float(out[layout == 0].mean())) < 1e-5
+
+
+def test_value_norm_follows_a_drifting_return_scale():
+    """Returns grow as the policy improves. Stats that never follow leave the critic fitting an outgrown scale."""
+    from animus.mappo.valuenorm import ValueNorm
+
+    fast, slow = ValueNorm(beta=0.99), ValueNorm(beta=0.99999)
+    for _ in range(500):  # a long early run around zero ...
+        for norm in (fast, slow):
+            norm.update(torch.zeros(64))
+    for _ in range(100):  # ... then the returns move up and stay there
+        for norm in (fast, slow):
+            norm.update(torch.full((64,), 50.0))
+
+    # The normaliser that followed puts the current scale near zero; the one that averaged the whole run does not.
+    assert abs(float(fast.normalize(torch.tensor([50.0])))) < abs(float(slow.normalize(torch.tensor([50.0]))))
+    assert abs(float(fast.normalize(torch.tensor([50.0])))) < 1.0

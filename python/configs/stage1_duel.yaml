@@ -61,6 +61,19 @@ mappo:
   minibatches: 8
   max_grad_norm: 0.5
   use_value_norm: true
+  # The value normaliser follows the returns, which drift upwards as the policy learns to kill: stats that
+  # averaged the whole run would leave the critic fitting a scale it had outgrown, and value_loss (reported in
+  # normalised space) would shrink whether or not the fit improved. Watch explained_variance instead.
+  value_norm_beta: 0.99
+  # Each class/role's advantages are centred and scaled on its own rows. They share a trunk, and their returns
+  # are not on one scale -- a healer keeping an owner alive and a rogue killing a creature are different numbers
+  # -- so one global scale would let the widest-spread class/role speak for weights all of them use.
+  per_layout_advantages: true
+  min_layout_rows: 32
+  # Stop an update once its epochs have moved the policy about this far in KL. Clipping bounds one step, not
+  # four epochs of them over one rollout; the observed approx_kl runs ~0.03 here, so this is a ceiling rather
+  # than a leash. 0 turns it off.
+  target_kl: 0.04
 
 # Seeded evaluation (animus.evaluation): every every_env_steps the networks play the same 1024 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band and

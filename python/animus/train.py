@@ -317,13 +317,16 @@ class TrainingRun:
         self.pending_update: Future | None = None
         self.carried_stats: dict[str, float] | None = None  # an update drained outside a rollout, still to log
         self.rollout_reward = 0.0
+        self.rollout_allowed_actions = 0.0
+        self.started_at = time.perf_counter()
         self.updater = ThreadPoolExecutor(max_workers=1, thread_name_prefix="update") \
             if config.overlap_updates else None
         columns = [
             "update", "env_steps", "env_steps_per_sec", "update_seconds", "reward_per_decision", "episodes",
             *(f"episode_{name}" for name in spec.episode_info_names),
             "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl",
-            "update_compute_seconds", "distill_coef", "distill_kl", "distill_rows",
+            "explained_variance", "actor_grad_norm", "critic_grad_norm", "epochs_run", "allowed_actions",
+            "elapsed_seconds", "update_compute_seconds", "distill_coef", "distill_kl", "distill_rows",
         ]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
@@ -601,6 +604,7 @@ class TrainingRun:
         buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts)
         # Read before the buffers swap below: log_update runs on the rollout that has just been collected.
         self.rollout_reward = buffer.mean_reward()
+        self.rollout_allowed_actions = buffer.mean_allowed_actions()
         trainer.entropy_coef = self.controller.entropy_coef(self.env_steps)
         if self.distiller is not None:
             self.distiller.coef = self.config.distill.coef_at(self.env_steps)
@@ -636,6 +640,9 @@ class TrainingRun:
             "env_steps_per_sec": config.rollout_length * spec.num_envs * spec.agents_per_env / rollout_seconds,
             "update_seconds": time.perf_counter() - started - rollout_seconds,
             "reward_per_decision": self.rollout_reward,
+            # Entropy is only readable against how many actions were legal to begin with.
+            "allowed_actions": self.rollout_allowed_actions,
+            "elapsed_seconds": time.perf_counter() - self.started_at,
             "episodes": len(self.finished_episodes),
             "entropy_coef": self.trainer.entropy_coef,
             **({"distill_coef": self.distiller.coef} if self.distiller is not None else {}),

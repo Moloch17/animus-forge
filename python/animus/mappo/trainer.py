@@ -33,6 +33,22 @@ class MappoConfig:
     minibatches: int = 4
     max_grad_norm: float = 0.5
     use_value_norm: bool = True
+    # How fast the value normaliser follows the returns, as the weight the running stats keep per update. The
+    # returns drift as the policy improves, so stats that never follow leave the critic fitting a target measured
+    # on a scale it has outgrown: 0.99 halves the old stats every ~69 updates, 0.99999 every ~69,000.
+    value_norm_beta: float = 0.99
+    # Normalise advantages within each layout rather than over the whole rollout. One mean and one standard
+    # deviation across 18 class/roles with different reward scales lets the largest of them set the gradient of
+    # the trunk they share. Groups smaller than this fall back to the rollout's own statistics.
+    per_layout_advantages: bool = True
+    min_layout_rows: int = 32
+    # Stop an update early once its epochs have moved the policy this far in KL (0 = never). PPO's clipping
+    # bounds each step, not the sum of a rollout's epochs.
+    target_kl: float = 0.0
+
+
+#: An epoch may exceed the target this far before the update stops: the measure is noisy over one epoch.
+EPOCH_KL_TOLERANCE = 1.5
 
 
 def per_decision(config: MappoConfig, decision_ms: int) -> tuple[float, float]:
@@ -71,7 +87,8 @@ class MappoTrainer:
         hidden = list(config.hidden)
         self.actor = LayoutActor(self.layouts, hidden).to(self.train_device)
         self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
-        self.value_norm = ValueNorm().to(self.train_device) if config.use_value_norm else None
+        self.value_norm = (ValueNorm(beta=config.value_norm_beta).to(self.train_device)
+                           if config.use_value_norm else None)
 
         self.reset_optimizers()
 
@@ -171,13 +188,13 @@ class MappoTrainer:
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         cfg = self.config
         started = time.perf_counter()
-        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0}
+        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
+                 "actor_grad_norm": 0.0, "critic_grad_norm": 0.0}
         data = {k: torch.as_tensor(v, device=self.train_device) for k, v in buffer.flat().items()}
         if data["actions"].shape[0] == 0:
             return stats  # no seat had a character this rollout: nothing to learn from
 
-        advantages = data["advantages"]
-        data["advantages"] = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        data["advantages"] = self._normalise_advantages(data["advantages"], data["layout"])
 
         if self.value_norm is not None:
             self.value_norm.update(data["returns"])
@@ -186,6 +203,13 @@ class MappoTrainer:
         else:
             data["returns_target"] = data["returns"]
             data["old_values"] = data["values"]
+
+        # How much of the returns' spread the critic already accounts for, on the values it produced during the
+        # rollout. value_loss is reported in normalised space and shrinks with the normaliser, so it cannot say
+        # whether the critic actually fits; this can. 0 = no better than predicting the mean, 1 = perfect.
+        returns, values = data["returns"], data["values"]
+        variance = returns.var()
+        explained = 1.0 - (returns - values).var() / variance if float(variance) > 0.0 else torch.zeros(())
 
         samples = data["actions"].shape[0]
         # Even splits: `samples // minibatches` with a fixed stride leaves a remainder minibatch, which is a full
@@ -198,8 +222,11 @@ class MappoTrainer:
         # Summed on the device and read once at the end: a .item() per statistic per minibatch is a pipeline stall
         # per statistic per minibatch.
         totals = {name: torch.zeros((), device=self.train_device) for name in stats}
+        epochs_run = 0
 
         for _ in range(cfg.epochs):
+            epoch_kl = torch.zeros((), device=self.train_device)
+            epoch_updates = 0
             order = torch.randperm(samples, device=self.train_device)
             for idx in torch.tensor_split(order, splits):
                 obs, layout = data["obs"][idx], data["layout"][idx]
@@ -223,7 +250,7 @@ class MappoTrainer:
 
                 self.actor_opt.zero_grad()
                 actor_loss.backward()
-                nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
+                actor_grad = nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
                 values = self.critic(data["state"][idx], obs, layout)
@@ -234,7 +261,7 @@ class MappoTrainer:
 
                 self.critic_opt.zero_grad()
                 (cfg.value_coef * value_loss).backward()
-                nn.utils.clip_grad_norm_(self.critic.parameters(), cfg.max_grad_norm)
+                critic_grad = nn.utils.clip_grad_norm_(self.critic.parameters(), cfg.max_grad_norm)
                 self.critic_opt.step()
 
                 with torch.no_grad():
@@ -243,17 +270,50 @@ class MappoTrainer:
                     totals["entropy"] += entropy.detach()
                     totals["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
                     totals["approx_kl"] += ((ratio - 1) - log_ratio).mean()
+                    totals["actor_grad_norm"] += actor_grad
+                    totals["critic_grad_norm"] += critic_grad
+                    epoch_kl += ((ratio - 1) - log_ratio).mean()
                 updates += 1
+                epoch_updates += 1
+
+            epochs_run += 1
+            # One read per epoch, not per minibatch: enough to stop before the next epoch pulls the policy
+            # further from the rollout that justified it.
+            if cfg.target_kl > 0.0 and epoch_updates \
+                    and float(epoch_kl) / epoch_updates > EPOCH_KL_TOLERANCE * cfg.target_kl:
+                break
 
         if sync:
             self._sync_rollout()
         stats = {name: float(total) for name, total in totals.items()}
         result = {k: v / max(1, updates) for k, v in stats.items()}
+        result["explained_variance"] = float(explained)
+        result["epochs_run"] = float(epochs_run)
         result.update({k: v / auxiliary_updates for k, v in auxiliary_stats.items()})
         # What the update itself cost. With overlap_updates the run's own timer measures the wait for this to
         # finish, not the work, so without this the work is invisible.
         result["update_compute_seconds"] = time.perf_counter() - started
         return result
+
+    def _normalise_advantages(self, advantages: torch.Tensor, layout: torch.Tensor) -> torch.Tensor:
+        """Centre and scale the advantages, within each layout when there are enough rows of it.
+
+        The layouts of one rollout have their own return scales (a duel against a creature and a healer keeping a
+        party alive are not the same numbers), and they share a trunk: one global scale lets the widest-spread
+        layout speak loudest for weights every layout uses."""
+        normalised = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        if not self.config.per_layout_advantages or len(self.layouts) < 2:
+            return normalised
+
+        for index in torch.unique(layout).tolist():
+            rows = layout == int(index)
+            if int(rows.sum()) < self.config.min_layout_rows:
+                continue  # too few to measure a spread with; the rollout's own is the better estimate
+
+            group = advantages[rows]
+            normalised[rows] = (group - group.mean()) / (group.std() + 1e-8)
+
+        return normalised
 
     # ------------------------------------------------------------------ checkpoints
 
