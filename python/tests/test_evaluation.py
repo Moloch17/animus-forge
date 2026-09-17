@@ -226,6 +226,13 @@ def test_summary_by_difficulty_tier():
         "difficulties"] == {}
 
 
+def test_summary_by_role():
+    infos = np.array([[0.0], [2.0], [2.0]], np.float32)
+    roles = EvalResult("learner", np.array([1.0, 3.0, 5.0]), infos, ("role",)).summary(())["roles"]
+    assert set(roles) == {"dps", "heal"}
+    assert roles["heal"]["episodes"] == 2 and roles["heal"]["score"] == pytest.approx(4.0)
+
+
 def test_summary_up_to_each_tier_below_the_top():
     infos = np.array([[0.0], [1.0], [2.0], [2.0]], np.float32)
     result = EvalResult("learner", np.array([1.0, 3.0, 5.0, 7.0]), infos, ("difficulty",),

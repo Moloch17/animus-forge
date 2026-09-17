@@ -1,7 +1,36 @@
 # Stage 4 of the curriculum: the gauntlet fought beside a scripted owner, a player of a random class and
 # role near the bot's level that wanders, engages each pull and takes real damage. The bot follows, assists and guards
 # it; tanks keep enemies on themselves, healers keep the owner alive, damage dealers avoid pulling threat. Nobody's
-# death ends the episode: the dead stand up after the pull. Like the gauntlet, give it episodes of several minutes.
+# death ends the episode: the dead stand up after the pull. The arena runs 450 s, as the solo gauntlet.
+#
+# What stage 3 taught carries on beside the owner: readiness is paid when a pull is engaged (Pulls.OwnerReadiness),
+# crowd control that keeps an add out of the fight pays (Pulls.OwnerControl*), and food and drink are rationed
+# (Pulls.GauntletSupplies). Rewards are win-first: a pull cleared pays about as much as alone, the seat's own death
+# costs 10 and every owner death 15 (Owner.Death), so guarding the owner comes before the seat's own health.
 
 extends: stage3_gauntlet.yaml
 run_name: stage4_companion
+
+# A win is clean_kill: the 450 s lasted with the owner never dead, no wipe, Pulls.OwnerWinPulls (5) pulls cleared and
+# the seat itself never dead (PullsEncounter counts the first three as the kill; died covers the last). The owner fights
+# too, so pulls clear faster than alone, but one owner death loses the episode.
+#
+# Provisional, as stage 3's were: the first run calibrates them. Stage 3's floors (55% overall, 40% per class/role by
+# the Wilson bound) less a little for the owner's deaths, an owner that dies in at most a third of the episodes, rare
+# wipes, and at least the win's pulls cleared on average. The role checks (owner_heal_share for healers, threat_share
+# for tanks and the rest) are reported per class/role and per role first; gate them (target.role_metrics) once a run
+# shows what the roles reach.
+target:
+  metrics:
+    livelocked: {max: 0.01}
+    clean_kill: {min: 0.50, confidence: 0.95}
+    owner_died: {max: 0.35}
+    wipes: {max: 0.2}
+    pulls_cleared: {min: 5.0}
+  layout_metrics:
+    livelocked: {max: 0.02}
+    clean_kill: {min: 0.35, confidence: 0.95}
+  role_metrics: {}
+  base_difficulty: null
+  difficulties: {}
+  until_passed: false

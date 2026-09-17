@@ -126,11 +126,15 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Duel.Kill` | 10.0 | | `Pulls.Interrupt` | 0.3 |
 | `Duel.FastKill` | 1.0 | | `Pulls.Kill` | 0.5 |
 | `Duel.HealthKept` | 0.5 | | `Pulls.StepCost` | 0.0002 |
-| `Duel.Death` | 10.0 | | `Pulls.Clear` | 2.0 |
-| `Duel.MeleeRange` | 3.5 | | `Pulls.FastPull` | 2.0 |
-| `Duel.RangedRange` | 25.0 | | `Pulls.HealthKept` | 2.0 |
-| `Casting.TimeWasted` | 0.03 | | `Pulls.GauntletDeath` | 5.0 |
+| `Duel.Death` | 10.0 | | `Pulls.Clear` | 2.5 |
+| `Duel.MeleeRange` | 3.5 | | `Pulls.FastPull` | 0.5 |
+| `Duel.RangedRange` | 25.0 | | `Pulls.HealthKept` | 0.5 |
+| `Casting.TimeWasted` | 0.03 | | `Pulls.GauntletDeath` | 10.0 |
 | `Casting.TimeCompleted` | 0.03 | | `Pulls.OwnerClearScale` | 2.0 |
+| | | | `Pulls.OwnerReadiness` | 0.5 |
+| | | | `Pulls.OwnerControl` | 0.02 |
+| | | | `Pulls.OwnerControlMax` | 1.5 |
+| | | | `Pulls.OwnerWinPulls` | 5 |
 | `Resurrection.GraceMs` | 20000 | | `Pulls.PackClear` | 10.0 |
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.FastClear` | 1.0 |
 | `Duel.Timeout` | 10.0 | | `Pulls.PackHealthKept` | 0.5 |
@@ -199,7 +203,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Owner.FollowNear` | 0.0005 | | `ScriptedPlayers.WanderMaxMs` | 12000 |
 | `Owner.FollowFarDistance` | 25.0 | | `ScriptedPlayers.RegenFraction` | 0.04 |
 | `Owner.FollowNearDistance` | 12.0 | | `ScriptedPlayers.HealBelow` | 0.85 |
-| `Owner.Death` | 6.0 | | `ScriptedPlayers.SelfHealBelow` | 0.6 |
+| `Owner.Death` | 15.0 | | `ScriptedPlayers.SelfHealBelow` | 0.6 |
 | | | | `ScriptedPlayers.HealerRange` | 30.0 |
 | | | | `ScriptedPlayers.TauntRange` | 25.0 |
 | | | | `ScriptedPlayers.RangedMin` | 20.0 |

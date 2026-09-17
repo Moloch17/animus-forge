@@ -586,6 +586,8 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
   enough episodes still pass (95% of 228 bound at 0.92).
 - `layout_metrics`: the same bounds on every class/role's own episodes, which no baseline can lower.
+- `role_metrics`: bounds per role (`dps`, `tank`, `heal`, from episode info `role`) on that role's episodes, for what a
+  role is for and a floor every class/role shares can't ask: `{heal: {owner_heal_share: {min: 0.3}}}`.
 - `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
   summary's `up_to` group, overall and per class/role), for a stage whose ladder climbs above the fights its floors
   were set for. The tiers above still count through the score and `difficulties`.

@@ -24,6 +24,10 @@ REPORT_COLUMNS = (
     "dps", "killed", "died", "timed_out", "deaths", "time_to_kill", "damage_taken", "kills", "pulls_cleared", "wipes",
     "owner_deaths", "owner_healing", "casts_completed", "casts_cancelled", "cancelled_stopped", "cancelled_moved",
     "cancelled_target", "cancelled_other", "cast_seconds_wasted", "consumables_used", "self_resurrections", "revives",
+    # Beside an owner: whether and how often it died, what it took, and the role checks -- the share of the owner's
+    # damage taken the seat healed (healers) and the share of the enemies' attention on the seat rather than the owner
+    # (high for tanks, low for damage dealers and healers).
+    "owner_died", "owner_damage_taken", "owner_heal_share", "threat_share",
     # Pets: logged per episode in eval_episodes.jsonl with the episode's class/role, so a pet class's use of its pet
     # can be read on its own.
     "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",
@@ -103,6 +107,10 @@ class TargetConfig:
     # the time and livelocked in a quarter of its episodes cleared the gate. An absolute floor cannot be lowered by
     # a bad baseline. Same shape as metrics, and derived summary fields (livelocked) can be gated too.
     layout_metrics: dict = field(default_factory=dict)
+    # Per role (dps, tank, heal: episode info "role"), the same bounds on that role's episodes, e.g.
+    # {heal: {owner_heal_share: {min: 0.3}}, tank: {threat_share: {min: 0.5}}}: what a class/role is for, which a
+    # floor every class/role shares cannot ask. Judged on the base_difficulty group when one is set.
+    role_metrics: dict = field(default_factory=dict)
     # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
     # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
     arenas: dict = field(default_factory=dict)
@@ -133,7 +141,8 @@ class TargetConfig:
     @property
     def enabled(self) -> bool:
         return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
-                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.arenas) or bool(self.difficulties))
+                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.role_metrics) or bool(self.arenas)
+                or bool(self.difficulties))
 
     def arena_needs_baseline(self) -> bool:
         return any(isinstance(gates, dict) and gates.get("min_over_baseline") is not None

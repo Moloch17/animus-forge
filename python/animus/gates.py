@@ -24,7 +24,7 @@ from dataclasses import asdict, dataclass, field
 from statistics import NormalDist
 
 from .config import TargetConfig, TrainConfig
-from .evaluation import DERIVED_METRICS
+from .evaluation import DERIVED_METRICS, ROLES
 
 
 @dataclass
@@ -106,6 +106,15 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
                 report.skipped.append(f"{name}: {row['episodes']} episodes")
             else:
                 _check_metrics(report, row, target.layout_metrics, f"{scope}{name} ")
+
+    for role, bounds in target.role_metrics.items():
+        row = floors.get("roles", {}).get(role)
+        if row is None or not row.get("episodes"):
+            report.skipped.append(f"role {role}: no episodes")
+        elif row["episodes"] < target.min_layout_episodes:
+            report.skipped.append(f"role {role}: {row['episodes']} episodes")
+        else:
+            _check_metrics(report, row, bounds, f"{scope}role {role} ")
 
     _check_metrics(report, floors, target.metrics, scope)
 
@@ -213,6 +222,13 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
     names = (*info_names, *DERIVED_METRICS)
     errors += _metric_errors("target.metrics", target.metrics, names)
     errors += _metric_errors("target.layout_metrics", target.layout_metrics, names)
+    if not isinstance(target.role_metrics, dict):
+        errors.append(f"target.role_metrics: expected {{role: {{name: bounds}}}}, got {target.role_metrics!r}")
+    else:
+        for role, bounds in target.role_metrics.items():
+            if role not in ROLES:
+                errors.append(f"target.role_metrics.{role}: a role is one of {', '.join(ROLES)}")
+            errors += _metric_errors(f"target.role_metrics.{role}", bounds, names)
     for arena, gates in target.arenas.items():
         prefix = f"target.arenas.{arena}"
         if arena_names is not None and arena not in arena_names:

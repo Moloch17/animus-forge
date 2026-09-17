@@ -598,9 +598,15 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
 With the gauntlet's clear and health kept (+2 and up to +2) and a -3 death, keeping health paid as much as clearing
 the pack, and never engaging was the cheapest way to lose.
 
-**Gauntlet**: the pack's per-step terms with damage taken x1.5. With an owner (stages 4, 5, 8), each cleared pull: +2,
-up to +2 for clearing within a minute of engaging it (not of its spawn, so resting, sapping or stealthing in first is
-free), up to +2 for health kept during the pull; death -5. **Alone** (stage 3) the gauntlet is won by lasting, and pays
+**Gauntlet**: the pack's per-step terms with damage taken x1.5. With an owner (stages 4, 5, 8), win-first as alone:
+each cleared pull (`Pulls.Clear`) +2.5 and up to +0.5 for clearing within a minute of engaging it (not of its spawn, so
+resting, sapping or stealthing in first is free), both x2 (`OwnerClearScale`), up to +0.5 for the seat's own health kept
+during the pull; the seat's death -10 (`GauntletDeath`) and every owner death -15 (`Owner.Death`), so guarding the
+owner comes before the seat's own health. At the earlier +2 +2 (x2) and +2 against deaths of -5 and -6, a pull cleared
+was worth more than the owner's life. What alone teaches carries on beside the owner: readiness when a pull is engaged
+(`OwnerReadiness`, 0.5), control (`OwnerControl`, 0.02 per enemy-second, up to `OwnerControlMax`, 1.5, a pull), seven
+food and drink (`GauntletSupplies`), and a win: reaching the end with the owner never dead, no wipe and `OwnerWinPulls`
+(5) pulls cleared counts as the kill, so `clean_kill` is the gauntlet won with the seat alive. **Alone** (stage 3) the gauntlet is won by lasting, and pays
 win-first as the single pack does (`Pulls.SoloGauntlet*`): each cleared pull +5, up to +1 for clearing within a minute
 of engaging it and up to +0.5 for health kept; a death -10, besides every pull it forfeits. Its pulls charge Stall
 (-0.05 per second from `StallGraceMs` plus the preparation refund after the pull spawned, not while eating or
@@ -618,7 +624,7 @@ timeout.
 
 - everyone: owner damage taken (x1 for DPS, x2 for tanks and healers; a quarter of that when the owner is the tank);
   -0.01 per decision in combat while the owner isn't; +0.0005 per decision within 12 yd out of combat, -0.002 beyond
-  25 yd; -6 per owner death; +1.5 when an ally the seat resurrected stands up
+  25 yd; -15 per owner death; +1.5 when an ally the seat resurrected stands up
 - tanks: +0.002 per enemy on the tank and -0.02 per enemy on the owner, per decision; half of the gauntlet's damage
   taken refunded
 - healers: effective healing on the owner x2 (overhealing earns nothing, because the heal hook reports health gained)
@@ -877,14 +883,23 @@ the pulls.
 
 Adds the companion block and the scripted owner. The seat learns to follow, assist, guard, heal and resurrect it, and
 role-specific behaviour appears (tank threat, healer throughput, DPS threat discipline). Deaths recover after pulls and
-the episode always runs its full length, so letting the owner die is never a way to escape penalties.
+the episode always runs its full length (450 s; without its own the arena took the host's 60 s), so letting the owner
+die is never a way to escape penalties.
+
+The target (provisional, for the first run to calibrate): `clean_kill` -- the win above, with the seat never dead -- of
+50% overall and 35% per class/role by the Wilson bound, the owner dead in at most 35% of episodes, wipes at most 0.2 an
+episode, at least 5 pulls cleared on average, no livelocks. The role checks are reported per class/role and per role
+(the summary's `roles`): `owner_heal_share`, the share of the owner's damage taken the seat healed, for healers, and
+`threat_share`, the share of the enemies' attention on the seat rather than the owner, high for tanks and low for the
+rest. `target.role_metrics` gates them once a run shows what each role reaches.
 
 ### Stage 5: `stage5_party`
 
 Adds the party block. One to four learned seats (like a player bringing one to four companions) plus the owner form a
 sim group. Every seat plays the same policy and sees the other three. An empty seat has no character and only the
-no-op, and the learner drops its rows. Pulls are elite-heavy. Config: budget 600M, evaluation every 20M steps, at
-least 60M steps, a party-focused report.
+no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450 s, as stage 4's. Config: budget 600M,
+evaluation every 20M steps, at least 60M steps, a party-focused report. It inherits stage 4's target, which says nothing
+of teammates' deaths yet: set its own before it runs.
 
 ### Stage 6: `stage6_pvp`
 

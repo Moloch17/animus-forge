@@ -110,6 +110,24 @@ def test_base_difficulty_judges_the_floors_on_the_easier_tiers():
     assert check_gates(flat, None, target).passed
 
 
+def test_role_metrics_judge_each_role_on_its_own_episodes():
+    target = TargetConfig(role_metrics={"heal": {"owner_heal_share": {"min": 0.3}},
+                                        "tank": {"threat_share": {"min": 0.5}}})
+    learner = summary(5.0, roles={"heal": {"score": 4.0, "episodes": 40, "owner_heal_share": 0.4},
+                                  "tank": {"score": 6.0, "episodes": 40, "threat_share": 0.3},
+                                  "dps": {"score": 5.0, "episodes": 40, "threat_share": 0.1}})
+    assert check_gates(learner, None, target).failures == ["role tank threat_share (min) 0.3 (needs 0.5)"]
+    assert "role heal: no episodes" in check_gates(summary(5.0), None, target).skipped
+
+
+def test_validate_role_metrics():
+    config = TrainConfig()
+    config.eval.every_env_steps = 10
+    config.target.role_metrics = {"healer": {"owner_heal_share": {"min": 0.3}}}
+    with pytest.raises(ValueError, match="a role is one of"):
+        validate_target(config, ("owner_heal_share",))
+
+
 def test_validate_base_difficulty():
     config = TrainConfig()
     config.eval.every_env_steps = 10

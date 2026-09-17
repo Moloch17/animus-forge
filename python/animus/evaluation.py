@@ -32,6 +32,8 @@ LEVEL_BANDS = ((1, 20), (21, 40), (41, 60), (61, 80))
 # How a character's talents were spent, by the episode info column "talent_plan" (SeatCharacter::TalentPlan).
 # Scored as its own group so a run shows whether the policy plays a build it was not handed the recipe for.
 TALENT_PLANS = ("standard", "noisy", "random")
+# Episode info "role" (Curriculum::Role), for the per-role summary.
+ROLES = ("dps", "tank", "heal")
 
 # An episode that cancelled at least this many of its own casts did not merely waste a few: with a decision every
 # 100 ms it spent the episode in a start-cast / stop-cast loop. Deterministic actions cannot break out of one --
@@ -173,8 +175,8 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}, "builds": {},
-                  "difficulties": {}, "up_to": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "roles": {}, "arenas": {},
+                  "builds": {}, "difficulties": {}, "up_to": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -185,6 +187,12 @@ class EvalResult:
             names = np.array(self.layouts)
             for layout in sorted(set(self.layouts)):
                 result["layouts"][layout] = means(names == layout)
+        roles = self.column("role")
+        if roles is not None:
+            for index, role in enumerate(ROLES):
+                rows = roles == index
+                if rows.any():
+                    result["roles"][role] = means(rows)
         arenas = self.column("arena")
         if len(self.arenas) > 1 and arenas is not None:
             for index, arena in enumerate(self.arenas):
@@ -205,6 +213,8 @@ class EvalResult:
                 group = means(rows)
                 group["layouts"] = {} if names is None else {
                     layout: means(rows & (names == layout)) for layout in sorted(set(self.layouts))}
+                group["roles"] = {} if roles is None else {
+                    role: means(rows & (roles == index)) for index, role in enumerate(ROLES) if (roles == index).any()}
                 result["up_to"][str(tier)] = group
         plans = self.column("talent_plan")
         if plans is not None and len(set(plans.tolist())) > 1:
