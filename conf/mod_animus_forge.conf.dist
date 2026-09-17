@@ -701,6 +701,26 @@ AnimusForge.Curriculum.Pulls.Timeout = 10.0
 #   overtime left; a timeout alone, 150 s away, is too discounted to stop kiting out the clock
 AnimusForge.Curriculum.Pulls.Overtime = 0.1
 AnimusForge.Curriculum.Pulls.OvertimeGraceMs = 60000
+#   pack: crowd control paid as the damage it prevents, not as time held. Each add kept out of the fight is credited
+#   its own measured damage rate over the decision, divided by the seat's health now (floored at ControlHealthFloor of
+#   its maximum), so a prevented hit is worth more the less health there is to lose -- the same currency DamageTaken is
+#   charged in, which is why the two weights are comparable and control no longer loses to the overtime clock.
+#   SinglePackControl 0 measures without paying: the episode reports control_seconds and control_prevented either way,
+#   so set the weight from what a run actually saves rather than guessing, and turning it on needs no rebuild.
+AnimusForge.Curriculum.Pulls.SinglePackControl = 0.0
+#   ... at most this much a pull, a guard against a sim quirk rather than a shaping knob
+AnimusForge.Curriculum.Pulls.SinglePackControlMax = 1.0
+#   the health divisor's floor, as a fraction of maximum health, so control's value cannot run away near death
+AnimusForge.Curriculum.Pulls.ControlHealthFloor = 0.2
+#   what an add that never got to act is assumed to have prevented, in maximum healths per second: a pack sapped
+#   before it swings has no measured rate of its own, and pre-pull control is the most valuable kind
+AnimusForge.Curriculum.Pulls.ControlFallbackDps = 0.02
+#   how long an add must be loose before its own measured rate is trusted over the pull's mean (ms)
+AnimusForge.Curriculum.Pulls.ControlRateMinMs = 3000
+#   pack: the overtime grace grows by the wall time at least one add was held, up to this much (ms), so holding an add
+#   is not charged as dragging the fight out. 0 leaves the grace alone. Bounded on purpose -- Overtime is what stops
+#   kiting the clock, and an unbounded pause would hand that back
+AnimusForge.Curriculum.Pulls.ControlGraceMaxMs = 0
 #   pack: per second the pack has not been engaged once StallGraceMs of the episode are gone
 AnimusForge.Curriculum.Pulls.Stall = 0.05
 AnimusForge.Curriculum.Pulls.StallGraceMs = 15000
