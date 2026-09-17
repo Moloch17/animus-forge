@@ -615,6 +615,19 @@ With no gates set, a converged stage advances.
 - `lr_final_fraction` and `entropy_final_fraction`: where `actor_lr`/`critic_lr` and `entropy_coef` end, as a fraction
   of their configured values, falling linearly over `total_env_steps` (1 = constant). stage1_duel ends its learning
   rates at a tenth: at a constant rate the update kept growing all run while the late gains were small.
+- `recurrent_size`: a GRU between the actor's trunk and its action head (0 = off), carried from decision to decision
+  and cleared when an episode ends -- the policy's own memory, for what no observation of the moment holds (which add
+  was crowd-controlled, that the opponent has spent its trinket, what it was doing before the pull). The update then
+  replays each rollout in order, minibatching envs rather than rows, from the memory each decision was taken with, so
+  what the GRU stores is learned and not only what it reads. Evaluations, exported models and companions carry the
+  same memory (`MlpPolicy::State`). It changes the actor's shape and the exported format, so turning it on retrains
+  the curriculum from stage 1 and rebuilds every model. Distillation (stage 8) does not support it yet.
+- `goal_count` and `goal_every_decisions`: a goal head (0 = off). The actor chooses one of `goal_count` goals every
+  `goal_every_decisions` decisions and keeps it in between, and its action head reads the goal's embedding added to
+  the features. The chooser decides on a clock that many times slower than the actions, so its own horizon is that
+  many times shorter -- which is where a plan longer than a fight's next second can be learned. The goal is part of
+  the decision: its log probability joins the action's in the PPO ratio, and its entropy is kept up, on the decisions
+  that chose one. Exported models choose the argmax goal on the same clock.
 - `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
   trunk (0 = off, the default). It predicts, from the very features the actions are chosen from, the discounted return
   at each horizon and how much of the episode is left as a share of the time scale; its loss (Huber on the returns,

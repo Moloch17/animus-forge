@@ -56,8 +56,11 @@ def main() -> None:
     trainer = MappoTrainer(layouts, spec.state_dim, mappo)
     trainer.load_state_dict(checkpoint["trainer"], load_optimizers=False)
 
+    acting = trainer.acting_state(spec.num_envs, spec.agents_per_env)
+
     def actions(step):
-        return trainer.act(step.obs, step.mask, step.layout, deterministic=not args.stochastic)[0]
+        acting.clear(step.done)
+        return trainer.act(step.obs, step.mask, step.layout, not args.stochastic, acting)[0]
 
     if args.opponent_baseline and not args.baseline:
         raise SystemExit("--opponent-baseline needs --baseline")

@@ -89,10 +89,20 @@ def decisions_left(dones: np.ndarray) -> np.ndarray:
 
 class RolloutBuffer:
     def __init__(self, steps: int, envs: int, agents: int, obs_dim: int, state_dim: int, num_actions: int,
-                 foresight: int = 0):
+                 foresight: int = 0, recurrent: int = 0, goals: bool = False):
         self.steps = steps
         self.foresight = foresight
+        self.recurrent = recurrent
+        self.goals = goals
         shape = (steps, envs, agents)
+        # The goal each decision pursued, what choosing it was worth, and whether this decision chose it: only those
+        # decisions carry the goal chooser's own gradient.
+        self.goal = np.zeros(shape, dtype=np.int64)
+        self.goal_log_probs = np.zeros(shape, dtype=np.float32)
+        self.goal_chosen = np.zeros(shape, dtype=bool)
+        # The memory each decision was taken with (LayoutActor's GRU), so the update can replay the rollout's
+        # sequences from where they actually started.
+        self.memory = np.zeros((*shape, recurrent), dtype=np.float32)
         self.obs = np.zeros((*shape, obs_dim), dtype=np.float32)
         self.state = np.zeros((steps, envs, state_dim), dtype=np.float32)
         self.mask = np.zeros((*shape, num_actions), dtype=bool)
@@ -116,7 +126,7 @@ class RolloutBuffer:
         self.cursor = 0
 
     def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None,
-                     foresight=None) -> None:
+                     foresight=None, memory=None, goals=None) -> None:
         """Record what the policy saw and did at step `cursor`; `present` [E, A] marks the agents with a character
         (default: all)."""
         t = self.cursor
@@ -130,6 +140,10 @@ class RolloutBuffer:
         self.values[t] = values
         if self.foresight and foresight is not None:
             self.foresight_preds[t] = foresight
+        if self.recurrent and memory is not None:
+            self.memory[t] = memory
+        if self.goals and goals is not None:
+            self.goal[t], self.goal_log_probs[t], self.goal_chosen[t] = goals
 
     def add_outcome(self, rewards, dones, terminated, final_values, final_foresight=None) -> None:
         """Record the result of the step-`cursor` actions and advance."""
@@ -205,6 +219,31 @@ class RolloutBuffer:
             "returns": self.returns.reshape(-1)[keep],
             **({"foresight_targets": self.foresight_targets.reshape(-1, self.foresight)[keep],
                 "foresight_valid": self.foresight_valid.reshape(-1, self.foresight)[keep]} if self.foresight else {}),
+            **({"goal": self.goal.reshape(-1)[keep],
+                "goal_log_probs": self.goal_log_probs.reshape(-1)[keep],
+                "goal_chosen": self.goal_chosen.reshape(-1)[keep]} if self.goals else {}),
+        }
+
+    def sequences(self) -> dict[str, np.ndarray]:
+        """The rollout as it happened, [T, E, A, ...]: what a recurrent update replays in order. `valid` marks the
+        rows that are samples, as flat() does, and `dones` [T, E] say where a memory is cleared."""
+        return {
+            "obs": self.obs,
+            "state": self.state,
+            "mask": self.mask,
+            "layout": self.layout,
+            "valid": self.valid,
+            "actions": self.actions,
+            "log_probs": self.log_probs,
+            "values": self.values,
+            "advantages": self.advantages,
+            "returns": self.returns,
+            "dones": self.dones,
+            "memory": self.memory,
+            **({"foresight_targets": self.foresight_targets, "foresight_valid": self.foresight_valid}
+               if self.foresight else {}),
+            **({"goal": self.goal, "goal_log_probs": self.goal_log_probs, "goal_chosen": self.goal_chosen}
+               if self.goals else {}),
         }
 
     def mean_allowed_actions(self) -> float:

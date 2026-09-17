@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
+from torch.distributions import Categorical
 
 from .buffer import RolloutBuffer
 from .networks import LayoutActor, LayoutCritic, per_layout, skip_distribution_checks, update_norms
@@ -58,6 +59,16 @@ class MappoConfig:
     # (as a share of foresight_time_scale_seconds), and their loss is added to the actor's. Predicting what happens
     # later is what makes those features carry it; a policy that cannot tell whether a fight is nearly over cannot
     # plan around it. Nothing reads the head at rollout time and exported models leave it out.
+    # A GRU between the actor's trunk and its heads (0 = off), carried from decision to decision and cleared when an
+    # episode ends: the policy's own memory. The update replays each rollout's sequences in order from the memory the
+    # decisions were taken with, so what the GRU stores is learned, not only what it reads.
+    recurrent_size: int = 0
+    # A goal head (0 = off): the actor chooses one of goal_count goals every goal_every_decisions and keeps it in
+    # between, and its action head is conditioned on it. The chooser then decides on a clock that many times slower
+    # than the actions, so the horizon it has to reason over is that many times shorter. The goal is part of the
+    # policy's decision: its log probability joins the action's in the PPO ratio on the decisions that chose one.
+    goal_count: int = 0
+    goal_every_decisions: int = 16
     foresight_coef: float = 0.0
     foresight_horizons_seconds: tuple[float, ...] = (5.0, 30.0)
     foresight_time_scale_seconds: float = 60.0
@@ -65,6 +76,24 @@ class MappoConfig:
     # a restart's boost still apply on top). Late on, the argmax policy that evaluation and exported models play
     # should be the one training sampled. 1 = constant.
     entropy_final_fraction: float = 1.0
+
+
+@dataclass
+class ActingState:
+    """What a policy carries between decisions: the GRU's memory [E, A, R], the goal each seat is pursuing [E, A] and
+    how many decisions it has held it [E, A]. None for an actor without that part."""
+
+    memory: np.ndarray | None = None
+    goal: np.ndarray | None = None
+    age: np.ndarray | None = None
+
+    def clear(self, done: np.ndarray) -> None:
+        """An episode ended in these envs: nothing is remembered and a goal is chosen afresh."""
+        if self.memory is not None:
+            self.memory[done] = 0.0
+        if self.goal is not None:
+            self.goal[done] = 0
+            self.age[done] = 0
 
 
 #: An epoch may exceed the target this far before the update stops: the measure is noisy over one epoch.
@@ -112,7 +141,10 @@ class MappoTrainer:
 
         hidden = list(config.hidden)
         self.foresight_outputs = (len(config.foresight_horizons_seconds) + 1) if config.foresight_coef > 0.0 else 0
-        self.actor = LayoutActor(self.layouts, hidden, self.foresight_outputs).to(self.train_device)
+        self.recurrent_size = config.recurrent_size
+        self.goal_count = config.goal_count
+        self.actor = LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size,
+                                 self.goal_count).to(self.train_device)
         self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
         self.value_norm = (ValueNorm(beta=config.value_norm_beta).to(self.train_device)
                            if config.use_value_norm else None)
@@ -159,7 +191,7 @@ class MappoTrainer:
     def shrink_perturb(self, shrink: float, perturb: float) -> None:
         """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
         hidden = list(self.config.hidden)
-        fresh = (LayoutActor(self.layouts, hidden, self.foresight_outputs),
+        fresh = (LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size, self.goal_count),
                  LayoutCritic(self.state_dim, self.layouts, hidden))
         for network, init in zip((self.actor, self.critic), fresh):
             for param, init_param in zip(network.parameters(), init.to(self.train_device).parameters()):
@@ -185,60 +217,83 @@ class MappoTrainer:
         return torch.as_tensor(array, device=self.rollout_device, dtype=dtype)
 
     @torch.no_grad()
-    def act(
-        self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool = False
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def act(self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool = False,
+            state: "ActingState | None" = None) -> tuple[np.ndarray, np.ndarray]:
         """obs [E, A, O], mask [E, A, N], layout [E, A] -> actions [E, A], log_probs [E, A].
 
-        The rows go in flat and the answers are reshaped, so the actor builds one distribution per decision: a
-        [E, A] batch would make it build a second one over the reshaped logits.
+        `state` is carried in and updated in place (memory, goal): the policy of a decision is the policy of what it
+        remembers and is pursuing.
         """
-        envs, agents = layout.shape
-        rows = envs * agents
-        dist = self._rollout_actor(
-            self._tensor(obs).reshape(rows, -1),
-            self._tensor(layout, torch.long).reshape(rows),
-            self._tensor(mask).reshape(rows, -1),
-        )
-        # argmax over the logits is the argmax over the probabilities, without materialising them.
-        actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
-        log_probs = dist.log_prob(actions)
-        return (actions.reshape(envs, agents).cpu().numpy(), log_probs.reshape(envs, agents).cpu().numpy())
+        actions, log_probs, _, _ = self._decide(obs, mask, layout, deterministic, state)
+        return actions, log_probs
 
     @torch.inference_mode()
-    def act_and_value(
-        self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, state: np.ndarray, deterministic: bool = False
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
+    def act_and_value(self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, state_features: np.ndarray,
+                      deterministic: bool = False, state: "ActingState | None" = None):
         """act() and value() of one decision in one pass over the inputs: the rows are converted and grouped by
-        layout once for both networks. Returns (actions [E, A], log_probs [E, A], values [E, A], foresight
-        [E, A, H + 1] or None)."""
+        layout once for both networks. Returns (actions, log_probs, values, foresight or None, goals or None), the
+        last two [E, A, H + 1] and (goal, goal log prob, whether this decision chose it)."""
+        envs, agents = layout.shape
+        rows = envs * agents
+        actions, log_probs, foresight, goals = self._decide(obs, mask, layout, deterministic, state)
+
+        obs_t = self._tensor(obs).reshape(rows, -1)
+        layout_t = self._tensor(layout, torch.long).reshape(rows)
+        state_t = self._tensor(state_features)[:, None, :].expand(envs, agents, state_features.shape[-1]).reshape(
+            rows, -1)
+        values = self._rollout_critic(state_t, obs_t, layout_t)
+        if self._rollout_value_norm is not None:
+            values = self._rollout_value_norm.denormalize(values)
+        return actions, log_probs, values.reshape(envs, agents).cpu().numpy(), foresight, goals
+
+    @torch.no_grad()
+    def _decide(self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool,
+                state: "ActingState | None"):
+        """One decision of the actor: actions, their log probabilities, the foresight predictions and the goals. The
+        acting state's memory and goal are updated in place."""
         envs, agents = layout.shape
         rows = envs * agents
         obs_t = self._tensor(obs).reshape(rows, -1)
         layout_t = self._tensor(layout, torch.long).reshape(rows)
+        mask_t = self._tensor(mask).reshape(rows, -1)
         groups = per_layout(layout_t, len(self.layouts))
 
-        mask_t = self._tensor(mask).reshape(rows, -1)
-        foresight = None
-        if self.foresight_outputs:
-            dist, predictions = self._rollout_actor.forward_with_foresight(obs_t, layout_t, mask_t, groups)
-            foresight = predictions.reshape(envs, agents, self.foresight_outputs).cpu().numpy()
-        else:
-            dist = self._rollout_actor(obs_t, layout_t, mask_t, groups)
+        memory = state.memory if state is not None else None
+        features = self._rollout_actor.features(
+            obs_t, layout_t, self._memory_tensor(memory, rows) if self.recurrent_size else None, groups)
+
+        goals = None
+        goal_t = None
+        if self.goal_count and state is not None:
+            # A goal is chosen on its own clock and kept in between; a cleared state (a new episode) chooses at once.
+            chosen = (state.age % max(1, self.config.goal_every_decisions)) == 0
+            distribution = self._rollout_actor.goal_distribution(features)
+            sampled = distribution.logits.argmax(dim=-1) if deterministic else distribution.sample()
+            kept = self._tensor(state.goal, torch.long).reshape(rows)
+            chosen_t = self._tensor(chosen).reshape(rows)
+            goal_t = torch.where(chosen_t, sampled, kept)
+            goal_log_prob = distribution.log_prob(goal_t).reshape(envs, agents).cpu().numpy()
+            goal_array = goal_t.reshape(envs, agents).cpu().numpy()
+            goals = (goal_array, goal_log_prob, chosen)
+            state.goal = goal_array
+            state.age = np.where(chosen, 1, state.age + 1)
+
+        dist = self._rollout_actor.action_distribution(features, layout_t, mask_t, goal_t, groups)
         actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
         log_probs = dist.log_prob(actions)
 
-        state_t = self._tensor(state)[:, None, :].expand(envs, agents, state.shape[-1]).reshape(rows, -1)
-        values = self._rollout_critic(state_t, obs_t, layout_t, groups)
-        if self._rollout_value_norm is not None:
-            values = self._rollout_value_norm.denormalize(values)
+        foresight = None
+        if self.foresight_outputs:
+            foresight = self._rollout_actor.foresight(features).reshape(
+                envs, agents, self.foresight_outputs).cpu().numpy()
+        if state is not None and self.recurrent_size:
+            state.memory = features.reshape(envs, agents, self.recurrent_size).cpu().numpy()
 
-        shape = (envs, agents)
-        return (actions.reshape(shape).cpu().numpy(), log_probs.reshape(shape).cpu().numpy(),
-                values.reshape(shape).cpu().numpy(), foresight)
+        return (actions.reshape(envs, agents).cpu().numpy(), log_probs.reshape(envs, agents).cpu().numpy(),
+                foresight, goals)
 
     @torch.no_grad()
-    def foresight(self, obs: np.ndarray, layout: np.ndarray) -> np.ndarray | None:
+    def foresight_of(self, obs: np.ndarray, layout: np.ndarray, memory: np.ndarray | None = None) -> np.ndarray | None:
         """The foresight head on observations the rollout did not act on (an ended episode's last one, and the one
         after the rollout), for the targets' bootstrap: [..., H + 1], or None when the head is off."""
         if not self.foresight_outputs:
@@ -248,10 +303,35 @@ class MappoTrainer:
         rows = int(np.prod(lead))
         obs_t = self._tensor(obs).reshape(rows, -1)
         layout_t = self._tensor(layout, torch.long).reshape(rows)
-        # The distribution is thrown away; the mask only has to be as wide as the heads are.
-        mask_t = torch.ones((rows, self._rollout_actor.max_actions), dtype=torch.bool, device=self.rollout_device)
-        _, predictions = self._rollout_actor.forward_with_foresight(obs_t, layout_t, mask_t)
-        return predictions.reshape(*lead, self.foresight_outputs).cpu().numpy()
+        features = self._rollout_actor.features(
+            obs_t, layout_t, self._memory_tensor(memory, rows) if self.recurrent_size else None)
+        return self._rollout_actor.foresight(features).reshape(*lead, self.foresight_outputs).cpu().numpy()
+
+    def _memory_tensor(self, memory: np.ndarray | None, rows: int) -> torch.Tensor:
+        """The memory to carry in, as the actor wants it: cleared when the caller has none."""
+        if memory is None:
+            return torch.zeros((rows, self.recurrent_size), device=self.rollout_device)
+        return self._tensor(memory).reshape(rows, self.recurrent_size)
+
+    def acting_state(self, envs: int, agents: int) -> "ActingState":
+        """What the policy carries from decision to decision: its memory and the goal it is pursuing. Whoever acts
+        keeps one, clears the rows of episodes that ended, and hands it back in -- the policy is only itself with
+        them. An actor with neither carries nothing and behaves exactly as before."""
+        return ActingState(
+            memory=np.zeros((envs, agents, self.recurrent_size), dtype=np.float32) if self.recurrent_size else None,
+            goal=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
+            age=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
+        )
+
+    def acting_memory(self, envs: int, agents: int) -> np.ndarray | None:
+        """Just the memory part of acting_state, for callers that have no goals to keep."""
+        return self.acting_state(envs, agents).memory
+
+    def _memory_tensor(self, memory: np.ndarray | None, rows: int) -> torch.Tensor:
+        """The memory to carry in, as the actor wants it: cleared when the caller has none."""
+        if memory is None:
+            return torch.zeros((rows, self.recurrent_size), device=self.rollout_device)
+        return self._tensor(memory).reshape(rows, self.recurrent_size)
 
     @torch.no_grad()
     def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:
@@ -268,6 +348,11 @@ class MappoTrainer:
     def update(self, buffer: RolloutBuffer, auxiliary=None, sync: bool = True) -> dict[str, float]:
         """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
+        if self.recurrent_size:
+            if auxiliary is not None:
+                raise ValueError("a recurrent actor and distillation are not supported together yet")
+            return self._update_recurrent(buffer, sync)
+
         cfg = self.config
         started = time.perf_counter()
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
@@ -324,17 +409,28 @@ class MappoTrainer:
             for idx in torch.tensor_split(order, splits):
                 obs, layout = data["obs"][idx], data["layout"][idx]
 
-                if foresight:
-                    dist, predictions = self.actor.forward_with_foresight(obs, layout, data["mask"][idx])
-                else:
-                    dist = self.actor(obs, layout, data["mask"][idx])
+                features = self.actor.features(obs, layout)
+                goal = data["goal"][idx] if self.goal_count else None
+                dist = self.actor.action_distribution(features, layout, data["mask"][idx], goal)
+                predictions = (self.actor.foresight(features) if foresight else None)
                 log_probs = dist.log_prob(data["actions"][idx])
-                log_ratio = log_probs - data["log_probs"][idx]
+                entropy = dist.entropy().mean()
+                if self.goal_count:
+                    # Choosing a goal is part of the decision that chose it: its log probability joins the action's,
+                    # and its entropy is kept up on those decisions too.
+                    goals = self.actor.goal_distribution(features)
+                    chosen = data["goal_chosen"][idx].float()
+                    log_probs = log_probs + goals.log_prob(goal) * chosen
+                    weight = chosen.sum().clamp(min=1.0)
+                    entropy = entropy + (goals.entropy() * chosen).sum() / weight
+                    data_log_probs = data["log_probs"][idx] + data["goal_log_probs"][idx] * chosen
+                else:
+                    data_log_probs = data["log_probs"][idx]
+                log_ratio = log_probs - data_log_probs
                 ratio = log_ratio.exp()
 
                 adv = data["advantages"][idx]
                 policy_loss = -torch.min(ratio * adv, ratio.clamp(1 - cfg.clip, 1 + cfg.clip) * adv).mean()
-                entropy = dist.entropy().mean()
 
                 actor_loss = policy_loss - self.entropy_coef * entropy
                 if foresight:
@@ -427,6 +523,171 @@ class MappoTrainer:
         return normalised
 
     # ------------------------------------------------------------------ checkpoints
+
+    def _update_recurrent(self, buffer: RolloutBuffer, sync: bool = True) -> dict[str, float]:
+        """One PPO update that replays the rollout in order, so the GRU learns what to remember.
+
+        Minibatches are envs rather than rows: every step of an env is replayed from the memory its first decision was
+        taken with, cleared wherever an episode ended, and the losses are averaged over the rows that are samples. The
+        critic has the global state and stays feed-forward, so it is fitted on the same rows in one pass.
+        """
+        cfg = self.config
+        started = time.perf_counter()
+        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
+                 "actor_grad_norm": 0.0, "critic_grad_norm": 0.0}
+        foresight = self.foresight_outputs > 0 and buffer.foresight >= self.foresight_outputs
+        if foresight:
+            stats["foresight_loss"] = 0.0
+
+        data = {name: torch.as_tensor(value, device=self.train_device)
+                for name, value in buffer.sequences().items()}
+        if self.goal_count and "goal" not in data:
+            raise ValueError("the actor chooses goals but the rollout buffer did not keep them")
+        steps, envs, agents = data["actions"].shape
+        valid = data["valid"]
+        if not bool(valid.any()):
+            return stats
+
+        rows = valid.reshape(-1)
+        flat_layout = data["layout"].reshape(-1)
+        advantages = data["advantages"].reshape(-1).clone()
+        advantages[rows] = self._normalise_advantages(advantages[rows], flat_layout[rows])
+        data["advantages"] = advantages.reshape(steps, envs, agents)
+
+        if self.value_norm is not None:
+            self.value_norm.update(data["returns"].reshape(-1)[rows])
+            returns_target = self.value_norm.normalize(data["returns"])
+            old_values = self.value_norm.normalize(data["values"])
+        else:
+            returns_target, old_values = data["returns"], data["values"]
+
+        if cfg.normalise_observations:
+            flat_obs = data["obs"].reshape(-1, data["obs"].shape[-1])[rows]
+            update_norms(self.actor.norms, flat_obs, flat_layout[rows], self.actor.obs_dims)
+            update_norms(self.critic.norms, flat_obs, flat_layout[rows], self.critic.obs_dims)
+            states = data["state"][:, :, None, :].expand(steps, envs, agents, data["state"].shape[-1])
+            self.critic.state_norm.update(states.reshape(-1, data["state"].shape[-1])[rows])
+
+        returns, values = data["returns"].reshape(-1)[rows], data["values"].reshape(-1)[rows]
+        variance = returns.var()
+        explained = 1.0 - (returns - values).var() / variance if float(variance) > 0.0 else torch.zeros(())
+
+        totals = {name: torch.zeros((), device=self.train_device) for name in stats}
+        splits = max(1, min(cfg.minibatches, envs))
+        updates = 0
+        epochs_run = 0
+
+        for _ in range(cfg.epochs):
+            epoch_kl = torch.zeros((), device=self.train_device)
+            epoch_updates = 0
+            order = torch.randperm(envs, device=self.train_device)
+            for chunk in torch.tensor_split(order, splits):
+                memory = data["memory"][0][chunk]
+                log_probs, entropies, predictions = [], [], []
+                for step in range(steps):
+                    layout_step = data["layout"][step][chunk]
+                    lead = layout_step.shape
+                    features = self.actor.features(
+                        data["obs"][step][chunk].reshape(-1, data["obs"].shape[-1]), layout_step.reshape(-1),
+                        memory if self.recurrent_size else None)
+                    goal_step = data["goal"][step][chunk].reshape(-1) if self.goal_count else None
+                    mask_step = data["mask"][step][chunk].reshape(-1, data["mask"].shape[-1])
+                    dist = self.actor.action_distribution(features, layout_step.reshape(-1), mask_step, goal_step)
+                    dist = Categorical(logits=dist.logits.reshape(*lead, -1))
+                    step_log_probs = dist.log_prob(data["actions"][step][chunk])
+                    step_entropy = dist.entropy()
+                    if self.goal_count:
+                        goals = self.actor.goal_distribution(features)
+                        chosen = data["goal_chosen"][step][chunk].to(features.dtype)
+                        step_log_probs = step_log_probs + goals.log_prob(goal_step).reshape(*lead) * chosen
+                        step_entropy = step_entropy + goals.entropy().reshape(*lead) * chosen
+                    log_probs.append(step_log_probs)
+                    entropies.append(step_entropy)
+                    if foresight:
+                        predictions.append(self.actor.foresight(features).reshape(*lead, self.foresight_outputs))
+                    memory = features.reshape(*lead, features.shape[-1]) if self.recurrent_size else memory
+                    # An episode that ended here starts the next one with nothing remembered.
+                    if self.recurrent_size:
+                        memory = memory * (~data["dones"][step][chunk]).to(memory.dtype)[:, None, None]
+
+                counted = valid[:, chunk].to(torch.float32)
+                weight = counted.sum().clamp(min=1.0)
+                taken = data["log_probs"][:, chunk]
+                if self.goal_count:
+                    taken = taken + data["goal_log_probs"][:, chunk] * data["goal_chosen"][:, chunk].to(taken.dtype)
+                ratio = (torch.stack(log_probs) - taken).exp()
+                advantage = data["advantages"][:, chunk]
+                clipped_ratio = ratio.clamp(1 - cfg.clip, 1 + cfg.clip)
+                policy_loss = -(torch.min(ratio * advantage, clipped_ratio * advantage) * counted).sum() / weight
+                entropy = (torch.stack(entropies) * counted).sum() / weight
+
+                actor_loss = policy_loss - self.entropy_coef * entropy
+                if foresight:
+                    targets = data["foresight_targets"][:, chunk]
+                    known = data["foresight_valid"][:, chunk].to(torch.float32) * counted[..., None]
+                    horizons = self.foresight_outputs - 1
+                    stacked = torch.stack(predictions)
+                    errors = torch.cat([
+                        nn.functional.smooth_l1_loss(stacked[..., :horizons], targets[..., :horizons],
+                                                     reduction="none"),
+                        (stacked[..., horizons:] - targets[..., horizons:]) ** 2,
+                    ], dim=-1)
+                    foresight_loss = (errors * known).sum() / known.sum().clamp(min=1.0)
+                    actor_loss = actor_loss + cfg.foresight_coef * foresight_loss
+                    totals["foresight_loss"] += foresight_loss.detach()
+
+                self.actor_opt.zero_grad()
+                actor_loss.backward()
+                actor_grad = nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
+                self.actor_opt.step()
+
+                # The critic reads the global state, so its rows need no order: one pass over the minibatch.
+                obs = data["obs"][:, chunk].reshape(-1, data["obs"].shape[-1])
+                state = (data["state"][:, chunk][:, :, None, :]
+                         .expand(steps, len(chunk), agents, data["state"].shape[-1])
+                         .reshape(-1, data["state"].shape[-1]))
+                layout = data["layout"][:, chunk].reshape(-1)
+                predicted = self.critic(state, obs, layout).reshape(steps, -1, agents)
+                previous = old_values[:, chunk]
+                target = returns_target[:, chunk]
+                bounded = previous + (predicted - previous).clamp(-cfg.value_clip, cfg.value_clip)
+                errors = torch.max((predicted - target) ** 2, (bounded - target) ** 2)
+                value_loss = (errors * counted).sum() / weight
+
+                self.critic_opt.zero_grad()
+                (cfg.value_coef * value_loss).backward()
+                critic_grad = nn.utils.clip_grad_norm_(self.critic.parameters(), cfg.max_grad_norm)
+                self.critic_opt.step()
+
+                with torch.no_grad():
+                    log_ratio = torch.stack(log_probs) - taken
+                    kl = (((ratio - 1) - log_ratio) * counted).sum() / weight
+                    totals["policy_loss"] += policy_loss.detach()
+                    totals["value_loss"] += value_loss.detach()
+                    totals["entropy"] += entropy.detach()
+                    totals["clip_frac"] += ((((ratio - 1).abs() > cfg.clip).to(torch.float32)
+                                             * counted).sum() / weight)
+                    totals["approx_kl"] += kl
+                    totals["actor_grad_norm"] += actor_grad
+                    totals["critic_grad_norm"] += critic_grad
+                    epoch_kl += kl
+                updates += 1
+                epoch_updates += 1
+
+            epochs_run += 1
+            if cfg.target_kl > 0.0 and epoch_updates \
+                    and float(epoch_kl) / epoch_updates > EPOCH_KL_TOLERANCE * cfg.target_kl:
+                break
+
+        for name in stats:
+            stats[name] = float(totals[name]) / max(1, updates)
+        stats["explained_variance"] = float(explained)
+        stats["epochs_run"] = float(epochs_run)
+        # What the update itself cost, as the flat path reports it.
+        stats["update_compute_seconds"] = time.perf_counter() - started
+        if sync:
+            self._sync_rollout()
+        return stats
 
     def state_dict(self) -> dict:
         return {

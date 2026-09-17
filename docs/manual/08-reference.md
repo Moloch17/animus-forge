@@ -309,15 +309,22 @@ equal share of the seeds.
 
 ## 8.4 File formats
 
-### `.amdl` (version 1)
+### `.amdl` (version 2)
 
 ```
 char[4] "AMDL" | u32 version | u16 name_len | name | u32 obs_dim | u32 num_agents | u32 num_actions | u32 layer_count
 per layer: u32 in_dim | u32 out_dim | f32 weight[out*in] (row-major) | f32 bias[out]
+u32 recurrent_size | if it: f32 weight_ih[3R*features] | weight_hh[3R*R] | bias_ih[3R] | bias_hh[3R]
+u32 goal_count | u32 goal_every_decisions | if goals: f32 weight[G*width] | bias[G] | embedding[G*width]
 ```
 
 Input is the observation followed by a one-hot agent id (`num_agents` = 1 for exported class/role models). tanh follows
-every layer but the last. The policy is the argmax of the logits over allowed actions.
+every layer but the last. With a memory, the last layer (the action head) reads a GRU's state instead of the trunk's
+output: the trunk feeds the GRU (torch.nn.GRUCell's weights, gates in reset, update, candidate order), whose state the
+caller carries between decisions and clears when a fight is over. With goals, one is chosen from the goal head every
+`goal_every_decisions` decisions (the argmax) and kept in between, and its embedding is added to the features the
+action head reads. The policy is the argmax of the logits over allowed actions. `MlpPolicy::State` is what a seat
+carries; a model with neither section ignores it and behaves exactly as version 1 did.
 
 ### Layout manifest `<model>.json` (format 3)
 

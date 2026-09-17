@@ -143,13 +143,18 @@ def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tenso
 
 
 class LayoutActor(nn.Module):
-    def __init__(self, layouts: Sequence[tuple[int, int]], hidden: Sequence[int], foresight_outputs: int = 0):
+    def __init__(self, layouts: Sequence[tuple[int, int]], hidden: Sequence[int], foresight_outputs: int = 0,
+                 recurrent_size: int = 0, goal_count: int = 0):
         """layouts: (obs dim, action count) per layout; hidden: widths, the first being the adapters' output.
 
         `foresight_outputs` adds a head on the trunk that predicts what happens after this decision (mappo.trainer's
         foresight_*): one output per extra discount horizon and one for how much of the episode is left. Nothing reads
         it at rollout time; it is there to make the trunk the actions are chosen from carry the future, and it is left
         out of exported models.
+
+        `recurrent_size` puts a GRU between the trunk and the heads, carried from decision to decision and cleared when
+        an episode ends: the policy's own memory of what it has already done and seen, which no observation of the
+        moment can hold (who was crowd-controlled, that the enemy has spent its trinket, where the adds came from).
         """
         super().__init__()
         if not hidden:
@@ -160,40 +165,90 @@ class LayoutActor(nn.Module):
         self.norms = nn.ModuleList(RunningNorm(obs) for obs, _ in layouts)
         self.adapters = nn.ModuleList(_linear(obs, hidden[0], math.sqrt(2)) for obs, _ in layouts)
         self.trunk = _Trunk(hidden)
-        self.heads = nn.ModuleList(_linear(hidden[-1], actions, 0.01) for _, actions in layouts)
+        self.recurrent_size = recurrent_size
+        self.memory = nn.GRUCell(hidden[-1], recurrent_size) if recurrent_size else None
+        head_width = recurrent_size if recurrent_size else hidden[-1]
+        self.head_width = head_width
+        self.heads = nn.ModuleList(_linear(head_width, actions, 0.01) for _, actions in layouts)
         self.foresight_outputs = foresight_outputs
-        self.foresight = _linear(hidden[-1], foresight_outputs, 1.0) if foresight_outputs else None
+        self.foresight = _linear(head_width, foresight_outputs, 1.0) if foresight_outputs else None
+        # The goal head (mappo.goal_count): a goal chosen every mappo.goal_every_decisions and kept in between, which
+        # the action head is conditioned on. The goal chooser decides on a clock many times slower than the actions,
+        # so its own horizon is that many times shorter -- which is where a plan can be learned at all.
+        self.goal_count = goal_count
+        self.goal_head = _linear(head_width, goal_count, 0.01) if goal_count else None
+        self.goal_embedding = nn.Embedding(goal_count, head_width) if goal_count else None
+        if self.goal_embedding is not None:
+            nn.init.zeros_(self.goal_embedding.weight)
 
-    def forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, groups=None) -> Categorical:
+    def forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, groups=None,
+                memory: torch.Tensor | None = None) -> Categorical:
         """obs [..., O], layout [...], mask [..., N] (padded) -> distribution over N actions. `groups` is
-        per_layout(layout) when the caller already has it."""
-        return self._forward(obs, layout, mask, groups)[0]
+        per_layout(layout) when the caller already has it; `memory` [..., recurrent_size] the state carried in."""
+        return self._forward(obs, layout, mask, groups, memory)[0]
+
+    def step(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, memory: torch.Tensor | None = None,
+             groups=None, goal: torch.Tensor | None = None) -> tuple[Categorical, torch.Tensor, torch.Tensor]:
+        """One decision: (distribution, memory carried out, foresight predictions). Without a GRU the memory out is
+        whatever came in (an empty tensor), and without foresight heads the predictions are empty."""
+        dist, features, lead = self._forward(obs, layout, mask, groups, memory, goal)
+        predictions = (self.foresight(features).reshape(*lead, self.foresight_outputs) if self.foresight is not None
+                       else features.new_zeros((*lead, 0)))
+        carried = features.reshape(*lead, features.shape[-1]) if self.memory is not None else (
+            memory if memory is not None else features.new_zeros((*lead, 0)))
+        return dist, carried, predictions
+
+    def initial_memory(self, *lead: int, device=None) -> torch.Tensor:
+        """A cleared memory for `lead` rows (what an episode starts with)."""
+        return torch.zeros((*lead, self.recurrent_size), dtype=torch.float32, device=device)
 
     def forward_with_foresight(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
-                               groups=None) -> tuple[Categorical, torch.Tensor]:
+                               groups=None, memory: torch.Tensor | None = None) -> tuple[Categorical, torch.Tensor]:
         """forward() and the foresight head's predictions [..., foresight_outputs] from the same pass."""
-        dist, hidden, lead = self._forward(obs, layout, mask, groups)
-        if self.foresight is None:
-            return dist, hidden.new_zeros((*lead, 0))
-        return dist, self.foresight(hidden).reshape(*lead, self.foresight_outputs)
+        dist, _, predictions = self.step(obs, layout, mask, memory, groups)
+        return dist, predictions
 
-    def _forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
-                 groups=None) -> tuple[Categorical, torch.Tensor, tuple[int, ...]]:
-        lead = obs.shape[:-1]
-        obs, layout, mask = obs.reshape(-1, obs.shape[-1]), layout.reshape(-1), mask.reshape(-1, mask.shape[-1])
+    def features(self, obs: torch.Tensor, layout: torch.Tensor, memory: torch.Tensor | None = None,
+                 groups=None) -> torch.Tensor:
+        """The trunk's output for flat rows, through the GRU when there is one: what every head reads."""
         groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
-
         width = self.adapters[0].out_features
         hidden = obs.new_zeros(obs.shape[0], width)
         for index, rows in groups:
             hidden[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
         hidden = self.trunk(hidden)
 
-        logits = obs.new_full((obs.shape[0], mask.shape[-1]), MASKED_LOGIT)
-        for index, rows in groups:
-            logits[rows, : self.action_counts[index]] = self.heads[index](hidden[rows])
+        if self.memory is not None:
+            carried = (memory.reshape(-1, self.recurrent_size) if memory is not None
+                       else hidden.new_zeros(hidden.shape[0], self.recurrent_size))
+            hidden = self.memory(hidden, carried)
+        return hidden
 
-        dist = masked_distribution(logits, mask)
+    def action_distribution(self, features: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
+                            goal: torch.Tensor | None = None, groups=None) -> Categorical:
+        """The actions of flat rows whose features are `features`, under `goal` where the actor has goals."""
+        groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
+        if self.goal_embedding is not None and goal is not None:
+            features = features + self.goal_embedding(goal.reshape(-1))
+
+        logits = features.new_full((features.shape[0], mask.shape[-1]), MASKED_LOGIT)
+        for index, rows in groups:
+            logits[rows, : self.action_counts[index]] = self.heads[index](features[rows])
+        return masked_distribution(logits, mask)
+
+    def goal_distribution(self, features: torch.Tensor) -> Categorical:
+        """Which goal to pursue next, from the same features."""
+        return Categorical(logits=self.goal_head(features))
+
+    def _forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, groups=None,
+                 memory: torch.Tensor | None = None,
+                 goal: torch.Tensor | None = None) -> tuple[Categorical, torch.Tensor, tuple[int, ...]]:
+        lead = obs.shape[:-1]
+        obs, layout, mask = obs.reshape(-1, obs.shape[-1]), layout.reshape(-1), mask.reshape(-1, mask.shape[-1])
+        groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
+
+        hidden = self.features(obs, layout, memory, groups)
+        dist = self.action_distribution(hidden, layout, mask, goal, groups)
         if len(lead) != 1:
             dist = Categorical(logits=dist.logits.reshape(*lead, -1))
         return dist, hidden, lead

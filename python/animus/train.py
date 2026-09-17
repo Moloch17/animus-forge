@@ -321,7 +321,11 @@ class TrainingRun:
 
         def new_buffer() -> RolloutBuffer:
             return RolloutBuffer(config.rollout_length, spec.num_envs, spec.agents_per_env, spec.obs_dim,
-                                 spec.state_dim, spec.num_actions, self.trainer.foresight_outputs)
+                                 spec.state_dim, spec.num_actions, self.trainer.foresight_outputs,
+                                 self.trainer.recurrent_size, bool(self.trainer.goal_count))
+
+        # What the policy carries between decisions (its memory and the goal it pursues), cleared with an episode.
+        self.acting = self.trainer.acting_state(spec.num_envs, spec.agents_per_env)
 
         self.buffer = new_buffer()
         # Overlapped updates fill this one while the update reads the other; they swap after every rollout.
@@ -442,7 +446,18 @@ class TrainingRun:
     # ------------------------------------------------------------------ evaluation
 
     def learner_actions(self, step):
-        return self.trainer.act(step.obs, step.mask, step.layout, deterministic=self.config.eval.deterministic)[0]
+        return self._acting(self.config.eval.deterministic)(step)
+
+    def _acting(self, deterministic: bool):
+        """A chooser for run_evaluation that carries a recurrent actor's memory between decisions and clears it where
+        an episode has just ended (the step it is given is the new one's first)."""
+        acting = self.trainer.acting_state(self.spec.num_envs, self.spec.agents_per_env)
+
+        def choose(step):
+            acting.clear(step.done)
+            return self.trainer.act(step.obs, step.mask, step.layout, deterministic, acting)[0]
+
+        return choose
 
     def baseline_for(self, seed: int, episodes: int) -> dict | None:
         """The eval.baseline policy's summary on these seeds, scored once per run."""
@@ -515,7 +530,7 @@ class TrainingRun:
         config = self.config
         result, self.step = run_evaluation(
             self.env, self.spec,
-            lambda step: self.trainer.act(step.obs, step.mask, step.layout, deterministic=False)[0],
+            self._acting(False),
             config.eval.episodes, config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
             action_names=self.action_names)
         result.policy = "learner_sampled"
@@ -638,10 +653,11 @@ class TrainingRun:
 
         while not buffer.full:
             step = self.step
-            actions, log_probs, values, foresight = trainer.act_and_value(step.obs, step.mask, step.layout,
-                                                                          step.state)
+            memory = self.acting.memory.copy() if self.acting.memory is not None else None
+            actions, log_probs, values, foresight, goals = trainer.act_and_value(
+                step.obs, step.mask, step.layout, step.state, state=self.acting)
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
-                                foresight)
+                                foresight, memory, goals)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
             layout = step.layout
@@ -656,16 +672,21 @@ class TrainingRun:
                 done = step.done
                 final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done])
                 if final_foresight is not None:
-                    final_foresight[done] = trainer.foresight(step.final_obs[done], layout[done])
+                    final_foresight[done] = trainer.foresight_of(step.final_obs[done], layout[done],
+                                                                 memory[done] if memory is not None else None)
                 ended = step.episode_info[step.done].reshape(-1, spec.episode_info_dim)
                 present = self.present_column
                 self.finished_episodes.extend(ended if present is None else ended[ended[:, present] > 0.0])
+
+            # A new episode starts with nothing remembered and no goal.
+            if step.done.any():
+                self.acting.clear(step.done)
 
             buffer.add_outcome(step.reward, step.done, step.terminated, final_values, final_foresight)
 
         rollout_seconds = time.perf_counter() - started
         buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts,
-                      last_foresight=trainer.foresight(self.step.obs, self.step.layout),
+                      last_foresight=trainer.foresight_of(self.step.obs, self.step.layout, self.acting.memory),
                       foresight_gammas=self.foresight_discounts,
                       time_scale_decisions=self.foresight_time_decisions)
         # Read before the buffers swap below: log_update runs on the rollout that has just been collected.

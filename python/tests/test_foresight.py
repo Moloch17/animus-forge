@@ -45,7 +45,7 @@ def test_update_learns_the_heads_and_reports_their_loss():
         state = rng.random((envs, 4), dtype=np.float32)
         mask = np.ones((envs, agents, 2), bool)
         layout = np.zeros((envs, agents), np.int64)
-        actions, log_probs, values, foresight = trainer.act_and_value(obs, mask, layout, state)
+        actions, log_probs, values, foresight, _ = trainer.act_and_value(obs, mask, layout, state)
         assert foresight.shape == (envs, agents, trainer.foresight_outputs)
         buffer.add_decision(obs, state, mask, layout, actions, log_probs, values, None, foresight)
         dones = np.array([step == steps - 2, False])
@@ -56,7 +56,7 @@ def test_update_learns_the_heads_and_reports_their_loss():
     last_obs = rng.random((envs, agents, 3), dtype=np.float32)
     layout = np.zeros((envs, agents), np.int64)
     buffer.finish(np.zeros((envs, agents), np.float32), 0.99, 0.95,
-                  last_foresight=trainer.foresight(last_obs, layout), foresight_gammas=(0.95, 0.99),
+                  last_foresight=trainer.foresight_of(last_obs, layout), foresight_gammas=(0.95, 0.99),
                   time_scale_decisions=10.0)
 
     flat = buffer.flat()
@@ -73,4 +73,4 @@ def test_update_learns_the_heads_and_reports_their_loss():
 def test_off_by_default():
     trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8)))
     assert trainer.foresight_outputs == 0 and trainer.actor.foresight is None
-    assert trainer.foresight(np.zeros((2, 1, 3), np.float32), np.zeros((2, 1), np.int64)) is None
+    assert trainer.foresight_of(np.zeros((2, 1, 3), np.float32), np.zeros((2, 1), np.int64)) is None

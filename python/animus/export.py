@@ -19,8 +19,24 @@ The .amdl format (little-endian); a reader must follow it exactly, and a change 
         u32      out_dim
         f32      weight[out_dim * in_dim]   row-major, as nn.Linear stores it
         f32      bias[out_dim]
+    u32      recurrent_size                 0 = the policy has no memory
+    if recurrent_size:
+        f32  weight_ih[3 * recurrent_size * trunk_out]   as torch.nn.GRUCell stores them (r, z, n)
+        f32  weight_hh[3 * recurrent_size * recurrent_size]
+        f32  bias_ih[3 * recurrent_size]
+        f32  bias_hh[3 * recurrent_size]
+    u32      goal_count                     0 = the policy has no goals
+    u32      goal_every_decisions
+    if goal_count:
+        f32  goal_weight[goal_count * feature_width]     the goal head, on the same features
+        f32  goal_bias[goal_count]
+        f32  goal_embedding[goal_count * feature_width]  added to the features the action head reads
 
-Every layer but the last is followed by tanh. The policy is the argmax of the final logits over allowed actions.
+Every layer but the last is followed by tanh. With a memory, the last layer (the action head) reads the GRU's state
+instead of the trunk's output: the trunk feeds the GRU, whose state is carried from decision to decision and cleared
+when an episode ends. With goals, one is chosen from the goal head every goal_every_decisions decisions (the argmax)
+and kept in between, and its embedding is added to the features the action head reads. The policy is the argmax of the
+final logits over allowed actions.
 
 The learner's actor is layout-aware (mappo.networks.LayoutActor): one input adapter and action head per layout
 around a shared trunk. For one layout, adapter + trunk + head is exactly such an MLP, so every layout exports as
@@ -44,7 +60,7 @@ import torch
 from .stages import STAGE_FILE, model_names
 
 AMDL_MAGIC = b"AMDL"
-AMDL_VERSION = 1
+AMDL_VERSION = 2
 
 _TRUNK_KEY = re.compile(r"^trunk\.layers\.(\d+)\.(weight|bias)$")
 
@@ -61,7 +77,10 @@ def layout_layers(actor_state: dict[str, torch.Tensor], layout: int) -> list[tup
     adapter = fold_normalisation(actor_state, layout, *pair(f"adapters.{layout}"))
     layers = [adapter, *(pair(f"trunk.layers.{i}") for i in trunk), pair(f"heads.{layout}")]
 
-    for (prev, _), (weight, _) in zip(layers, layers[1:]):
+    # With a memory the GRU sits between the trunk and the action head, so the head reads the GRU's state and only
+    # the layers before it have to line up.
+    chain = layers[:-1] if "memory.weight_ih" in actor_state else layers
+    for (prev, _), (weight, _) in zip(chain, chain[1:]):
         if weight.shape[1] != prev.shape[0]:
             raise ValueError(f"layer input {weight.shape[1]} does not match previous output {prev.shape[0]}")
     return layers
@@ -108,9 +127,14 @@ def write_amdl(
     num_agents: int,
     num_actions: int,
     layers: list[tuple[np.ndarray, np.ndarray]],
+    memory: dict[str, np.ndarray] | None = None,
+    goals: dict[str, np.ndarray] | None = None,
+    goal_every: int = 0,
 ) -> None:
     if layers[0][0].shape[1] != obs_dim + num_agents:
         raise ValueError(f"first layer takes {layers[0][0].shape[1]} inputs, expected {obs_dim} + {num_agents}")
+    if memory is not None and layers[-1][0].shape[1] != memory["weight_hh"].shape[1]:
+        raise ValueError("the action head does not read the memory's state")
     if layers[-1][0].shape[0] != num_actions:
         raise ValueError(f"last layer has {layers[-1][0].shape[0]} outputs, expected {num_actions}")
 
@@ -125,9 +149,41 @@ def write_amdl(
             out.write(np.ascontiguousarray(weight, dtype="<f4").tobytes())
             out.write(np.ascontiguousarray(bias, dtype="<f4").tobytes())
 
+        recurrent = 0 if memory is None else int(memory["weight_hh"].shape[1])
+        out.write(struct.pack("<I", recurrent))
+        if memory is not None:
+            for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh"):
+                out.write(np.ascontiguousarray(memory[name], dtype="<f4").tobytes())
+
+        count = 0 if goals is None else int(goals["weight"].shape[0])
+        out.write(struct.pack("<II", count, goal_every if count else 0))
+        if goals is not None:
+            for name in ("weight", "bias", "embedding"):
+                out.write(np.ascontiguousarray(goals[name], dtype="<f4").tobytes())
+
+
+def memory_weights(actor_state: dict[str, torch.Tensor]) -> dict[str, np.ndarray] | None:
+    """The GRU's weights, or None when the actor has no memory."""
+    if "memory.weight_ih" not in actor_state:
+        return None
+    return {name: actor_state[f"memory.{name}"].detach().cpu().numpy().astype("<f4")
+            for name in ("weight_ih", "weight_hh", "bias_ih", "bias_hh")}
+
+
+def goal_weights(actor_state: dict[str, torch.Tensor]) -> dict[str, np.ndarray] | None:
+    """The goal head and its embedding, or None when the actor has no goals."""
+    if "goal_head.weight" not in actor_state:
+        return None
+    return {
+        "weight": actor_state["goal_head.weight"].detach().cpu().numpy().astype("<f4"),
+        "bias": actor_state["goal_head.bias"].detach().cpu().numpy().astype("<f4"),
+        "embedding": actor_state["goal_embedding.weight"].detach().cpu().numpy().astype("<f4"),
+    }
+
 
 def export_layouts(
-    actor_state: dict[str, torch.Tensor], spec: dict, out_dir: str | Path, manifest_dir: str | Path | None = None
+    actor_state: dict[str, torch.Tensor], spec: dict, out_dir: str | Path, manifest_dir: str | Path | None = None,
+    goal_every: int = 0
 ) -> list[Path]:
     """Write every layout's model to out_dir/<model name>.amdl, each atomically; returns the files written.
 
@@ -144,10 +200,13 @@ def export_layouts(
     for index, layout in enumerate(layouts):
         name = model_name(spec["scenario"], layout["name"], len(layouts), models)
         layers = with_agent_column(layout_layers(actor_state, index))
+        memory = memory_weights(actor_state)
+        goals = goal_weights(actor_state)
         target = out_dir / f"{name}.amdl"
         partial = out_dir / f".{target.name}.partial"
         try:
-            write_amdl(partial, name, layout["obs_dim"], 1, layout["num_actions"], layers)
+            write_amdl(partial, name, layout["obs_dim"], 1, layout["num_actions"], layers, memory, goals,
+                       goal_every)
             os.replace(partial, target)
         except OSError:
             partial.unlink(missing_ok=True)
@@ -187,6 +246,35 @@ def read_amdl(path: str | Path) -> dict:
         offset += out_dim * 4
         layers.append((weight, bias))
 
+    def floats(count: int, *shape: int) -> np.ndarray:
+        nonlocal offset
+        values = np.frombuffer(data, dtype="<f4", count=count, offset=offset).reshape(*shape)
+        offset += count * 4
+        return values
+
+    (recurrent,) = struct.unpack_from("<I", data, offset)
+    offset += 4
+    memory = None
+    if recurrent:
+        features = layers[-2][0].shape[0]
+        memory = {
+            "weight_ih": floats(3 * recurrent * features, 3 * recurrent, features),
+            "weight_hh": floats(3 * recurrent * recurrent, 3 * recurrent, recurrent),
+            "bias_ih": floats(3 * recurrent, 3 * recurrent),
+            "bias_hh": floats(3 * recurrent, 3 * recurrent),
+        }
+
+    goal_count, goal_every = struct.unpack_from("<II", data, offset)
+    offset += 8
+    goals = None
+    if goal_count:
+        width = layers[-1][0].shape[1]
+        goals = {
+            "weight": floats(goal_count * width, goal_count, width),
+            "bias": floats(goal_count, goal_count),
+            "embedding": floats(goal_count * width, goal_count, width),
+        }
+
     if offset != len(data):
         raise ValueError(f"{len(data) - offset} trailing bytes")
     return {
@@ -195,22 +283,60 @@ def read_amdl(path: str | Path) -> dict:
         "num_agents": num_agents,
         "num_actions": num_actions,
         "layers": layers,
+        "memory": memory,
+        "goals": goals,
+        "goal_every": goal_every,
     }
 
 
-def reference_decide(model: dict, obs: np.ndarray, mask: np.ndarray, agent: int = 0) -> tuple[int, np.ndarray]:
-    """The forward pass of an exported model: returns (greedy allowed action, logits)."""
+def reference_decide(model: dict, obs: np.ndarray, mask: np.ndarray, agent: int = 0,
+                     state: dict | None = None) -> tuple[int, np.ndarray]:
+    """The forward pass of an exported model: returns (greedy allowed action, logits).
+
+    `state` is what the policy carries between decisions -- {"memory": [R], "goal": int, "age": int} -- updated in
+    place. A model without a memory or goals ignores it, and so behaves the same however it is called.
+    """
     x = np.concatenate([obs.astype(np.float32), np.eye(model["num_agents"], dtype=np.float32)[agent]])
     layers = model["layers"]
-    for index, (weight, bias) in enumerate(layers):
-        x = weight @ x + bias
-        if index + 1 < len(layers):
-            x = np.tanh(x)
+    for index, (weight, bias) in enumerate(layers[:-1]):
+        x = np.tanh(weight @ x + bias)
+
+    memory = model.get("memory")
+    if memory is not None:
+        size = memory["weight_hh"].shape[1]
+        carried = np.zeros(size, dtype=np.float32) if state is None else state.setdefault(
+            "memory", np.zeros(size, dtype=np.float32))
+        gates = memory["weight_ih"] @ x + memory["bias_ih"]
+        recurrent = memory["weight_hh"] @ carried + memory["bias_hh"]
+        reset = _sigmoid(gates[:size] + recurrent[:size])
+        update = _sigmoid(gates[size:2 * size] + recurrent[size:2 * size])
+        candidate = np.tanh(gates[2 * size:] + reset * recurrent[2 * size:])
+        x = (1.0 - update) * candidate + update * carried
+        if state is not None:
+            state["memory"] = x
+
+    goals = model.get("goals")
+    if goals is not None:
+        every = max(1, model.get("goal_every", 1))
+        age = 0 if state is None else state.get("age", 0)
+        goal = 0 if state is None else state.get("goal", 0)
+        if age % every == 0:
+            goal = int((goals["weight"] @ x + goals["bias"]).argmax())
+        if state is not None:
+            state["goal"], state["age"] = goal, 1 if age % every == 0 else age + 1
+        x = x + goals["embedding"][goal]
+
+    weight, bias = layers[-1]
+    x = weight @ x + bias
 
     allowed = mask.astype(bool)
     if not allowed.any():
         return 0, x
     return int(np.where(allowed, x, -np.inf).argmax()), x
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-x))
 
 
 def main() -> None:
@@ -226,7 +352,8 @@ def main() -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     manifests = Path(args.layouts_dir) / checkpoint["spec"]["scenario"]
-    for path in export_layouts(checkpoint["trainer"]["actor"], checkpoint["spec"], out, manifests):
+    goal_every = int(checkpoint.get("config", {}).get("mappo", {}).get("goal_every_decisions", 0))
+    for path in export_layouts(checkpoint["trainer"]["actor"], checkpoint["spec"], out, manifests, goal_every):
         print(f"Wrote {path} (update {checkpoint.get('update', '?')})")
 
 
