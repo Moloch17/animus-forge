@@ -168,3 +168,34 @@ def test_carrying_a_sequence_matches_stepping_through_it():
     batched = actor.carry(encoded, actor.initial_memory(rows), dones)
 
     torch.testing.assert_close(batched, torch.stack(stepwise))
+
+
+def test_an_evaluation_carries_one_acting_state_through_its_episodes():
+    # The chooser run_evaluation is given has to hold the memory (and the goal clock) across the whole evaluation:
+    # a state rebuilt per decision would score the gated, exported policy as though it remembered nothing.
+    from types import SimpleNamespace
+
+    from animus.train import TrainingRun
+
+    torch.manual_seed(0)
+    trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=4, goal_count=3,
+                                                    goal_every_decisions=8))
+    states = []
+
+    def acting_state(envs, agents):
+        states.append(trainer.acting_state(envs, agents))
+        return states[-1]
+
+    run = SimpleNamespace(trainer=SimpleNamespace(acting_state=acting_state, act=trainer.act),
+                          spec=SimpleNamespace(num_envs=2, agents_per_env=1),
+                          config=SimpleNamespace(eval=SimpleNamespace(deterministic=True)),
+                          _acting=lambda deterministic: TrainingRun._acting(run, deterministic))
+
+    choose = TrainingRun.learner_actions(run)
+    step = SimpleNamespace(obs=np.ones((2, 1, 3), np.float32), mask=np.ones((2, 1, 2), bool),
+                           layout=np.zeros((2, 1), np.int64), done=np.zeros(2, bool))
+    for _ in range(3):
+        choose(step)
+
+    assert len(states) == 1
+    assert states[0].age[0, 0] == 3  # the goal clock ran on, rather than starting over on every decision

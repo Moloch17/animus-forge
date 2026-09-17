@@ -459,8 +459,9 @@ class TrainingRun:
 
     # ------------------------------------------------------------------ evaluation
 
-    def learner_actions(self, step):
-        return self._acting(self.config.eval.deterministic)(step)
+    def learner_actions(self):
+        """A chooser for one evaluation, with the acting state that evaluation carries through its episodes."""
+        return self._acting(self.config.eval.deterministic)
 
     def _acting(self, deterministic: bool):
         """A chooser for run_evaluation that carries a recurrent actor's memory between decisions and clears it where
@@ -493,7 +494,7 @@ class TrainingRun:
         if cached and cached.get("key") == key:
             summary = cached["summary"]
         else:
-            result, _ = run_evaluation(self.env, self.spec, self.learner_actions, episodes, seed,
+            result, _ = run_evaluation(self.env, self.spec, self.learner_actions(), episodes, seed,
                                        baseline=config.eval.baseline, opponents=self.opponents,
                                        arenas=self.arena_names, action_names=self.action_names)
             summary = result.summary(self.report)
@@ -512,7 +513,7 @@ class TrainingRun:
         baseline_summary = controller.baseline_summary
 
         self.progress.write("evaluating", self.update, self.env_steps)
-        result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, config.eval.episodes,
+        result, self.step = run_evaluation(self.env, self.spec, self.learner_actions(), config.eval.episodes,
                                            config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
                                            action_names=self.action_names,
                                            trace_episodes=config.eval.trace_episodes)
@@ -589,7 +590,7 @@ class TrainingRun:
                                 load_optimizers=False)
         try:
             baseline = self.baseline_for(target.confirm_seed, target.confirm_episodes)
-            result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, target.confirm_episodes,
+            result, self.step = run_evaluation(self.env, self.spec, self.learner_actions(), target.confirm_episodes,
                                                target.confirm_seed, opponents=self.opponents,
                                                arenas=self.arena_names, action_names=self.action_names)
         finally:
