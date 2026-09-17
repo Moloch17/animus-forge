@@ -606,7 +606,11 @@ of engaging it and up to +0.5 for health kept; a death -10, besides every pull i
 (-0.05 per second from `StallGraceMs` plus the preparation refund after the pull spawned, not while eating or
 drinking) and Spacing as the single pack does. Engaging a pull pays readiness, `SoloGauntletReadiness` (0.5) times the
 seat's health fraction the decision before (the lower of health and mana for mana users), so resting between pulls
-pays when the next one starts rather than only through the death it avoids. Reaching the end of the episode alive with
+pays when the next one starts rather than only through the death it avoids. Control pays `SoloGauntletControl` (0.02)
+per second for each pack member of an engaged pull, other than the seat's target, that is stunned, incapacitated,
+asleep, polymorphed, feared, or rooted out of melee reach and not casting, while another member is alive; up to
+`SoloGauntletControlMax` (1.5) per pull. It stops when the control breaks, so controlling an add and then hitting it
+pays nothing (stage 2's run used Sap, Blind, Polymorph, Hibernate and roots almost never). Reaching the end of the episode alive with
 `SoloGauntletWinPulls` (5) pulls cleared counts as the kill, so `clean_kill` is a gauntlet endured; alive on fewer is a
 timeout.
 
@@ -769,7 +773,7 @@ Encounters then add their own columns:
 
 - pulls: `kills`, `interrupts`, `pack_size`, `linked`, `pulls_cleared`, `food_used`, `drink_used`, `sustain_casts`,
   `deaths`, `wipes`; gauntlets also `engage_health`, `engage_mana`, `pulls_started_low`, `pulls_arrived`,
-  `rest_seconds`, `eat_failed`, `drink_failed`, `meals_cut_short`
+  `rest_seconds`, `eat_failed`, `drink_failed`, `meals_cut_short`, `control_seconds`
 - owner: `owner_class`, `owner_role`, `owner_died`, `owner_deaths`, `owner_damage_taken`, `owner_healing`,
   `threat_on_bot`, `threat_on_owner`, `revives`
 - party: `seat`, `teammates_died`, `teammate_damage_taken`, `teammate_healing`, `threat_on_teammates`
@@ -860,7 +864,8 @@ runs 450 s, paced so that eight or more pulls fit (pulls come to the seat, soone
 gauntlet is won by lasting to the end with five pulls cleared (rewards above). Its episode info adds the recovery
 columns: `engage_health` and `engage_mana` (means over the pulls engaged, taken the decision before), `pulls_started_low`
 (below half health or 30% mana), `pulls_arrived` (came to the seat unengaged), `rest_seconds`, `eat_failed`,
-`drink_failed` and `meals_cut_short` (food or drink that ended early with health or mana still to restore).
+`drink_failed`, `meals_cut_short` (food or drink that ended early with health or mana still to restore) and
+`control_seconds` (enemy-seconds kept out of the fight, as the control reward counts them).
 Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
 stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps, evaluations every 15M.
 Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class/role (Wilson bound),

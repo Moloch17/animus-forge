@@ -41,6 +41,8 @@ REPORT_COLUMNS = (
     # unengaged, time resting, and eating or drinking that failed or ended with something left to restore.
     "engage_health", "engage_mana", "pulls_started_low", "pulls_arrived", "rest_seconds", "food_used", "drink_used",
     "eat_failed", "drink_failed", "meals_cut_short",
+    # Crowd control that kept pack members other than the target out of the fight (enemy-seconds).
+    "control_seconds",
 )
 
 

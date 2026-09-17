@@ -150,6 +150,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.SoloGauntletReadiness` | 0.5 |
 | | | | `Pulls.SoloGauntletWinPulls` | 5 |
 | | | | `Pulls.GauntletSupplies` | 7 |
+| | | | `Pulls.SoloGauntletControl` | 0.02 |
+| | | | `Pulls.SoloGauntletControlMax` | 1.5 |
 | | | | `Pulls.ArriveMinMs` | 20000 |
 | | | | `Pulls.ArriveMaxMs` | 40000 |
 | | | | `Pulls.ArriveShrinkMs` | 1500 |
