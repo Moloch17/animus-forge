@@ -189,6 +189,12 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
+| `Options.RestMaxMs` | 30000 | | | |
+| `Options.HoldInterruptMs` | 10000 | | | |
+| `Options.KeepRangeMs` | 10000 | | | |
+
+| Key | Default | | Key | Default |
+|---|---|---|---|---|
 | `Owner.LevelSpread` | 2 | | `Opponent.LevelSpread` | 1 |
 | `Owner.TankChance` | 25 | | `Opponent.EngageMaxMs` | 3000 |
 | `Owner.HealerChance` | 25 | | `Opponent.HealerChance` | 20 |

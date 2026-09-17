@@ -283,6 +283,25 @@ The same function builds training seats and live companions, so a model gets in 
   login normally casts it, and nothing works without one), and for hunters a stable offer of four tameable beasts of
   different random families.
 
+### Durative actions
+
+Most actions are one press of one button, and a 450 s episode is 1800 of them -- far more than credit reaches back
+over. Three actions instead stand for a stretch of decisions (`SeatOption`, `Options.*`), so a plan can be expressed in
+one choice:
+
+| Action | Block | What it does until it stops |
+|---|---|---|
+| `rest_until_ready` | gauntlet | Eats and drinks, whichever is missing, until health and mana are back to 90% |
+| `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has |
+| `keep_range` | duel | A ranged spec: runs back to casting range whenever the target reaches melee |
+
+Each runs in its block's `BeforeApply`, every decision, and stops on its own condition (the fight starts, the target
+dies, nothing is left to eat), when its `Options.*` clock runs out, or the moment the policy takes any other action --
+the option's own action is masked while it runs, so nothing cancels itself. What it does is counted as a press would be
+(food and drink used, an interrupt pending on a caster). The core block reports which option is running and how much of
+its clock is left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode
+info say how much a class/role uses them.
+
 ### The action catalog
 
 `ActionCatalog` (per class, built once) is the fixed action space of the core block:
