@@ -355,17 +355,19 @@ class MappoTrainer:
         if not self.goal_count or "goal" not in data:
             return {}
 
-        goal = data["goal"].reshape(-1)
-        chosen = data["goal_chosen"].reshape(-1).bool() if "goal_chosen" in data else None
-        counts = torch.bincount(goal, minlength=self.goal_count).float()
+        goals = data["goal"]
+        counts = torch.bincount(goals.reshape(-1), minlength=self.goal_count).float()
         total = counts.sum().clamp(min=1.0)
         stats = {f"goal_{index}_share": float(counts[index] / total) for index in range(self.goal_count)}
-        if chosen is not None and bool(chosen.any()):
-            # A goal chosen while the previous decision pursued the same one: the head is holding, not switching.
-            flat = data["goal"]
-            previous = torch.roll(flat, shifts=1, dims=0)
-            previous[0] = flat[0]
-            kept = (flat.reshape(-1) == previous.reshape(-1)) & chosen
+
+        # A goal choice that kept the goal the decision before was pursuing: the head is holding, not switching.
+        # Only the sequences have a decision before -- flat rows are shuffled together from every env and step, so
+        # their neighbour means nothing.
+        chosen = data["goal_chosen"] if "goal_chosen" in data else None
+        if goals.dim() == 3 and chosen is not None and bool(chosen.any()):
+            previous = torch.roll(goals, shifts=1, dims=0)
+            previous[0] = goals[0]
+            kept = (goals == previous) & chosen.bool()
             stats["goal_kept_share"] = float(kept.sum() / chosen.sum().clamp(min=1.0))
         return stats
 

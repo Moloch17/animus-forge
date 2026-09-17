@@ -608,6 +608,9 @@ class TrainingRun:
             self.trainer.shrink_perturb(r.shrink, r.perturb)
         if r.reset_optimizers:
             self.trainer.reset_optimizers()
+        # The networks are older ones now: what the policy remembered and the goal it was pursuing were produced by
+        # weights that no longer exist, so the acting state starts again as it does at an episode boundary.
+        self.acting = self.trainer.acting_state(self.spec.num_envs, self.spec.agents_per_env)
         self.controller.record_restart(self.env_steps)
 
     def handle(self, outcome: Outcome) -> bool:
