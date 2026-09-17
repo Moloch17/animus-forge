@@ -1,7 +1,0 @@
-# Stage 4 of the curriculum: the gauntlet fought beside a scripted owner, a player of a random class and
-# role near the bot's level that wanders, engages each pull and takes real damage. The bot follows, assists and guards
-# it; tanks keep enemies on themselves, healers keep the owner alive, damage dealers avoid pulling threat. Nobody's
-# death ends the episode: the dead stand up after the pull. Like the gauntlet, give it episodes of several minutes.
-
-extends: stage3_gauntlet.yaml
-run_name: stage4_companion

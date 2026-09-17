@@ -1,80 +1,52 @@
-# mod-animus-forge
+# animus-lib
 
-Animus Forge trains World of Warcraft 3.3.5a bots that play every class and role. It is an AzerothCore module for the
-**forge core** (the `forge` branch of [azerothcore-wotlk](https://github.com/Moloch17/azerothcore-wotlk)), a headless
-simulator that runs faster than real time, together with a Python MAPPO learner in [`python/`](python/).
+The code that training and play share. [mod-animus-forge](https://github.com/Moloch17/animus-forge) trains models with
+it on the forge core; [mod-animus](https://github.com/Moloch17/animus) plays them with it on a stock AzerothCore. Both
+run the same scenarios and encodings, so a stage a game master watches is exactly the stage the forge trained, and a
+model's observations and actions mean the same thing in training and in play.
 
-The sim runs many environments in parallel, each its own dungeon instance, and turns every seat into a new character
-each episode. It trades observations for actions with the learner over a Unix socket, one decision at a time. The
-learner trains one policy for all 18 class/roles through a curriculum of stages, scores it against a scripted
-baseline, decides when a stage is good enough to move on, and exports one small `.amdl` model per class/role.
-[mod-animus](https://github.com/Moloch17/animus) plays those models on an ordinary realm.
+It is an AzerothCore module (`modules/mod-animus-lib`), but a passive one: no settings, no commands, no world update.
+It registers only the combat hooks env pools need, uses only public core APIs, and builds on both cores.
 
-**The detail is in [the Animus manual](docs/manual/README.md).** This page is the map.
+**The detail is in the Animus manual:**
+[chapter 3](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md) for the machinery and
+[chapter 4](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/04-curriculum.md) for the curriculum.
+This page is the map.
 
-## The pieces
+## What is in it
 
-| Piece | What it does | Manual |
+| Directory | Contents | Manual |
 |---|---|---|
-| Forge core | Fixed-tick, headless AzerothCore: no clients, no bot persistence, a simulated clock | [2](docs/manual/02-forge-core.md) |
-| [animus-lib](https://github.com/Moloch17/animus-lib) | The curriculum (stages, blocks, encounters, rewards, characters), env pools, bots and the model runtime, shared with mod-animus | [3](docs/manual/03-animus-lib.md), [4](docs/manual/04-curriculum.md) |
-| This module, `src/` | Plans of stages, the `forge` console commands, the lock-step bridge, the learner process, progress reports, export | [5A](docs/manual/05-animus-forge.md#part-a-the-module) |
-| The learner, `python/` | MAPPO, seeding from earlier stages, distillation, seeded evaluation, convergence, stage targets, `.amdl` export | [5B](docs/manual/05-animus-forge.md#part-b-the-learner) |
-| [mod-animus](https://github.com/Moloch17/animus) | Class/role companions and a stage viewer on a stock realm | [6](docs/manual/06-animus.md) |
+| `src/Scenario/Curriculum/` | The curriculum: stage definitions, blocks (observation features and actions), layouts and manifests, encounters, character building, rewards, scripted baselines, tuning | [4](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/04-curriculum.md) |
+| `src/Scenario/` | `Scenario`, the interface a host drives, and `StageSettings`, what a host tells it | [3.3](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#33-the-scenario-interface) |
+| `src/Env/` | `EnvPool`: every env of a scenario and the flat buffers a host exchanges | [3.4](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#34-envs-and-the-env-pool) |
+| `src/Bot/` | Sessionless bots with no character row, rebuilt every episode | [3.5](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#35-bots) |
+| `src/Core/` | `CoreHooks`, the seams for what only the forge core can do | [3.6](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#36-core-seams-corehooks) |
+| `src/Model/` | The `.amdl` reader and forward pass, and the library that checks a model against its manifest | [3.8](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#38-models) |
+| `src/Hooks/` | Damage, heal, cast and creature level hooks feeding every registered pool | [3.4](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/03-animus-lib.md#hooks-and-threading) |
+| `tools/spec_builds/` | The standard talent builds and glyphs, and the generator for `SpecBuilds.cpp` | [4.3](https://github.com/Moloch17/animus-forge/blob/master/docs/manual/04-curriculum.md#43-characters) |
 
-## The curriculum
+## Getting it
 
-Eleven stages and a pilot, each seeded from the stage it extends. Every stage trains one policy for all 18 class/roles.
+mod-animus and mod-animus-forge each bundle this library's source as a git subtree in `animus-lib/`, at the revision
+they were tested with, so a module folder builds offline with nothing else to fetch. When `modules/mod-animus-lib` is
+present (a development checkout of this repository) it is built instead and the bundled copies are ignored:
 
 ```
-stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
-             ├─ stage6_pvp ─ stage7_arena ─┬──────────────────────────────────────┘
-             │                             └─ stage11_flag
-             └─ stage9_travel ─┬─ stage10_flight      (stage11_flag also merges stage9_travel)
+git clone https://github.com/Moloch17/animus-lib.git modules/mod-animus-lib
 ```
 
-A duel against a creature grows into packs, a gauntlet of pulls, a scripted owner to protect and a real party. A PvP
-branch goes from a scripted enemy player to self-play, stage 8 joins both into one policy, and a third branch teaches
-riding, flying and Warsong Gulch's rules. See [chapter 4](docs/manual/04-curriculum.md).
+Build it the way you build the modules that need it: static (the default) or all dynamic (a dynamic build needs this
+module; copy a bundle to `modules/mod-animus-lib`). `cmake/AnimusLibDependency.cmake` holds the rules the dependents
+apply. A dependent picks up a new revision with its `tools/update-animus-lib.sh`.
 
-## Quick start (Docker)
+## Changing it
 
-```bash
-git clone -b forge git@github.com:Moloch17/azerothcore-wotlk.git animus-forge-core
-cd animus-forge-core
-git clone git@github.com:Moloch17/animus-forge.git modules/mod-animus-forge
-./forge.sh            # build and start everything, then attach to the console (detach: Ctrl+P Ctrl+Q)
-```
+A layout's manifest records everything its model depends on: the stage's blocks, each block's features and actions,
+the action catalog and the talents. Change any of them and every model exported before the change is refused, and the
+affected stages must be retrained from the first one that has the change. All three Animus modules share one include
+path, so header names must stay unique across them, and nothing here may call a forge-only core API directly: add a
+`CoreHooks` seam instead. Recipes for tuning values, reward terms, features, blocks, encounters and stages are in
+[manual 7.9][manual-7-9].
 
-animus-lib comes bundled in `animus-lib/` (`tools/update-animus-lib.sh` updates it); a `modules/mod-animus-lib`
-checkout, when present, is built instead. The first start builds the images, the worldserver and the Python venv, so it
-takes a while. GPU passthrough, native builds and the settings worth reviewing first are in
-[Operations 7.1](docs/manual/07-operations.md#71-setting-up-the-training-host-docker).
-
-Then, on the worldserver console:
-
-| Command | What it does |
-|---|---|
-| `forge run stage1_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
-| `forge fast` | The whole pipeline on an easy profile, minutes per stage, into `<OutputDir>/fast/` |
-| `forge start` | Train the curriculum stage by stage, until every stage has advanced or one halts below its target |
-| `forge status` | Rates, ETAs, evaluation scores against the baseline, warnings |
-| `forge pause`, `resume`, `cancel`, `skip` | Control a run. The learner saves on cancel and skip |
-| `forge export <stage>` | Write the `.amdl` models and their manifests for mod-animus |
-| `forge bench` | Find this machine's fastest map thread and env counts |
-
-Every command is in [5.7](docs/manual/05-animus-forge.md#57-console-commands). Monitoring, restarts, halted stages,
-deployment and troubleshooting are in [chapter 7](docs/manual/07-operations.md). TensorBoard runs on
-http://localhost:16006.
-
-## Repository
-
-| Path | Contents |
-|---|---|
-| `src/` | The module (C++, namespace `AnimusForge`) |
-| `python/animus/` | The learner package, with one config per stage in `python/configs/` and its tests in `python/tests/` |
-| `conf/mod_animus_forge.conf.dist` | Every `AnimusForge.*` key, documented. [8.1](docs/manual/08-reference.md#81-configuration-keys) lists them |
-| `docs/manual/` | The Animus manual |
-
-Settings come from config files only (`AnimusForge.*` keys, or `AC_ANIMUS_FORGE_*` in the environment), never from
-worldserver flags. Training output goes to `AnimusForge.OutputDir` (`/azerothcore/var/animus-forge` in Docker).
+[manual-7-9]: https://github.com/Moloch17/animus-forge/blob/master/docs/manual/07-operations.md#79-extending-the-curriculum
