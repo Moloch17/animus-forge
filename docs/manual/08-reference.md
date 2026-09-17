@@ -135,7 +135,10 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.FastClear` | 1.0 |
 | `Duel.Timeout` | 10.0 | | `Pulls.PackHealthKept` | 0.5 |
 | `Casting.Cancel` | 0.05 | | `Pulls.PackDeath` | 10.0 |
+| | | | `Pulls.MaxTier` | 5 |
 | | | | `Pulls.Timeout` | 10.0 |
+| | | | `Pulls.Overtime` | 0.1 |
+| | | | `Pulls.OvertimeGraceMs` | 60000 |
 | | | | `Pulls.Stall` | 0.05 |
 | | | | `Pulls.StallGraceMs` | 15000 |
 | | | | `Pulls.Spacing` | 0.03 |
@@ -349,7 +352,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `progress.json` | Every update and evaluation | For the console |
 | `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |
 | `eval.jsonl` | Every evaluation | The same plus the full summary (bands, layouts, arenas) |
-| `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column, the derived `clean_kill` and `livelocked`, and (learner rows) `actions`: each action taken other than the no-op, by name, with its count |
+| `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column, the derived `clean_kill` and `livelocked`, and (learner rows) `actions`: each action taken other than the no-op, by name, with its count, and `allowed`: how many of the episode's decisions allowed each action, so one never taken can be told from one never offered |
 | `eval_baseline.json` | Once per run | The baseline summary and its cache key |
 | `eval_baseline_<seed>_<episodes>.json` | Confirmation | Baseline on the confirmation seeds |
 | `stage.jsonl` | Each advance, restart or halt | Decision, reason, gates |

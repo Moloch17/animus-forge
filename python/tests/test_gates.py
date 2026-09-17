@@ -93,6 +93,31 @@ def test_difficulty_gates():
     assert "tier 2: not in the evaluation summary" in check_gates(flat, None, missing).failures
 
 
+def test_base_difficulty_judges_the_floors_on_the_easier_tiers():
+    """metrics and layout_metrics on the up_to group; a summary without one is judged whole."""
+    target = TargetConfig(metrics={"clean_kill": {"min": 0.85}}, layout_metrics={"clean_kill": {"min": 0.75}},
+                          base_difficulty=2)
+    base = {"score": 9.0, "episodes": 60, "clean_kill": 0.9,
+            "layouts": {"rogue_dps": {"score": 9.0, "episodes": 30, "clean_kill": 0.8}}}
+    learner = summary(7.0, layouts={"rogue_dps": {"score": 6.0, "episodes": 60, "clean_kill": 0.6}}, clean_kill=0.7,
+                      up_to={"2": base})
+    assert check_gates(learner, None, target).passed  # the elite tiers above 2 pull the whole summary down
+
+    base["layouts"]["rogue_dps"]["clean_kill"] = 0.7
+    assert check_gates(learner, None, target).failures == ["tiers 0-2 rogue_dps clean_kill (min) 0.7 (needs 0.75)"]
+
+    flat = summary(7.0, layouts={"rogue_dps": {"score": 6.0, "episodes": 60, "clean_kill": 0.9}}, clean_kill=0.9)
+    assert check_gates(flat, None, target).passed
+
+
+def test_validate_base_difficulty():
+    config = TrainConfig()
+    config.eval.every_env_steps = 10
+    config.target.base_difficulty = -1
+    with pytest.raises(ValueError, match="base_difficulty"):
+        validate_target(config, ())
+
+
 def test_validate_arena_targets():
     config = TrainConfig()
     config.eval.every_env_steps = 10

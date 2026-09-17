@@ -93,15 +93,21 @@ def check_gates(summary: dict | None, baseline: dict | None, target: TargetConfi
             else:
                 _check_score(report, f"{name} score", row, base, target.min_layout_over_baseline, target.noise_z)
 
+    # The absolute floors are judged on the base tiers' episodes when the stage names them (a summary without
+    # tiers above them is all base).
+    floors, scope = summary, ""
+    if target.base_difficulty is not None and str(target.base_difficulty) in summary.get("up_to", {}):
+        floors, scope = summary["up_to"][str(target.base_difficulty)], f"tiers 0-{target.base_difficulty} "
+
     # Absolute per-layout bounds, which no baseline can lower. Checked whatever min_layout_over_baseline is set to.
     if target.layout_metrics:
-        for name, row in summary.get("layouts", {}).items():
+        for name, row in floors.get("layouts", {}).items():
             if row["episodes"] < target.min_layout_episodes:
                 report.skipped.append(f"{name}: {row['episodes']} episodes")
             else:
-                _check_metrics(report, row, target.layout_metrics, f"{name} ")
+                _check_metrics(report, row, target.layout_metrics, f"{scope}{name} ")
 
-    _check_metrics(report, summary, target.metrics, "")
+    _check_metrics(report, floors, target.metrics, scope)
 
     for arena, gates in target.arenas.items():
         _check_group(report, f"arena {arena}", summary.get("arenas", {}).get(arena),
@@ -236,6 +242,9 @@ def validate_target(config: TrainConfig, info_names: tuple[str, ...] | list[str]
         errors.append("target.min_arena_episodes must be >= 0")
     if target.noise_z < 0:
         errors.append("target.noise_z must be >= 0")
+    base = target.base_difficulty
+    if base is not None and (isinstance(base, bool) or not isinstance(base, int) or base < 0):
+        errors.append("target.base_difficulty must be a whole number >= 0")
     if target.confirm_episodes < 0:
         errors.append("target.confirm_episodes must be >= 0")
     if config.restarts.max_restarts < 0:

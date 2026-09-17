@@ -586,6 +586,9 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
   enough episodes still pass (95% of 228 bound at 0.92).
 - `layout_metrics`: the same bounds on every class/role's own episodes, which no baseline can lower.
+- `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
+  summary's `up_to` group, overall and per class/role), for a stage whose ladder climbs above the fights its floors
+  were set for. The tiers above still count through the score and `difficulties`.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
 - `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass

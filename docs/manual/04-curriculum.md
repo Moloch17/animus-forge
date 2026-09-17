@@ -404,10 +404,12 @@ below `EliteTier` (4) is a normal creature t x `LevelsPerTier` (1) levels above 
 elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class/role moves up a tier once it wins (kills without
 dying) `RaiseAbove` (90%) of `Window` (200) fights at its tier, and down below `LowerBelow` (60%);
 `ReviewChance` (25%) of its training fights come from a lower tier, so none is forgotten. A fight that simple play wins
-every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier (tier = seed index
-mod (`MaxTier` + 1)), so two checkpoints meet the same fights, and the summary scores each tier on its own
+every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier, every class/role over
+every one (seed i plays class/role i mod the class/roles and tier (i / the class/roles) mod the tiers), so two
+checkpoints meet the same fights, and the summary scores each tier on its own
 (`difficulties`; stage targets can gate a tier, `target.difficulties`). Tiers restart at 0 with the worldserver.
-`difficulty` and `opponent_elite` in the episode info say what each fight was. The creature is summoned at the seat's
+`difficulty` and `opponent_elite` in the episode info say what each fight was. The bookkeeping is
+`DifficultyLadder`, which the single pack's ladder shares. The creature is summoned at the seat's
 level plus its tier's levels (`PendingSummonLevel`) 40-50 yd away at a random line-of-sight bearing on level ground
 the seat can walk to (a path at most 1.5 times the straight line), facing a random way, hostile and aggressive, without
 health regeneration. It starts out of aggro range. A creature with no path to its victim stops and regenerates, then
@@ -419,8 +421,24 @@ kill or on death with no resurrection left.
 **`PullsEncounter`** (`Opposition::Pulls`). The pack pool adds creatures whose SmartAI only casts or talks (about 3500
 casters and ability users) to the duel pool.
 
-- **Single pack** (stage 2): 2-4 creatures at the seat's level, clustered 40-50 yd away. `Pulls.LinkedChance` (70%)
-  are linked, meaning once one member is in combat the rest attack. The episode is terminal on clear or death.
+- **Single pack** (stage 2): creatures at the seat's level, clustered 40-50 yd away. `Pulls.LinkedChance` (70%)
+  are linked, meaning once one member is in combat the rest attack. The episode is terminal on clear, death or the
+  clock. **The pack climbs a ladder per class/role**, with the duel's `Difficulty.*` rates (up at 90% of 200 packs
+  cleared without dying, down below 60%, 25% reviews), up to `Pulls.MaxTier` (5). Every rung has a spellcaster: a
+  creature whose SmartAI casts a spell with a cast time, one an interrupt can stop (`OpponentPool::RandomCaster`).
+  The other members are any pack creature, and the slots are shuffled.
+
+  | Rung | Pack |
+  |---|---|
+  | 0 | 2: a caster and one more |
+  | 1 | 3: a caster and two more |
+  | 2 | 4: a caster and three more |
+  | 3 | 4: two casters and two more |
+  | 4 | 3: a caster, an elite and one more |
+  | 5 | 4: two casters, an elite and one more, a level above the seat |
+
+  Evaluations spread their seeds over the rungs as the duel's over its tiers, and `difficulty` in the episode info is
+  the rung. A stage viewer's `spawn` tier picks the rung.
 - **Gauntlet** (stages 3-5, 8): 1-4 creatures, or `EliteChance` (15%) a single elite, or `HigherLevelChance` (25%) a
   pack 1-3 levels higher. In a party arena each member is elite with `PartyEliteChance` (50%) and up to 2 levels above.
   After a clear the field empties and the next pull spawns `NextPullMinMs`-`NextPullMaxMs` (8-20 s) later, out of aggro
@@ -810,10 +828,10 @@ enemy pulls all of them. The interrupt reward teaches casting interrupts at the 
 is up to four of the duel's creatures, which took stage 1's policy about 17 s each. Rewards are the duel's win-first
 ones (4.6).
 
-Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is provisional until the first stage 2
-evaluation shows what a random character can do against a pack: clean wins of at least 85% overall and 75% per
-class/role (Wilson bounds), no difficulty tiers, and `until_passed` off, so a stage that converges short of it halts
-after its restarts instead of training on.
+Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is clean wins of at least 85% overall
+and 75% per class/role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
+first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
+score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
 
 ### Stage 3: `stage3_gauntlet`
 

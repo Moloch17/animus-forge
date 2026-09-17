@@ -201,6 +201,7 @@ def test_opponent_seats_are_scripted_and_left_out():
     assert set(summary["arenas"]) == {"duel", "arena_1v1"}
     assert summary["arenas"]["duel"]["episodes"] == 2 and summary["arenas"]["arena_1v1"]["episodes"] == 2
     assert baseline.action_counts is None and "actions" not in baseline.episodes_log()[0]
+    assert baseline.allowed_counts is None and "allowed" not in baseline.episodes_log()[0]
 
 
 def test_episode_log_counts_actions_by_name():
@@ -212,6 +213,8 @@ def test_episode_log_counts_actions_by_name():
                                action_names={"warrior_dps": ["noop", "charge_100", "hamstring_1715"]})
     rows = result.episodes_log()
     assert [row["actions"] for row in rows] == [{"hamstring_1715": 1}, {}, {"hamstring_1715": 1}, {}]
+    # Every decision's mask allowed both actions, whichever was taken.
+    assert all(row["allowed"] == {"charge_100": 1, "hamstring_1715": 1} for row in rows)
 
 
 def test_summary_by_difficulty_tier():
@@ -221,6 +224,16 @@ def test_summary_by_difficulty_tier():
     assert set(tiers) == {"0", "2"} and tiers["0"]["score"] == pytest.approx(2.0) and tiers["2"]["episodes"] == 1
     assert EvalResult("learner", np.array([1.0]), np.zeros((1, 1), np.float32), ("difficulty",)).summary(())[
         "difficulties"] == {}
+
+
+def test_summary_up_to_each_tier_below_the_top():
+    infos = np.array([[0.0], [1.0], [2.0], [2.0]], np.float32)
+    result = EvalResult("learner", np.array([1.0, 3.0, 5.0, 7.0]), infos, ("difficulty",),
+                        layouts=("mage_dps", "rogue_dps", "mage_dps", "rogue_dps"))
+    up_to = result.summary(())["up_to"]
+    assert set(up_to) == {"0", "1"}  # up to the top tier is the whole summary
+    assert up_to["1"]["episodes"] == 2 and up_to["1"]["score"] == pytest.approx(2.0)
+    assert up_to["1"]["layouts"]["rogue_dps"]["episodes"] == 1 and up_to["0"]["layouts"]["rogue_dps"]["episodes"] == 0
 
 
 def test_arena_summary_needs_several_arenas():

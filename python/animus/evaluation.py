@@ -62,6 +62,9 @@ class EvalResult:
     # for a scripted baseline, whose actions the sim picks), and per layout the actions' names (stage.json
     # "action_names"), for the per-episode log.
     action_counts: np.ndarray | None = None
+    # [n, num_actions] how many of the same decisions allowed each action (the mask), so an action the policy never
+    # takes can be told from one it was never offered (a missing reagent, a spell the character doesn't have).
+    allowed_counts: np.ndarray | None = None
     action_names: dict[str, list[str]] = field(default_factory=dict)
 
     @property
@@ -103,15 +106,23 @@ class EvalResult:
                 row[name] = float(values[index])
             if self.action_counts is not None and index < len(self.action_counts):
                 row["actions"] = self.actions_taken(index)
+            if self.allowed_counts is not None and index < len(self.allowed_counts):
+                row["allowed"] = self.actions_allowed(index)
             rows.append(row)
         return rows
 
     def actions_taken(self, index: int) -> dict[str, int]:
         """Row `index`'s actions other than the no-op, by name, with how often it took each: which spells, items
         and orders a class actually uses, which no episode info column can say."""
+        return self._named_counts(index, self.action_counts[index])
+
+    def actions_allowed(self, index: int) -> dict[str, int]:
+        """Row `index`'s actions other than the no-op, by name, with how many of its decisions allowed each."""
+        return self._named_counts(index, self.allowed_counts[index])
+
+    def _named_counts(self, index: int, counts: np.ndarray) -> dict[str, int]:
         layout = self.layouts[index] if index < len(self.layouts) else ""
         names = self.action_names.get(layout, [])
-        counts = self.action_counts[index]
         return {(names[action] if action < len(names) else str(action)): int(counts[action])
                 for action in np.flatnonzero(counts) if action > 0}
 
@@ -143,7 +154,7 @@ class EvalResult:
 
     def summary(self, columns: tuple[str, ...]) -> dict:
         """Score and means of `columns`: overall, per level band, per layout, per arena, per talent build and per
-        difficulty tier."""
+        difficulty tier, and for each tier but the top one everything up to it, per layout too ("up_to")."""
         present = [c for c in columns if c in self.info_names]
         derived = self.derived()
 
@@ -163,7 +174,7 @@ class EvalResult:
 
         everything = np.ones(self.episodes, dtype=bool)
         result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "arenas": {}, "builds": {},
-                  "difficulties": {}}
+                  "difficulties": {}, "up_to": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -183,8 +194,18 @@ class EvalResult:
         # The creature duel's difficulty tiers (episode info "difficulty"): an evaluation spreads its seeds over them.
         tiers = self.column("difficulty")
         if tiers is not None and len(set(tiers.tolist())) > 1:
-            for tier in sorted(set(int(t) for t in tiers.tolist())):
+            seen = sorted(set(int(t) for t in tiers.tolist()))
+            for tier in seen:
                 result["difficulties"][str(tier)] = means(tiers == tier)
+            # The easier tiers together (target.base_difficulty): a stage whose ladder climbs above what it is judged
+            # on still gates the class/roles on the fights below.
+            names = np.array(self.layouts) if len(self.layouts) == self.episodes else None
+            for tier in seen[:-1]:
+                rows = tiers <= tier
+                group = means(rows)
+                group["layouts"] = {} if names is None else {
+                    layout: means(rows & (names == layout)) for layout in sorted(set(self.layouts))}
+                result["up_to"][str(tier)] = group
         plans = self.column("talent_plan")
         if plans is not None and len(set(plans.tolist())) > 1:
             for index, plan in enumerate(TALENT_PLANS):
@@ -265,8 +286,9 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         step = env.set_mode(True, seed, episodes, opponents, opponents_only=bool(opponents))
     running = np.zeros((envs, agents), dtype=np.float64)
     taken = np.zeros((envs, agents, spec.num_actions), dtype=np.int32)
+    allowed = np.zeros((envs, agents, spec.num_actions), dtype=np.int32)
     env_rows, agent_rows = np.indices((envs, agents))
-    finished: dict[int, list[tuple[float, np.ndarray, str, np.ndarray]]] = {}
+    finished: dict[int, list[tuple[float, np.ndarray, str, np.ndarray, np.ndarray]]] = {}
     info_names = list(spec.episode_info_names)
     # A party seat left empty for an episode reports present = 0: it is not an episode of any class/role.
     present = info_names.index("present") if "present" in info_names else None
@@ -280,6 +302,7 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         layout = step.layout
         if not baseline:
             taken[env_rows, agent_rows, np.clip(actions, 0, spec.num_actions - 1)] += 1
+            allowed += step.mask
         step = env.step(actions)
         decisions += 1
 
@@ -288,13 +311,15 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
             index = int(step.episode_seed[e])
             if index != p.NO_EPISODE_SEED and index < episodes and index not in finished:
                 finished[index] = [
-                    (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])], taken[e, a].copy())
+                    (float(running[e, a]), step.episode_info[e, a].copy(), names[int(layout[e, a])], taken[e, a].copy(),
+                     allowed[e, a].copy())
                     for a in range(agents)
                     if (present is None or step.episode_info[e, a, present] > 0.0)
                     and (opponent_seat is None or step.episode_info[e, a, opponent_seat] <= 0.0)
                 ]
             running[e] = 0.0
             taken[e] = 0
+            allowed[e] = 0
 
     if len(finished) < episodes:
         print(f"Evaluation stopped after {decisions} decisions with {len(finished)} of {episodes} episodes", flush=True)
@@ -312,6 +337,8 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         seconds=time.perf_counter() - started,
         decisions=decisions,
         action_counts=None if baseline else np.array([row[3] for row in rows], dtype=np.int32).reshape(
+            len(rows), spec.num_actions),
+        allowed_counts=None if baseline else np.array([row[4] for row in rows], dtype=np.int32).reshape(
             len(rows), spec.num_actions),
         action_names=dict(action_names or {}),
     )

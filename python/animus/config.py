@@ -105,6 +105,10 @@ class TargetConfig:
     # only, e.g. {0: {metrics: {clean_kill: {min: 0.95}}}}. An evaluation spreads its seeds over every tier, and a
     # floor the base tier must reach says nothing about an elite a level above.
     difficulties: dict = field(default_factory=dict)
+    # Judge metrics and layout_metrics only on the episodes of difficulty tiers up to this one (the summary's "up_to"),
+    # for a stage whose ladder climbs above the fights its floors were set for; the tiers above count through the
+    # score and the per-tier gates. None = every episode.
+    base_difficulty: int | None = None
     # Score gates pass when the score is within this many standard errors of what they require (of the difference
     # between the two means, the learner's and the baseline's). Each layout is scored on its share of the episodes
     # only, so without an allowance a class/role that is truly level with its baseline fails about half the time.
