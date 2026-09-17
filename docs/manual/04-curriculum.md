@@ -563,7 +563,10 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 - stall (creature duel only): -0.05 per second the fight hasn't started once `Duel.StallGraceMs` (15 s) of the episode
   are gone. The timeout comes 900 decisions later, too far for the policy to tell standing still from closing in: at
   20M steps stage1_duel's deterministic policy stood where it spawned for the whole episode in 67 of 2048 evaluation
-  fights
+  fights. Preparing isn't stalling: the grace grows by the time the seat spent starting helpful spells out of combat
+  (buffs, forms, stances, stealth, pet summons, conjuring; each its cast time, at least a 1.5 s global cooldown), up to
+  `Duel.PreparationRefundMaxMs` (30 s), so a warlock summoning its demon or a druid shifting before the pull isn't
+  charged for it and nothing has to start prepared. `preparation_seconds` in the episode info is that time, uncapped
 - spacing (creature duel, ranged specs): -0.03 per second the opponent stands in melee range attacking the seat. The
   approach term only pays for closing in, so nothing kept a hunter, mage or warlock at its range
 - repeats (every stage): -0.02 per press of the same action past the free ones in its window (see Repeats, 4.3)
@@ -582,7 +585,8 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
   episode. With the timeout alone, a -10 about 100 s away was worth about 2 to the discounted return against a whole
   -10 death now, and stage 2's warlocks learned to kite out the clock (28% timeouts at 10M steps). Dying never ends
   an overtime fight more cheaply than timing out
-- stall -0.05 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone
+- stall -0.05 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone,
+  plus the preparation time as the duel's, up to `PreparationRefundMaxMs` (30 s)
 - spacing -0.03 per second, for a ranged spec, while a living pack member attacks it in melee reach
 
 With the gauntlet's clear and health kept (+2 and up to +2) and a -3 death, keeping health paid as much as clearing

@@ -141,6 +141,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.OvertimeGraceMs` | 60000 |
 | | | | `Pulls.Stall` | 0.05 |
 | | | | `Pulls.StallGraceMs` | 15000 |
+| | | | `Pulls.PreparationRefundMaxMs` | 30000 |
 | | | | `Pulls.Spacing` | 0.03 |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |
@@ -150,6 +151,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Characters.LowLevelChance` | 15 | | | |
 | `Duel.Stall` | 0.05 | | | |
 | `Duel.StallGraceMs` | 15000 | | | |
+| `Duel.PreparationRefundMaxMs` | 30000 | | | |
 | `Duel.Spacing` | 0.03 | | | |
 | `Actions.Repeat` | 0.02 | | | |
 | `Actions.RepeatWindowMs` | 10000 | | | |
