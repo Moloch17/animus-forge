@@ -108,8 +108,8 @@ def save_checkpoint(
 
 class EvalLog:
     """eval.csv (one row per evaluation), eval.jsonl (the full summary, level bands included), eval_episodes.jsonl
-    (one row per scored episode) and stage.jsonl (each decision to move on, restart or halt, with the gates behind
-    it)."""
+    (one row per scored episode), eval_trace.jsonl (every decision of the traced seeds) and stage.jsonl (each decision
+    to move on, restart or halt, with the gates behind it)."""
 
     COLUMNS = ["update", "env_steps", "policy", "episodes", "score", "stderr", "margin", "best", "evals_since_best",
                "restarts", "seconds"]
@@ -118,6 +118,7 @@ class EvalLog:
         self.csv_path = run_dir / "eval.csv"
         self.jsonl_path = run_dir / "eval.jsonl"
         self.episodes_path = run_dir / "eval_episodes.jsonl"
+        self.trace_path = run_dir / "eval_trace.jsonl"
         self.stage_path = run_dir / "stage.jsonl"
         self.tb = tb
 
@@ -150,6 +151,14 @@ class EvalLog:
         with self.episodes_path.open("a") as f:
             for episode in result.episodes_log():
                 f.write(json.dumps({"update": update, "env_steps": env_steps, **episode}) + "\n")
+
+        # Decision by decision for the traced seeds (eval.trace_episodes), which is the only place the order of a
+        # policy's decisions -- its plan -- can be read.
+        if result.trace:
+            with self.trace_path.open("a") as f:
+                for row in result.trace:
+                    f.write(json.dumps({"update": update, "env_steps": env_steps, "policy": result.policy,
+                                        **row}) + "\n")
 
         if self.tb is None or result.policy != "learner":
             return
@@ -455,7 +464,8 @@ class TrainingRun:
 
         def choose(step):
             acting.clear(step.done)
-            return self.trainer.act(step.obs, step.mask, step.layout, deterministic, acting)[0]
+            actions = self.trainer.act(step.obs, step.mask, step.layout, deterministic, acting)[0]
+            return (actions, acting.goal) if acting.goal is not None else actions
 
         return choose
 
@@ -499,7 +509,8 @@ class TrainingRun:
         self.progress.write("evaluating", self.update, self.env_steps)
         result, self.step = run_evaluation(self.env, self.spec, self.learner_actions, config.eval.episodes,
                                            config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
-                                           action_names=self.action_names)
+                                           action_names=self.action_names,
+                                           trace_episodes=config.eval.trace_episodes)
         summary = result.summary(self.report)
         improved = controller.observe(summary, self.env_steps)
         self.eval_log.write(self.update, self.env_steps, result, summary, tracker, controller.restarts)
@@ -651,6 +662,10 @@ class TrainingRun:
         buffer.reset()
         started = time.perf_counter()
 
+        # self.acting is never reset between rollouts, only where an episode ended: a policy's memory carries on
+        # across rollout boundaries, so what it remembers is bounded by the episode, not by rollout_length. The
+        # update replays each rollout from the memory its first decision was taken with, so only the gradient is
+        # truncated there.
         while not buffer.full:
             step = self.step
             memory = self.acting.memory.copy() if self.acting.memory is not None else None
@@ -661,7 +676,7 @@ class TrainingRun:
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
             layout = step.layout
-            self.step = step = self.env.step(actions)
+            self.step = step = self.env.step(actions, goals[0] if goals is not None else None)
 
             final_values = np.zeros((envs, agents), dtype=np.float32)
             final_foresight = (np.zeros((envs, agents, trainer.foresight_outputs), dtype=np.float32)
@@ -670,7 +685,10 @@ class TrainingRun:
                 # Only the envs that finished need one: an env ends an episode once in hundreds of decisions, so
                 # valuing all of them and then throwing most away is a forward pass over ~20x the rows needed.
                 done = step.done
-                final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done])
+                # The goal in force is the one the ended episode's last decision pursued, which the value depends on.
+                goal = self.acting.goal
+                final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done],
+                                                   goal[done] if goal is not None else None)
                 if final_foresight is not None:
                     final_foresight[done] = trainer.foresight_of(step.final_obs[done], layout[done],
                                                                  memory[done] if memory is not None else None)
@@ -685,7 +703,8 @@ class TrainingRun:
             buffer.add_outcome(step.reward, step.done, step.terminated, final_values, final_foresight)
 
         rollout_seconds = time.perf_counter() - started
-        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts,
+        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout, self.acting.goal),
+                      *self.discounts,
                       last_foresight=trainer.foresight_of(self.step.obs, self.step.layout, self.acting.memory),
                       foresight_gammas=self.foresight_discounts,
                       time_scale_decisions=self.foresight_time_decisions)

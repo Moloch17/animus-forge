@@ -1095,7 +1095,7 @@ void AnimusForge::Forge::RemoteDecision()
         std::vector<char> payload;
         auto const waitFrom = std::chrono::steady_clock::now();
         bool const received = _server.ReceiveAny(type, payload,
-            std::max({ actionBytes, sizeof(ModeMsg), weightBytes, replayBytes }), onIdle);
+            std::max({ 2 * actionBytes, sizeof(ModeMsg), weightBytes, replayBytes }), onIdle);
         WaitedForLearner(waitFrom);
         if (!received)
         {
@@ -1103,9 +1103,15 @@ void AnimusForge::Forge::RemoteDecision()
             return;
         }
 
-        if (type == MsgType::Act && payload.size() == actionBytes)
+        // ACT carries the actions, and the goals after them when the policy has a goal head.
+        if (type == MsgType::Act && (payload.size() == actionBytes || payload.size() == 2 * actionBytes))
         {
             std::memcpy(_pool->Actions.data(), payload.data(), actionBytes);
+            if (payload.size() == 2 * actionBytes)
+                std::memcpy(_pool->Goals.data(), payload.data() + actionBytes, actionBytes);
+            else
+                std::fill(_pool->Goals.begin(), _pool->Goals.end(), -1);
+
             _lastAct = std::chrono::steady_clock::now();
             break;
         }
@@ -1252,6 +1258,7 @@ bool AnimusForge::Forge::SendSpec()
     msg.StateDim = spec.StateDim;
     msg.NumActions = spec.NumActions;
     msg.EpisodeInfoDim = spec.EpisodeInfoDim;
+    msg.GoalCount = spec.GoalCount;
     // Every world tick is a decision.
     msg.TickMs = RunConfig().DecisionMs;
     msg.DecisionTicks = 1;

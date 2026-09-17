@@ -25,6 +25,7 @@ stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ s
 | 9 | `stage9_travel` | stage1 | core, duel, pet, travel | 1 | A place 60-320 yd away by path, level 20+ | Ends on arriving or death |
 | 10 | `stage10_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
 | 11 | `stage11_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
+| 12 | `stage12_endurance` (by name) | stage3 | stage 3's | 1 | The same eight pulls in the same order, ending on an elite pack two levels up | Won by clearing the last pull; 900 s |
 | - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pet, pvp | 1 | Duel or scripted player, half and half | Per arena |
 
 `mix_duel_pvp` is not in the default queue of `forge start`. It exists to test arena mixing, merge seeding and
@@ -396,6 +397,7 @@ counts the charged presses.
 | `gauntlet` | Pulls cleared, pull active, time since the last fight, time into the pull, elite or higher-level pull, eating, drinking, food and drink left, time until an unengaged pull comes to the bot, time until the next pull spawns (the sustain spells are core actions) | Eat, drink (offered only where the item's cast check passes) |
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one revive-on-owner per revive |
 | `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, revives |
+| `party` teammate goals | Each teammate's goal one-hot (`SeatGoal`), so a party can divide the work | |
 | `support` (stages 3-5, 8) | The selected friend and rank tier (one-hot); per friend slot (self, owner, three teammates): presence, alive, health, mana, distance, line of sight, attackers, role, the bot's own HoT (duration left) and absorb on it, buff coverage | Select a friend (the target of positive unit-target spells); set the rank tier (high, mid, low) |
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
@@ -582,6 +584,18 @@ friend every decision (what they lost, or what was left when one vanished early)
 `damage * (1 / multiplier - 1)` over the bot's own `MOD_DAMAGE_PERCENT_TAKEN` auras on the victim, at the hit
 (`EnvPool::RecordPrevented`). In gauntlets, engaging a pull also pays `Support.BuffCoverage` (0.3) times the share of
 the layout's buff groups up on the bot (averaged with the owner's where there is one).
+
+**Goals** (`SeatGoal`, every stage whose policy has a goal head). The learner's goal head picks one of fight, control,
+recover, protect, position or prepare every `mappo.goal_every_decisions` (16, so 4 s) and keeps it until the next
+choice, and sends it to the sim with the actions (protocol 8: ACT carries the goals after the actions). The sim scores
+whether each decision matched the goal -- damage for fight, an enemy other than the target held for control, healing or
+resting itself for recover, healing or shielding the owner or a teammate for protect, its spec's range for position, a
+buff, summon or stealth out of combat for prepare -- and pays `Goals.Match` (0.01) for the ones that do. That charge is
+small on purpose: it keeps the goals apart (nothing else stops a goal head collapsing into one goal), and the stage's
+own terms still price the play. A party's teammates see each other's goals in the party block. Columns:
+`goal_<name>_share` per goal, `goal_match_share` and `goal_changes`; the learner's own metrics add `goal_<i>_share` and
+`goal_kept_share` per update. The critic is goal-conditioned, so the advantage a decision gets is measured against what
+that goal is worth.
 
 Support columns (every stage): `healing_done` and `protection_done` (fractions of the bot's health), `overheal_share`,
 `heals_on_full` (masked: 0), `defensive_casts`, `healing_casts`, `downranked_share`, `low_health_seconds` (any friend
@@ -1013,6 +1027,18 @@ Warsong Gulch's rules between two learned seats (4.5), extending the arena and m
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
 flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
+
+### Stage 12: `stage12_endurance` (by name)
+
+A planned run: eight pulls in a fixed order, the same every episode, seeded from stage 3 and using its blocks. The
+order is an opener of two, three, four with two casters, a small one, four, three with an elite, four with an elite a
+level up, and last an elite pack two levels up. Nothing about the fights is new -- stage 3 taught them -- so what is
+left is the plan: what to spend on the opener, what to keep for the last pull, and whether the small fourth pull is
+used as a rest. It is won by clearing the last pull alive; the 900 s clock running out is a loss however far it got,
+and `pulls_cleared` (out of 8) is how far. `PullSchedule::Sequence` builds it; `eval.trace_episodes: 4` records four
+whole runs decision by decision, which is how a plan is read.
+
+Train it after stage 3: `forge start stage12_endurance` (it is not in the default queue).
 
 ### Pilot: `mix_duel_pvp`
 

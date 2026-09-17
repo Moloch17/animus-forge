@@ -22,6 +22,7 @@ SPEC = p.Spec(
     state_dim=3,
     num_actions=2,
     episode_info_dim=2,
+    goal_count=0,
     tick_ms=50,
     decision_ticks=1,
     episode_seconds=1,
@@ -146,7 +147,7 @@ class ScriptedOpponentEnv:
 
     SPEC = p.Spec(
         version=p.PROTOCOL_VERSION, num_envs=1, agents_per_env=2, obs_dim=1, state_dim=1, num_actions=1,
-        episode_info_dim=3, tick_ms=50, decision_ticks=1, episode_seconds=1, scenario="fake",
+        episode_info_dim=3, goal_count=0, tick_ms=50, decision_ticks=1, episode_seconds=1, scenario="fake",
         layouts=(p.Layout("warrior_dps", 1, 1),), episode_info_names=("level", "arena", "opponent_seat"),
     )
 
@@ -176,7 +177,7 @@ class ScriptedOpponentEnv:
         self.next_seed = 0
         return self._step(False, p.NO_EPISODE_SEED)
 
-    def step(self, actions):
+    def step(self, actions, goals=None):
         seed = self.next_seed
         self.next_seed += 1
         return self._step(True, seed)
@@ -516,3 +517,26 @@ def test_failed_seeds_are_the_episodes_short_on_the_metric():
     assert result.failed_seeds("clean_kill") == [1, 2]
     assert result.failed_seeds("killed") == [2]
     assert result.failed_seeds("unknown") == []
+
+
+def test_a_trace_records_every_decision_of_the_first_seeds():
+    """eval.trace_episodes records what the policy did and what goal it said it was pursuing, decision by decision,
+    for the episodes with the first seed indexes, and nothing for the others."""
+    env = ScriptedOpponentEnv()
+    spec = dataclasses.replace(ScriptedOpponentEnv.SPEC, num_actions=3,
+                               layouts=(p.Layout("warrior_dps", 1, 3),))
+
+    def choose(step):
+        return np.array([[2, 0]], np.int32), np.array([[1, 0]], np.int32)
+
+    result, _ = run_evaluation(env, spec, choose, episodes=4, seed=1, trace_episodes=2,
+                               action_names={"warrior_dps": ["noop", "charge_100", "hamstring_1715"]})
+
+    assert result.trace, "the traced seeds should have decisions"
+    assert {row["seed"] for row in result.trace} == {0, 1}          # only the first two seeds
+    first = result.trace[0]
+    assert first["action"] == "hamstring_1715" and first["goal"] == 1 and first["layout"] == "warrior_dps"
+    assert {row["agent"] for row in result.trace} == {0, 1}          # every seat of the episode
+
+    untraced, _ = run_evaluation(env, spec, choose, episodes=2, seed=1)
+    assert untraced.trace == []

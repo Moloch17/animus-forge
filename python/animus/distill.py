@@ -40,6 +40,7 @@ class Teacher:
     obs_dim: int  # the teacher's padded observation width
     num_actions: int  # the teacher's padded action count
     layouts: dict[int, LayoutMap]  # the stage's layout index -> its map; layouts the teacher lacks are absent
+    recurrent_size: int = 0  # the teacher's own memory, carried between its decisions like the student's
 
 
 def _index_pairs(student: dict[str, tuple[Span, Span]] | None, teacher: dict[str, tuple[Span, Span]] | None,
@@ -69,8 +70,15 @@ def build_teacher(checkpoint: dict, spec, stage: dict | None, device: torch.devi
     """A frozen actor from `checkpoint`, mapped onto the stage's layouts (spec.layouts, stage.json `stage`)."""
     t_spec = checkpoint["spec"]
     t_layouts = [(entry["obs_dim"], entry["num_actions"]) for entry in t_spec["layouts"]]
-    hidden = list(checkpoint["config"]["mappo"]["hidden"])
-    actor = LayoutActor(t_layouts, hidden)
+    mappo = checkpoint["config"].get("mappo", {})
+    hidden = list(mappo["hidden"])
+    # A teacher trained with its own memory or goal head keeps them: its weights only load into the same shape, and a
+    # recurrent teacher has to be replayed in order for its advice to mean anything (Distiller.kl).
+    recurrent_size = int(mappo.get("recurrent_size", 0) or 0)
+    goal_count = int(mappo.get("goal_count", 0) or 0)
+    horizons = mappo.get("foresight_horizons_seconds", ())
+    foresight_outputs = (len(horizons) + 1) if float(mappo.get("foresight_coef", 0.0) or 0.0) > 0.0 else 0
+    actor = LayoutActor(t_layouts, hidden, foresight_outputs, recurrent_size, goal_count)
     actor.load_state_dict(checkpoint["trainer"]["actor"])
     actor.to(device).eval()
     for param in actor.parameters():
@@ -100,6 +108,7 @@ def build_teacher(checkpoint: dict, spec, stage: dict | None, device: torch.devi
         obs_dim=max(obs for obs, _ in t_layouts),
         num_actions=max(actions for _, actions in t_layouts),
         layouts=layouts,
+        recurrent_size=recurrent_size,
     )
 
 
@@ -136,27 +145,48 @@ class Distiller:
         value, index = onehot.max(dim=-1)
         return torch.where(value > 0.5, index, torch.full_like(index, -1))
 
+    def begin_sequence(self, rows: int, device) -> dict[int, torch.Tensor]:
+        """Cleared memories for a recurrent teacher, one row per student row, to carry through a replayed sequence
+        (MappoTrainer's recurrent update). Teachers without memory need none."""
+        return {arena: teacher.actor.initial_memory(rows, device=device)
+                for arena, teacher in self.teachers.items() if teacher.recurrent_size}
+
     def kl(self, obs: torch.Tensor, state: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
-           log_probs: torch.Tensor) -> tuple[torch.Tensor, int]:
+           log_probs: torch.Tensor, memories: dict[int, torch.Tensor] | None = None,
+           dones: torch.Tensor | None = None) -> tuple[torch.Tensor, int]:
         """Summed KL(teacher || policy) over the taught rows, and how many rows that is. `log_probs` [n, N] are the
-        policy's normalised log-probabilities (Categorical.logits) for the rows."""
+        policy's normalised log-probabilities (Categorical.logits) for the rows.
+
+        With `memories` (from begin_sequence) the rows are one decision of a replayed sequence: a recurrent teacher is
+        run on every row of a layout it has, whether or not that row is taught, because its memory has to follow the
+        same decisions the student's did, and `dones` clears it where an episode ended.
+        """
         arena = self.arenas(state)
         total = log_probs.new_zeros(())
         rows_taught = 0
 
         for arena_index, teacher in self.teachers.items():
             in_arena = arena == arena_index
-            if not in_arena.any():
+            memory = memories.get(arena_index) if memories is not None else None
+            if not in_arena.any() and memory is None:
                 continue
-            for layout_index in torch.unique(layout[in_arena]).tolist():
+            for layout_index in torch.unique(layout).tolist():
                 mapping = teacher.layouts.get(int(layout_index))
                 if mapping is None:
                     continue
-                rows = torch.nonzero(in_arena & (layout == layout_index), as_tuple=True)[0]
 
+                # With a recurrent teacher every row of a layout it has is replayed, so its memory follows the same
+                # decisions; only the rows of its arena are taught from.
+                of_layout = layout == layout_index
+                replayed = torch.nonzero(of_layout if memory is not None else of_layout & in_arena,
+                                         as_tuple=True)[0]
+                if not len(replayed):
+                    continue
+
+                rows = replayed
                 allowed = mask[rows][:, mapping.actions_student].bool()
-                taught = allowed.any(dim=-1)
-                if not taught.any():
+                taught = allowed.any(dim=-1) & in_arena[rows]
+                if memory is None and not taught.any():
                     continue
 
                 with torch.no_grad():
@@ -165,14 +195,29 @@ class Distiller:
                     t_mask = torch.zeros(len(rows), teacher.num_actions, dtype=torch.bool, device=obs.device)
                     t_mask[:, mapping.actions_teacher] = allowed
                     t_layout = torch.full((len(rows),), mapping.teacher_layout, dtype=torch.long, device=obs.device)
-                    t_logits = teacher.actor(t_obs, t_layout, t_mask).logits[:, mapping.actions_teacher]
+                    if memory is not None:
+                        distribution, carried, _ = teacher.actor.step(t_obs, t_layout, t_mask, memory[rows])
+                        memory[rows] = carried
+                        t_logits = distribution.logits[:, mapping.actions_teacher]
+                    else:
+                        t_logits = teacher.actor(t_obs, t_layout, t_mask).logits[:, mapping.actions_teacher]
                     t_logp = torch.log_softmax(t_logits.masked_fill(~allowed, MASKED_LOGIT), dim=-1)
+
+                if not taught.any():
+                    continue
 
                 s_logits = log_probs[rows][:, mapping.actions_student]
                 s_logp = torch.log_softmax(s_logits.masked_fill(~allowed, MASKED_LOGIT), dim=-1)
                 kl = (t_logp.exp() * (t_logp - s_logp)).masked_fill(~allowed, 0.0).sum(dim=-1)
                 total = total + kl[taught].sum()
                 rows_taught += int(taught.sum())
+
+        if memories is not None and dones is not None:
+            # An episode ended here: the next decision of that row starts the teacher with nothing remembered, as it
+            # starts the student.
+            keep = (~dones).to(obs.dtype).reshape(-1, 1)
+            for memory in memories.values():
+                memory.mul_(keep)
 
         return total, rows_taught
 
@@ -186,3 +231,15 @@ class Distiller:
             return None
         mean = total / rows
         return self.coef * mean, {"distill_kl": float(mean.detach()), "distill_rows": float(rows)}
+
+    def step_loss(self, obs: torch.Tensor, state: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
+                  logits: torch.Tensor, memories: dict[int, torch.Tensor], dones: torch.Tensor):
+        """One decision of a replayed sequence (MappoTrainer's recurrent update): the same loss as __call__, with the
+        teachers' memories carried in `memories` and cleared where `dones`. Returns (loss, rows) with rows 0 when
+        nothing was taught."""
+        if self.coef < 1e-4:
+            return None
+        total, rows = self.kl(obs, state, layout, mask, logits, memories, dones)
+        if rows == 0:
+            return None
+        return self.coef * (total / rows), rows

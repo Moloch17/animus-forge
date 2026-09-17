@@ -52,14 +52,20 @@ class ForgeEnv:
             self._pending = self._receive_step()
         return self._pending
 
-    def step(self, actions: np.ndarray) -> p.Step:
-        """Send [E, A] actions and return the next STEP."""
+    def step(self, actions: np.ndarray, goals: np.ndarray | None = None) -> p.Step:
+        """Send [E, A] actions, with the goals each agent is pursuing when the policy has a goal head, and return the
+        next STEP. Goals are what the sim scores, reports and shows a party's teammates; they mask nothing."""
         actions = np.ascontiguousarray(actions, dtype="<i4")
         expected = (self.spec.num_envs, self.spec.agents_per_env)
         if actions.shape != expected:
             raise ValueError(f"actions must have shape {expected}, got {actions.shape}")
 
         payload = actions.tobytes()
+        if goals is not None:
+            goals = np.ascontiguousarray(goals, dtype="<i4")
+            if goals.shape != expected:
+                raise ValueError(f"goals must have shape {expected}, got {goals.shape}")
+            payload += goals.tobytes()
         self.sock.sendall(p.encode_header(p.MsgType.ACT, len(payload)) + payload)
         self._pending = self._receive_step()
         return self._pending

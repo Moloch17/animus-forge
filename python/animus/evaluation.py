@@ -68,6 +68,10 @@ class EvalResult:
     # takes can be told from one it was never offered (a missing reagent, a spell the character doesn't have).
     allowed_counts: np.ndarray | None = None
     action_names: dict[str, list[str]] = field(default_factory=dict)
+    # Decision by decision, for the first `eval.trace_episodes` seeded episodes: what the policy did and what it said
+    # it was doing. A summary cannot show a plan -- the order of the decisions is the plan -- so this is what to read
+    # when asking whether a bot saved a cooldown, rested before a pull or held an add.
+    trace: list[dict] = field(default_factory=list)
 
     @property
     def episodes(self) -> int:
@@ -273,13 +277,16 @@ def standard_error(values: np.ndarray) -> float:
 def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline: str = "",
                    max_decisions: int | None = None, opponents: str = "",
                    arenas: tuple[str, ...] = (),
-                   action_names: dict[str, list[str]] | None = None) -> tuple[EvalResult, p.Step]:
+                   action_names: dict[str, list[str]] | None = None,
+                   trace_episodes: int = 0) -> tuple[EvalResult, p.Step]:
     """Run seeded episodes 0..episodes-1 and return their results and the fresh training STEP after them.
 
-    choose_actions(step) -> [E, A] actions; ignored by the sim when `baseline` names a scripted policy. `opponents`
+    choose_actions(step) -> [E, A] actions, or (actions, goals) from a policy with a goal head (the goals go to the
+    sim, which scores and reports them); ignored by the sim when `baseline` names a scripted policy. `opponents`
     names a scripted policy for the opponent seats of self-play episodes (the learner plays the rest, or `baseline`
     everything); their rows are left out. `arenas` are the stage's arena names, for the per-arena summary.
-    `action_names` names each layout's actions in the per-episode log's action counts.
+    `action_names` names each layout's actions in the per-episode log's action counts. `trace_episodes` records every
+    decision of the episodes with the first seed indexes, in EvalResult.trace.
     """
     started = time.perf_counter()
     envs, agents = spec.num_envs, spec.agents_per_env
@@ -294,6 +301,9 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         step = env.set_mode(True, seed, episodes, baseline)
     else:
         step = env.set_mode(True, seed, episodes, opponents, opponents_only=bool(opponents))
+    # Decisions of the envs that might be tracing, kept until their episode ends and its seed is known.
+    tracing: dict[int, list[dict]] = {env: [] for env in range(envs)} if trace_episodes else {}
+    trace: list[dict] = []
     running = np.zeros((envs, agents), dtype=np.float64)
     taken = np.zeros((envs, agents, spec.num_actions), dtype=np.int32)
     allowed = np.zeros((envs, agents, spec.num_actions), dtype=np.int32)
@@ -307,13 +317,28 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
     decisions = 0
 
     while len(finished) < episodes and decisions < max_decisions:
-        actions = np.zeros((envs, agents), dtype=np.int32) if baseline else choose_actions(step)
+        chosen = np.zeros((envs, agents), dtype=np.int32) if baseline else choose_actions(step)
+        actions, goals = chosen if isinstance(chosen, tuple) else (chosen, None)
         # The episode's layouts: after a done, the next STEP already carries the new episode's.
         layout = step.layout
         if not baseline:
             taken[env_rows, agent_rows, np.clip(actions, 0, spec.num_actions - 1)] += 1
             allowed += step.mask
-        step = env.step(actions)
+        if tracing:
+            for e in tracing:
+                for a in range(agents):
+                    layout_name = names[int(layout[e, a])] if int(layout[e, a]) < len(names) else ""
+                    action = int(actions[e, a])
+                    tracing[e].append({
+                        "decision": decisions,
+                        "agent": a,
+                        "layout": layout_name,
+                        "action": (action_names or {}).get(layout_name, [])[action]
+                        if action < len((action_names or {}).get(layout_name, [])) else str(action),
+                        "goal": int(goals[e, a]) if goals is not None else -1,
+                    })
+
+        step = env.step(actions, goals)
         decisions += 1
 
         running += step.reward
@@ -327,6 +352,14 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
                     if (present is None or step.episode_info[e, a, present] > 0.0)
                     and (opponent_seat is None or step.episode_info[e, a, opponent_seat] <= 0.0)
                 ]
+            if tracing:
+                # The episode's seed is only known now, so its decisions are kept until it ends and then either
+                # written out (the first trace_episodes seeds) or dropped.
+                if index != p.NO_EPISODE_SEED and index < trace_episodes:
+                    for row in tracing[e]:
+                        trace.append({"seed": index, **row})
+                tracing[e] = []
+
             running[e] = 0.0
             taken[e] = 0
             allowed[e] = 0
@@ -346,6 +379,7 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
         arenas=tuple(arenas),
         seconds=time.perf_counter() - started,
         decisions=decisions,
+        trace=trace,
         action_counts=None if baseline else np.array([row[3] for row in rows], dtype=np.int32).reshape(
             len(rows), spec.num_actions),
         allowed_counts=None if baseline else np.array([row[4] for row in rows], dtype=np.int32).reshape(

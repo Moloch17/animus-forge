@@ -47,7 +47,10 @@
  *                              f32 episode_info[E*A*K] per agent totals for the ended episode (valid if done)
  *                              u32 episode_seed[E]    evaluation seed index of the ended episode (valid if
  *                                                     done); NO_EPISODE_SEED for a training episode
- *   client -> server  ACT    { i32 actions[E*A] }
+ *   client -> server  ACT    { i32 actions[E*A] } or, from a policy with a goal head,
+ *                            { i32 actions[E*A], i32 goals[E*A] } -- the goal each agent is pursuing
+ *                            (0..GoalCount-1, or -1 for none). Goals are scored and reported by the scenario and
+ *                            shown to a party's teammates; they never mask an action.
  *   client -> server  MODE   ModeMsg (instead of ACT) -- switch between training and evaluation; the server
  *                            resets every env and answers with a fresh STEP (zero reward and done)
  *   client -> server  WEIGHTS { u32 count, f32 weight[count] } (instead of ACT) -- how often training episodes
@@ -86,7 +89,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 7;
+    constexpr uint32 PROTOCOL_VERSION = 8;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -127,6 +130,7 @@ namespace AnimusForge
         uint32 StateDim;
         uint32 NumActions;
         uint32 EpisodeInfoDim;
+        uint32 GoalCount;       // goals a policy may pursue and send with its actions; 0 = the scenario has none
         uint32 TickMs;
         uint32 DecisionTicks;
         uint32 EpisodeSeconds;

@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 8
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -31,7 +31,7 @@ class MsgType(IntEnum):
 
 HEADER = struct.Struct("<II")  # type, payload length
 HELLO = struct.Struct("<I")  # version
-SPEC = struct.Struct(f"<10I{SCENARIO_NAME_SIZE}s")
+SPEC = struct.Struct(f"<11I{SCENARIO_NAME_SIZE}s")
 LAYOUT_COUNT = struct.Struct("<I")
 LAYOUT = struct.Struct(f"<II{LAYOUT_NAME_SIZE}s")  # obs dim, actions, name
 STEP_HEADER = struct.Struct("<Q")  # decision counter
@@ -63,6 +63,7 @@ class Spec:
     state_dim: int
     num_actions: int  # the largest layout's; masks are padded to it
     episode_info_dim: int  # per agent
+    goal_count: int  # goals a policy may pursue and send with its actions (SeatGoal); 0 = the scenario has none
     tick_ms: int
     decision_ticks: int
     episode_seconds: int
@@ -99,8 +100,8 @@ class Spec:
             size += dtype.itemsize * int(np.prod(shape))
         return size
 
-    def act_payload_size(self) -> int:
-        return 4 * self.num_envs * self.agents_per_env
+    def act_payload_size(self, goals: bool = False) -> int:
+        return (8 if goals else 4) * self.num_envs * self.agents_per_env
 
 
 @dataclass
@@ -129,6 +130,7 @@ def encode_spec(spec: Spec) -> bytes:
         spec.state_dim,
         spec.num_actions,
         spec.episode_info_dim,
+        spec.goal_count,
         spec.tick_ms,
         spec.decision_ticks,
         spec.episode_seconds,
@@ -152,8 +154,8 @@ def decode_spec(payload: bytes) -> Spec:
         layouts.append(Layout(name.split(b"\0", 1)[0].decode("ascii"), obs_dim, num_actions))
     names = payload[offset:].decode("ascii")
     return Spec(
-        *fields[:10],
-        scenario=fields[10].split(b"\0", 1)[0].decode("ascii"),
+        *fields[:11],
+        scenario=fields[11].split(b"\0", 1)[0].decode("ascii"),
         layouts=tuple(layouts),
         episode_info_names=tuple(names.split(",")) if names else (),
     )

@@ -257,10 +257,16 @@ class LayoutActor(nn.Module):
 class LayoutCritic(nn.Module):
     """V(global state, agent's own observation). Outputs a normalised value when ValueNorm is in use."""
 
-    def __init__(self, state_dim: int, layouts: Sequence[tuple[int, int]], hidden: Sequence[int]):
+    def __init__(self, state_dim: int, layouts: Sequence[tuple[int, int]], hidden: Sequence[int],
+                 goal_count: int = 0):
         super().__init__()
         if not hidden:
             raise ValueError("the critic needs at least one hidden layer")
+        # The goal the actor is pursuing (mappo.goal_count) is part of what the value depends on: the same situation
+        # is worth different things while resting and while fighting. Without it the critic averages over goals and
+        # the advantage says nothing about which goal was the right one, which is what lets goals collapse into one.
+        self.goal_count = goal_count
+        self.goal_embedding = nn.Embedding(goal_count, hidden[0]) if goal_count else None
         self.obs_dims = [obs for obs, _ in layouts]
         self.state_norm = RunningNorm(state_dim)
         self.state_encoder = _linear(state_dim, hidden[0], math.sqrt(2))
@@ -269,8 +275,10 @@ class LayoutCritic(nn.Module):
         self.trunk = _Trunk(hidden)
         self.head = _linear(hidden[-1], 1, 1.0)
 
-    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, groups=None) -> torch.Tensor:
-        """state [..., S], obs [..., O], layout [...] -> value [...]. `groups` as for LayoutActor.forward."""
+    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, goal: torch.Tensor | None = None,
+                groups=None) -> torch.Tensor:
+        """state [..., S], obs [..., O], layout [...], goal [...] (with a goal head) -> value [...]. `groups` as for
+        LayoutActor.forward."""
         lead = obs.shape[:-1]
         state, obs, layout = state.reshape(-1, state.shape[-1]), obs.reshape(-1, obs.shape[-1]), layout.reshape(-1)
 
@@ -278,4 +286,6 @@ class LayoutCritic(nn.Module):
         own = torch.zeros_like(hidden)
         for index, rows in groups if groups is not None else _per_layout(layout, len(self.adapters)):
             own[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
+        if self.goal_embedding is not None and goal is not None:
+            own = own + self.goal_embedding(goal.reshape(-1))
         return self.head(self.trunk(hidden + own)).reshape(lead)

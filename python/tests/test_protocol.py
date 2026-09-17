@@ -18,6 +18,7 @@ SPEC = p.Spec(
     state_dim=5,
     num_actions=3,
     episode_info_dim=2,
+    goal_count=0,
     tick_ms=50,
     decision_ticks=1,
     episode_seconds=60,
@@ -58,8 +59,8 @@ def test_spec_round_trip():
 
 
 def test_spec_matches_cpp_layout():
-    # SpecMsg in Protocol.h: ten uint32 fields and a 32-byte name, packed.
-    assert p.SPEC.size == 10 * 4 + 32
+    # SpecMsg in Protocol.h: eleven uint32 fields (goal count among them) and a 32-byte name, packed.
+    assert p.SPEC.size == 11 * 4 + 32
     assert p.HEADER.size == 8
 
 

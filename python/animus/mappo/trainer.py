@@ -145,7 +145,7 @@ class MappoTrainer:
         self.goal_count = config.goal_count
         self.actor = LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size,
                                  self.goal_count).to(self.train_device)
-        self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
+        self.critic = LayoutCritic(state_dim, self.layouts, hidden, self.goal_count).to(self.train_device)
         self.value_norm = (ValueNorm(beta=config.value_norm_beta).to(self.train_device)
                            if config.use_value_norm else None)
 
@@ -192,7 +192,7 @@ class MappoTrainer:
         """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
         hidden = list(self.config.hidden)
         fresh = (LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size, self.goal_count),
-                 LayoutCritic(self.state_dim, self.layouts, hidden))
+                 LayoutCritic(self.state_dim, self.layouts, hidden, self.goal_count))
         for network, init in zip((self.actor, self.critic), fresh):
             for param, init_param in zip(network.parameters(), init.to(self.train_device).parameters()):
                 param.mul_(shrink).add_(init_param, alpha=perturb)
@@ -241,7 +241,9 @@ class MappoTrainer:
         layout_t = self._tensor(layout, torch.long).reshape(rows)
         state_t = self._tensor(state_features)[:, None, :].expand(envs, agents, state_features.shape[-1]).reshape(
             rows, -1)
-        values = self._rollout_critic(state_t, obs_t, layout_t)
+        goal_t = (self._tensor(goals[0], torch.long).reshape(rows)
+                  if self.goal_count and goals is not None else None)
+        values = self._rollout_critic(state_t, obs_t, layout_t, goal_t)
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
         return actions, log_probs, values.reshape(envs, agents).cpu().numpy(), foresight, goals
@@ -334,14 +336,38 @@ class MappoTrainer:
         return self._tensor(memory).reshape(rows, self.recurrent_size)
 
     @torch.no_grad()
-    def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:
-        """state [E, S], obs [E, A, O], layout [E, A] -> denormalised V per agent [E, A]."""
+    def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray,
+              goal: np.ndarray | None = None) -> np.ndarray:
+        """state [E, S], obs [E, A, O], layout [E, A], goal [E, A] (with a goal head) -> denormalised V per agent
+        [E, A]. The value depends on the goal the actor is pursuing, so pass the same goal the decision used."""
         envs, agents = layout.shape
+        goal_t = self._tensor(goal, torch.long) if self.goal_count and goal is not None else None
         state_t = self._tensor(state)[:, None, :].expand(envs, agents, state.shape[-1])
-        values = self._rollout_critic(state_t, self._tensor(obs), self._tensor(layout, torch.long))
+        values = self._rollout_critic(state_t, self._tensor(obs), self._tensor(layout, torch.long), goal_t)
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
         return values.cpu().numpy()
+
+    def _goal_stats(self, data: dict) -> dict[str, float]:
+        """How the goal head is being used, from the rollout itself: the share of decisions spent on each goal, and
+        how often a goal choice kept the previous goal. A head that has collapsed shows one share at 1 and a kept
+        share of 1; one that is not being used at all shows the shares of a uniform draw."""
+        if not self.goal_count or "goal" not in data:
+            return {}
+
+        goal = data["goal"].reshape(-1)
+        chosen = data["goal_chosen"].reshape(-1).bool() if "goal_chosen" in data else None
+        counts = torch.bincount(goal, minlength=self.goal_count).float()
+        total = counts.sum().clamp(min=1.0)
+        stats = {f"goal_{index}_share": float(counts[index] / total) for index in range(self.goal_count)}
+        if chosen is not None and bool(chosen.any()):
+            # A goal chosen while the previous decision pursued the same one: the head is holding, not switching.
+            flat = data["goal"]
+            previous = torch.roll(flat, shifts=1, dims=0)
+            previous[0] = flat[0]
+            kept = (flat.reshape(-1) == previous.reshape(-1)) & chosen
+            stats["goal_kept_share"] = float(kept.sum() / chosen.sum().clamp(min=1.0))
+        return stats
 
     # ------------------------------------------------------------------ update
 
@@ -349,9 +375,11 @@ class MappoTrainer:
         """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         if self.recurrent_size:
-            if auxiliary is not None:
-                raise ValueError("a recurrent actor and distillation are not supported together yet")
-            return self._update_recurrent(buffer, sync)
+            if auxiliary is not None and not hasattr(auxiliary, "step_loss"):
+                raise ValueError("a recurrent actor needs a sequence-aware auxiliary loss (animus.distill.Distiller): "
+                                 "its rows are replayed in order, so a per-minibatch hook cannot carry the teachers' "
+                                 "memories")
+            return self._update_recurrent(buffer, auxiliary, sync)
 
         cfg = self.config
         started = time.perf_counter()
@@ -460,7 +488,7 @@ class MappoTrainer:
                 actor_grad = nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
-                values = self.critic(data["state"][idx], obs, layout)
+                values = self.critic(data["state"][idx], obs, layout, goal)
                 old_values = data["old_values"][idx]
                 target = data["returns_target"][idx]
                 clipped = old_values + (values - old_values).clamp(-cfg.value_clip, cfg.value_clip)
@@ -496,6 +524,7 @@ class MappoTrainer:
         result = {k: v / max(1, updates) for k, v in stats.items()}
         result["explained_variance"] = float(explained)
         result["epochs_run"] = float(epochs_run)
+        result.update(self._goal_stats(data))
         result.update({k: v / auxiliary_updates for k, v in auxiliary_stats.items()})
         # What the update itself cost. With overlap_updates the run's own timer measures the wait for this to
         # finish, not the work, so without this the work is invisible.
@@ -524,7 +553,7 @@ class MappoTrainer:
 
     # ------------------------------------------------------------------ checkpoints
 
-    def _update_recurrent(self, buffer: RolloutBuffer, sync: bool = True) -> dict[str, float]:
+    def _update_recurrent(self, buffer: RolloutBuffer, auxiliary=None, sync: bool = True) -> dict[str, float]:
         """One PPO update that replays the rollout in order, so the GRU learns what to remember.
 
         Minibatches are envs rather than rows: every step of an env is replayed from the memory its first decision was
@@ -574,6 +603,8 @@ class MappoTrainer:
 
         totals = {name: torch.zeros((), device=self.train_device) for name in stats}
         splits = max(1, min(cfg.minibatches, envs))
+        auxiliary_stats: dict[str, float] = {}
+        auxiliary_updates = 0
         updates = 0
         epochs_run = 0
 
@@ -584,6 +615,12 @@ class MappoTrainer:
             for chunk in torch.tensor_split(order, splits):
                 memory = data["memory"][0][chunk]
                 log_probs, entropies, predictions = [], [], []
+                # The teachers' own memories follow the same replayed decisions as the student's (animus.distill).
+                teach = auxiliary if auxiliary is not None and hasattr(auxiliary, "step_loss") else None
+                teacher_memories = (teach.begin_sequence(len(chunk) * agents, self.train_device)
+                                    if teach is not None else None)
+                distill_loss = torch.zeros((), device=self.train_device)
+                distill_rows = 0
                 for step in range(steps):
                     layout_step = data["layout"][step][chunk]
                     lead = layout_step.shape
@@ -605,6 +642,22 @@ class MappoTrainer:
                     entropies.append(step_entropy)
                     if foresight:
                         predictions.append(self.actor.foresight(features).reshape(*lead, self.foresight_outputs))
+                    if teach is not None:
+                        state_step = (data["state"][step][chunk][:, None, :]
+                                      .expand(len(chunk), agents, data["state"].shape[-1])
+                                      .reshape(-1, data["state"].shape[-1]))
+                        done_step = (data["dones"][step][chunk][:, None].expand(len(chunk), agents).reshape(-1)
+                                     if "dones" in data else torch.zeros(len(chunk) * agents, dtype=torch.bool,
+                                                                         device=self.train_device))
+                        taught = teach.step_loss(
+                            data["obs"][step][chunk].reshape(-1, data["obs"].shape[-1]), state_step,
+                            layout_step.reshape(-1), mask_step, dist.logits.reshape(-1, dist.logits.shape[-1]),
+                            teacher_memories, done_step)
+                        if taught is not None:
+                            loss, rows = taught
+                            distill_loss = distill_loss + loss
+                            distill_rows += rows
+
                     memory = features.reshape(*lead, features.shape[-1]) if self.recurrent_size else memory
                     # An episode that ended here starts the next one with nothing remembered.
                     if self.recurrent_size:
@@ -636,6 +689,14 @@ class MappoTrainer:
                     actor_loss = actor_loss + cfg.foresight_coef * foresight_loss
                     totals["foresight_loss"] += foresight_loss.detach()
 
+                if distill_rows:
+                    # Averaged over the sequence's taught decisions, as the flat path averages over a minibatch's.
+                    actor_loss = actor_loss + distill_loss / max(1, steps)
+                    auxiliary_stats["distill_kl"] = auxiliary_stats.get("distill_kl", 0.0) + float(
+                        distill_loss.detach() / max(1e-6, teach.coef) / max(1, steps))
+                    auxiliary_stats["distill_rows"] = auxiliary_stats.get("distill_rows", 0.0) + float(distill_rows)
+                    auxiliary_updates += 1
+
                 self.actor_opt.zero_grad()
                 actor_loss.backward()
                 actor_grad = nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
@@ -647,7 +708,8 @@ class MappoTrainer:
                          .expand(steps, len(chunk), agents, data["state"].shape[-1])
                          .reshape(-1, data["state"].shape[-1]))
                 layout = data["layout"][:, chunk].reshape(-1)
-                predicted = self.critic(state, obs, layout).reshape(steps, -1, agents)
+                goal_chunk = data["goal"][:, chunk].reshape(-1) if self.goal_count else None
+                predicted = self.critic(state, obs, layout, goal_chunk).reshape(steps, -1, agents)
                 previous = old_values[:, chunk]
                 target = returns_target[:, chunk]
                 bounded = previous + (predicted - previous).clamp(-cfg.value_clip, cfg.value_clip)
@@ -683,6 +745,8 @@ class MappoTrainer:
             stats[name] = float(totals[name]) / max(1, updates)
         stats["explained_variance"] = float(explained)
         stats["epochs_run"] = float(epochs_run)
+        stats.update(self._goal_stats(data))
+        stats.update({name: value / auxiliary_updates for name, value in auxiliary_stats.items()})
         # What the update itself cost, as the flat path reports it.
         stats["update_compute_seconds"] = time.perf_counter() - started
         if sync:

@@ -621,13 +621,20 @@ With no gates set, a converged stage advances.
   replays each rollout in order, minibatching envs rather than rows, from the memory each decision was taken with, so
   what the GRU stores is learned and not only what it reads. Evaluations, exported models and companions carry the
   same memory (`MlpPolicy::State`). It changes the actor's shape and the exported format, so turning it on retrains
-  the curriculum from stage 1 and rebuilds every model. Distillation (stage 8) does not support it yet.
+  the curriculum from stage 1 and rebuilds every model. Distillation replays a teacher's own memory through the same
+  decisions (`animus.distill`), so stage 8 works with it; a plain per-minibatch auxiliary loss is refused, because it
+  cannot carry that memory. **On from stage1_duel (128).**
 - `goal_count` and `goal_every_decisions`: a goal head (0 = off). The actor chooses one of `goal_count` goals every
   `goal_every_decisions` decisions and keeps it in between, and its action head reads the goal's embedding added to
   the features. The chooser decides on a clock that many times slower than the actions, so its own horizon is that
   many times shorter -- which is where a plan longer than a fight's next second can be learned. The goal is part of
   the decision: its log probability joins the action's in the PPO ratio, and its entropy is kept up, on the decisions
-  that chose one. Exported models choose the argmax goal on the same clock.
+  that chose one, and the critic reads the goal too, so the advantage a decision earns is measured against what that
+  goal is worth rather than averaged over goals. Exported models choose the argmax goal on the same clock. The goals
+  go to the sim with the actions (protocol 8), which scores whether each decision matched the goal, pays
+  `Goals.Match` for the ones that did, reports `goal_<name>_share`, `goal_match_share` and `goal_changes`, and shows a
+  party its teammates' goals. Per update the learner logs `goal_<i>_share` and `goal_kept_share`, which is how a
+  collapsed head (one share at 1) is spotted. **On from stage1_duel (6 goals, chosen every 16 decisions).**
 - `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
   trunk (0 = off, the default). It predicts, from the very features the actions are chosen from, the discounted return
   at each horizon and how much of the episode is left as a share of the time scale; its loss (Huber on the returns,

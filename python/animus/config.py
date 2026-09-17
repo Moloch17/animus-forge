@@ -72,6 +72,11 @@ class EvalConfig:
     # (and against itself when the baseline is), so the score is the learner against a fixed opponent.
     opponent_baseline: bool = False
     report: tuple[str, ...] = REPORT_COLUMNS  # episode info columns printed per level band, when present
+    # Decision by decision, for the episodes with the first this many seed indexes: what the policy did and what goal
+    # it said it was pursuing, written to eval_trace.jsonl (one object per decision per agent). A summary averages a
+    # plan away -- the order of the decisions is the plan -- so this is what to read to see whether a bot rested
+    # before a pull, saved a cooldown or held an add. 0 = off; a handful is plenty (an episode is hundreds of rows).
+    trace_episodes: int = 0
     # Every this many evaluations, also score sampled actions on the same seeds (policy learner_sampled in eval.csv,
     # eval.jsonl and eval_episodes.jsonl). Training samples; evaluation and exported models take the argmax. A wide
     # gap between the two says the policy that is gated is not the one that trained (see mappo.entropy_final_fraction).

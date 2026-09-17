@@ -64,14 +64,20 @@ mappo:
   foresight_coef: 0.25
   foresight_horizons_seconds: [5.0, 30.0]
   foresight_time_scale_seconds: 60.0
-  # The policy's own memory and its goals, both off here. Turning either on changes the exported model format and the
-  # shape of the policy, so the whole curriculum retrains from this stage and every shipped model is rebuilt:
-  #   recurrent_size: 128        a GRU between the trunk and the action head, carried between decisions
-  #   goal_count: 6              a goal chosen every goal_every_decisions and kept in between
-  #   goal_every_decisions: 16   16 decisions is 4 s at 250 ms
-  recurrent_size: 0
-  goal_count: 0
-  goal_every_decisions: 16
+  # The policy's own memory: a GRU between the trunk and the heads, carried from decision to decision and cleared
+  # when an episode ends. Without it every decision is taken from what the bot can see right now, and a plan that
+  # spans more than one decision has nowhere to live: what it meant to do (pull with crowd control, save a cooldown,
+  # rest first) is gone by the next decision. It carries across rollouts too, so what it can remember is bounded by
+  # the episode rather than by rollout_length; only the gradient is truncated at the rollout.
+  recurrent_size: 128
+  # Goals (SeatGoal in the sim): the policy picks one of fight, control, recover, protect, position or prepare every
+  # goal_every_decisions and keeps it until the next choice, and sends it with its actions. The sim scores whether
+  # the decisions matched it (Goals.Match), reports how each goal was used, and shows a party its teammates' goals.
+  # The critic is goal-conditioned, so the advantage a decision earns is measured against what that goal is worth.
+  goal_count: 6
+  goal_every_decisions: 16   # 16 decisions is 4 s at 250 ms
+  # Both change the shape of the policy and the exported model format (.amdl 2), so turning them off again retrains
+  # the whole curriculum from this stage and rebuilds every shipped model.
   clip: 0.2
   value_clip: 0.2
   # Large action spaces with delayed payoffs need steady exploration.

@@ -1,0 +1,34 @@
+# A planned run: the same eight pulls in the same order, every episode, ending on an elite pack two levels above the
+# bot. Stage 3 taught the fights; what is left here is the plan -- what to spend on the opener, what to keep for the
+# last pull, and whether the fourth pull (a small one) is used as a rest or as a chance to get ahead. It is won by
+# clearing the last pull alive: the 900 s clock running out is a loss however far it got.
+#
+# Trained by name (`forge start stage12_endurance`), after stage3_gauntlet, which it seeds from.
+
+extends: stage3_gauntlet.yaml
+run_name: stage12_endurance
+
+total_env_steps: 300000000
+
+# The run is the same every episode, so an evaluation's spread comes from the characters alone and settles sooner
+# than the gauntlet's.
+eval:
+  every_env_steps: 15000000
+  trace_episodes: 4
+
+convergence:
+  min_env_steps: 40000000
+
+# Won by finishing the run. The floors are provisional, to be reset from the first run: clearing the last pull is
+# hard, and the interesting number early on is how far a run gets (pulls_cleared, 8 is the whole thing).
+target:
+  metrics:
+    livelocked: {max: 0.01}
+    clean_kill: {min: 0.35, confidence: 0.95}
+    pulls_cleared: {min: 6.0}
+  layout_metrics:
+    livelocked: {max: 0.02}
+    clean_kill: {min: 0.20, confidence: 0.95}
+  base_difficulty: null
+  difficulties: {}
+  until_passed: false

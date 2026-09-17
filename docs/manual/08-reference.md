@@ -162,6 +162,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.ArriveFloorMs` | 10000 |
 | | | | `Pulls.NextPullShrinkMs` | 1000 |
 | | | | `Pulls.NextPullFloorMs` | 4000 |
+| `Goals.Match` | 0.01 | | | |
+| `Pulls.GauntletDenseScale` | 0.5 | | | |
 | `Support.SelfHealing` | 0.5 | | | |
 | `Support.BuffCoverage` | 0.3 | | | |
 | `Actions.RepeatMs` | 1000 | | | |
@@ -388,6 +390,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `progress.json` | Every update and evaluation | For the console |
 | `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |
 | `eval.jsonl` | Every evaluation | The same plus the full summary (bands, layouts, arenas) |
+| `eval_trace.jsonl` | Every evaluation, with `eval.trace_episodes` | Every decision of the traced seeds: update, env_steps, policy, seed, decision, agent, layout, the action by name and the goal being pursued. A summary averages a plan away -- the order of the decisions is the plan -- so this is what to read to see whether a bot rested before a pull, saved a cooldown or held an add |
 | `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column, the derived `clean_kill` and `livelocked`, and (learner rows) `actions`: each action taken other than the no-op, by name, with its count, and `allowed`: how many of the episode's decisions allowed each action, so one never taken can be told from one never offered |
 | `eval_baseline.json` | Once per run | The baseline summary and its cache key |
 | `eval_baseline_<seed>_<episodes>.json` | Confirmation | Baseline on the confirmation seeds |

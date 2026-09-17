@@ -23,6 +23,7 @@ SPEC = p.Spec(
     state_dim=3,
     num_actions=2,
     episode_info_dim=2,
+    goal_count=0,
     tick_ms=50,
     decision_ticks=1,
     episode_seconds=1,
