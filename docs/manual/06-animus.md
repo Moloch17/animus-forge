@@ -149,6 +149,10 @@ units you and the companions attack. Only living, valid attack targets on your m
 
 **Each companion** (`UpdateMember`):
 
+- **Levelling.** When you have levelled past it, the companion follows once the party is quiet and it is alive: it
+  takes your level (`GiveLevel`), its talents are reset and spent again from all its points, and `Configure` gives it
+  the trainer spells and gear of the new level, as a forge seat of that level has. Its pet comes back out if it had
+  one, its bags are restocked, and you are told its new level.
 - **Dead.** It accepts a pending resurrection at once, as a client would. Otherwise, once the party is quiet, you are
   alive and out of combat, and it has been dead 10 s, it stands up with half health.
 - **Out of combat.** More than 100 yd away: teleport to you. With a model and more than 30 yd away: run back behind
@@ -162,7 +166,9 @@ units you and the companions attack. Only living, valid attack targets on your m
 1. Track combat start (the combat-time feature).
 2. Fill the last-step features as the forge's reward step would: damage dealt since the last decision divided by the
    level's damage scale, damage taken divided by max health (both from the module's `DealDamage` hook, stored in
-   atomics because map threads write them), and the power change.
+   atomics because map threads write them), and the power change. They are counted as animus-lib counts a seat's:
+   damage dealt by the companion or its pets, guardians and totems, only on an enemy of the current pull, and damage
+   taken by the companion itself.
 3. Choose the target: the selected enemy slot, or the nearest living enemy (which becomes the selection).
 4. Build the `SeatView`: you as the owner, the other companions as teammates, the enemy slots, pull timing, the
    episode clock (time since the episode started / 5 min), supplies, stable. Run `SeatEncoder::Observe`.
@@ -171,7 +177,8 @@ units you and the companions attack. Only living, valid attack targets on your m
    casts, item uses, movement, target selection, pet commands, heals and resurrections on party members. A called
    hunter beast is summoned.
 
-**Logout and dismissal.** When you log out, your companions are removed (`OnPlayerLogout`). A companion is removed from
+**Logout and dismissal.** When you log out, your companions are removed (`OnPlayerLogout`). A companion that
+disappears any other way is dropped from the party and taken out of the group. A companion is removed from
 the group and logged out without saving (`BotFactory::Destroy`). Because a stock core has no sim groups, companions'
 group membership is written to the database like any member's and removed on dismissal. Rows left behind by a crash
 are cleaned up by the core at startup (group members without a character).
