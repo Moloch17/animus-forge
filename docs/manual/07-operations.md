@@ -392,7 +392,9 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   Rollouts stay on the CPU on purpose. Serially that time is sim idle time: `env_steps_per_sec` in `metrics.csv` is the
   rollout's own rate, and the rate over the wall clock is lower by the update's share. `overlap_updates` runs the
   update on a worker thread while the sim collects the next rollout and closes most of that gap; the rollout then acts
-  on the update before last, and update stats are logged one update late.
+  on the update before last, and update stats are logged one update late. It is worth having only while an update
+  costs much more than a rollout: measure both before turning it on (the curriculum stages train serially, and an
+  update there is ~1.1 s against a ~2 s rollout).
 - **Evaluation cost.** Every evaluation resets all envs and runs `eval.episodes` seeded episodes plus confirmation
   episodes. Large evaluations every few million steps can take a significant share of wall time. `eval.every_env_steps`
   and `eval.episodes` trade that time against the reliability of convergence decisions -- but the trade is cheap in the
