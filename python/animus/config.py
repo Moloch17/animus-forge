@@ -44,7 +44,11 @@ REPORT_COLUMNS = (
     # Gauntlet recovery: health and mana each pull was engaged with, pulls started low or that came to the seat
     # unengaged, time resting, and eating or drinking that failed or ended with something left to restore.
     "engage_health", "engage_mana", "pulls_started_low", "pulls_arrived", "rest_seconds", "food_used", "drink_used",
-    "eat_failed", "drink_failed", "meals_cut_short",
+    "eat_failed", "drink_failed", "meals_cut_short", "buff_coverage",
+    # Support: healing and protection done (fractions of the bot's health), overhealing, casts wasted on a friend at
+    # full health (masked: 0), defensives, heals cast below their highest rank, and time any friend spent low.
+    "healing_done", "protection_done", "overheal_share", "heals_on_full", "defensive_casts", "healing_casts",
+    "downranked_share", "low_health_seconds",
     # Crowd control that kept pack members other than the target out of the fight (enemy-seconds).
     "control_seconds",
 )
@@ -260,6 +264,10 @@ class TrainConfig:
     # A merge stage's further parents (stage.json merges), seeding the blocks only they have after init_from: "auto"
     # takes each merged stage's best.pt (else latest.pt); a list names checkpoints; empty = none.
     merge_from: str | list[str] = AUTO
+    # Fine-tuning a stage on changed rewards or masks: a checkpoint here seeds the run before init_from (the same stage,
+    # so every block is copied). Put a finished run's best.pt there before `forge start <stage>` archives the run; empty
+    # = never.
+    finetune_from: str = "{runs_dir}/_finetune/{run_name}/best.pt"
 
     mappo: MappoConfig = field(default_factory=MappoConfig)
     distill: DistillConfig = field(default_factory=DistillConfig)
@@ -275,6 +283,9 @@ class TrainConfig:
             return [str(Path(self.runs_dir) / name / "best.pt") for name in seed_chain(stage)]
         candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
         return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+
+    def resolved_finetune_from(self) -> str:
+        return self.finetune_from.format(runs_dir=self.runs_dir, run_name=self.run_name) if self.finetune_from else ""
 
     def resolved_merge_from(self, stage: dict | None) -> list[str]:
         if self.merge_from == AUTO:

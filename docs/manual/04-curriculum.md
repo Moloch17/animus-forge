@@ -16,7 +16,7 @@ stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ s
 |---|---|---|---|---|---|---|
 | 1 | `stage1_duel` | none | core, duel, pet | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
 | 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear, death or the 150 s clock (a loss) |
-| 3 | `stage3_gauntlet` | stage2 | + gauntlet | 1 | Pull after pull with breaks | Runs until death or the time limit |
+| 3 | `stage3_gauntlet` | stage2 | + gauntlet, support | 1 | Pull after pull with breaks | Runs until death or the time limit |
 | 4 | `stage4_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
 | 5 | `stage5_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
 | 6 | `stage6_pvp` | stage1 | core, duel, pet, pvp | 1 | A scripted enemy player | Ends when either dies |
@@ -311,16 +311,34 @@ The same function builds training seats and live companions, so a model gets in 
 The catalog also keeps the lists apart for the blocks that cast them elsewhere:
 
 - `Tactical()`: the tactical spells above.
-- `Sustain()`: the sustain spells above, which the companion and party blocks cast on allies.
-- `Revives()` (companion and party blocks): Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth, and a
-  warlock's soulstone.
+- `Sustain()`: the sustain spells above.
+- `Revives()` (companion and party blocks): Resurrection, Redemption, Ancestral Spirit, Revive, Rebirth (their target
+  is a corpse, `TARGET_FLAG_CORPSE_ALLY`), and a warlock's soulstone.
 
-A layout's **ally spells** (companion and party blocks, `Layout::AllySpells`) are every positive spell of the sustain
-list and the catalog that takes a friendly unit target: its heals first (`AllyHealCount`), then shields, Hands,
-Innervate, Misdirection, Tricks of the Trade, Earth Shield, Power Infusion, blessings and the like.
+Each spell action also carries its **kind**, read from its first rank's effects: `Healing` (heals, HoTs, absorbs),
+`Rankable` (a healing chain with more than one rank), `DirectHeal` (a heal on one unit and nothing else), `Defensive`
+(a damage-taken reduction, immunity, split damage or avoidance buff under five minutes), `LongBuff` (a positive buff
+of ten minutes or more) and `KeepsAura` (a HoT, absorb, long buff or defensive kept up on one unit, not stacking).
+`Layout::BuffGroups` joins the long buffs a unit can only have one of (chains sharing a `spell_group`, such as the
+blessings, or Fortitude and Prayer of Fortitude).
+
+**Friendly targets.** A positive spell that takes a unit target (a heal, shield, HoT, blessing, Hand, Power Infusion,
+Innervate) is cast on the **support block's selected friend** (`Encoding::SupportTarget`): the bot itself, the owner or
+a teammate. Without the block (stages 1, 2, 6, 7 and the travel stages) it is the bot itself, as before. There is one
+action per spell whoever it lands on; the companion and party blocks no longer copy the heals per ally (they listed
+every heal twice, and the policy could not see what was already on the owner).
+
+**Rank tiers.** A `Rankable` heal is cast at the seat's rank tier (`Encoding::KnownRank`): the highest known rank, or
+the highest active rank about two thirds or a third of the way up the known ranks, for mana on a long fight. Every
+mana spell keeps all its ranks active in the spellbook; only rage, energy and runic power abilities, paladin auras and
+druid forms supersede their lower ranks (`Player::addSpell`).
 
 Every action is masked each decision by the core's own `Spell::CheckCast`, run without casting (race, level, talent,
-cooldown, GCD, power, stance, range, reagents). As on a client, **no spell or item can start while a cast is in its cast
+cooldown, GCD, power, stance, range, reagents). Beyond it, a cast that can only be wasted is never offered: a
+`DirectHeal` on a friend at full health, a `KeepsAura` spell whose own aura on that friend still has more than a quarter
+of its duration (or charges) left, and any positive unit-target spell while the selected friend is dead or gone. A
+spell whose only effect is a control aura on its caster (Grovel, from the hidden GENERIC skill every character has)
+is not in the catalog at all. As on a client, **no spell or item can start while a cast is in its cast
 time**. The core only enforces that for client casts, and without the check a bot's new cast would silently replace the
 current one.
 
@@ -357,8 +375,9 @@ counts the charged presses.
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
 | `gauntlet` | Pulls cleared, pull active, time since the last fight, time into the pull, elite or higher-level pull, eating, drinking, food and drink left, time until an unengaged pull comes to the bot, time until the next pull spawns (the sustain spells are core actions) | Eat, drink (offered only where the item's cast check passes) |
-| `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally spell's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one cast-on-owner per ally spell, one revive-on-owner per revive |
-| `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, ally spells, revives |
+| `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one revive-on-owner per revive |
+| `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, revives |
+| `support` (stages 3-5, 8) | The selected friend and rank tier (one-hot); per friend slot (self, owner, three teammates): presence, alive, health, mana, distance, line of sight, attackers, role, the bot's own HoT (duration left) and absorb on it, buff coverage | Select a friend (the target of positive unit-target spells); set the rank tier (high, mid, low) |
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
@@ -533,7 +552,21 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 `interrupt`, `kill`, `clear`, `health_kept`, `death`, `owner_damage_taken`, `owner_healing`, `tank_damage_refund`,
 `threat`, `solo_fight`, `follow`, `owner_death`, `teammate_damage_taken`, `teammate_healing`, `teammate_threat`,
 `teammate_death`, `revive`, `player_kill`, `progress`, `arrive`, `flag_capture`, `flag_pickup`, `flag_return`,
-`carrier_kill`, `flag_lost`, `timeout`.
+`carrier_kill`, `flag_lost`, `timeout`, `stall`, `spacing`, `readiness`, `control`, `self_healing`, `repeat`.
+
+**Looking after itself and its friends (every stage).** `self_healing` pays `Support.SelfHealing` (0.5) times the
+bot's effective healing on itself plus what its own absorbs soaked and its own damage-taken reductions prevented on
+itself, as a fraction of its health. It is below every stage's damage taken weight, so a heal recovers part of what the
+hit cost and being hit to heal it back never pays. On the owner and teammates, healers are paid `owner_healing` and
+`teammate_healing` for healing and protection alike. Absorbs are tracked by polling the bot's own absorb auras on each
+friend every decision (what they lost, or what was left when one vanished early); prevented damage is
+`damage * (1 / multiplier - 1)` over the bot's own `MOD_DAMAGE_PERCENT_TAKEN` auras on the victim, at the hit
+(`EnvPool::RecordPrevented`). In gauntlets, engaging a pull also pays `Support.BuffCoverage` (0.3) times the share of
+the layout's buff groups up on the bot (averaged with the owner's where there is one).
+
+Support columns (every stage): `healing_done` and `protection_done` (fractions of the bot's health), `overheal_share`,
+`heals_on_full` (masked: 0), `defensive_casts`, `healing_casts`, `downranked_share`, `low_health_seconds` (any friend
+below 35%); gauntlets add `buff_coverage` at engage.
 
 ### Scales
 
@@ -656,8 +689,10 @@ objective changes, so a flag changing hands pays nothing by itself.
      flies, else a ground mount; on a flying mount climb to 20 yd, land at the objective; otherwise head for it (and
      wait while moving, rather than cast something that would dismount),
   2. with the gauntlet block and no target: eat when health is low, drink when mana is low,
-  3. with the companion block and ally heals: heal a living, hurt owner (cancel a form first if needed),
-  4. with the party block: heal the first hurt, living teammate a heal can reach,
+  3. support: below 30% health, the first allowed defensive; the most hurt living friend below 60% (the bot itself
+     without the support block) selected, then its first allowed heal (a healer cancels a form first if needed); a
+     healer selects the owner or a tank teammate under attack without its HoT or shield and casts a kept-up heal,
+  4. (the masks keep it from healing a friend at full health or re-casting what is still up),
   5. with the pet block and a pet class: out of combat with no living pet, call a stable beast or cast the best summon
      (Felguard, Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental); with a pet out, send it at the
      target,

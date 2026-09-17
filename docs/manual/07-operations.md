@@ -163,6 +163,7 @@ Warnings to act on:
 | Give up on the current stage and go to the next | `forge skip` |
 | Continue a particular stage from its checkpoint | `forge resume stage3_gauntlet [stage4_companion ...]` |
 | Retrain a finished stage | `forge start stage3_gauntlet`, which archives the old run |
+| Fine-tune a stage from its own best (after reward or mask changes) | copy its `best.pt` to `runs/_finetune/<stage>/best.pt`, then `forge start <stage>`: the learner seeds from it before the seed chain (`finetune_from`) |
 
 ### After changing C++
 

@@ -139,3 +139,39 @@ def test_init_from_follows_the_stage_seed_chain():
     assert named.resolved_init_from(stage) == ["runs/other/best.pt"]
     assert TrainConfig(init_from="").resolved_init_from(stage) == []
     assert TrainConfig(init_from=None).resolved_init_from(stage) == []
+
+
+def test_finetune_from_names_the_stage_checkpoint():
+    config = TrainConfig(run_name="stage3_gauntlet", runs_dir="/out/runs")
+    assert config.resolved_finetune_from() == "/out/runs/_finetune/stage3_gauntlet/best.pt"
+    assert TrainConfig(finetune_from="").resolved_finetune_from() == ""
+
+
+def test_a_core_catalog_that_lost_a_spell_is_seeded_by_action_name():
+    torch.manual_seed(0)
+    config = MappoConfig(hidden=(8,))
+    from animus.bootstrap import CORE_ACTION_FEATURES as F, CORE_GLOBAL_FEATURES as G
+
+    # The old catalog has noop, grovel_7267 and smite_585; the new one drops grovel. Talents (2) follow the actions.
+    old_core, new_core = G + 3 * F + 2, G + 2 * F + 2
+    old_stage = stage_with({"priest_heal": [("core", old_core, 3), ("duel", 3, 1)]})
+    new_stage = stage_with({"priest_heal": [("core", new_core, 2), ("duel", 3, 1)]})
+    old_stage["layouts"]["priest_heal"]["action_names"] = ["noop", "grovel_7267", "smite_585", "stop"]
+    new_stage["layouts"]["priest_heal"]["action_names"] = ["noop", "smite_585", "stop"]
+    old = MappoTrainer([(old_core + 3, 4)], 4, config)
+    new = MappoTrainer([(new_core + 3, 3)], 4, config)
+    checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec([Layout("priest_heal", old_core + 3, 4)]),
+                  "stage": old_stage}
+
+    seed_trainer(new, checkpoint, spec([Layout("priest_heal", new_core + 3, 3)], 4), new_stage)
+
+    new_w = new.actor.state_dict()["adapters.0.weight"]
+    old_w = old.actor.state_dict()["adapters.0.weight"]
+    torch.testing.assert_close(new_w[:, :G], old_w[:, :G])                                  # globals
+    torch.testing.assert_close(new_w[:, G : G + F], old_w[:, G : G + F])                    # noop's features
+    torch.testing.assert_close(new_w[:, G + F : G + 2 * F], old_w[:, G + 2 * F : G + 3 * F])  # smite moved up
+    torch.testing.assert_close(new_w[:, new_core:], old_w[:, old_core:])                    # talents and duel
+    new_head = new.actor.state_dict()["heads.0.weight"]
+    old_head = old.actor.state_dict()["heads.0.weight"]
+    torch.testing.assert_close(new_head[1], old_head[2])                                    # smite's row
+    torch.testing.assert_close(new_head[2], old_head[3])                                    # the duel action

@@ -386,7 +386,12 @@ class TrainingRun:
 
         # The parents: the extended stage's checkpoint (the first init_from candidate that exists) and a merge stage's
         # further parents.
+        finetune = config.resolved_finetune_from()
+        if finetune and Path(finetune).is_file() and not self.resume_path:
+            print(f"Fine-tuning from {finetune}", flush=True)
         candidates = config.resolved_init_from(self.stage)
+        if finetune and Path(finetune).is_file():
+            candidates = [finetune, *candidates]
         base_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
         merge_paths = []
         for candidate in config.resolved_merge_from(self.stage):

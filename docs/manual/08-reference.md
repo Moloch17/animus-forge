@@ -162,6 +162,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.ArriveFloorMs` | 10000 |
 | | | | `Pulls.NextPullShrinkMs` | 1000 |
 | | | | `Pulls.NextPullFloorMs` | 4000 |
+| `Support.SelfHealing` | 0.5 | | | |
+| `Support.BuffCoverage` | 0.3 | | | |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |
 | `Actions.StopCastMinMs` | 500 | | | |
@@ -316,7 +318,7 @@ every layer but the last. The policy is the argmax of the logits over allowed ac
 Compact JSON: `format`, `model`, `stage`, `class_role`, `class`, `role`, `obs_dim`, `num_actions`, `specs` (talent
 tabs), `blocks[]` each with `name`, `obs: [first, count]`, `actions: [first, count]` and block-specific entries (core:
 `action_features`, `catalog[]` with `kind`, `first_rank`, `next_swing` and `group`, plus talents; duel: stable slots;
-pack: slot counts; gauntlet: consumables; companion: ally heals and revives; party: member slots). A consumer must
+pack: slot counts; gauntlet: consumables; companion: revives; party: member slots; support: friend slots and tiers). A consumer must
 build a byte-identical manifest (trailing whitespace ignored).
 
 ### `stage.json` (format 2)

@@ -48,18 +48,71 @@ def _seed_head(new: dict, old: dict, prefix: str) -> None:
     new[f"{prefix}.bias"][:rows] = old[f"{prefix}.bias"]
 
 
-def _common_blocks(old: dict[str, tuple[Span, Span]], new: dict[str, tuple[Span, Span]], name: str):
-    """(old spans, new spans) of every block both layouts have, sizes checked."""
+# The core block's observation layout (CoreBlock.h): OBS_GLOBAL_COUNT global features, ACTION_FEATURES per catalog
+# action in action order, then the talents and trees. When a catalog loses or gains spells (a spell rule changed), the
+# core block is seeded action by action by name (stage.json action_names).
+CORE_GLOBAL_FEATURES = 67
+CORE_ACTION_FEATURES = 6
+
+
+def _core_by_name(old_spans: tuple[Span, Span], new_spans: tuple[Span, Span], old_names: list[str],
+                  new_names: list[str]):
+    """Segments of a core block whose catalog changed: the globals, each action both catalogs name (its features and
+    its action row) and the talents after them; None when the rest of the block does not line up."""
+    (old_obs, old_actions), (new_obs, new_actions) = old_spans, new_spans
+    old_catalog = old_names[old_actions[0] : old_actions[0] + old_actions[1]]
+    new_catalog = new_names[new_actions[0] : new_actions[0] + new_actions[1]]
+    if len(old_catalog) != old_actions[1] or len(new_catalog) != new_actions[1]:
+        return None
+
+    old_tail = old_obs[1] - CORE_GLOBAL_FEATURES - old_actions[1] * CORE_ACTION_FEATURES
+    new_tail = new_obs[1] - CORE_GLOBAL_FEATURES - new_actions[1] * CORE_ACTION_FEATURES
+    if old_tail != new_tail or old_tail < 0:
+        return None
+
+    # A segment is (old spans, new spans) like a whole block's; a count of 0 moves nothing.
+    def segment(old_obs_first, new_obs_first, obs_count, old_action, new_action, action_count):
+        return (((old_obs_first, obs_count), (old_action, action_count)),
+                ((new_obs_first, obs_count), (new_action, action_count)))
+
+    segments = [segment(old_obs[0], new_obs[0], CORE_GLOBAL_FEATURES, 0, 0, 0)]
+    where = {action: position for position, action in enumerate(old_catalog)}
+    for position, action in enumerate(new_catalog):
+        if action in where:
+            old_position = where[action]
+            segments.append(segment(old_obs[0] + CORE_GLOBAL_FEATURES + old_position * CORE_ACTION_FEATURES,
+                                    new_obs[0] + CORE_GLOBAL_FEATURES + position * CORE_ACTION_FEATURES,
+                                    CORE_ACTION_FEATURES, old_actions[0] + old_position, new_actions[0] + position, 1))
+    segments.append(segment(old_obs[0] + CORE_GLOBAL_FEATURES + old_actions[1] * CORE_ACTION_FEATURES,
+                            new_obs[0] + CORE_GLOBAL_FEATURES + new_actions[1] * CORE_ACTION_FEATURES,
+                            new_tail, 0, 0, 0))
+    return segments
+
+
+def _common_blocks(old: dict[str, tuple[Span, Span]], new: dict[str, tuple[Span, Span]], name: str,
+                   old_names: list[str] | None = None, new_names: list[str] | None = None):
+    """(old spans, new spans) of every block both layouts have, sizes checked. A core block whose catalog changed is
+    matched action by action by name, when both stages name their actions."""
     common = []
     for block, (new_obs, new_actions) in new.items():
         if block not in old:
             continue
         old_obs, old_actions = old[block]
         if old_obs[1] != new_obs[1] or old_actions[1] != new_actions[1]:
-            raise ValueError(f"{name}: block {block} is {old_obs[1]} features and {old_actions[1]} actions in the "
-                             f"checkpoint, {new_obs[1]} and {new_actions[1]} now")
+            segments = None
+            if block == "core" and old_names and new_names:
+                segments = _core_by_name((old_obs, old_actions), (new_obs, new_actions), old_names, new_names)
+            if segments is None:
+                raise ValueError(f"{name}: block {block} is {old_obs[1]} features and {old_actions[1]} actions in "
+                                 f"the checkpoint, {new_obs[1]} and {new_actions[1]} now")
+            common.extend(segments)
+            continue
         common.append(((old_obs, old_actions), (new_obs, new_actions)))
     return common
+
+
+def _action_names(stage: dict | None, layout: str) -> list[str]:
+    return list(((stage or {}).get("layouts", {}).get(layout) or {}).get("action_names", []))
 
 
 def _seed_adapter_blocks(new: dict, old: dict, prefix: str, common) -> None:
@@ -150,7 +203,8 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
         old_blocks = block_spans(old_stage, layout.name)
         new_blocks = block_spans(stage, layout.name)
         if old_blocks is not None and new_blocks is not None:
-            common = _common_blocks(old_blocks, new_blocks, layout.name)
+            common = _common_blocks(old_blocks, new_blocks, layout.name, _action_names(old_stage, layout.name),
+                                    _action_names(stage, layout.name))
             for network, remapped in adapters:
                 _seed_adapter_blocks(network, remapped, f"adapters.{index}", common)
             for network, remapped in norms:
@@ -189,7 +243,8 @@ def seed_merges(trainer, merges: list[dict], spec, stage: dict | None, base: dic
                 continue
             old_index = names.index(layout.name)
             wanted = {block: spans for block, spans in new_blocks.items() if block not in taken}
-            common = _common_blocks(old_blocks, wanted, layout.name)
+            common = _common_blocks(old_blocks, wanted, layout.name, _action_names(merge.get("stage"), layout.name),
+                                    _action_names(stage, layout.name))
             if not common:
                 continue
 
