@@ -48,7 +48,10 @@ with real clients. It offers two features:
 4. Put the models in place (6.4).
 
 The install step copies `models/*.amdl` and their `.json` manifests (which must sit beside them) to
-`ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`).
+`ANIMUS_MODELS_INSTALL_DIR` (default `<config dir>/modules/animus`: under Docker only the build's `bin/` and `etc/`
+reach the runtime image). A relative `Animus.ModelDir` (default `animus`) is looked for under `DataDir` first (models
+placed by hand), then the image's reference config directory (`env/ref/etc/modules/animus`, always the build's), then
+`<config dir>/modules/animus`; the first holding a model is used and logged.
 
 ## 6.4 Models
 
@@ -106,7 +109,8 @@ Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The class/
 You can summon in the open world, in a dungeon or raid instance, and on a boat, zeppelin or elevator. Otherwise:
 
 1. **Layout.** `LayoutFor(profile)` builds and caches the class/role's layout at `Animus.Curriculum.Stage` (default
-   `stage5_party`). The first build of a class/role's assets takes a few seconds and stalls the world thread.
+   `stage1_duel`, the stage whose models the module ships). The first build of a class/role's assets takes a few
+   seconds and stalls the world thread.
 2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of the race you named
    and a random gender, at your level or the class's first level if that is higher (a death knight is at least 55),
    and places it beside you (`PlaceNear`).
