@@ -183,12 +183,24 @@ are cleaned up by the core at startup (group members without a character).
 | Command | Effect |
 |---|---|
 | `.animus stage list` | Every stage with its summary and arenas |
-| `.animus stage start <stage> [policy] [arena]` | Teleport to the stage's spawn point and run it there |
-| `.animus stage status` | The stage you watch: its episode, arena, seats and models |
-| `.animus stage reset` | End the current episode and start a new one at the next decision |
-| `.animus stage stop` | Remove the stage |
+| `.animus stage open <stage> [policy] [arena]` | Teleport to the stage's spawn point, build it there and spawn its first episode, frozen |
+| `.animus stage spawn [tier] [class_role] [level]` | Remove the episode and spawn a new one, frozen, with the choices given |
+| `.animus stage start` | Let it play: episodes follow one another until `stop` |
+| `.animus stage stop` | Freeze everything where it is |
+| `.animus stage status` | The open stage: frozen or playing, its episode, arena, spawn choices, seats and models |
+| `.animus stage close` | Remove the stage |
 
 Policies: `model` (each seat's exported model; the default `Animus.Stage.Policy`), `random`, `greedy`, `fight`.
+
+`spawn`'s choices hold for every episode after it until the next `spawn`; each is `any`, or left out, for the
+curriculum's own:
+
+- **tier**: the difficulty tier of a stage that fights one creature (stage 1's `duel`), 0 to
+  `Animus.Curriculum.Difficulty.MaxTier`, as 4.5 describes it (below `EliteTier` a normal creature that many levels
+  above the character, from it an elite). `any` is the class/role's own training tier, which starts at 0 on every
+  server start and climbs as it wins. Other stages refuse a tier.
+- **class_role**: what the first seat plays (`warlock_dps`), one of the stage's class/roles.
+- **level**: every character's level, raised to what its class can be (a death knight is at least 55).
 
 ### Lifecycle
 
@@ -196,7 +208,7 @@ Policies: `model` (each seat's exported model; the default `Animus.Stage.Policy`
 episode; otherwise arenas are drawn by weight. The spawn map must be instanceable. GM mode is turned on as `.gm on`
 would (the reply says so, and it stays on after the stage stops), and the game master is teleported to
 `Animus.Stage.SpawnPoint.*` (default: the forge's own spawn point, the Old Hillsbrad Foothills entrance),
-which creates or enters an instance of that map. Starting a stage replaces the one you already watch. At most
+which creates or enters an instance of that map. Opening a stage replaces the one you already have open. At most
 `Animus.Stage.MaxViewers` (4) stages run at once, and each takes the lowest free env id, which keeps bot accounts and
 names apart.
 
@@ -212,30 +224,38 @@ map, the stage ends.
 
 A baseline policy is checked against the stage. The arena is forced if one was named. The env pool is told to build
 env 0 **in your instance** (`EnvPool::PlaceEnv`), then `Setup`, `ResetAll` and `PoolRegistry::Register`, so animus-lib's
-own hooks count the seats' damage and healing. The first build of a class/role's assets stalls the world for a few
-seconds.
+own hooks count the seats' damage and healing. The first episode is frozen. The first build of a class/role's assets
+stalls the world for a few seconds.
+
+**Frozen.** Every living unit within 150 yd of you and of each seat gets the GM freeze aura (9454, what `.freeze` puts
+on a unit): the seats, their pets and summons, the creatures and the owner, but no player that isn't the stage's. Nobody
+decides and the episode's clock stands still. Every 500 ms, units that turned up since (a pet arriving) are frozen
+too. `spawn` passes its choices to the scenario (`StageScenario::ForceTier`, `ForceLayout`, `ForceLevel`; a forced tier
+is what `CreatureEncounter` fights at, and doesn't move the class/role's own), lifts the freeze, calls `ResetAll()` and
+freezes the new episode. `start` lifts the freeze; `stop` freezes whatever is there, mid-fight too (a cast in progress
+is interrupted by the stun).
 
 **Running.** Each world update:
 
 - if you left the instance or logged out, the stage ends,
+- while frozen, only the freeze sweep,
 - `AdvanceClock(diff)`,
 - every `Animus.Stage.DecisionMs` of accumulated time, **one** decision. A long world update doesn't queue up extra
   decisions:
   1. `Collect()` (rewards, episode end, auto-reset, observe). When an episode ended, a chat report shows the arena,
      length and whether it ended or hit the time limit, and per present seat: level, class/role, damage and DPS, damage
      taken, kill, died, health left and total reward (the sum of the `reward_*` columns),
-  2. a requested reset calls `ResetAll()`,
-  3. actions: `model` asks `ModelLibrary` for each present seat's layout and calls `Decide`. A seat with a missing or
+  2. actions: `model` asks `ModelLibrary` for each present seat's layout and calls `Decide`. A seat with a missing or
      refused model does nothing, and you are told once per model. Any other policy calls
      `EnvPool::ChooseLocalActions`,
-  4. `ApplyActions()`.
+  3. `ApplyActions()`.
 
-**Stop.** Unregister the pool, tear down the env (seats, owner, enemy players, creatures, group). It is safe to call
-more than once.
+**Close.** Lift the freeze, unregister the pool, tear down the env (seats, owner, enemy players, creatures, group). It
+is safe to call more than once.
 
 ### Watching a stage as it was trained
 
-- **GM mode is on.** `.animus stage start` turns it on, so the stage's creatures and enemy players, which choose their
+- **GM mode is on.** `.animus stage open` turns it on, so the stage's creatures and enemy players, which choose their
   targets among the seats and the owner, leave you alone. Turning it off in the middle of a pull lets them attack you.
   Your presence changes nothing the seats observe.
 - **Match the settings** to the forge run: `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*`

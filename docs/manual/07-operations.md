@@ -227,19 +227,21 @@ world database and DBC data, because trainer spells and the spell catalog come f
 
 ## 7.7 Watching a stage in game
 
-On a stock realm with mod-animus and the models (`.animus stage start` turns GM mode on for you):
+On a stock realm with mod-animus and the models (`.animus stage open` turns GM mode on for you):
 
 ```
-.animus stage start stage5_party model
+.animus stage open stage1_duel model         # teleports you; the first episode spawns frozen
+.animus stage spawn 6 warlock_dps 70         # a new episode, frozen: tier 6 (elite, +2 levels), a level 70 warlock
+.animus stage start                          # play, episode after episode
+.animus stage stop                           # freeze where it is
 .animus stage status
-.animus stage reset
-.animus stage stop
+.animus stage close
 ```
 
 To see exactly the training conditions, copy the run's `stage.json` `"tuning"` values into `Animus.Curriculum.*`, and
 match `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*` to the forge settings. To look at one
-situation of stage 8: `.animus stage start stage8_crossroads model ambush`. To compare with the baseline:
-`.animus stage start stage5_party fight`.
+situation of stage 8: `.animus stage open stage8_crossroads model ambush`. To compare with the baseline:
+`.animus stage open stage5_party fight`.
 
 ## 7.8 Running the learner by hand
 
