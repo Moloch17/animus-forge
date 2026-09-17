@@ -704,6 +704,14 @@ AnimusForge.Curriculum.Pulls.StallGraceMs = 15000
 AnimusForge.Curriculum.Pulls.PreparationRefundMaxMs = 30000
 #   pack: per second a ranged spec is hit by a pack member in melee reach
 AnimusForge.Curriculum.Pulls.Spacing = 0.03
+#   solo gauntlet (pull after pull, no owner; won by lasting to the end): each pull cleared, instead of Clear ...
+AnimusForge.Curriculum.Pulls.SoloGauntletClear = 5.0
+#   ... plus this times 1 - the pull's time since engaged / 60 s, instead of FastPull ...
+AnimusForge.Curriculum.Pulls.SoloGauntletFastPull = 1.0
+#   ... and this times the health kept through the pull, instead of HealthKept
+AnimusForge.Curriculum.Pulls.SoloGauntletHealthKept = 0.5
+#   solo gauntlet: a death, instead of GauntletDeath (it also forfeits every pull left)
+AnimusForge.Curriculum.Pulls.SoloGauntletDeath = 10.0
 #   owner stages: kills and clears count this many times
 AnimusForge.Curriculum.Pulls.OwnerClearScale = 2.0
 

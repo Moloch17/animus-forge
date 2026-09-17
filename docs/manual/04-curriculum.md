@@ -592,9 +592,14 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
 With the gauntlet's clear and health kept (+2 and up to +2) and a -3 death, keeping health paid as much as clearing
 the pack, and never engaging was the cheapest way to lose.
 
-**Gauntlet**: the pack's per-step terms with damage taken x1.5. Each cleared pull: +2, up to +2 for clearing within a
-minute of engaging it (not of its spawn, so resting, sapping or stealthing in first is free), up to +2 for health kept
-during the pull. Death -5.
+**Gauntlet**: the pack's per-step terms with damage taken x1.5. With an owner (stages 4, 5, 8), each cleared pull: +2,
+up to +2 for clearing within a minute of engaging it (not of its spawn, so resting, sapping or stealthing in first is
+free), up to +2 for health kept during the pull; death -5. **Alone** (stage 3) the gauntlet is won by lasting, and pays
+win-first as the single pack does (`Pulls.SoloGauntlet*`): each cleared pull +5, up to +1 for clearing within a minute
+of engaging it and up to +0.5 for health kept; a death -10, besides every pull it forfeits. Its pulls charge Stall
+(-0.05 per second from `StallGraceMs` plus the preparation refund after the pull spawned, not while eating or
+drinking) and Spacing as the single pack does. Reaching the end of the episode alive counts as the kill, so
+`clean_kill` is a gauntlet survived.
 
 **Companion** (`Owner.*`, added to the gauntlet's, with kills and clears x2):
 
@@ -839,10 +844,14 @@ score. `until_passed` is off, so a stage that converges short of it halts after 
 
 ### Stage 3: `stage3_gauntlet`
 
-Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and the core's sustain spells. Between pulls
-there is no target, so target features are 0 and only self-cast actions are allowed. Needs long episodes (several
-minutes of `AnimusForge.EpisodeSeconds`). Config: gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so
-resting before a pull or stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps.
+Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and the core's sustain spells.
+Between pulls there is no target, so target features are 0 and only self-cast actions are allowed. The gauntlet arena
+runs 300 s (six to ten pulls after the 8-20 s breaks), and a solo gauntlet is won by lasting to the end (rewards above).
+Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
+stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps, evaluations every 15M.
+Target, provisional until a run calibrates it: 60% of gauntlets survived overall and 50% per class/role (Wilson
+bound), three pulls cleared on average, every class/role at least level with its baseline, no livelocks;
+`until_passed: false`.
 
 ### Stage 4: `stage4_companion`
 

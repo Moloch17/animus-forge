@@ -143,6 +143,10 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.StallGraceMs` | 15000 |
 | | | | `Pulls.PreparationRefundMaxMs` | 30000 |
 | | | | `Pulls.Spacing` | 0.03 |
+| | | | `Pulls.SoloGauntletClear` | 5.0 |
+| | | | `Pulls.SoloGauntletFastPull` | 1.0 |
+| | | | `Pulls.SoloGauntletHealthKept` | 0.5 |
+| | | | `Pulls.SoloGauntletDeath` | 10.0 |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |
 | `Actions.StopCastMinMs` | 500 | | | |

@@ -1,30 +1,42 @@
-# Stage 3 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with
-# breaks between, until the bot dies or the episode ends. Heals, food and drink are there for recovering between pulls.
-# Each cleared pull pays for speed and health kept. Give it long episodes (AnimusForge.EpisodeSeconds of several
-# minutes) so there are many pulls.
+# Stage 3 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with breaks
+# between, for five minutes or until the bot dies. Heals, food and drink are there for recovering between pulls. A solo
+# gauntlet is won by lasting to the end: each cleared pull pays (Pulls.SoloGauntletClear, a little more fast and
+# untouched), a death costs Pulls.SoloGauntletDeath and every pull left unfought, and standing off a pull or taking
+# melee hits as a ranged spec is charged as in stage 2. The gauntlet arena runs 300 s whatever
+# AnimusForge.EpisodeSeconds says.
 
-extends: stage1_duel.yaml
+extends: stage2_pack.yaml
 run_name: stage3_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 400000000
 
-# 256 decisions (25.6 s at 100 ms) per rollout: a pull, its recovery and the next pull's setup fit in fewer rollouts, so
-# fewer returns rest on the critic's bootstrap.
-rollout_length: 256
+# rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.99 per 100 ms (a ~100 s horizon, ~9 s of GAE
+# trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting before a
+# pull, sapping or stealthing in and saving cooldowns pay off over that long.
 
-mappo:
-  # Pulls and recovery span minutes: the longest horizon of the curriculum (~100 s). The GAE trace carries credit for
-  # ~9 s: resting before a pull, sapping or stealthing in, and saving cooldowns pay off over that long.
-  gamma: 0.999
-  gae_lambda: 0.99
-
-# An evaluation costs a wave of full episodes per 64 seeds, so it scales with the episode length, not with the
-# training between evaluations: these episodes run minutes rather than the duel's 60 s, which makes a 1024-episode
-# evaluation worth a sizeable share of the stage. Evaluate less often rather than on fewer episodes -- the score's
-# standard error sets the convergence margin and the per-class/role gates, and it only grows as episodes are cut.
+# An evaluation costs a wave of full episodes per env, so it scales with the episode length: five-minute episodes make a
+# 2048-episode evaluation several times the duel's. Evaluate less often rather than on fewer episodes -- the score's
+# standard error sets the convergence margin and the per-class/role gates.
 eval:
   every_env_steps: 15000000
 
 convergence:
   min_env_steps: 40000000
+
+# A win is clean_kill: a gauntlet survived to the end without a death (PullsEncounter counts lasting as the kill). The
+# gauntlet has no difficulty ladder, so none of stage 2's rung or tier gates apply. These floors are provisional, set
+# before any stage 3 run: 60% of gauntlets survived overall and 50% per class/role by the Wilson bound, three pulls
+# cleared on average, every class/role at least level with the scripted baseline, no livelocks. The stage halts below
+# them rather than training on; recalibrate from the first run's evaluations.
+target:
+  metrics:
+    livelocked: {max: 0.01}
+    clean_kill: {min: 0.60, confidence: 0.95}
+    pulls_cleared: {min: 3.0}
+  layout_metrics:
+    livelocked: {max: 0.02}
+    clean_kill: {min: 0.50, confidence: 0.95}
+  base_difficulty: null
+  difficulties: {}
+  until_passed: false
