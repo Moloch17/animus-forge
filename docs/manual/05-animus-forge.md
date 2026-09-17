@@ -653,7 +653,8 @@ cooldown and is nothing like `ln(padded action count)` -- so a flat `mappo.entro
 whether the policy still explores. With `fraction` set, the coefficient climbs (to at most `max_boost` times the
 configured one, at `rate` per update) while entropy sits below that share of the ceiling, and falls straight
 back once it recovers. It is a floor, never a ceiling: a policy converging on its own is never held open. Read
-`entropy` against `allowed_actions` in `metrics.csv`.
+`entropy` against `allowed_actions` in `metrics.csv`; `entropy` is the action head's alone, and a goal head's is
+`goal_entropy` beside it, so neither hides the other.
 
 ### Where the episodes go (`layout_sampling`)
 
