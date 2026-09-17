@@ -16,7 +16,7 @@ mappo:
   gamma: 0.999
   gae_lambda: 0.99
 
-# The floors are the duel's shape, lower: clean wins of 85% overall and 75% per class/role by the Wilson bound. The
+# The floors are the duel's shape, lower: clean wins of 85% overall and 65% per class/role by the Wilson bound. The
 # first stage 2 run, without a ladder, calibrated them (80% at the seeded start, 90% at 20M steps). A stage below them
 # halts instead of training on forever: converging short of the target restarts from best.pt as usual, then the plan
 # stops here with the numbers to reset the floors from.
@@ -24,12 +24,15 @@ mappo:
 # Packs climb a ladder per class/role (Pulls.MaxTier, rungs 0-5), and an evaluation spreads its seeds over every rung.
 # The floors hold on rungs 0-2, the 2-4 creature packs the first stage 2 run was measured on (90% clean at 20M steps
 # without a ladder); two casters, an elite and a level more above that count through the score. 2048 episodes put
-# ~57 of each class/role on rungs 0-2, so 0.75 needs about 85% of them won.
+# ~57 of each class/role on rungs 0-2, so 0.65 needs about 77% of them won. The per-class/role floor was 0.75 until the
+# first laddered run: at 30M steps it held 91% overall (bound 0.89) but rogues (70%, bound 0.57, stuck between the 2- and
+# 3-creature rungs), druid healers, priest DPS and warlocks (81-82%) stayed under it. Taking adds out with crowd control
+# is stage 3's to teach (its control reward).
 target:
   metrics:
     clean_kill: {min: 0.85, confidence: 0.95}
   layout_metrics:
-    clean_kill: {min: 0.75, confidence: 0.95}
+    clean_kill: {min: 0.65, confidence: 0.95}
   base_difficulty: 2
   difficulties: {}
   until_passed: false

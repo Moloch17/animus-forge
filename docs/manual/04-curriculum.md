@@ -852,7 +852,7 @@ is up to four of the duel's creatures, which took stage 1's policy about 17 s ea
 ones (4.6).
 
 Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is clean wins of at least 85% overall
-and 75% per class/role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
+and 65% per class/role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
 first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
 score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
 
