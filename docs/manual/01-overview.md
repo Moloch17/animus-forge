@@ -75,9 +75,9 @@ core changes. See [chapter 6](06-animus.md).
 | Forge core (training) | yes | yes | **no** (`-DMODULE_MOD-ANIMUS=disabled`) |
 | Stock core (playing) | yes | no (it needs forge-only APIs) | yes |
 
-Both modules `git clone` animus-lib into `modules/mod-animus-lib` at configure time if it is missing
-(`ANIMUS_LIB_GIT_URL`, `ANIMUS_LIB_GIT_REF`). The library and the module that needs it must use the same linkage:
-both static (the default) or both dynamic.
+Both modules bundle animus-lib's source in `animus-lib/` (a git subtree at the revision they were tested with), so
+they build offline; a `modules/mod-animus-lib` checkout, when present, is built instead. Build static (the default); a
+dynamic build needs the library as its own module.
 
 ## Core ideas
 

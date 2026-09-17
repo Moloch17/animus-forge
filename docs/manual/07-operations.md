@@ -13,7 +13,7 @@ data, builds and runs. A GPU is optional: updates run on the CPU without one, ju
    git clone -b forge git@github.com:Moloch17/azerothcore-wotlk.git animus-forge-core
    cd animus-forge-core
    git clone git@github.com:Moloch17/animus-forge.git modules/mod-animus-forge
-   # optional: animus-lib is cloned at configure time if missing
+   # optional: animus-lib is bundled in mod-animus-forge/animus-lib; a checkout here is built instead (to develop it)
    git clone git@github.com:Moloch17/animus-lib.git modules/mod-animus-lib
    ```
 
@@ -407,10 +407,10 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 | Symptom | Cause and fix |
 |---|---|
 | Server exits at once in Docker | The console read end of file. Run through `forge.sh`/Compose, which gives it a TTY. A server without a TTY skips the console and keeps running |
-| Every `AnimusForge.*` key logs "Missing property" | `mod_animus_forge.conf` doesn't exist. Copy it from the `.dist` (Docker does this on start) |
+| Every `AnimusForge.*` (or `Animus.*`) key logs "Missing property" | The module's `.conf` doesn't exist: AzerothCore no longer reads a module's `.dist`. Installing creates it when missing (Docker copies it to the config volume on start); for an install that predates that, copy it from the `.dist` |
 | "The world ticks N ms, but AnimusForge.DecisionMs is M" | The worldserver was built before "one tick per decision". Run `./forge.sh --build` |
 | Configure fails: "mod-animus-forge needs mod-animus-lib, which is disabled" or linkage mismatch | Build both the same way. Set the named variable to `static` or `dynamic` |
-| Configure fails: "cloned during this configure; run cmake again" | A dynamic dependent with a freshly cloned library. Run cmake again |
+| Configure fails: "built dynamic, which needs animus-lib as its own module" | Copy the module's `animus-lib/` bundle to `modules/mod-animus-lib` and build it dynamic too |
 | "Learner directory ... does not contain animus/train.py" | The worldserver runs from a baked image, or the module moved. Set `AnimusForge.Learner.WorkDir` |
 | "waiting for learner" forever | Auto-start failed (see the server log and `animus-learner.log`), or `AutoStart = 0`. Run the printed command by hand |
 | The learner exits right after connecting | Config error (unknown key, wrong type), target validation (a gate on a missing metric), or a resume mismatch. See `animus-learner.log` |

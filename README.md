@@ -46,7 +46,8 @@ git clone git@github.com:Moloch17/animus-forge.git modules/mod-animus-forge
 ./forge.sh            # build and start everything, then attach to the console (detach: Ctrl+P Ctrl+Q)
 ```
 
-animus-lib is cloned at configure time. The first start builds the images, the worldserver and the Python venv, so it
+animus-lib comes bundled in `animus-lib/` (`tools/update-animus-lib.sh` updates it); a `modules/mod-animus-lib`
+checkout, when present, is built instead. The first start builds the images, the worldserver and the Python venv, so it
 takes a while. GPU passthrough, native builds and the settings worth reviewing first are in
 [Operations 7.1](docs/manual/07-operations.md#71-setting-up-the-training-host-docker).
 

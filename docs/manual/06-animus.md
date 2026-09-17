@@ -32,20 +32,23 @@ with real clients. It offers two features:
 | `src/Companion/CompanionParty.{h,cpp}` | One player's companions |
 | `src/Viewer/StageViewer.{h,cpp}` | One game master's stage |
 | `conf/mod_animus.conf.dist` | Every key, documented |
-| `mod-animus.cmake` | Installs `models/*.amdl`, clones and requires animus-lib |
+| `mod-animus.cmake` | Installs `models/`, creates `mod_animus.conf` when missing, builds the bundled animus-lib |
+| `animus-lib/` | The bundled animus-lib (a git subtree); `tools/update-animus-lib.sh` updates it |
 | `models/` | Where you may put models for the install step to copy |
 
 ## 6.3 Installing
 
-1. Put the module in a stock AzerothCore's `modules/`. Configuring clones animus-lib into `modules/mod-animus-lib` if
-   it is missing. Build both the same way (static, the default, or both dynamic).
+1. Put the module in a stock AzerothCore's `modules/`. animus-lib comes bundled in `animus-lib/`, so nothing is fetched
+   at build time (a `modules/mod-animus-lib` checkout, when present, is built instead). Build static (the default); a
+   dynamic build needs the library as its own module (copy the bundle to `modules/mod-animus-lib`).
 2. Rebuild and install the worldserver.
-3. Copy `conf/mod_animus.conf.dist` to your config directory as `mod_animus.conf`.
+3. Installing creates `mod_animus.conf` in the modules config directory from its `.dist` when there is none, and never
+   overwrites one (under Docker the container copies it to the config volume on first start). AzerothCore reads a
+   module's settings from the `.conf` only; without it every `Animus.*` key logs "Missing property" at startup.
 4. Put the models in place (6.4).
 
-The install step copies `models/*.amdl` to `ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`).
-**It doesn't copy the `.json` manifests**, which must sit beside their models, so copy those by hand, or put everything
-directly into `Animus.ModelDir`.
+The install step copies `models/*.amdl` and their `.json` manifests (which must sit beside them) to
+`ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`).
 
 ## 6.4 Models
 

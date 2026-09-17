@@ -38,16 +38,21 @@ mod-animus-forge and mod-animus**.
 
 ## 3.2 Build and loading
 
-Dependents clone the library in their `<module>.cmake` if `modules/mod-animus-lib` is missing. They then include
-`cmake/AnimusLibDependency.cmake` and call `AnimusLibRequire(<dependent>)`. The function handles two situations:
+Each dependent bundles the library's source as a git subtree in `<module>/animus-lib` (`tools/update-animus-lib.sh
+[ref]` pulls a revision in), so a module folder builds offline with the library revision it was tested with. Its
+`<module>.cmake` includes `cmake/AnimusLibDependency.cmake` (from `modules/mod-animus-lib` when that exists, else from
+its bundle) and calls `AnimusLibRequire(<dependent> <bundle dir>)`. Exactly one copy is built:
 
-- **The library is a module of this configure.** It must use the same linkage as the dependent. A disabled library
-  or mismatched linkage stops the configure with a message naming the variable to set. Static builds need nothing
-  more. A dynamic dependent links the library's shared module.
-- **The library was cloned during this configure.** The core's module list was built before the clone, so the library
-  isn't a module yet. For static builds its sources and include directories are added to the `modules` target directly
-  (once, guarded by a global property). A dynamic dependent can't link it yet, and the configure asks you to run cmake
-  again. From the next configure on it is an ordinary module.
+- **`modules/mod-animus-lib` is a module of this configure** (a development checkout). It is the library, and the
+  bundles are ignored. It must use the same linkage as the dependent: a disabled library or mismatched linkage stops
+  the configure with a message naming the variable to set. Static builds need nothing more; a dynamic dependent links
+  the library's shared module.
+- **Otherwise** the first static dependent adds its bundle's `src/` sources and include directories to the `modules`
+  target (once, guarded by a global property). AzerothCore only collects a module's own `src/`, so a bundle is never
+  compiled twice. A dynamic dependent needs the library as its own module; the configure says to copy the bundle to
+  `modules/mod-animus-lib`.
+
+Lib changes are made in animus-lib; a dependent that needs them runs its update script before shipping.
 
 Script registration follows the same logic. The generated modules loader calls `Addmod_animus_libScripts()` when the
 library is a known module, and each dependent's own loader also calls it first. The function is idempotent (a static
