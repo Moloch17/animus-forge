@@ -277,8 +277,8 @@ The same function builds training seats and live companions, so a model gets in 
   of each speed (60% and 100% ground, 150% and 280% flying).
 - **Supplies** (`Supplies`, applied by `StockSeats`). Five of the best healing potions, five mana potions (for mana
   users), five bandages with the level's First Aid skill, a healthstone and soulstone for warlocks, and at 70 and 80 a
-  suitable flask (half the time an elixir while levelling). Gauntlet stages add five of the best vendor food and, for
-  mana users, five drinks.
+  suitable flask (half the time an elixir while levelling). Gauntlet stages add the best vendor food and, for mana
+  users, drinks: `Pulls.GauntletSupplies` (7) of each alone, five with an owner.
 - **`PrepareFighter`**. No XP gain (levelling would change the character under the model), a warrior's stance (a first
   login normally casts it, and nothing works without one), and for hunters a stable offer of four tameable beasts of
   different random families.
@@ -356,7 +356,7 @@ counts the charged presses.
 | `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
-| `gauntlet` | Pulls cleared, pull active, time to the next pull, time into the pull, elite or higher-level pull, eating, drinking, food and drink left (the sustain spells are core actions) | Eat, drink |
+| `gauntlet` | Pulls cleared, pull active, time since the last fight, time into the pull, elite or higher-level pull, eating, drinking, food and drink left, time until an unengaged pull comes to the bot, time until the next pull spawns (the sustain spells are core actions) | Eat, drink (offered only where the item's cast check passes) |
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each ally spell's and revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one cast-on-owner per ally spell, one revive-on-owner per revive |
 | `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, ally spells, revives |
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
@@ -440,9 +440,15 @@ casters and ability users) to the duel pool.
   Evaluations spread their seeds over the rungs as the duel's over its tiers, and `difficulty` in the episode info is
   the rung. A stage viewer's `spawn` tier picks the rung.
 - **Gauntlet** (stages 3-5, 8): 1-4 creatures, or `EliteChance` (15%) a single elite, or `HigherLevelChance` (25%) a
-  pack 1-3 levels higher. In a party arena each member is elite with `PartyEliteChance` (50%) and up to 2 levels above.
-  After a clear the field empties and the next pull spawns `NextPullMinMs`-`NextPullMaxMs` (8-20 s) later, out of aggro
-  range. With an owner, pulls spawn around the owner.
+  pack 1-3 levels higher (at most one level below level 20 and two below 30). In a party arena each member is elite
+  with `PartyEliteChance` (50%) and up to 2 levels above. After a clear the field empties and the next pull spawns
+  `NextPullMinMs`-`NextPullMaxMs` (8-20 s) later, out of aggro range. With an owner, pulls spawn around the owner.
+  **Alone** the gauntlet is paced: a pull nobody has engaged comes to the seat `ArriveMinMs`-`ArriveMaxMs` (20-40 s)
+  after it spawned (creatures that can't see the seat walk to it), and each pull cleared takes `ArriveShrinkMs` (1.5 s)
+  off that, down to `ArriveFloorMs` (10 s), and `NextPullShrinkMs` (1 s) off the break, down to `NextPullFloorMs`
+  (4 s). Resting has a clock, and staying away from the pulls is no way to last.
+- **Elites.** The pool takes elites with health and damage multipliers up to 3 and 2.5 (normal creatures: 2), which
+  keeps open-world and quest elites; at 2 the whole world had six.
 - **Clear and interrupts.** A pull's clear is decided once per decision in `BeforeRewards`. The interrupt reward pays
   when a seat cast an interrupt, stun, silence, fear or polymorph at a casting enemy and that enemy's cast was then cut
   short by something other than itself or its death. A cast that finishes on its own doesn't count.
@@ -598,8 +604,11 @@ free), up to +2 for health kept during the pull; death -5. **Alone** (stage 3) t
 win-first as the single pack does (`Pulls.SoloGauntlet*`): each cleared pull +5, up to +1 for clearing within a minute
 of engaging it and up to +0.5 for health kept; a death -10, besides every pull it forfeits. Its pulls charge Stall
 (-0.05 per second from `StallGraceMs` plus the preparation refund after the pull spawned, not while eating or
-drinking) and Spacing as the single pack does. Reaching the end of the episode alive counts as the kill, so
-`clean_kill` is a gauntlet survived.
+drinking) and Spacing as the single pack does. Engaging a pull pays readiness, `SoloGauntletReadiness` (0.5) times the
+seat's health fraction the decision before (the lower of health and mana for mana users), so resting between pulls
+pays when the next one starts rather than only through the death it avoids. Reaching the end of the episode alive with
+`SoloGauntletWinPulls` (5) pulls cleared counts as the kill, so `clean_kill` is a gauntlet endured; alive on fewer is a
+timeout.
 
 **Companion** (`Owner.*`, added to the gauntlet's, with kills and clears x2):
 
@@ -759,7 +768,8 @@ Every stage reports these **core columns** per seat:
 Encounters then add their own columns:
 
 - pulls: `kills`, `interrupts`, `pack_size`, `linked`, `pulls_cleared`, `food_used`, `drink_used`, `sustain_casts`,
-  `deaths`, `wipes`
+  `deaths`, `wipes`; gauntlets also `engage_health`, `engage_mana`, `pulls_started_low`, `pulls_arrived`,
+  `rest_seconds`, `eat_failed`, `drink_failed`, `meals_cut_short`
 - owner: `owner_class`, `owner_role`, `owner_died`, `owner_deaths`, `owner_damage_taken`, `owner_healing`,
   `threat_on_bot`, `threat_on_owner`, `revives`
 - party: `seat`, `teammates_died`, `teammate_damage_taken`, `teammate_healing`, `threat_on_teammates`
@@ -846,12 +856,17 @@ score. `until_passed` is off, so a stage that converges short of it halts after 
 
 Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and the core's sustain spells.
 Between pulls there is no target, so target features are 0 and only self-cast actions are allowed. The gauntlet arena
-runs 300 s (six to ten pulls after the 8-20 s breaks), and a solo gauntlet is won by lasting to the end (rewards above).
+runs 450 s, paced so that eight or more pulls fit (pulls come to the seat, sooner as it clears them), and a solo
+gauntlet is won by lasting to the end with five pulls cleared (rewards above). Its episode info adds the recovery
+columns: `engage_health` and `engage_mana` (means over the pulls engaged, taken the decision before), `pulls_started_low`
+(below half health or 30% mana), `pulls_arrived` (came to the seat unengaged), `rest_seconds`, `eat_failed`,
+`drink_failed` and `meals_cut_short` (food or drink that ended early with health or mana still to restore).
 Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
 stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps, evaluations every 15M.
-Target, provisional until a run calibrates it: 60% of gauntlets survived overall and 50% per class/role (Wilson
-bound), three pulls cleared on average, every class/role at least level with its baseline, no livelocks;
-`until_passed: false`.
+Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class/role (Wilson bound),
+four pulls cleared on average, no livelocks; `until_passed: false`. The first run (300 s, pulls that waited, a win by
+merely lasting) reached 63-66% survived with 12% of its wins on at most one pull cleared, rogues and healers avoiding
+the pulls.
 
 ### Stage 4: `stage4_companion`
 
@@ -892,7 +907,7 @@ contain the ten PvE and PvP blocks (the pet block included).
 | `party` | 20 | 300 s | Stage 5's |
 | `arena_1v1` | 15 | 60 s | Stage 7's |
 | `pvp_scripted` | 10 | 60 s | Stage 6's |
-| `gauntlet` | 10 | 300 s | Stage 3's |
+| `gauntlet` | 10 | 450 s | Stage 3's |
 | `duel` | 5 | 60 s | Stage 1's |
 | `ambush` | 15 | 300 s | Companion gauntlet plus 1-2 ambushers arriving 20-120 s in |
 | `escort_duel` | 5 | 90 s | Owner plus one enemy player, no pulls |

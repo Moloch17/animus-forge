@@ -1,9 +1,15 @@
 # Stage 3 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with breaks
-# between, for five minutes or until the bot dies. Heals, food and drink are there for recovering between pulls. A solo
-# gauntlet is won by lasting to the end: each cleared pull pays (Pulls.SoloGauntletClear, a little more fast and
-# untouched), a death costs Pulls.SoloGauntletDeath and every pull left unfought, and standing off a pull or taking
-# melee hits as a ranged spec is charged as in stage 2. The gauntlet arena runs 300 s whatever
-# AnimusForge.EpisodeSeconds says.
+# between, for seven and a half minutes or until the bot dies. What it teaches is recovering between fights and lasting
+# through many of them:
+#
+# - A pull left alone comes to the bot 20-40 s after it spawns (Pulls.Arrive*), and every pull cleared brings the next
+#   one sooner and shortens the break before it: resting has a clock, and staying away from the pulls is no way out.
+# - Engaging a pull pays Pulls.SoloGauntletReadiness times the lower of the bot's health and mana fractions: entering
+#   a fight ready is what eating, drinking, bandages and heals between pulls are for.
+# - Seven food and seven drink (Pulls.GauntletSupplies) for eight or more pulls: they have to be spread.
+# - Each cleared pull pays (Pulls.SoloGauntletClear, a little more fast and untouched), a death costs
+#   Pulls.SoloGauntletDeath and every pull left unfought, and standing off a pull or taking melee hits as a ranged spec
+#   is charged as in stage 2. The gauntlet arena runs 450 s whatever AnimusForge.EpisodeSeconds says.
 
 extends: stage2_pack.yaml
 run_name: stage3_gauntlet
@@ -15,8 +21,8 @@ total_env_steps: 400000000
 # trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting before a
 # pull, sapping or stealthing in and saving cooldowns pay off over that long.
 
-# An evaluation costs a wave of full episodes per env, so it scales with the episode length: five-minute episodes make a
-# 2048-episode evaluation several times the duel's. Evaluate less often rather than on fewer episodes -- the score's
+# An evaluation costs a wave of full episodes per env, so it scales with the episode length (the first stage 3 run's
+# 2048 five-minute episodes took about 3 minutes). Evaluate less often rather than on fewer episodes -- the score's
 # standard error sets the convergence margin and the per-class/role gates.
 eval:
   every_env_steps: 15000000
@@ -24,19 +30,23 @@ eval:
 convergence:
   min_env_steps: 40000000
 
-# A win is clean_kill: a gauntlet survived to the end without a death (PullsEncounter counts lasting as the kill). The
-# gauntlet has no difficulty ladder, so none of stage 2's rung or tier gates apply. These floors are provisional, set
-# before any stage 3 run: 60% of gauntlets survived overall and 50% per class/role by the Wilson bound, three pulls
-# cleared on average, every class/role at least level with the scripted baseline, no livelocks. The stage halts below
-# them rather than training on; recalibrate from the first run's evaluations.
+# A win is clean_kill: the gauntlet lasted to the end without a death and with Pulls.SoloGauntletWinPulls (5) pulls
+# cleared (PullsEncounter counts that as the kill; lasting on fewer is a timeout). The gauntlet has no difficulty
+# ladder, so none of stage 2's rung or tier gates apply.
+#
+# The floors are provisional. The first stage 3 run (five minutes, pulls that waited, a win by merely lasting) reached
+# 63-66% survived overall with seven class/roles at 38-57%, and 12% of its wins cleared at most one pull. This run's
+# win is stricter, so the floors are lower: 55% overall and 40% per class/role by the Wilson bound, four pulls cleared
+# on average, no livelocks. The stage halts below them rather than training on; recalibrate from this run's
+# evaluations.
 target:
   metrics:
     livelocked: {max: 0.01}
-    clean_kill: {min: 0.60, confidence: 0.95}
-    pulls_cleared: {min: 3.0}
+    clean_kill: {min: 0.55, confidence: 0.95}
+    pulls_cleared: {min: 4.0}
   layout_metrics:
     livelocked: {max: 0.02}
-    clean_kill: {min: 0.50, confidence: 0.95}
+    clean_kill: {min: 0.40, confidence: 0.95}
   base_difficulty: null
   difficulties: {}
   until_passed: false

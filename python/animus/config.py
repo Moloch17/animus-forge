@@ -37,6 +37,10 @@ REPORT_COLUMNS = (
     "target_rooted_share", "target_snared_share", "roots_applied", "snares_applied",
     "pet_attack_orders", "pet_passive_orders", "pet_follow_orders", "pet_stay_orders", "pet_attacking_share",
     "pet_passive_share", "pet_staying_share", "feign_deaths", "feign_death_resets", "item_uses",
+    # Gauntlet recovery: health and mana each pull was engaged with, pulls started low or that came to the seat
+    # unengaged, time resting, and eating or drinking that failed or ended with something left to restore.
+    "engage_health", "engage_mana", "pulls_started_low", "pulls_arrived", "rest_seconds", "food_used", "drink_used",
+    "eat_failed", "drink_failed", "meals_cut_short",
 )
 
 
