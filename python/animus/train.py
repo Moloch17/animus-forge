@@ -353,6 +353,11 @@ class TrainingRun:
             "explained_variance", "actor_grad_norm", "critic_grad_norm", "epochs_run", "allowed_actions",
             "elapsed_seconds", "update_compute_seconds", "distill_coef", "distill_kl", "distill_rows",
         ]
+        if self.trainer.goal_count:
+            # What the goal head is doing: the entropy it is kept at, how often a chosen goal is the one held, and
+            # the share of decisions spent under each goal.
+            columns += ["goal_entropy", "goal_kept_share",
+                        *(f"goal_{index}_share" for index in range(self.trainer.goal_count))]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
         # Metric gates are checked on the summary, so their columns are summarised even when not reported.
         report = tuple(config.eval.report)

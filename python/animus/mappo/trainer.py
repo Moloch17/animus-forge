@@ -387,6 +387,8 @@ class MappoTrainer:
         started = time.perf_counter()
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
                  "actor_grad_norm": 0.0, "critic_grad_norm": 0.0}
+        if self.goal_count:
+            stats["goal_entropy"] = 0.0
         foresight = self.foresight_outputs > 0 and buffer.foresight >= self.foresight_outputs
         if foresight:
             stats["foresight_loss"] = 0.0
@@ -444,15 +446,19 @@ class MappoTrainer:
                 dist = self.actor.action_distribution(features, layout, data["mask"][idx], goal)
                 predictions = (self.actor.foresight(features) if foresight else None)
                 log_probs = dist.log_prob(data["actions"][idx])
-                entropy = dist.entropy().mean()
+                action_entropy = dist.entropy().mean()
+                entropy = action_entropy
                 if self.goal_count:
                     # Choosing a goal is part of the decision that chose it: its log probability joins the action's,
-                    # and its entropy is kept up on those decisions too.
+                    # and its entropy is kept up on those decisions too. The goal term is averaged over every row,
+                    # not only the rows that chose a goal, so a head consulted once in goal_every_decisions is worth
+                    # that share of the bonus rather than as much as the action head on every decision.
                     goals = self.actor.goal_distribution(features)
                     chosen = data["goal_chosen"][idx].float()
                     log_probs = log_probs + goals.log_prob(goal) * chosen
-                    weight = chosen.sum().clamp(min=1.0)
-                    entropy = entropy + (goals.entropy() * chosen).sum() / weight
+                    goal_entropy = (goals.entropy() * chosen).sum()
+                    entropy = entropy + goal_entropy / max(1, chosen.numel())
+                    goal_entropy = goal_entropy.detach() / chosen.sum().clamp(min=1.0)
                     data_log_probs = data["log_probs"][idx] + data["goal_log_probs"][idx] * chosen
                 else:
                     data_log_probs = data["log_probs"][idx]
@@ -504,7 +510,11 @@ class MappoTrainer:
                 with torch.no_grad():
                     totals["policy_loss"] += policy_loss.detach()
                     totals["value_loss"] += value_loss.detach()
-                    totals["entropy"] += entropy.detach()
+                    # Reported on its own: the entropy floor compares this with ln(allowed actions), and folding
+                    # the goal head's entropy in would hide a collapsing action policy.
+                    totals["entropy"] += action_entropy.detach()
+                    if self.goal_count:
+                        totals["goal_entropy"] += goal_entropy
                     totals["clip_frac"] += ((ratio - 1).abs() > cfg.clip).float().mean()
                     totals["approx_kl"] += ((ratio - 1) - log_ratio).mean()
                     totals["actor_grad_norm"] += actor_grad
@@ -566,6 +576,8 @@ class MappoTrainer:
         started = time.perf_counter()
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
                  "actor_grad_norm": 0.0, "critic_grad_norm": 0.0}
+        if self.goal_count:
+            stats["goal_entropy"] = 0.0
         foresight = self.foresight_outputs > 0 and buffer.foresight >= self.foresight_outputs
         if foresight:
             stats["foresight_loss"] = 0.0
@@ -615,73 +627,80 @@ class MappoTrainer:
             epoch_updates = 0
             order = torch.randperm(envs, device=self.train_device)
             for chunk in torch.tensor_split(order, splits):
-                memory = data["memory"][0][chunk]
-                log_probs, entropies, predictions = [], [], []
-                # The teachers' own memories follow the same replayed decisions as the student's (animus.distill).
+                envs_here = len(chunk)
+                rows_here = envs_here * agents
+                lead = (steps, envs_here, agents)
+
+                # Every decision of the sequence through the adapters and the trunk in one pass, then the GRU over
+                # them in order: the heavy layers run once for the whole minibatch instead of once per step.
+                obs_all = data["obs"][:, chunk].reshape(-1, data["obs"].shape[-1])
+                layout_all = data["layout"][:, chunk].reshape(-1)
+                mask_all = data["mask"][:, chunk].reshape(-1, data["mask"].shape[-1])
+                goal_all = data["goal"][:, chunk].reshape(-1) if self.goal_count else None
+                dones_all = (data["dones"][:, chunk][:, :, None].expand(steps, envs_here, agents)
+                             .reshape(steps, rows_here))
+
+                encoded = self.actor.encode(obs_all, layout_all).reshape(steps, rows_here, -1)
+                memory = data["memory"][0][chunk].reshape(rows_here, -1)
+                carried = self.actor.carry(encoded, memory, dones_all)
+                features = carried.reshape(-1, carried.shape[-1])
+
+                dist = self.actor.action_distribution(features, layout_all, mask_all, goal_all)
+                log_probs = dist.log_prob(data["actions"][:, chunk].reshape(-1)).reshape(*lead)
+                action_entropies = dist.entropy().reshape(*lead)
+                entropies = action_entropies
+                predictions = (self.actor.foresight(features).reshape(*lead, self.foresight_outputs)
+                               if foresight else None)
+                goal_entropies = None
+                if self.goal_count:
+                    goals = self.actor.goal_distribution(features)
+                    chosen = data["goal_chosen"][:, chunk].reshape(-1).to(features.dtype)
+                    log_probs = log_probs + (goals.log_prob(goal_all) * chosen).reshape(*lead)
+                    # Zero on the rows that held their goal, and averaged below over every row: the goal head's
+                    # bonus is worth the share of decisions that actually choose a goal.
+                    goal_entropies = (goals.entropy() * chosen).reshape(*lead)
+                    entropies = entropies + goal_entropies
+
+                # The teachers' own memories follow the same replayed decisions as the student's (animus.distill),
+                # so distillation is the one part that stays a loop over the sequence.
                 teach = auxiliary if auxiliary is not None and hasattr(auxiliary, "step_loss") else None
-                teacher_memories = (teach.begin_sequence(len(chunk) * agents, self.train_device)
-                                    if teach is not None else None)
                 distill_loss = torch.zeros((), device=self.train_device)
                 distill_rows = 0
-                for step in range(steps):
-                    layout_step = data["layout"][step][chunk]
-                    lead = layout_step.shape
-                    features = self.actor.features(
-                        data["obs"][step][chunk].reshape(-1, data["obs"].shape[-1]), layout_step.reshape(-1),
-                        memory if self.recurrent_size else None)
-                    goal_step = data["goal"][step][chunk].reshape(-1) if self.goal_count else None
-                    mask_step = data["mask"][step][chunk].reshape(-1, data["mask"].shape[-1])
-                    dist = self.actor.action_distribution(features, layout_step.reshape(-1), mask_step, goal_step)
-                    dist = Categorical(logits=dist.logits.reshape(*lead, -1))
-                    step_log_probs = dist.log_prob(data["actions"][step][chunk])
-                    step_entropy = dist.entropy()
-                    if self.goal_count:
-                        goals = self.actor.goal_distribution(features)
-                        chosen = data["goal_chosen"][step][chunk].to(features.dtype)
-                        step_log_probs = step_log_probs + goals.log_prob(goal_step).reshape(*lead) * chosen
-                        step_entropy = step_entropy + goals.entropy().reshape(*lead) * chosen
-                    log_probs.append(step_log_probs)
-                    entropies.append(step_entropy)
-                    if foresight:
-                        predictions.append(self.actor.foresight(features).reshape(*lead, self.foresight_outputs))
-                    if teach is not None:
-                        state_step = (data["state"][step][chunk][:, None, :]
-                                      .expand(len(chunk), agents, data["state"].shape[-1])
-                                      .reshape(-1, data["state"].shape[-1]))
-                        done_step = (data["dones"][step][chunk][:, None].expand(len(chunk), agents).reshape(-1)
-                                     if "dones" in data else torch.zeros(len(chunk) * agents, dtype=torch.bool,
-                                                                         device=self.train_device))
+                if teach is not None:
+                    teacher_memories = teach.begin_sequence(rows_here, self.train_device)
+                    logits = dist.logits.reshape(steps, rows_here, -1)
+                    state_all = (data["state"][:, chunk][:, :, None, :]
+                                 .expand(steps, envs_here, agents, data["state"].shape[-1])
+                                 .reshape(steps, rows_here, -1))
+                    for step in range(steps):
                         taught = teach.step_loss(
-                            data["obs"][step][chunk].reshape(-1, data["obs"].shape[-1]), state_step,
-                            layout_step.reshape(-1), mask_step, dist.logits.reshape(-1, dist.logits.shape[-1]),
-                            teacher_memories, done_step)
+                            obs_all.reshape(steps, rows_here, -1)[step], state_all[step],
+                            layout_all.reshape(steps, rows_here)[step],
+                            mask_all.reshape(steps, rows_here, -1)[step], logits[step],
+                            teacher_memories, dones_all[step])
                         if taught is not None:
                             loss, rows = taught
                             distill_loss = distill_loss + loss
                             distill_rows += rows
-
-                    memory = features.reshape(*lead, features.shape[-1]) if self.recurrent_size else memory
-                    # An episode that ended here starts the next one with nothing remembered.
-                    if self.recurrent_size:
-                        memory = memory * (~data["dones"][step][chunk]).to(memory.dtype)[:, None, None]
 
                 counted = valid[:, chunk].to(torch.float32)
                 weight = counted.sum().clamp(min=1.0)
                 taken = data["log_probs"][:, chunk]
                 if self.goal_count:
                     taken = taken + data["goal_log_probs"][:, chunk] * data["goal_chosen"][:, chunk].to(taken.dtype)
-                ratio = (torch.stack(log_probs) - taken).exp()
+                ratio = (log_probs - taken).exp()
                 advantage = data["advantages"][:, chunk]
                 clipped_ratio = ratio.clamp(1 - cfg.clip, 1 + cfg.clip)
                 policy_loss = -(torch.min(ratio * advantage, clipped_ratio * advantage) * counted).sum() / weight
-                entropy = (torch.stack(entropies) * counted).sum() / weight
+                entropy = (entropies * counted).sum() / weight
+                action_entropy = (action_entropies * counted).sum() / weight
 
                 actor_loss = policy_loss - self.entropy_coef * entropy
                 if foresight:
                     targets = data["foresight_targets"][:, chunk]
                     known = data["foresight_valid"][:, chunk].to(torch.float32) * counted[..., None]
                     horizons = self.foresight_outputs - 1
-                    stacked = torch.stack(predictions)
+                    stacked = predictions
                     errors = torch.cat([
                         nn.functional.smooth_l1_loss(stacked[..., :horizons], targets[..., :horizons],
                                                      reduction="none"),
@@ -724,11 +743,14 @@ class MappoTrainer:
                 self.critic_opt.step()
 
                 with torch.no_grad():
-                    log_ratio = torch.stack(log_probs) - taken
+                    log_ratio = log_probs - taken
                     kl = (((ratio - 1) - log_ratio) * counted).sum() / weight
                     totals["policy_loss"] += policy_loss.detach()
                     totals["value_loss"] += value_loss.detach()
-                    totals["entropy"] += entropy.detach()
+                    totals["entropy"] += action_entropy.detach()
+                    if goal_entropies is not None:
+                        chose = (data["goal_chosen"][:, chunk].to(torch.float32) * counted).sum().clamp(min=1.0)
+                        totals["goal_entropy"] += (goal_entropies * counted).sum().detach() / chose
                     totals["clip_frac"] += ((((ratio - 1).abs() > cfg.clip).to(torch.float32)
                                              * counted).sum() / weight)
                     totals["approx_kl"] += kl

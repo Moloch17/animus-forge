@@ -5,6 +5,7 @@ import pytest
 import torch
 
 from animus.mappo.buffer import RolloutBuffer
+from animus.mappo.networks import LayoutActor
 from animus.mappo.trainer import MappoConfig, MappoTrainer
 
 
@@ -143,3 +144,27 @@ def test_a_rollout_replays_from_the_memory_it_started_with():
     sequences = buffer.sequences()
     assert np.allclose(sequences["memory"][0], 0.5)          # the sequence starts where the last one ended
     assert not np.allclose(sequences["memory"][1], 0.5)      # and moves on from there
+
+
+def test_carrying_a_sequence_matches_stepping_through_it():
+    """The batched replay (encode once, then the GRU over the steps) must produce exactly what stepping decision by
+    decision produced, or the update would train on features the rollout never had."""
+    torch.manual_seed(0)
+    steps, rows = 5, 3
+    actor = LayoutActor([(4, 2)], [8, 8], recurrent_size=6)
+    obs = torch.randn(steps, rows, 4)
+    layout = torch.zeros(steps * rows, dtype=torch.long)
+    dones = torch.zeros(steps, rows, dtype=torch.bool)
+    dones[2, 1] = True                                   # an episode ends mid-sequence for one row
+
+    memory = actor.initial_memory(rows)
+    stepwise = []
+    for step in range(steps):
+        memory = actor.features(obs[step], layout[:rows], memory)
+        stepwise.append(memory)
+        memory = memory * (~dones[step]).to(memory.dtype)[:, None]
+
+    encoded = actor.encode(obs.reshape(-1, 4), layout).reshape(steps, rows, -1)
+    batched = actor.carry(encoded, actor.initial_memory(rows), dones)
+
+    torch.testing.assert_close(batched, torch.stack(stepwise))

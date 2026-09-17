@@ -77,3 +77,31 @@ def test_goals_and_memory_together():
         buffer.add_outcome(rng.random((2, 1), dtype=np.float32), dones, dones, np.zeros((2, 1), np.float32))
     buffer.finish(np.zeros((2, 1), np.float32), 0.99, 0.95)
     assert trainer.update(buffer)["epochs_run"] == 1.0
+
+
+def rollout_with_goals(trainer, steps=4, recurrent=False):
+    buffer = RolloutBuffer(steps, 2, 1, 3, 4, 2, 0, trainer.recurrent_size if recurrent else 0, goals=True)
+    rng = np.random.default_rng(2)
+    acting = trainer.acting_state(2, 1)
+    for _ in range(steps):
+        obs = rng.random((2, 1, 3), dtype=np.float32)
+        state = rng.random((2, 4), dtype=np.float32)
+        mask = np.ones((2, 1, 2), bool)
+        layout = np.zeros((2, 1), np.int64)
+        memory = acting.memory.copy() if recurrent else None
+        actions, log_probs, values, _, goals = trainer.act_and_value(obs, mask, layout, state, state=acting)
+        buffer.add_decision(obs, state, mask, layout, actions, log_probs, values, None, None, memory, goals)
+        dones = np.zeros(2, bool)
+        buffer.add_outcome(rng.random((2, 1), dtype=np.float32), dones, dones, np.zeros((2, 1), np.float32))
+    buffer.finish(np.zeros((2, 1), np.float32), 0.99, 0.95)
+    return buffer
+
+
+def test_the_reported_entropy_is_the_actions_alone():
+    # Two actions and four goals: a reported entropy that folded the goal head in would run past ln(2), and the
+    # entropy floor would then read a collapsing action policy as a healthy one.
+    for recurrent in (False, True):
+        trainer = trainer_with_goals(epochs=1, recurrent_size=4 if recurrent else 0)
+        stats = trainer.update(rollout_with_goals(trainer, recurrent=recurrent))
+        assert stats["entropy"] <= np.log(2) + 1e-4
+        assert 0.0 < stats["goal_entropy"] <= np.log(4) + 1e-4

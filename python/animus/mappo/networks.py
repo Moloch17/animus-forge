@@ -208,16 +208,37 @@ class LayoutActor(nn.Module):
         dist, _, predictions = self.step(obs, layout, mask, memory, groups)
         return dist, predictions
 
-    def features(self, obs: torch.Tensor, layout: torch.Tensor, memory: torch.Tensor | None = None,
-                 groups=None) -> torch.Tensor:
-        """The trunk's output for flat rows, through the GRU when there is one: what every head reads."""
+    def encode(self, obs: torch.Tensor, layout: torch.Tensor, groups=None) -> torch.Tensor:
+        """Adapters and trunk for flat rows: everything that depends only on this decision's observation, before the
+        GRU. A replayed sequence encodes every step in one pass and then carries the memory through them (carry),
+        which is the difference between one large matmul per layer and one per step."""
         groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
         width = self.adapters[0].out_features
         hidden = obs.new_zeros(obs.shape[0], width)
         for index, rows in groups:
             hidden[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
-        hidden = self.trunk(hidden)
+        return self.trunk(hidden)
 
+    def carry(self, encoded: torch.Tensor, memory: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
+        """Run the GRU over a sequence: `encoded` [T, N, H] from encode(), `memory` [N, R] the state its first
+        decision was taken with, `dones` [T, N] where an episode ended (the next decision starts cleared). Returns
+        the features each decision was taken with, [T, N, R]. Only the GRU cell is sequential; it is the small part."""
+        if self.memory is None:
+            return encoded
+
+        steps = encoded.shape[0]
+        carried = memory.reshape(-1, self.recurrent_size)
+        features = []
+        for step in range(steps):
+            carried = self.memory(encoded[step], carried)
+            features.append(carried)
+            carried = carried * (~dones[step]).to(carried.dtype)[:, None]
+        return torch.stack(features)
+
+    def features(self, obs: torch.Tensor, layout: torch.Tensor, memory: torch.Tensor | None = None,
+                 groups=None) -> torch.Tensor:
+        """The trunk's output for flat rows, through the GRU when there is one: what every head reads."""
+        hidden = self.encode(obs, layout, groups)
         if self.memory is not None:
             carried = (memory.reshape(-1, self.recurrent_size) if memory is not None
                        else hidden.new_zeros(hidden.shape[0], self.recurrent_size))
