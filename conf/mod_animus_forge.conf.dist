@@ -686,6 +686,10 @@ AnimusForge.Curriculum.Pulls.PackHealthKept = 0.5
 AnimusForge.Curriculum.Pulls.PackDeath = 10.0
 #   pack: the clock ran out with the pack and the seat both alive; the episode ends as a lost fight
 AnimusForge.Curriculum.Pulls.Timeout = 10.0
+#   pack: per second a fight goes on past OvertimeGraceMs after it was engaged, and a death in overtime is charged the
+#   overtime left; a timeout alone, 150 s away, is too discounted to stop kiting out the clock
+AnimusForge.Curriculum.Pulls.Overtime = 0.1
+AnimusForge.Curriculum.Pulls.OvertimeGraceMs = 60000
 #   pack: per second the pack has not been engaged once StallGraceMs of the episode are gone
 AnimusForge.Curriculum.Pulls.Stall = 0.05
 AnimusForge.Curriculum.Pulls.StallGraceMs = 15000

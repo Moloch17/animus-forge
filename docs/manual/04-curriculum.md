@@ -559,6 +559,11 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
   (`FastClear`), up to +0.5 for the share of health kept (`PackHealthKept`)
 - death -10 (`PackDeath`); timeout -10 (`Timeout`) when the 150 s run out with the pack and the seat both alive,
   ending the episode as a lost fight rather than a cut-off the critic bootstraps past
+- overtime -0.1 per second (`Overtime`, in the timeout column) once a fight has gone on `OvertimeGraceMs` (60 s)
+  since a pack member entered combat, and a death in overtime is charged the overtime left to the end of the
+  episode. With the timeout alone, a -10 about 100 s away was worth about 2 to the discounted return against a whole
+  -10 death now, and stage 2's warlocks learned to kite out the clock (28% timeouts at 10M steps). Dying never ends
+  an overtime fight more cheaply than timing out
 - stall -0.05 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone
 - spacing -0.03 per second, for a ranged spec, while a living pack member attacks it in melee reach
 
@@ -748,7 +753,9 @@ lost fight, and a healer against a creature with twice the usual health needs th
 networks start from scratch. Hunters are
 offered four beasts each episode through `call_beast` actions, because Call Pet needs a pet saved in the database. The
 observation shows each beast's family and pet type, so the policy can learn its preference. Warlock demons, Raise
-Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. The bot gains no XP.
+Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. A warlock carries 5
+Soul Shards: they don't stack, and the 20 it once had filled the 16-slot backpack, so no potion, bandage, healthstone
+or soulstone fit and stage 1's warlocks never used one. The bot gains no XP.
 
 Pets are played as a player has them:
 
