@@ -297,6 +297,12 @@ class TrainingRun:
 
         # Horizons are configured in game time; each decision compounds them.
         self.discounts = per_decision(config.mappo, spec.decision_ms)
+        # The foresight heads' horizons, in seconds of game time: a discount whose 1 / (1 - gamma) is that many
+        # decisions, and the scale the share of the episode left is measured on.
+        seconds = spec.decision_ms / 1000.0
+        self.foresight_discounts = tuple(max(0.0, 1.0 - seconds / max(seconds, horizon))
+                                         for horizon in config.mappo.foresight_horizons_seconds)
+        self.foresight_time_decisions = config.mappo.foresight_time_scale_seconds / max(1e-6, seconds)
         gamma, gae_lambda = self.discounts
         print(
             f"Per {spec.decision_ms} ms decision: gamma {gamma:.5f} (horizon "
@@ -315,7 +321,7 @@ class TrainingRun:
 
         def new_buffer() -> RolloutBuffer:
             return RolloutBuffer(config.rollout_length, spec.num_envs, spec.agents_per_env, spec.obs_dim,
-                                 spec.state_dim, spec.num_actions)
+                                 spec.state_dim, spec.num_actions, self.trainer.foresight_outputs)
 
         self.buffer = new_buffer()
         # Overlapped updates fill this one while the update reads the other; they swap after every rollout.
@@ -632,27 +638,36 @@ class TrainingRun:
 
         while not buffer.full:
             step = self.step
-            actions, log_probs, values = trainer.act_and_value(step.obs, step.mask, step.layout, step.state)
-            buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present)
+            actions, log_probs, values, foresight = trainer.act_and_value(step.obs, step.mask, step.layout,
+                                                                          step.state)
+            buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
+                                foresight)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
             layout = step.layout
             self.step = step = self.env.step(actions)
 
             final_values = np.zeros((envs, agents), dtype=np.float32)
+            final_foresight = (np.zeros((envs, agents, trainer.foresight_outputs), dtype=np.float32)
+                               if trainer.foresight_outputs else None)
             if step.done.any():
                 # Only the envs that finished need one: an env ends an episode once in hundreds of decisions, so
                 # valuing all of them and then throwing most away is a forward pass over ~20x the rows needed.
                 done = step.done
                 final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done])
+                if final_foresight is not None:
+                    final_foresight[done] = trainer.foresight(step.final_obs[done], layout[done])
                 ended = step.episode_info[step.done].reshape(-1, spec.episode_info_dim)
                 present = self.present_column
                 self.finished_episodes.extend(ended if present is None else ended[ended[:, present] > 0.0])
 
-            buffer.add_outcome(step.reward, step.done, step.terminated, final_values)
+            buffer.add_outcome(step.reward, step.done, step.terminated, final_values, final_foresight)
 
         rollout_seconds = time.perf_counter() - started
-        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts)
+        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout), *self.discounts,
+                      last_foresight=trainer.foresight(self.step.obs, self.step.layout),
+                      foresight_gammas=self.foresight_discounts,
+                      time_scale_decisions=self.foresight_time_decisions)
         # Read before the buffers swap below: log_update runs on the rollout that has just been collected.
         self.rollout_reward = buffer.mean_reward()
         self.rollout_allowed_actions = buffer.mean_allowed_actions()

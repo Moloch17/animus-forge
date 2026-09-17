@@ -20,9 +20,9 @@ run_name: stage3_gauntlet
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 400000000
 
-# rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.99 per 100 ms (a ~100 s horizon, ~9 s of GAE
-# trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting before a
-# pull, sapping or stealthing in and saving cooldowns pay off over that long.
+# rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.995 per 100 ms (a ~100 s horizon, ~17 s
+# of GAE trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting
+# before a pull, sapping or stealthing in and saving cooldowns pay off over that long.
 
 # An evaluation costs a wave of full episodes per env, so it scales with the episode length (the first stage 3 run's
 # 2048 five-minute episodes took about 3 minutes). Evaluate less often rather than on fewer episodes -- the score's

@@ -13,10 +13,14 @@ total_env_steps: 150000000
 # critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
 rollout_length: 256
 
+# The GAE trace decides how far credit reaches back: at lambda 0.99 per 100 ms it was about 9 s, while a pull, its
+# recovery and the setup that made it winnable take 30-60 s, so what caused an outcome fell outside the trace and was
+# learned only through the critic. 0.995 is about 17 s of credit, for more variance than the critic (explained variance
+# ~0.93 through stages 2 and 3) has trouble with.
 mappo:
   # A trip of 700 yd plans takeoff and landing tens of seconds apart.
   gamma: 0.999
-  gae_lambda: 0.99
+  gae_lambda: 0.995
 
 eval:
   report: [arrived, travel_seconds, start_distance, mounted_fraction, flying_fraction, died]

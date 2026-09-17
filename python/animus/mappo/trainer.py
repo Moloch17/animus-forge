@@ -53,6 +53,14 @@ class MappoConfig:
     # a constant rate kept the update growing all run (stage1_duel: approx KL 0.014 -> 0.028, ~20% of samples
     # clipped) when late progress needs small steps. 1 = constant.
     lr_final_fraction: float = 1.0
+    # Auxiliary foresight heads on the actor's trunk (0 = off). They predict, from the same features the actions are
+    # chosen from, the discounted return at each of foresight_horizons_seconds and how much of the episode is left
+    # (as a share of foresight_time_scale_seconds), and their loss is added to the actor's. Predicting what happens
+    # later is what makes those features carry it; a policy that cannot tell whether a fight is nearly over cannot
+    # plan around it. Nothing reads the head at rollout time and exported models leave it out.
+    foresight_coef: float = 0.0
+    foresight_horizons_seconds: tuple[float, ...] = (5.0, 30.0)
+    foresight_time_scale_seconds: float = 60.0
     # Where entropy_coef ends, as a fraction of itself, falling linearly over total_env_steps (the entropy floor and
     # a restart's boost still apply on top). Late on, the argmax policy that evaluation and exported models play
     # should be the one training sampled. 1 = constant.
@@ -103,7 +111,8 @@ class MappoTrainer:
         self.entropy_coef = config.entropy_coef
 
         hidden = list(config.hidden)
-        self.actor = LayoutActor(self.layouts, hidden).to(self.train_device)
+        self.foresight_outputs = (len(config.foresight_horizons_seconds) + 1) if config.foresight_coef > 0.0 else 0
+        self.actor = LayoutActor(self.layouts, hidden, self.foresight_outputs).to(self.train_device)
         self.critic = LayoutCritic(state_dim, self.layouts, hidden).to(self.train_device)
         self.value_norm = (ValueNorm(beta=config.value_norm_beta).to(self.train_device)
                            if config.use_value_norm else None)
@@ -150,7 +159,8 @@ class MappoTrainer:
     def shrink_perturb(self, shrink: float, perturb: float) -> None:
         """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
         hidden = list(self.config.hidden)
-        fresh = (LayoutActor(self.layouts, hidden), LayoutCritic(self.state_dim, self.layouts, hidden))
+        fresh = (LayoutActor(self.layouts, hidden, self.foresight_outputs),
+                 LayoutCritic(self.state_dim, self.layouts, hidden))
         for network, init in zip((self.actor, self.critic), fresh):
             for param, init_param in zip(network.parameters(), init.to(self.train_device).parameters()):
                 param.mul_(shrink).add_(init_param, alpha=perturb)
@@ -198,16 +208,23 @@ class MappoTrainer:
     @torch.inference_mode()
     def act_and_value(
         self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, state: np.ndarray, deterministic: bool = False
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
         """act() and value() of one decision in one pass over the inputs: the rows are converted and grouped by
-        layout once for both networks. Returns (actions [E, A], log_probs [E, A], values [E, A])."""
+        layout once for both networks. Returns (actions [E, A], log_probs [E, A], values [E, A], foresight
+        [E, A, H + 1] or None)."""
         envs, agents = layout.shape
         rows = envs * agents
         obs_t = self._tensor(obs).reshape(rows, -1)
         layout_t = self._tensor(layout, torch.long).reshape(rows)
         groups = per_layout(layout_t, len(self.layouts))
 
-        dist = self._rollout_actor(obs_t, layout_t, self._tensor(mask).reshape(rows, -1), groups)
+        mask_t = self._tensor(mask).reshape(rows, -1)
+        foresight = None
+        if self.foresight_outputs:
+            dist, predictions = self._rollout_actor.forward_with_foresight(obs_t, layout_t, mask_t, groups)
+            foresight = predictions.reshape(envs, agents, self.foresight_outputs).cpu().numpy()
+        else:
+            dist = self._rollout_actor(obs_t, layout_t, mask_t, groups)
         actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
         log_probs = dist.log_prob(actions)
 
@@ -218,7 +235,23 @@ class MappoTrainer:
 
         shape = (envs, agents)
         return (actions.reshape(shape).cpu().numpy(), log_probs.reshape(shape).cpu().numpy(),
-                values.reshape(shape).cpu().numpy())
+                values.reshape(shape).cpu().numpy(), foresight)
+
+    @torch.no_grad()
+    def foresight(self, obs: np.ndarray, layout: np.ndarray) -> np.ndarray | None:
+        """The foresight head on observations the rollout did not act on (an ended episode's last one, and the one
+        after the rollout), for the targets' bootstrap: [..., H + 1], or None when the head is off."""
+        if not self.foresight_outputs:
+            return None
+
+        lead = layout.shape
+        rows = int(np.prod(lead))
+        obs_t = self._tensor(obs).reshape(rows, -1)
+        layout_t = self._tensor(layout, torch.long).reshape(rows)
+        # The distribution is thrown away; the mask only has to be as wide as the heads are.
+        mask_t = torch.ones((rows, self._rollout_actor.max_actions), dtype=torch.bool, device=self.rollout_device)
+        _, predictions = self._rollout_actor.forward_with_foresight(obs_t, layout_t, mask_t)
+        return predictions.reshape(*lead, self.foresight_outputs).cpu().numpy()
 
     @torch.no_grad()
     def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray) -> np.ndarray:
@@ -239,6 +272,9 @@ class MappoTrainer:
         started = time.perf_counter()
         stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "clip_frac": 0.0, "approx_kl": 0.0,
                  "actor_grad_norm": 0.0, "critic_grad_norm": 0.0}
+        foresight = self.foresight_outputs > 0 and buffer.foresight >= self.foresight_outputs
+        if foresight:
+            stats["foresight_loss"] = 0.0
         data = {k: torch.as_tensor(v, device=self.train_device) for k, v in buffer.flat().items()}
         if data["actions"].shape[0] == 0:
             return stats  # no seat had a character this rollout: nothing to learn from
@@ -288,7 +324,10 @@ class MappoTrainer:
             for idx in torch.tensor_split(order, splits):
                 obs, layout = data["obs"][idx], data["layout"][idx]
 
-                dist = self.actor(obs, layout, data["mask"][idx])
+                if foresight:
+                    dist, predictions = self.actor.forward_with_foresight(obs, layout, data["mask"][idx])
+                else:
+                    dist = self.actor(obs, layout, data["mask"][idx])
                 log_probs = dist.log_prob(data["actions"][idx])
                 log_ratio = log_probs - data["log_probs"][idx]
                 ratio = log_ratio.exp()
@@ -298,6 +337,21 @@ class MappoTrainer:
                 entropy = dist.entropy().mean()
 
                 actor_loss = policy_loss - self.entropy_coef * entropy
+                if foresight:
+                    # Huber on the discounted returns, which are on the rewards' scale and have outliers; squared
+                    # error on the share of the episode left, which is already 0 to 1. Steps whose episode does not
+                    # end inside the rollout have no share to learn, and are left out.
+                    targets, valid = data["foresight_targets"][idx], data["foresight_valid"][idx]
+                    horizons = self.foresight_outputs - 1
+                    errors = torch.cat([
+                        nn.functional.smooth_l1_loss(predictions[:, :horizons], targets[:, :horizons],
+                                                     reduction="none"),
+                        (predictions[:, horizons:] - targets[:, horizons:]) ** 2,
+                    ], dim=-1)
+                    counted = valid.float()
+                    foresight_loss = (errors * counted).sum() / counted.sum().clamp(min=1.0)
+                    actor_loss = actor_loss + cfg.foresight_coef * foresight_loss
+                    totals["foresight_loss"] += foresight_loss.detach()
                 if auxiliary is not None and (extra := auxiliary(data, idx, dist)) is not None:
                     loss, extra_stats = extra
                     actor_loss = actor_loss + loss

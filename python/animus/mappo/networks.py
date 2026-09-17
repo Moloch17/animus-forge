@@ -143,8 +143,14 @@ def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tenso
 
 
 class LayoutActor(nn.Module):
-    def __init__(self, layouts: Sequence[tuple[int, int]], hidden: Sequence[int]):
-        """layouts: (obs dim, action count) per layout; hidden: widths, the first being the adapters' output."""
+    def __init__(self, layouts: Sequence[tuple[int, int]], hidden: Sequence[int], foresight_outputs: int = 0):
+        """layouts: (obs dim, action count) per layout; hidden: widths, the first being the adapters' output.
+
+        `foresight_outputs` adds a head on the trunk that predicts what happens after this decision (mappo.trainer's
+        foresight_*): one output per extra discount horizon and one for how much of the episode is left. Nothing reads
+        it at rollout time; it is there to make the trunk the actions are chosen from carry the future, and it is left
+        out of exported models.
+        """
         super().__init__()
         if not hidden:
             raise ValueError("the actor needs at least one hidden layer")
@@ -155,10 +161,24 @@ class LayoutActor(nn.Module):
         self.adapters = nn.ModuleList(_linear(obs, hidden[0], math.sqrt(2)) for obs, _ in layouts)
         self.trunk = _Trunk(hidden)
         self.heads = nn.ModuleList(_linear(hidden[-1], actions, 0.01) for _, actions in layouts)
+        self.foresight_outputs = foresight_outputs
+        self.foresight = _linear(hidden[-1], foresight_outputs, 1.0) if foresight_outputs else None
 
     def forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor, groups=None) -> Categorical:
         """obs [..., O], layout [...], mask [..., N] (padded) -> distribution over N actions. `groups` is
         per_layout(layout) when the caller already has it."""
+        return self._forward(obs, layout, mask, groups)[0]
+
+    def forward_with_foresight(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
+                               groups=None) -> tuple[Categorical, torch.Tensor]:
+        """forward() and the foresight head's predictions [..., foresight_outputs] from the same pass."""
+        dist, hidden, lead = self._forward(obs, layout, mask, groups)
+        if self.foresight is None:
+            return dist, hidden.new_zeros((*lead, 0))
+        return dist, self.foresight(hidden).reshape(*lead, self.foresight_outputs)
+
+    def _forward(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
+                 groups=None) -> tuple[Categorical, torch.Tensor, tuple[int, ...]]:
         lead = obs.shape[:-1]
         obs, layout, mask = obs.reshape(-1, obs.shape[-1]), layout.reshape(-1), mask.reshape(-1, mask.shape[-1])
         groups = groups if groups is not None else _per_layout(layout, len(self.adapters))
@@ -176,7 +196,7 @@ class LayoutActor(nn.Module):
         dist = masked_distribution(logits, mask)
         if len(lead) != 1:
             dist = Categorical(logits=dist.logits.reshape(*lead, -1))
-        return dist
+        return dist, hidden, lead
 
 
 class LayoutCritic(nn.Module):

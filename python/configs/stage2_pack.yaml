@@ -8,13 +8,17 @@ run_name: stage2_pack
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
 # so the duel's 33 s horizon is too short to carry credit from a clear back to the opening. These are the gauntlet's
-# numbers, one stage early (~100 s horizon, ~9 s of GAE trace; gamma and lambda are per 100 ms of game time), which is
+# numbers, one stage early (~100 s horizon; gamma and lambda are per 100 ms of game time), which is
 # the shape the rest of the PvE line uses.
 rollout_length: 256
 
+# The GAE trace decides how far credit reaches back: at lambda 0.99 per 100 ms it was about 9 s, while a pull, its
+# recovery and the setup that made it winnable take 30-60 s, so what caused an outcome fell outside the trace and was
+# learned only through the critic. 0.995 is about 17 s of credit, for more variance than the critic (explained variance
+# ~0.93 through stages 2 and 3) has trouble with.
 mappo:
   gamma: 0.999
-  gae_lambda: 0.99
+  gae_lambda: 0.995
 
 # The floors are the duel's shape, lower: clean wins of 85% overall and 65% per class/role by the Wilson bound. The
 # first stage 2 run, without a ladder, calibrated them (80% at the seeded start, 90% at 20M steps). A stage below them

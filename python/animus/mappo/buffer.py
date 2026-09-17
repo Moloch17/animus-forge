@@ -48,9 +48,50 @@ def compute_gae(
     return advantages, advantages + values
 
 
+def compute_foresight(
+    rewards: np.ndarray,
+    predictions: np.ndarray,
+    dones: np.ndarray,
+    terminated: np.ndarray,
+    final_predictions: np.ndarray,
+    last_predictions: np.ndarray,
+    gammas: tuple[float, ...],
+) -> np.ndarray:
+    """Discounted returns at each of `gammas` (the foresight head's targets), [T, E, A, H].
+
+    The same recursion as compute_gae with lambda 1: what follows a step is the next step's return while the episode
+    goes on, the head's own prediction of the ended episode's last state when it was truncated, and nothing when it
+    terminated. Each horizon is far shorter than the rollout, so bootstrapping only shows in the last steps.
+    """
+    steps = rewards.shape[0]
+    targets = np.zeros((*rewards.shape, len(gammas)), dtype=np.float32)
+    done = dones[..., None, None].astype(np.float32)
+    terminal = terminated[..., None, None].astype(np.float32)
+    discounts = np.asarray(gammas, dtype=np.float32)
+    carried = last_predictions.astype(np.float32)
+    for t in reversed(range(steps)):
+        continued = carried if t == steps - 1 else targets[t + 1]
+        following = (1.0 - done[t]) * continued + done[t] * (1.0 - terminal[t]) * final_predictions[t]
+        targets[t] = rewards[t][..., None] + discounts * following
+    return targets
+
+
+def decisions_left(dones: np.ndarray) -> np.ndarray:
+    """Decisions until each step's episode ends, [T, E]; -1 where it does not end inside the rollout."""
+    steps, envs = dones.shape
+    left = np.full((steps, envs), -1.0, dtype=np.float32)
+    following = np.full(envs, -1.0, dtype=np.float32)
+    for t in reversed(range(steps)):
+        following = np.where(dones[t], 0.0, np.where(following >= 0.0, following + 1.0, -1.0))
+        left[t] = following
+    return left
+
+
 class RolloutBuffer:
-    def __init__(self, steps: int, envs: int, agents: int, obs_dim: int, state_dim: int, num_actions: int):
+    def __init__(self, steps: int, envs: int, agents: int, obs_dim: int, state_dim: int, num_actions: int,
+                 foresight: int = 0):
         self.steps = steps
+        self.foresight = foresight
         shape = (steps, envs, agents)
         self.obs = np.zeros((*shape, obs_dim), dtype=np.float32)
         self.state = np.zeros((steps, envs, state_dim), dtype=np.float32)
@@ -66,9 +107,16 @@ class RolloutBuffer:
         self.final_values = np.zeros(shape, dtype=np.float32)  # denormalised, valid where done
         self.advantages = np.zeros(shape, dtype=np.float32)
         self.returns = np.zeros(shape, dtype=np.float32)
+        # The foresight head: what it predicted, what it predicted of an ended episode's last state, and the targets
+        # finish() works out. The last column is the share of the episode left, which only some steps know.
+        self.foresight_preds = np.zeros((*shape, foresight), dtype=np.float32)
+        self.final_foresight = np.zeros((*shape, foresight), dtype=np.float32)
+        self.foresight_targets = np.zeros((*shape, foresight), dtype=np.float32)
+        self.foresight_valid = np.zeros((*shape, foresight), dtype=bool)
         self.cursor = 0
 
-    def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None) -> None:
+    def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None,
+                     foresight=None) -> None:
         """Record what the policy saw and did at step `cursor`; `present` [E, A] marks the agents with a character
         (default: all)."""
         t = self.cursor
@@ -80,10 +128,14 @@ class RolloutBuffer:
         self.actions[t] = actions
         self.log_probs[t] = log_probs
         self.values[t] = values
+        if self.foresight and foresight is not None:
+            self.foresight_preds[t] = foresight
 
-    def add_outcome(self, rewards, dones, terminated, final_values) -> None:
+    def add_outcome(self, rewards, dones, terminated, final_values, final_foresight=None) -> None:
         """Record the result of the step-`cursor` actions and advance."""
         t = self.cursor
+        if self.foresight and final_foresight is not None:
+            self.final_foresight[t] = final_foresight
         self.rewards[t] = rewards
         self.dones[t] = dones
         self.terminated[t] = terminated
@@ -94,7 +146,8 @@ class RolloutBuffer:
     def full(self) -> bool:
         return self.cursor >= self.steps
 
-    def finish(self, last_values: np.ndarray, gamma: float, gae_lambda: float) -> None:
+    def finish(self, last_values: np.ndarray, gamma: float, gae_lambda: float, last_foresight=None,
+               foresight_gammas: tuple[float, ...] = (), time_scale_decisions: float = 0.0) -> None:
         self.advantages, self.returns = compute_gae(
             self.rewards,
             self.values,
@@ -105,6 +158,28 @@ class RolloutBuffer:
             gamma,
             gae_lambda,
         )
+        if not self.foresight or last_foresight is None:
+            return
+
+        horizons = len(foresight_gammas)
+        self.foresight_targets[..., :horizons] = compute_foresight(
+            self.rewards,
+            self.foresight_preds[..., :horizons],
+            self.dones,
+            self.terminated,
+            self.final_foresight[..., :horizons],
+            last_foresight[..., :horizons],
+            foresight_gammas,
+        )
+        self.foresight_valid[..., :horizons] = True
+
+        # How much of the episode is left, as a share of time_scale_decisions: only the steps whose episode ends
+        # inside the rollout know it, and the rest are left out of the loss.
+        left = decisions_left(self.dones)
+        known = left >= 0.0
+        scale = max(1.0, time_scale_decisions)
+        self.foresight_targets[..., horizons] = np.clip(left / scale, 0.0, 1.0)[..., None]
+        self.foresight_valid[..., horizons] = known[..., None]
 
     def reset(self) -> None:
         self.cursor = 0
@@ -128,6 +203,8 @@ class RolloutBuffer:
             "values": self.values.reshape(-1)[keep],
             "advantages": self.advantages.reshape(-1)[keep],
             "returns": self.returns.reshape(-1)[keep],
+            **({"foresight_targets": self.foresight_targets.reshape(-1, self.foresight)[keep],
+                "foresight_valid": self.foresight_valid.reshape(-1, self.foresight)[keep]} if self.foresight else {}),
         }
 
     def mean_allowed_actions(self) -> float:

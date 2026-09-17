@@ -615,6 +615,16 @@ With no gates set, a converged stage advances.
 - `lr_final_fraction` and `entropy_final_fraction`: where `actor_lr`/`critic_lr` and `entropy_coef` end, as a fraction
   of their configured values, falling linearly over `total_env_steps` (1 = constant). stage1_duel ends its learning
   rates at a tenth: at a constant rate the update kept growing all run while the late gains were small.
+- `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
+  trunk (0 = off, the default). It predicts, from the very features the actions are chosen from, the discounted return
+  at each horizon and how much of the episode is left as a share of the time scale; its loss (Huber on the returns,
+  squared error on the share) times `foresight_coef` is added to the actor's. A policy whose features cannot say
+  whether a fight is nearly over, or what the next ten seconds are worth, cannot plan around either; predicting them
+  is what makes the features carry it. The targets come from the rollout (`mappo.buffer.compute_foresight`): the
+  discounted return to the end of the episode, bootstrapped by the head itself where the rollout or a time limit cut
+  it off, and the decisions left where the episode ends inside the rollout (the rest are left out of the loss).
+  `foresight_loss` is logged per update. Nothing reads the head while acting, and exported models leave it out, so it
+  costs a little training time and nothing in game.
 
 ### Keeping exploration alive (`entropy_floor`)
 
