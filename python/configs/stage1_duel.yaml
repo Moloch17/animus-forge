@@ -26,12 +26,14 @@ init_from: auto
 total_env_steps: 300000000
 rollout_length: 128
 
-# Update the networks on a worker thread while the sim collects the next rollout, instead of standing idle for it
-# (~20% more env steps per second here). The rollout then acts on the update before last: one update staler than
-# the serial loop, which PPO's clipping already accounts for.
-overlap_updates: true
-# The rollout's forward pass shares the CPU with the overlapped update: 8 threads answered a decision in 2.6 ms with an
-# update running where torch's default 16 took 3.6 ms (1.5 against 1.7 ms idle).
+# Updating on a worker thread while the sim collects the next rollout used to buy ~20% more env steps per second,
+# when an update cost 21 s against a 1.6 s rollout. Batched, an update is ~1.1 s against a ~2 s rollout and the two
+# compete for the same cores: measured on this machine, overlapping gained 5,365 against 5,323 env steps/s, inside
+# the noise, and it costs the rollout one update of staleness (it acts on the update before last). Serial keeps the
+# data on-policy for nothing.
+overlap_updates: false
+# The rollout's forward pass and the update share the CPU: 8 threads answered a decision in 2.6 ms with an update
+# running where torch's default 16 took 3.6 ms (1.5 against 1.7 ms idle).
 torch_threads: 8
 log_every: 1
 checkpoint_every: 100
@@ -53,7 +55,8 @@ mappo:
   # gamma and gae_lambda are per 100 ms of game time (reference_decision_ms), compounded to AnimusForge.DecisionMs, so
   # horizons stay the same in seconds at any decision interval; the learner prints them at start.
   # Kills take tens of seconds including the approach: a ~33 s horizon. The GAE trace (gamma x lambda) carries credit
-  # without the critic for ~5.5 s (0.95 gave ~2 s), long enough to tie a stealthy approach or a pet pull to the opener that pays for it.
+  # without the critic for ~5.5 s (0.95 gave ~2 s), long enough to tie a stealthy approach or a pet pull to the
+  # opener that pays for it.
   gamma: 0.997
   gae_lambda: 0.985
   reference_decision_ms: 100
