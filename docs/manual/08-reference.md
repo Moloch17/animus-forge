@@ -138,6 +138,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Resurrection.GraceMs` | 20000 | | `Pulls.PackClear` | 10.0 |
 | `Resurrection.ReviveAlly` | 1.5 | | `Pulls.FastClear` | 1.0 |
 | `Duel.Timeout` | 10.0 | | `Pulls.PackHealthKept` | 0.5 |
+| `Duel.TimeoutFloor` | 0.5 | | `Pulls.TimeoutFloor` | 0.5 |
+| `Duel.Stall` | 0.08 | | `Difficulty.StretchChance` | 10 |
 | `Casting.Cancel` | 0.05 | | `Pulls.PackDeath` | 10.0 |
 | | | | `Pulls.MaxTier` | 5 |
 | | | | `Pulls.Timeout` | 10.0 |

@@ -447,7 +447,10 @@ aura on its addon), and spawned somewhere in the world. **Difficulty adapts per 
 below `EliteTier` (4) is a normal creature t x `LevelsPerTier` (1) levels above the seat, and from `EliteTier` on an
 elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class/role moves up a tier once it wins (kills without
 dying) `RaiseAbove` (90%) of `Window` (200) fights at its tier, and down below `LowerBelow` (60%);
-`ReviewChance` (25%) of its training fights come from a lower tier, so none is forgotten. A fight that simple play wins
+`ReviewChance` (25%) of its training fights come from a lower tier, so none is forgotten, and `StretchChance` (10%)
+from the tier above, which does not count towards moving it: an evaluation scores every tier, so a class/role that has
+stalled should not be meeting the tiers above its own for the first time there (the rogue sat at tier 4 and lost 44% of
+the elite fights it was scored on). A fight that simple play wins
 every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier, every class/role over
 every one (seed i plays class/role i mod the class/roles and tier (i / the class/roles) mod the tiers), so two
 checkpoints meet the same fights, and the summary scores each tier on its own
