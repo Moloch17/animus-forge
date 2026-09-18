@@ -725,7 +725,10 @@ below 35%); gauntlets add `buff_coverage` at engage.
   charged for it and nothing has to start prepared. `preparation_seconds` in the episode info is that time, uncapped
 - spacing (creature duel, ranged specs): -0.03 per second the opponent stands in melee range attacking the seat. The
   approach term only pays for closing in, so nothing kept a hunter, mage or warlock at its range
-- repeats (every stage): -0.02 per press of the same action past the free ones in its window (see Repeats, 4.3)
+- repeats (every stage): -0.02 per press of the same action past the free ones in its window, and only when the
+  press did nothing -- a spell that started casting, an item or a pet ability is never a repeat, because a caster's
+  rotation is one nuke over and over. Orders to a pet already obeying, a target selected again and a stance pressed
+  twice all still count (see Repeats, 4.3)
 - winning outweighs winning fast: with the kill at 10, speed at most 1 and a loss at -10, a risky fast opener only pays
   more than a sure slow win above about 97% odds (at the earlier 3, 3 and -3 it was 79%)
 
