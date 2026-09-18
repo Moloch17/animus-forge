@@ -805,6 +805,8 @@ AnimusForge.Curriculum.Pulls.OwnerWinPulls = 5
 AnimusForge.Curriculum.Options.RestMaxMs = 30000
 AnimusForge.Curriculum.Options.HoldInterruptMs = 10000
 AnimusForge.Curriculum.Options.KeepRangeMs = 10000
+#   ... and a melee spec back into melee reach whenever the target leaves it (ms)
+AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
 
 #
 #    AnimusForge.Curriculum.Owner.*

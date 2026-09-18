@@ -291,7 +291,7 @@ The same function builds training seats and live companions, so a model gets in 
 ### Durative actions
 
 Most actions are one press of one button, and a 450 s episode is 1800 of them -- far more than credit reaches back
-over. Three actions instead stand for a stretch of decisions (`SeatOption`, `Options.*`), so a plan can be expressed in
+over. Four actions instead stand for a stretch of decisions (`SeatOption`, `Options.*`), so a plan can be expressed in
 one choice:
 
 | Action | Block | What it does until it stops |
@@ -299,10 +299,15 @@ one choice:
 | `rest_until_ready` | gauntlet | Eats and drinks, whichever is missing, until health and mana are back to 90% |
 | `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has |
 | `keep_range` | duel | A ranged spec: runs back to casting range whenever the target reaches melee |
+| `stay_on_target` | duel | A melee spec: runs back into melee reach whenever the target leaves it |
 
 Each runs in its block's `BeforeApply`, every decision, and stops on its own condition (the fight starts, the target
 dies, nothing is left to eat), when its `Options.*` clock runs out, or the moment the policy takes any other action --
-the option's own action is masked while it runs, so nothing cancels itself. What it does is counted as a press would be
+the option's own action is masked while it runs, so nothing cancels itself. The two **positioning** options
+(`keep_range`, `stay_on_target`) are the exception: only the seat moving itself takes over from one, because a fight
+is spells and swings between steps and cancelling on those is what left a melee seat re-issuing its own movement
+every decision (the rogue pressed one every 0.39 s while it stood in melee reach 96% of the
+time). What it does is counted as a press would be
 (food and drink used, an interrupt pending on a caster). The core block reports which option is running and how much of
 its clock is left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode
 info say how much a class/role uses them.
@@ -885,6 +890,18 @@ or soulstone fit and stage 1's warlocks never used one. The bot gains no XP.
 
 Pets are played as a player has them:
 
+- **A summon the core does not call a pet is still seen.** `Unit::GetGuardianPet` only returns what is registered as
+  the owner's pet, so a ghoul raised without Master of Ghouls, Army of the Dead, an Infernal or Feral Spirits used to
+  leave the whole pet block reading zeros while the thing fought: stage1_duel's death knight tanks raised a ghoul in
+  90% of their fights, took a tenth of their damage from it and never saw one. `PetBlock::FindPet` falls back to the
+  first creature the seat controls, and `PetBlock::OBS_COMMANDABLE` says whether it takes orders -- a guardian has no
+  action bar of the owner's, so every pet action of it stays masked, exactly as a player's would be.
+- **Six ability slots.** A hunter beast with its talents spent carries more than four castable abilities (a focus
+  dump, its family's special, a taunt, a sprint, and what the talents added), and the slots keep the best kinds
+  first, so at four a ferocity pet's Rabid or Call of the Wild was never offered.
+- **A hunter's beast arrives as a player's does:** at the hunter's level, fed to full happiness (an unhappy beast
+  deals 75% damage), with its level-up spells learned and its talent points spent along a standard build for its
+  tree (`PetTalents::Spend`).
 - **A new pet starts defensive.** Creating a pet's `CharmInfo` sets it passive, and a player's summon then loads the
   stance saved with the pet, which a bot never has, so every pet stayed passive and only fought what it was sent at.
   `PetBlock::DefaultStance` sets a newly seen pet that came out passive to defensive, once per pet, so a stance the

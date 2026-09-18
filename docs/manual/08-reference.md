@@ -197,6 +197,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | `Options.RestMaxMs` | 30000 | | | |
 | `Options.HoldInterruptMs` | 10000 | | | |
 | `Options.KeepRangeMs` | 10000 | | | |
+| `Options.StayOnTargetMs` | 10000 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
