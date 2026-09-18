@@ -827,7 +827,8 @@ AnimusForge.Curriculum.Owner.DamageTakenDps = 1.0
 AnimusForge.Curriculum.Owner.DamageTakenProtector = 2.0
 #   a tank owner is hit by design: its damage taken counts this much
 AnimusForge.Curriculum.Owner.TankOwnerDamageShare = 0.25
-#   healers: effective healing, fraction of the owner's health
+#   any role: effective healing on the owner, plus what the bot's absorbs soaked and its damage reductions
+#   prevented there, as a fraction of the owner's health
 AnimusForge.Curriculum.Owner.Healing = 2.0
 #   tanks: soften the pulls' damage taken
 AnimusForge.Curriculum.Owner.TankDamageRefund = 0.5
@@ -835,7 +836,8 @@ AnimusForge.Curriculum.Owner.TankDamageRefund = 0.5
 AnimusForge.Curriculum.Owner.TankHold = 0.002
 #   tanks: per enemy on the owner, per decision
 AnimusForge.Curriculum.Owner.TankLose = 0.02
-#   damage dealers and healers: per enemy on the bot, per decision
+#   damage dealers and healers, and only beside a tank owner: per enemy on the bot, per decision. Beside an owner
+#   that does not tank, holding the enemies is the bot's job and is not charged
 AnimusForge.Curriculum.Owner.PulledThreat = 0.004
 #   per decision in combat while the owner is not
 AnimusForge.Curriculum.Owner.SoloFight = 0.01

@@ -728,8 +728,12 @@ timeout.
   25 yd; -15 per owner death; +1.5 when an ally the seat resurrected stands up
 - tanks: +0.002 per enemy on the tank and -0.02 per enemy on the owner, per decision; half of the gauntlet's damage
   taken refunded
-- healers: effective healing on the owner x2 (overhealing earns nothing, because the heal hook reports health gained)
-- DPS and healers: -0.004 per enemy attacking them, per decision
+- everyone: effective healing on the owner x2, and what the seat's absorbs soaked and its damage reductions
+  prevented there (overhealing earns nothing, because the heal hook reports health gained). Paying only healers left
+  every other class at 0.000-0.005 of its healing going to the owner
+- DPS and healers **beside a tank owner**: -0.004 per enemy attacking them, per decision. Beside an owner that does
+  not tank, holding the enemies is the seat's job and is not charged: charged whatever the owner was, at 450 s an
+  episode it came to -22.9 against +0.6 for healing the owner, the largest term in the stage
 
 **Party** (`Party.*`, added per teammate): teammate damage taken (not for a tank teammate; x0.5 for DPS, x1 for tanks
 and healers), healers' effective healing on teammates x2, tanks -0.02 per enemy on a non-tank teammate per decision,
