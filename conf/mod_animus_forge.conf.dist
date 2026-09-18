@@ -839,6 +839,13 @@ AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
 #   feet -- without it, standing in fire costs exactly what standing anywhere else costs. Reads zero wherever nothing
 #   puts anything on the ground, which is most of the curriculum today and none of a dungeon.
 AnimusForge.Curriculum.Hazards.Damage = 0.5
+#   per second standing in one, whether or not it has ticked yet. The damage alone is small, late and noisy (it
+#   arrives after the decision that put the seat there); the seconds are immediate and describe the behaviour, as
+#   Spacing does for a ranged spec caught in melee
+AnimusForge.Curriculum.Hazards.Standing = 0.15
+#   at most this much an episode, both hazard terms together. Melee have to stand in melee: a hazard under the enemy
+#   is a real trade, and an uncapped charge teaches a seat to leave the fight, which is worse than standing in fire
+AnimusForge.Curriculum.Hazards.Max = 3.0
 
 #
 #    AnimusForge.Curriculum.Owner.*

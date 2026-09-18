@@ -321,9 +321,14 @@ gnoll shaman's Lightning Bolt and a raid boss's produce the same features, and a
   area, cone, channeled, interruptible (by `EffectInterruptCast`'s own test, so the feature promises what pressing an
   interrupt would do), dispellable, shared damage (a soak), a heal, a summon, its radius, its missile flight time,
   its school and its mechanic.
-- **The ground** (`Encoding::StandingInHazards`): how many hostile ground effects the seat is standing in, how far it
-  still has to walk to leave the worst, and the bearing of that one's centre, so moving away from it is the way out.
-  Free to compute -- a ground effect applies an aura, and the aura knows the object that owns it.
+- **The ground it is on** (`Encoding::StandingInHazards`): how many hostile ground effects the seat is standing in,
+  how far it still has to walk to leave the worst, and the bearing of that one's centre, so moving away from it is
+  the way out. Free to compute -- a ground effect applies an aura, and the aura knows the object that owns it.
+- **The ground it is about to be on** (`Encoding::FindNearestHazard`): the nearest hostile ground effect it is *not*
+  in yet, within 30 yd -- distance to its edge, bearing, radius. This is what makes avoidance learnable rather than
+  only escape: without it nothing distinguishes clear ground from ground about to be walked into. A grid search over
+  dynamic objects and armed traps, run once a second and re-measured arithmetically between searches, since a ground
+  effect stays where it was cast.
 - **What was done to it** (`Encoding::IncomingDebuffs`): harmful auras on the seat, how many are dispellable, the
   worst stack count, the longest remaining, and which crowd control mechanics are among them.
 - **Threat** (`Encoding::ThreatShare`): the seat's own threat over the threat of whoever the enemy is on, so 1 means
@@ -745,8 +750,12 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
   over a gauntlet, preparing once bought the full refund on every pull after it, and a seat that dropped combat to
   re-buff kept earning grace (stage 2's warlock went from 5.6 s of preparation a fight to 14.2 s, 19.4 s in the
   fights it lost)
-- hazard -0.5 (`Hazards.Damage`) per fraction of maximum health taken from a ground effect -- a fire pool, a poison
-  cloud, a consecration -- charged on top of the damage itself. Damage that could have been walked out of is worse
+- hazard -0.15 per second standing in a ground effect (`Hazards.Standing`) and -0.5 per fraction of maximum health
+  taken from one (`Hazards.Damage`), together capped at `Hazards.Max` (3.0) an episode. The seconds are the term that
+  teaches the behaviour: the damage arrives in ticks after the decision that caused it, and over two hours of stage 1
+  it came to -0.003 an episode against a kill worth 10. The cap exists because melee have to stand in melee -- a
+  hazard under the enemy is a real trade, and an uncapped charge teaches a seat to leave the fight
+ Damage that could have been walked out of is worse
   than damage that could not, and this is the only term that pays a seat for moving its feet. It reads zero wherever
   nothing puts anything on the ground, which is most of the curriculum and none of a dungeon
 - control +0.5 (`SinglePackControl`) times the damage prevented, in the seat's current health (floored at
