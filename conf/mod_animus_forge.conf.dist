@@ -690,6 +690,13 @@ AnimusForge.Curriculum.Pulls.Approach = 0.5
 AnimusForge.Curriculum.Pulls.StealthOpener = 0.5
 AnimusForge.Curriculum.Pulls.StealthUtility = 0.05
 AnimusForge.Curriculum.Pulls.Interrupt = 0.3
+#   an interrupt is paid Interrupt times what it stopped, from the spell's own properties: a heal undoes damage
+#   already dealt, an area spell would have hit everyone, a long cast was a large part of the caster's output. Never
+#   below 1 -- the flat term is how a class finds interrupting at all, and if only heals paid the behaviour might
+#   never appear to be shaped
+AnimusForge.Curriculum.Pulls.InterruptHeal = 3.0
+AnimusForge.Curriculum.Pulls.InterruptArea = 2.0
+AnimusForge.Curriculum.Pulls.InterruptLong = 1.5
 AnimusForge.Curriculum.Pulls.Kill = 0.5
 #   per decision
 AnimusForge.Curriculum.Pulls.StepCost = 0.0002
@@ -811,6 +818,13 @@ AnimusForge.Curriculum.Options.HoldInterruptMs = 10000
 AnimusForge.Curriculum.Options.KeepRangeMs = 10000
 #   ... and a melee spec back into melee reach whenever the target leaves it (ms)
 AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
+
+#   Ground effects: damage from something standing on the ground rather than aimed at the seat (a fire pool, a poison
+#   cloud, a consecration), charged per fraction of maximum health ON TOP of DamageTaken, which already charges it
+#   once as damage. This is the damage a seat could have walked out of, and the only term that pays for moving its
+#   feet -- without it, standing in fire costs exactly what standing anywhere else costs. Reads zero wherever nothing
+#   puts anything on the ground, which is most of the curriculum today and none of a dungeon.
+AnimusForge.Curriculum.Hazards.Damage = 0.5
 
 #
 #    AnimusForge.Curriculum.Owner.*

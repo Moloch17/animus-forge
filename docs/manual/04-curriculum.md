@@ -290,6 +290,33 @@ The same function builds training seats and live companions, so a model gets in 
   login normally casts it, and nothing works without one), and for hunters a stable offer of four tameable beasts of
   different random families.
 
+### What an enemy is doing
+
+A seat used to know one thing about an enemy's spellcasting: that it was happening. One bit, no identity, no clock.
+It could not tell a filler from a heal, could not see an area effect on the ground at all, and had never read a
+threat table -- so interrupting well, stepping out of fire and holding aggro were all unlearnable, and every dungeon
+and raid mechanic has one of those three shapes.
+
+All of it is now described by properties rather than by which spell it is (`IncomingSpell`), because a boss's
+abilities live in file-scope `enum Spells` blocks inside its own script and no registry of them exists. A level 12
+gnoll shaman's Lightning Bolt and a raid boss's produce the same features, and an unseen encounter needs no new code:
+
+- **The cast** (per enemy slot, and for the duel's target): how much of it is left, whether it is aimed at this seat,
+  area, cone, channeled, interruptible (by `EffectInterruptCast`'s own test, so the feature promises what pressing an
+  interrupt would do), dispellable, shared damage (a soak), a heal, a summon, its radius, its missile flight time,
+  its school and its mechanic.
+- **The ground** (`Encoding::StandingInHazards`): how many hostile ground effects the seat is standing in, how far it
+  still has to walk to leave the worst, and the bearing of that one's centre, so moving away from it is the way out.
+  Free to compute -- a ground effect applies an aura, and the aura knows the object that owns it.
+- **What was done to it** (`Encoding::IncomingDebuffs`): harmful auras on the seat, how many are dispellable, the
+  worst stack count, the longest remaining, and which crowd control mechanics are among them.
+- **Threat** (`Encoding::ThreatShare`): the seat's own threat over the threat of whoever the enemy is on, so 1 means
+  it holds aggro. Until this, every "threat" in the codebase was a proxy counted from who an enemy happened to be
+  swinging at.
+
+`hazard_seconds`, `hazard_damage` and `interruptible_casts_seen` in the episode info say whether any of it is being
+used -- the last is the denominator the press-to-interrupt ratio always lacked.
+
 ### Durative actions
 
 Most actions are one press of one button, and a 450 s episode is 1800 of them -- far more than credit reaches back
@@ -677,6 +704,10 @@ below 35%); gauntlets add `buff_coverage` at engage.
 **Pack** (`Pulls.*`): damage x2 of the pack's total health, damage taken x1, approach to the nearest enemy, +0.5 per
 kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won or lost:
 
+- interrupt +0.3 (`Interrupt`) times what the interrupt stopped: a heal 3x (`InterruptHeal`, it undoes damage already
+  dealt), an area spell 2x (`InterruptArea`), a long cast 1.5x (`InterruptLong`), an ordinary cast 1x. The kind comes
+  from the spell's own properties at the moment the cast dies. Never below 1: the flat term is how a class finds
+  interrupting at all
 - clear +10 (`PackClear`), up to +1 more for the share of the episode length left since a pack member entered combat
   (`FastClear`), up to +0.5 for the share of health kept (`PackHealthKept`)
 - death -10 (`PackDeath`); timeout -10 (`Timeout`) when the 150 s run out with the pack and the seat both alive,
@@ -691,6 +722,10 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
   over a gauntlet, preparing once bought the full refund on every pull after it, and a seat that dropped combat to
   re-buff kept earning grace (stage 2's warlock went from 5.6 s of preparation a fight to 14.2 s, 19.4 s in the
   fights it lost)
+- hazard -0.5 (`Hazards.Damage`) per fraction of maximum health taken from a ground effect -- a fire pool, a poison
+  cloud, a consecration -- charged on top of the damage itself. Damage that could have been walked out of is worse
+  than damage that could not, and this is the only term that pays a seat for moving its feet. It reads zero wherever
+  nothing puts anything on the ground, which is most of the curriculum and none of a dungeon
 - control +0.5 (`SinglePackControl`) times the damage prevented, in the seat's current health (floored at
   `ControlHealthFloor`, 20% of maximum), for every pack member other than the target that is held out of the fight
   -- each credited its own measured damage rate, or the pull's mean, or `ControlFallbackDps` for one that never got
