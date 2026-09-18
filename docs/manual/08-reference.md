@@ -162,9 +162,10 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.ArriveFloorMs` | 10000 |
 | | | | `Pulls.NextPullShrinkMs` | 1000 |
 | | | | `Pulls.NextPullFloorMs` | 4000 |
-| `Goals.Match` | 0.01 | | | |
+| `Goals.Match` | 0.02 | | | |
 | `Pulls.GauntletDenseScale` | 0.5 | | | |
 | `Support.SelfHealing` | 0.5 | | | |
+| `Support.PetReady` | 0.3 | | | |
 | `Support.BuffCoverage` | 0.3 | | | |
 | `Actions.RepeatMs` | 1000 | | | |
 | `Actions.MoveRepeatMs` | 300 | | | |

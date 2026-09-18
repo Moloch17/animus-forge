@@ -552,8 +552,10 @@ AnimusForge.Curriculum.Duel.FastKill = 1.0
 #   value pays twice for the same thing and reads as "survive" rather than "win"
 AnimusForge.Curriculum.Duel.HealthKept = 0.5
 AnimusForge.Curriculum.Duel.Death = 10.0
-#   a creature duel that runs out of time with neither side dead: a lost fight, ended as one (as Death, so neither
-#   way of losing is the cheaper one)
+#   a creature duel that runs out of time with neither side dead: a lost fight, ended as one, charged times the share
+#   of the opponent still standing -- a clock that runs out with the creature nearly dead is a near miss, one that
+#   runs out with it untouched is a refusal to fight. At the full charge it matches Death, so a seat that cannot be
+#   sure of the kill has nothing to gain by keeping its distance
 AnimusForge.Curriculum.Duel.Timeout = 10.0
 #   creature duel: per second the fight has not started once StallGraceMs are gone; Timeout alone charges standing
 #   where it spawned only when the clock runs out, too far off for the policy to see
@@ -602,13 +604,17 @@ AnimusForge.Curriculum.Casting.TimeCompleted = 0.03
 AnimusForge.Curriculum.Casting.Cancel = 0.05
 #   every stage, per decision: the bot's effective healing on itself plus what its own absorbs soaked and damage-taken
 #   reductions prevented on itself, as a fraction of its health; below every DamageTaken so it never pays to be hit
-#   per decision whose actions matched the goal the learner is pursuing for the seat (fight, control, recover,
-#   protect, position, prepare). Small on purpose: it keeps the goals apart so a goal head cannot collapse into one
-#   goal, rather than paying for play the stage's own terms already price
-AnimusForge.Curriculum.Goals.Match = 0.01
+#   paid once for each goal the seat holds, on the first decision its actions match the goal the learner is pursuing
+#   (fight, control, recover, protect, position, prepare) -- a goal is there to be reached, and paying per decision
+#   spent in one made standing at range the stage's second largest earner. Small on purpose: it keeps the goals apart
+#   so a goal head cannot collapse into one goal, rather than paying for play the stage's own terms already price
+AnimusForge.Curriculum.Goals.Match = 0.02
 AnimusForge.Curriculum.Support.SelfHealing = 0.5
 #   gauntlets: engaging a pull pays this times the share of the class's buff groups up on the bot (and the owner)
 AnimusForge.Curriculum.Support.BuffCoverage = 0.3
+#   a class that keeps a pet (hunter, warlock, death knight, mage) with it out when a fight starts, paid once at the
+#   engagement: part of being ready, which the kill alone did not teach
+AnimusForge.Curriculum.Support.PetReady = 0.3
 
 #
 #    AnimusForge.Curriculum.Actions.*
@@ -700,6 +706,7 @@ AnimusForge.Curriculum.Pulls.PackDeath = 10.0
 #   pack: the single pack's top ladder rung (0-5: 2, 3, 4 creatures with a caster, two casters, an elite, an elite a
 #   level above), climbed per class/role at the Difficulty.* rates; 0 keeps every pack on the first rung
 AnimusForge.Curriculum.Pulls.MaxTier = 5
+#   pack: the clock running out, charged times the share of the pull still standing, as the duel's is
 AnimusForge.Curriculum.Pulls.Timeout = 10.0
 #   pack: per second a fight goes on past OvertimeGraceMs after it was engaged, and a death in overtime is charged the
 #   overtime left; a timeout alone, 150 s away, is too discounted to stop kiting out the clock

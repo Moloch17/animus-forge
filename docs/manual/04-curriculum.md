@@ -141,7 +141,11 @@ every `Reset` calls `Rebuild`:
 6. **Pick one level** every seat's class can be (death knights start at 55). It is `StageSettings::Level` if set;
    otherwise `Characters.HighLevelChance` percent of the time a level from `HighLevelFirst` to 80,
    `Characters.LowLevelChance` percent of the time a level from the class minimum to `LowLevelLast` (20; skipped when
-   the class can't be that low), else any level from the class minimum to 80.
+   the class can't be that low), else any level from the class minimum to 80. An **evaluation** episode takes its
+   band from its seed instead, as it takes its difficulty tier: seed *i* plays band *(i / the class/roles) mod 4* of
+   1-20, 21-40, 41-60, 61-80 (the next band up when the seat's classes cannot be that low). Training then keeps the
+   level mix the shipped companions play while the evaluation measures every band in equal numbers -- drawn, the
+   middle bands were ~9% of the episodes each, too thin to read a class/role's hole from.
 7. **Build each seat** (`BuildSeat`): random race and spec, `DamageScale(level)`, a bot named
    `Forge<envId>s<seat><a|b>` on the slot's idle session and account, placed in the env's instance (the first build of
    an env opens a new instance, unless the host placed the env). Party seats start spread around the spawn point, and a
@@ -590,9 +594,13 @@ recover, protect, position or prepare every `mappo.goal_every_decisions` (16, so
 choice, and sends it to the sim with the actions (protocol 8: ACT carries the goals after the actions). The sim scores
 whether each decision matched the goal -- damage for fight, an enemy other than the target held for control, healing or
 resting itself for recover, healing or shielding the owner or a teammate for protect, its spec's range for position, a
-buff, summon or stealth out of combat for prepare -- and pays `Goals.Match` (0.01) for the ones that do. That charge is
+buff, summon or stealth out of combat for prepare -- and pays `Goals.Match` (0.02) **once for each goal held**, on the
+first decision that matches it. A goal is there to be reached, not to sit in: paid per decision, holding
+`SeatGoal::Position` by standing at a spec's range earned +0.93 an episode in stage1_duel (2026-09-17), more than the
+approach, casting and health terms together, and ranged seats learned to keep their distance for it. The charge is
 small on purpose: it keeps the goals apart (nothing else stops a goal head collapsing into one goal), and the stage's
-own terms still price the play. A party's teammates see each other's goals in the party block. Columns:
+own terms still price the play. `goal_match_share` still counts every matching decision, paid or
+not. A party's teammates see each other's goals in the party block. Columns:
 `goal_<name>_share` per goal, `goal_match_share` and `goal_changes`; the learner's own metrics add `goal_<i>_share` and
 `goal_kept_share` per update. The critic is goal-conditioned, so the advantage a decision gets is measured against what
 that goal is worth.

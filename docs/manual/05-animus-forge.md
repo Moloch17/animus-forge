@@ -632,7 +632,8 @@ With no gates set, a converged stage advances.
   that chose one, and the critic reads the goal too, so the advantage a decision earns is measured against what that
   goal is worth rather than averaged over goals. Exported models choose the argmax goal on the same clock. The goals
   go to the sim with the actions (protocol 8), which scores whether each decision matched the goal, pays
-  `Goals.Match` for the ones that did, reports `goal_<name>_share`, `goal_match_share` and `goal_changes`, and shows a
+  `Goals.Match` once per goal held (on the first decision that matches it, so a goal pays for being reached rather
+  than for being sat in), reports `goal_<name>_share`, `goal_match_share` and `goal_changes`, and shows a
   party its teammates' goals. Per update the learner logs `goal_<i>_share` and `goal_kept_share`, which is how a
   collapsed head (one share at 1) is spotted. **On from stage1_duel (6 goals, chosen every 16 decisions).**
 - `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
