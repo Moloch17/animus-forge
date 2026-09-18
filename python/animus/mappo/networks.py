@@ -142,6 +142,20 @@ def _per_layout(layout: torch.Tensor, count: int) -> list[tuple[int, torch.Tenso
     return [(int(index), torch.nonzero(layout == index, as_tuple=True)[0]) for index in present]
 
 
+def _carry_sequence(cell: nn.GRUCell, size: int, encoded: torch.Tensor, memory: torch.Tensor,
+                    dones: torch.Tensor) -> torch.Tensor:
+    """Run a GRU over a replayed sequence: `encoded` [T, N, H], `memory` [N, R] the state its first decision was
+    taken with, `dones` [T, N] where an episode ended (the next decision starts cleared) -> [T, N, R]. Only the cell
+    is sequential, which is the small part; everything before it runs in one pass."""
+    carried = memory.reshape(-1, size)
+    features = []
+    for step in range(encoded.shape[0]):
+        carried = cell(encoded[step], carried)
+        features.append(carried)
+        carried = carried * (~dones[step]).to(carried.dtype)[:, None]
+    return torch.stack(features)
+
+
 class LayoutActor(nn.Module):
     def __init__(self, layouts: Sequence[tuple[int, int]], hidden: Sequence[int], foresight_outputs: int = 0,
                  recurrent_size: int = 0, goal_count: int = 0):
@@ -226,14 +240,7 @@ class LayoutActor(nn.Module):
         if self.memory is None:
             return encoded
 
-        steps = encoded.shape[0]
-        carried = memory.reshape(-1, self.recurrent_size)
-        features = []
-        for step in range(steps):
-            carried = self.memory(encoded[step], carried)
-            features.append(carried)
-            carried = carried * (~dones[step]).to(carried.dtype)[:, None]
-        return torch.stack(features)
+        return _carry_sequence(self.memory, self.recurrent_size, encoded, memory, dones)
 
     def features(self, obs: torch.Tensor, layout: torch.Tensor, memory: torch.Tensor | None = None,
                  groups=None) -> torch.Tensor:
@@ -276,10 +283,17 @@ class LayoutActor(nn.Module):
 
 
 class LayoutCritic(nn.Module):
-    """V(global state, agent's own observation). Outputs a normalised value when ValueNorm is in use."""
+    """V(global state, agent's own observation). Outputs a normalised value when ValueNorm is in use.
+
+    With `recurrent_size` it carries a GRU of its own, exactly as the actor does. It has to: the global state is a
+    snapshot -- healths, positions, roles, the clock -- and holds nothing of what has already happened, while a
+    recurrent actor's decisions depend on what it remembers. Every part of the return that follows from that memory
+    is then invisible to the critic, and lands in the advantage as noise. The two memories are separate (the critic
+    sees the whole env, the actor only its own seat) but they are carried and cleared together.
+    """
 
     def __init__(self, state_dim: int, layouts: Sequence[tuple[int, int]], hidden: Sequence[int],
-                 goal_count: int = 0):
+                 goal_count: int = 0, recurrent_size: int = 0):
         super().__init__()
         if not hidden:
             raise ValueError("the critic needs at least one hidden layer")
@@ -294,19 +308,52 @@ class LayoutCritic(nn.Module):
         self.norms = nn.ModuleList(RunningNorm(obs) for obs, _ in layouts)
         self.adapters = nn.ModuleList(_linear(obs, hidden[0], math.sqrt(2)) for obs, _ in layouts)
         self.trunk = _Trunk(hidden)
-        self.head = _linear(hidden[-1], 1, 1.0)
+        self.recurrent_size = recurrent_size
+        self.memory = nn.GRUCell(hidden[-1], recurrent_size) if recurrent_size else None
+        self.head = _linear(recurrent_size if recurrent_size else hidden[-1], 1, 1.0)
 
-    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, goal: torch.Tensor | None = None,
-                groups=None) -> torch.Tensor:
-        """state [..., S], obs [..., O], layout [...], goal [...] (with a goal head) -> value [...]. `groups` as for
-        LayoutActor.forward."""
-        lead = obs.shape[:-1]
-        state, obs, layout = state.reshape(-1, state.shape[-1]), obs.reshape(-1, obs.shape[-1]), layout.reshape(-1)
-
+    def encode(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor,
+               goal: torch.Tensor | None = None, groups=None) -> torch.Tensor:
+        """Everything that depends only on this decision -- the state, the seat's own observation and its goal --
+        for flat rows, before the GRU. A replayed sequence encodes every step in one pass and then carries the memory
+        through them (carry)."""
         hidden = self.state_encoder(self.state_norm(state))
         own = torch.zeros_like(hidden)
         for index, rows in groups if groups is not None else _per_layout(layout, len(self.adapters)):
             own[rows] = self.adapters[index](self.norms[index](obs[rows, : self.obs_dims[index]]))
         if self.goal_embedding is not None and goal is not None:
             own = own + self.goal_embedding(goal.reshape(-1))
-        return self.head(self.trunk(hidden + own)).reshape(lead)
+        return self.trunk(hidden + own)
+
+    def carry(self, encoded: torch.Tensor, memory: torch.Tensor, dones: torch.Tensor) -> torch.Tensor:
+        """The critic's GRU over a replayed sequence, as LayoutActor.carry is for the actor's."""
+        if self.memory is None:
+            return encoded
+        return _carry_sequence(self.memory, self.recurrent_size, encoded, memory, dones)
+
+    def values_of(self, features: torch.Tensor) -> torch.Tensor:
+        """The value of features already carried through the GRU (a replayed sequence)."""
+        return self.head(features).squeeze(-1)
+
+    def initial_memory(self, *lead: int, device=None) -> torch.Tensor:
+        """A cleared memory for `lead` rows (what an episode starts with)."""
+        return torch.zeros((*lead, self.recurrent_size), dtype=torch.float32, device=device)
+
+    def step(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, goal: torch.Tensor | None = None,
+             groups=None, memory: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        """One decision: (value [...], the memory carried out). Without a GRU the memory out is whatever came in."""
+        lead = obs.shape[:-1]
+        state, obs, layout = state.reshape(-1, state.shape[-1]), obs.reshape(-1, obs.shape[-1]), layout.reshape(-1)
+        encoded = self.encode(state, obs, layout, goal, groups)
+        if self.memory is None:
+            return self.head(encoded).reshape(lead), (memory if memory is not None else encoded.new_zeros((*lead, 0)))
+
+        carried = self.memory(encoded, memory.reshape(-1, self.recurrent_size) if memory is not None
+                              else encoded.new_zeros(encoded.shape[0], self.recurrent_size))
+        return self.head(carried).reshape(lead), carried.reshape(*lead, self.recurrent_size)
+
+    def forward(self, state: torch.Tensor, obs: torch.Tensor, layout: torch.Tensor, goal: torch.Tensor | None = None,
+                groups=None, memory: torch.Tensor | None = None) -> torch.Tensor:
+        """state [..., S], obs [..., O], layout [...], goal [...] (with a goal head) -> value [...]. `groups` as for
+        LayoutActor.forward; `memory` [..., recurrent_size] the state carried in."""
+        return self.step(state, obs, layout, goal, groups, memory)[0]

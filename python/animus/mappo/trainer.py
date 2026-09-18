@@ -62,6 +62,10 @@ class MappoConfig:
     # A GRU between the actor's trunk and its heads (0 = off), carried from decision to decision and cleared when an
     # episode ends: the policy's own memory. The update replays each rollout's sequences in order from the memory the
     # decisions were taken with, so what the GRU stores is learned, not only what it reads.
+    # Both networks are recurrent or neither is. The critic's memory is its own -- it sees the whole env, the actor
+    # only its seat -- but a feed-forward critic beside a recurrent actor cannot value what the actor remembers: the
+    # global state is a snapshot, so every part of the return that follows from memory lands in the advantage as
+    # noise.
     recurrent_size: int = 0
     # A goal head (0 = off): the actor chooses one of goal_count goals every goal_every_decisions and keeps it in
     # between, and its action head is conditioned on it. The chooser then decides on a clock that many times slower
@@ -80,10 +84,12 @@ class MappoConfig:
 
 @dataclass
 class ActingState:
-    """What a policy carries between decisions: the GRU's memory [E, A, R], the goal each seat is pursuing [E, A] and
-    how many decisions it has held it [E, A]. None for an actor without that part."""
+    """What a policy carries between decisions: the actor's GRU memory [E, A, R], the critic's own [E, A, R], the
+    goal each seat is pursuing [E, A] and how many decisions it has held it [E, A]. None for a network without that
+    part. Both memories are cleared together when an episode ends."""
 
     memory: np.ndarray | None = None
+    critic_memory: np.ndarray | None = None
     goal: np.ndarray | None = None
     age: np.ndarray | None = None
 
@@ -91,6 +97,8 @@ class ActingState:
         """An episode ended in these envs: nothing is remembered and a goal is chosen afresh."""
         if self.memory is not None:
             self.memory[done] = 0.0
+        if self.critic_memory is not None:
+            self.critic_memory[done] = 0.0
         if self.goal is not None:
             self.goal[done] = 0
             self.age[done] = 0
@@ -145,7 +153,8 @@ class MappoTrainer:
         self.goal_count = config.goal_count
         self.actor = LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size,
                                  self.goal_count).to(self.train_device)
-        self.critic = LayoutCritic(state_dim, self.layouts, hidden, self.goal_count).to(self.train_device)
+        self.critic = LayoutCritic(state_dim, self.layouts, hidden, self.goal_count,
+                                   self.recurrent_size).to(self.train_device)
         self.value_norm = (ValueNorm(beta=config.value_norm_beta).to(self.train_device)
                            if config.use_value_norm else None)
 
@@ -192,7 +201,7 @@ class MappoTrainer:
         """weights = shrink x weights + perturb x freshly initialised weights (Ash & Adams, 2020)."""
         hidden = list(self.config.hidden)
         fresh = (LayoutActor(self.layouts, hidden, self.foresight_outputs, self.recurrent_size, self.goal_count),
-                 LayoutCritic(self.state_dim, self.layouts, hidden, self.goal_count))
+                 LayoutCritic(self.state_dim, self.layouts, hidden, self.goal_count, self.recurrent_size))
         for network, init in zip((self.actor, self.critic), fresh):
             for param, init_param in zip(network.parameters(), init.to(self.train_device).parameters()):
                 param.mul_(shrink).add_(init_param, alpha=perturb)
@@ -243,7 +252,11 @@ class MappoTrainer:
             rows, -1)
         goal_t = (self._tensor(goals[0], torch.long).reshape(rows)
                   if self.goal_count and goals is not None else None)
-        values = self._rollout_critic(state_t, obs_t, layout_t, goal_t)
+        critic_memory = (self._memory_tensor(state.critic_memory if state is not None else None, rows)
+                         if self.recurrent_size else None)
+        values, carried = self._rollout_critic.step(state_t, obs_t, layout_t, goal_t, memory=critic_memory)
+        if self.recurrent_size and state is not None:
+            state.critic_memory = carried.reshape(envs, agents, self.recurrent_size).cpu().numpy()
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
         return actions, log_probs, values.reshape(envs, agents).cpu().numpy(), foresight, goals
@@ -321,6 +334,8 @@ class MappoTrainer:
         them. An actor with neither carries nothing and behaves exactly as before."""
         return ActingState(
             memory=np.zeros((envs, agents, self.recurrent_size), dtype=np.float32) if self.recurrent_size else None,
+            critic_memory=(np.zeros((envs, agents, self.recurrent_size), dtype=np.float32)
+                           if self.recurrent_size else None),
             goal=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
             age=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
         )
@@ -337,13 +352,18 @@ class MappoTrainer:
 
     @torch.no_grad()
     def value(self, state: np.ndarray, obs: np.ndarray, layout: np.ndarray,
-              goal: np.ndarray | None = None) -> np.ndarray:
+              goal: np.ndarray | None = None, memory: np.ndarray | None = None) -> np.ndarray:
         """state [E, S], obs [E, A, O], layout [E, A], goal [E, A] (with a goal head) -> denormalised V per agent
-        [E, A]. The value depends on the goal the actor is pursuing, so pass the same goal the decision used."""
+        [E, A]. The value depends on the goal the actor is pursuing, so pass the same goal the decision used, and on
+        what the critic remembers of the episode, so pass the memory those decisions left (bootstrapping a truncated
+        episode from a cleared memory values a fight in progress as if it had just begun)."""
         envs, agents = layout.shape
         goal_t = self._tensor(goal, torch.long) if self.goal_count and goal is not None else None
         state_t = self._tensor(state)[:, None, :].expand(envs, agents, state.shape[-1])
-        values = self._rollout_critic(state_t, self._tensor(obs), self._tensor(layout, torch.long), goal_t)
+        memory_t = (self._memory_tensor(memory, envs * agents).reshape(envs, agents, self.recurrent_size)
+                    if self.recurrent_size else None)
+        values = self._rollout_critic(state_t, self._tensor(obs), self._tensor(layout, torch.long), goal_t,
+                                      memory=memory_t)
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
         return values.cpu().numpy()
@@ -723,14 +743,19 @@ class MappoTrainer:
                 actor_grad = nn.utils.clip_grad_norm_(self.actor.parameters(), cfg.max_grad_norm)
                 self.actor_opt.step()
 
-                # The critic reads the global state, so its rows need no order: one pass over the minibatch.
+                # The critic carries a memory of its own, so its rows are replayed in order exactly as the
+                # actor's are: encode every step in one pass, then walk the GRU through the sequence from the state
+                # those decisions were valued with.
                 obs = data["obs"][:, chunk].reshape(-1, data["obs"].shape[-1])
                 state = (data["state"][:, chunk][:, :, None, :]
                          .expand(steps, len(chunk), agents, data["state"].shape[-1])
                          .reshape(-1, data["state"].shape[-1]))
                 layout = data["layout"][:, chunk].reshape(-1)
                 goal_chunk = data["goal"][:, chunk].reshape(-1) if self.goal_count else None
-                predicted = self.critic(state, obs, layout, goal_chunk).reshape(steps, -1, agents)
+                encoded_value = self.critic.encode(state, obs, layout, goal_chunk).reshape(steps, rows_here, -1)
+                critic_memory = data["critic_memory"][0][chunk].reshape(rows_here, -1)
+                predicted = self.critic.values_of(
+                    self.critic.carry(encoded_value, critic_memory, dones_all)).reshape(steps, -1, agents)
                 previous = old_values[:, chunk]
                 target = returns_target[:, chunk]
                 bounded = previous + (predicted - previous).clamp(-cfg.value_clip, cfg.value_clip)

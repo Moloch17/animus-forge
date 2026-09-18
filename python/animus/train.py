@@ -678,10 +678,11 @@ class TrainingRun:
         while not buffer.full:
             step = self.step
             memory = self.acting.memory.copy() if self.acting.memory is not None else None
+            critic_memory = self.acting.critic_memory.copy() if self.acting.critic_memory is not None else None
             actions, log_probs, values, foresight, goals = trainer.act_and_value(
                 step.obs, step.mask, step.layout, step.state, state=self.acting)
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
-                                foresight, memory, goals)
+                                foresight, memory, goals, critic_memory)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
             layout = step.layout
@@ -696,8 +697,12 @@ class TrainingRun:
                 done = step.done
                 # The goal in force is the one the ended episode's last decision pursued, which the value depends on.
                 goal = self.acting.goal
+                # The memory the critic ends the episode with, not a cleared one: the last decision's own state,
+                # which act_and_value has just carried forward and clear() has not yet reset.
+                critic_end = self.acting.critic_memory
                 final_values[done] = trainer.value(step.final_state[done], step.final_obs[done], layout[done],
-                                                   goal[done] if goal is not None else None)
+                                                   goal[done] if goal is not None else None,
+                                                   critic_end[done] if critic_end is not None else None)
                 if final_foresight is not None:
                     final_foresight[done] = trainer.foresight_of(step.final_obs[done], layout[done],
                                                                  memory[done] if memory is not None else None)
@@ -712,7 +717,8 @@ class TrainingRun:
             buffer.add_outcome(step.reward, step.done, step.terminated, final_values, final_foresight)
 
         rollout_seconds = time.perf_counter() - started
-        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout, self.acting.goal),
+        buffer.finish(trainer.value(self.step.state, self.step.obs, self.step.layout, self.acting.goal,
+                                    self.acting.critic_memory),
                       *self.discounts,
                       last_foresight=trainer.foresight_of(self.step.obs, self.step.layout, self.acting.memory),
                       foresight_gammas=self.foresight_discounts,

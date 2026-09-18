@@ -103,6 +103,9 @@ class RolloutBuffer:
         # The memory each decision was taken with (LayoutActor's GRU), so the update can replay the rollout's
         # sequences from where they actually started.
         self.memory = np.zeros((*shape, recurrent), dtype=np.float32)
+        # The critic's own memory at the same decisions: it carries a GRU too, over the whole env rather than one
+        # seat, and the update has to replay its sequences from the state they were produced with.
+        self.critic_memory = np.zeros((*shape, recurrent), dtype=np.float32)
         self.obs = np.zeros((*shape, obs_dim), dtype=np.float32)
         self.state = np.zeros((steps, envs, state_dim), dtype=np.float32)
         self.mask = np.zeros((*shape, num_actions), dtype=bool)
@@ -126,7 +129,7 @@ class RolloutBuffer:
         self.cursor = 0
 
     def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None,
-                     foresight=None, memory=None, goals=None) -> None:
+                     foresight=None, memory=None, goals=None, critic_memory=None) -> None:
         """Record what the policy saw and did at step `cursor`; `present` [E, A] marks the agents with a character
         (default: all)."""
         t = self.cursor
@@ -142,6 +145,8 @@ class RolloutBuffer:
             self.foresight_preds[t] = foresight
         if self.recurrent and memory is not None:
             self.memory[t] = memory
+        if self.recurrent and critic_memory is not None:
+            self.critic_memory[t] = critic_memory
         if self.goals and goals is not None:
             self.goal[t], self.goal_log_probs[t], self.goal_chosen[t] = goals
 
@@ -240,6 +245,7 @@ class RolloutBuffer:
             "returns": self.returns,
             "dones": self.dones,
             "memory": self.memory,
+            "critic_memory": self.critic_memory,
             **({"foresight_targets": self.foresight_targets, "foresight_valid": self.foresight_valid}
                if self.foresight else {}),
             **({"goal": self.goal, "goal_log_probs": self.goal_log_probs, "goal_chosen": self.goal_chosen}

@@ -156,11 +156,24 @@ def _seed_head_blocks(new: dict, old: dict, prefix: str, common) -> None:
         new_b[new_first : new_first + count] = old_b[old_first : old_first + count]
 
 
-def _seed_trunk(new: dict, old: dict) -> None:
+#: Weights that are not per layout and whose shape does not depend on the stage: the shared trunk, the GRU that
+#: carries memory between decisions, and the goal head and its embedding. All of them read the trunk's output, whose
+#: width every stage shares, so a stage can inherit them from the one it extends. Left fresh, a stage that inherits
+#: the trunk would still relearn how to remember and what its goals mean from scratch.
+SHARED_PREFIXES = ("trunk.", "memory.", "goal_head.", "goal_embedding.")
+
+
+def _seed_shared(new: dict, old: dict) -> None:
     for key, tensor in new.items():
+        if not key.startswith(SHARED_PREFIXES):
+            continue
         if key.startswith("trunk."):
             if key not in old or old[key].shape != tensor.shape:
                 raise ValueError(f"{key}: the trunk in the checkpoint does not match (hidden sizes must be equal)")
+            tensor.copy_(old[key])
+        elif key in old and old[key].shape == tensor.shape:
+            # A checkpoint from before these existed, or from a stage with the part turned off, simply leaves the
+            # fresh weights alone rather than failing: the trunk is what a stage must agree on.
             tensor.copy_(old[key])
 
 
@@ -174,8 +187,8 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
     actor = {key: tensor.clone() for key, tensor in trainer.actor.state_dict().items()}
     critic = {key: tensor.clone() for key, tensor in trainer.critic.state_dict().items()}
 
-    _seed_trunk(actor, old["actor"])
-    _seed_trunk(critic, old["critic"])
+    _seed_shared(actor, old["actor"])
+    _seed_shared(critic, old["critic"])
 
     seeded = []
     for index, layout in enumerate(spec.layouts):

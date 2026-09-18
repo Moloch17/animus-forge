@@ -18,8 +18,10 @@ def fill(trainer, buffer, steps, envs, agents, obs_dim, state_dim, actions, done
         mask = np.ones((envs, agents, actions), bool)
         layout = np.zeros((envs, agents), np.int64)
         memory = acting.memory.copy() if acting.memory is not None else None
+        critic_memory = acting.critic_memory.copy() if acting.critic_memory is not None else None
         chosen, log_probs, values, foresight, goals = trainer.act_and_value(obs, mask, layout, state, state=acting)
-        buffer.add_decision(obs, state, mask, layout, chosen, log_probs, values, None, foresight, memory, goals)
+        buffer.add_decision(obs, state, mask, layout, chosen, log_probs, values, None, foresight, memory, goals,
+                            critic_memory)
         dones = np.array([step == done_at, False])
         buffer.add_outcome(rng.random((envs, agents), dtype=np.float32), dones, dones,
                            np.zeros((envs, agents), np.float32))
@@ -199,3 +201,82 @@ def test_an_evaluation_carries_one_acting_state_through_its_episodes():
 
     assert len(states) == 1
     assert states[0].age[0, 0] == 3  # the goal clock ran on, rather than starting over on every decision
+
+
+def test_critic_memory_is_carried_and_cleared():
+    """The critic carries a memory of its own: the global state is a snapshot, so without one it cannot value what
+    the actor remembers."""
+    torch.manual_seed(0)
+    trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=6))
+    acting = trainer.acting_state(2, 1)
+    assert acting.critic_memory.shape == (2, 1, 6) and not acting.critic_memory.any()
+
+    obs = np.ones((2, 1, 3), np.float32)
+    mask = np.ones((2, 1, 2), bool)
+    layout = np.zeros((2, 1), np.int64)
+    state = np.ones((2, 4), np.float32)
+
+    trainer.act_and_value(obs, mask, layout, state, state=acting)
+    carried = acting.critic_memory.copy()
+    assert carried.any()                                    # the critic's GRU wrote something
+    assert not np.allclose(carried, acting.memory)          # ... of its own, not the actor's
+
+    trainer.act_and_value(obs, mask, layout, state, state=acting)
+    assert not np.allclose(acting.critic_memory, carried)   # the same observation values differently now
+
+    acting.clear(np.array([True, False]))
+    assert not acting.critic_memory[0].any() and acting.critic_memory[1].any()
+
+
+def test_critic_value_depends_on_its_memory():
+    """A value read with a carried memory differs from the same decision read cold, which is the whole point: the
+    critic can tell a fight in progress from one that has just begun."""
+    torch.manual_seed(0)
+    trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=6))
+    obs = np.ones((2, 1, 3), np.float32)
+    layout = np.zeros((2, 1), np.int64)
+    state = np.ones((2, 4), np.float32)
+
+    cold = trainer.value(state, obs, layout)
+    warm_memory = np.ones((2, 1, 6), np.float32)
+    warm = trainer.value(state, obs, layout, memory=warm_memory)
+    assert not np.allclose(cold, warm)
+
+
+def test_recurrent_update_replays_the_critic(tmp_path):
+    """The update runs with both memories and changes the critic, so its sequences are actually being learned from."""
+    torch.manual_seed(0)
+    steps, envs, agents, obs_dim, state_dim, actions = 6, 2, 1, 3, 4, 2
+    trainer = MappoTrainer([(obs_dim, actions)], state_dim,
+                           MappoConfig(hidden=(8, 8), recurrent_size=6, epochs=2, minibatches=1))
+    buffer = RolloutBuffer(steps, envs, agents, obs_dim, state_dim, actions, recurrent=6)
+    fill(trainer, buffer, steps, envs, agents, obs_dim, state_dim, actions, done_at=3)
+
+    before = trainer.critic.memory.weight_hh.detach().clone()
+    stats = trainer.update(buffer)
+    assert stats["value_loss"] > 0.0
+    assert not torch.allclose(before, trainer.critic.memory.weight_hh)
+
+
+def test_seeding_carries_the_memories(tmp_path):
+    """A stage that inherits the trunk inherits how to remember with it: without this, every stage relearned its
+    recurrence from scratch while keeping the features it reads."""
+    from animus.bootstrap import seed_trainer
+
+    torch.manual_seed(0)
+    config = MappoConfig(hidden=(8, 8), recurrent_size=6, goal_count=3)
+    trained = MappoTrainer([(3, 2)], 4, config)
+    with torch.no_grad():
+        for network in (trained.actor, trained.critic):
+            network.memory.weight_hh.add_(0.5)
+
+    spec = type("Spec", (), {"layouts": [type("L", (), {"name": "a", "obs_dim": 3, "num_actions": 2})()],
+                             "state_dim": 4})()
+    checkpoint = {"trainer": {"actor": trained.actor.state_dict(), "critic": trained.critic.state_dict()},
+                  "spec": {"layouts": [{"name": "a"}]}}
+
+    fresh = MappoTrainer([(3, 2)], 4, config)
+    assert not torch.allclose(fresh.actor.memory.weight_hh, trained.actor.memory.weight_hh)
+    seed_trainer(fresh, checkpoint, spec)
+    assert torch.allclose(fresh.actor.memory.weight_hh, trained.actor.memory.weight_hh)
+    assert torch.allclose(fresh.critic.memory.weight_hh, trained.critic.memory.weight_hh)
