@@ -569,6 +569,14 @@ AnimusForge.Curriculum.Duel.StallGraceMs = 15000
 #   ... which grows by the time spent starting buffs, forms, stances, stealth and pet summons out of combat (each its
 #   cast time, at least a global cooldown), up to this much (ms): 30 s made a 45 s approach free
 AnimusForge.Curriculum.Duel.PreparationRefundMaxMs = 15000
+#   duel: stopping the opponent's cast, priced by what was stopped as the pack's is (a heal undoes damage already
+#   dealt, an area spell would have hit everyone, a long cast was a large part of the caster's output). The duel
+#   meets casters now (Difficulty.CasterChance), and one enemy casting one spell is the cheapest place in the
+#   curriculum to learn what an interrupt is for
+AnimusForge.Curriculum.Duel.Interrupt = 0.3
+AnimusForge.Curriculum.Duel.InterruptHeal = 3.0
+AnimusForge.Curriculum.Duel.InterruptArea = 2.0
+AnimusForge.Curriculum.Duel.InterruptLong = 1.5
 #   creature duel, ranged specs: per second the opponent stands in melee range hitting the bot
 AnimusForge.Curriculum.Duel.Spacing = 0.03
 #   the range the approach shaping aims for, melee specs
