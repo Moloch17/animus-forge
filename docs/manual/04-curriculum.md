@@ -297,20 +297,30 @@ one choice:
 | Action | Block | What it does until it stops |
 |---|---|---|
 | `rest_until_ready` | gauntlet | Eats and drinks, whichever is missing, until health and mana are back to 90% |
-| `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has |
+| `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has -- its own spell, or its pet's (a felhunter's Spell Lock) when it has none. Offered only to a seat that has one |
 | `keep_range` | duel | A ranged spec: runs back to casting range whenever the target reaches melee |
 | `stay_on_target` | duel | A melee spec: runs back into melee reach whenever the target leaves it |
 
-Each runs in its block's `BeforeApply`, every decision, and stops on its own condition (the fight starts, the target
-dies, nothing is left to eat), when its `Options.*` clock runs out, or the moment the policy takes any other action --
-the option's own action is masked while it runs, so nothing cancels itself. The two **positioning** options
-(`keep_range`, `stay_on_target`) are the exception: only the seat moving itself takes over from one, because a fight
-is spells and swings between steps and cancelling on those is what left a melee seat re-issuing its own movement
-every decision (the rogue pressed one every 0.39 s while it stood in melee reach 96% of the
-time). What it does is counted as a press would be
-(food and drink used, an interrupt pending on a caster). The core block reports which option is running and how much of
-its clock is left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode
-info say how much a class/role uses them.
+A seat runs **two at a time**: one positioning option and one standby (`SeatOptionSet`), since keeping a caster at
+range and waiting for its cast are not alternatives. Each runs in its block's `BeforeApply`, every decision, and stops
+on its own condition (the fight starts, the target dies, nothing is left to eat, the interrupt fires) or when its
+`Options.*` clock runs out. What any other action does to it depends on what it is:
+
+- **positioning** (`keep_range`, `stay_on_target`): only a movement order the other way takes over -- backing off ends
+  staying on the target, closing in ends keeping range, and steps that do neither (to casting range, stop, follow)
+  leave it alone. A fight is spells and swings between steps, and cancelling on those is what left a melee seat
+  re-issuing its own movement every decision (the rogue pressed one every 0.39 s while it stood in melee reach 96% of
+  the time).
+- **standby** (`hold_interrupt`): nothing the seat does takes over from it, because waiting for the target's cast is
+  not something it stops fighting to do. Cancelled by any press, a hold lasted 0.6 s against casts of 1.5-2.5 s and
+  interrupted next to nothing.
+- `rest_until_ready`: any other action ends it, as recovering is what the seat is doing rather than something it waits
+  through.
+
+Each option's own action is masked while it runs, so nothing cancels itself. What it does is counted as a press would
+be (food and drink used, an interrupt pending on a caster). The core block reports how much of each option's clock is
+left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode info say how
+much a class/role uses them.
 
 ### The action catalog
 
@@ -648,12 +658,12 @@ below 35%); gauntlets add `buff_coverage` at engage.
 - timeout (creature duel only): -10 when the episode's time runs out with neither side dead. The fight is lost, so the
   episode ends as a terminal outcome rather than a cut-off the critic bootstraps past; before it, never engaging was
   the cheapest way to lose
-- stall (creature duel only): -0.05 per second the fight hasn't started once `Duel.StallGraceMs` (15 s) of the episode
+- stall (creature duel only): -0.08 per second the fight hasn't started once `Duel.StallGraceMs` (15 s) of the episode
   are gone. The timeout comes 900 decisions later, too far for the policy to tell standing still from closing in: at
   20M steps stage1_duel's deterministic policy stood where it spawned for the whole episode in 67 of 2048 evaluation
   fights. Preparing isn't stalling: the grace grows by the time the seat spent starting helpful spells out of combat
   (buffs, forms, stances, stealth, pet summons, conjuring; each its cast time, at least a 1.5 s global cooldown), up to
-  `Duel.PreparationRefundMaxMs` (30 s), so a warlock summoning its demon or a druid shifting before the pull isn't
+  `Duel.PreparationRefundMaxMs` (15 s), so a warlock summoning its demon or a druid shifting before the pull isn't
   charged for it and nothing has to start prepared. `preparation_seconds` in the episode info is that time, uncapped
 - spacing (creature duel, ranged specs): -0.03 per second the opponent stands in melee range attacking the seat. The
   approach term only pays for closing in, so nothing kept a hunter, mage or warlock at its range
@@ -673,8 +683,17 @@ kill, +0.3 per interrupt, the stealth terms. Like the duel, a single pack is won
   episode. With the timeout alone, a -10 about 100 s away was worth about 2 to the discounted return against a whole
   -10 death now, and stage 2's warlocks learned to kite out the clock (28% timeouts at 10M steps). Dying never ends
   an overtime fight more cheaply than timing out
-- stall -0.05 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone,
-  plus the preparation time as the duel's, up to `PreparationRefundMaxMs` (30 s)
+- stall -0.08 per second while no pack member has entered combat, once `StallGraceMs` (15 s) of the episode are gone,
+  plus the preparation time as the duel's, up to `PreparationRefundMaxMs` (15 s). Counted per pull, not per episode:
+  over a gauntlet, preparing once bought the full refund on every pull after it, and a seat that dropped combat to
+  re-buff kept earning grace (stage 2's warlock went from 5.6 s of preparation a fight to 14.2 s, 19.4 s in the
+  fights it lost)
+- control +0.5 (`SinglePackControl`) times the damage prevented, in the seat's current health (floored at
+  `ControlHealthFloor`, 20% of maximum), for every pack member other than the target that is held out of the fight
+  -- each credited its own measured damage rate, or the pull's mean, or `ControlFallbackDps` for one that never got
+  to act; up to `SinglePackControlMax` (1.0) a pull. Priced in the same currency as damage taken, at half its weight
+  because the damage prevented is estimated rather than observed. The overtime grace also grows by the time an add
+  was held, up to `ControlGraceMaxMs` (15 s), so holding one is not charged as dragging the fight out
 - spacing -0.03 per second, for a ranged spec, while a living pack member attacks it in melee reach
 
 With the gauntlet's clear and health kept (+2 and up to +2) and a -3 death, keeping health paid as much as clearing
@@ -691,7 +710,7 @@ food and drink (`GauntletSupplies`), and a win: reaching the end with the owner 
 (5) pulls cleared counts as the kill, so `clean_kill` is the gauntlet won with the seat alive. **Alone** (stage 3) the gauntlet is won by lasting, and pays
 win-first as the single pack does (`Pulls.SoloGauntlet*`): each cleared pull +5, up to +1 for clearing within a minute
 of engaging it and up to +0.5 for health kept; a death -10, besides every pull it forfeits. Its pulls charge Stall
-(-0.05 per second from `StallGraceMs` plus the preparation refund after the pull spawned, not while eating or
+(-0.08 per second from `StallGraceMs` plus the preparation refund earned since the pull spawned, not while eating or
 drinking) and Spacing as the single pack does. Engaging a pull pays readiness, `SoloGauntletReadiness` (0.5) times the
 seat's health fraction the decision before (the lower of health and mana for mana users), so resting between pulls
 pays when the next one starts rather than only through the death it avoids. Control pays `SoloGauntletControl` (0.02)

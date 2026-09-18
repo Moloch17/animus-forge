@@ -725,9 +725,11 @@ AnimusForge.Curriculum.Pulls.OvertimeGraceMs = 60000
 #   its own measured damage rate over the decision, divided by the seat's health now (floored at ControlHealthFloor of
 #   its maximum), so a prevented hit is worth more the less health there is to lose -- the same currency DamageTaken is
 #   charged in, which is why the two weights are comparable and control no longer loses to the overtime clock.
-#   SinglePackControl 0 measures without paying: the episode reports control_seconds and control_prevented either way,
-#   so set the weight from what a run actually saves rather than guessing, and turning it on needs no rebuild.
-AnimusForge.Curriculum.Pulls.SinglePackControl = 0.0
+#   Half DamageTaken: what a held add would have dealt is estimated, not observed, and the health floor can multiply
+#   it fivefold, so control is paid less than the damage it is credited with preventing. Measured at 0 until
+#   2026-09-18 (stage2_pack at 30M: control_prevented 0.03 healths a fight, reward_control 0.00 -- nothing was
+#   controlled because nothing paid for it).
+AnimusForge.Curriculum.Pulls.SinglePackControl = 0.5
 #   ... at most this much a pull, a guard against a sim quirk rather than a shaping knob
 AnimusForge.Curriculum.Pulls.SinglePackControlMax = 1.0
 #   the health divisor's floor, as a fraction of maximum health, so control's value cannot run away near death
@@ -738,14 +740,16 @@ AnimusForge.Curriculum.Pulls.ControlFallbackDps = 0.02
 #   how long an add must be loose before its own measured rate is trusted over the pull's mean (ms)
 AnimusForge.Curriculum.Pulls.ControlRateMinMs = 3000
 #   pack: the overtime grace grows by the wall time at least one add was held, up to this much (ms), so holding an add
-#   is not charged as dragging the fight out. 0 leaves the grace alone. Bounded on purpose -- Overtime is what stops
-#   kiting the clock, and an unbounded pause would hand that back
-AnimusForge.Curriculum.Pulls.ControlGraceMaxMs = 0
+#   is not charged as dragging the fight out: with the grace alone, the overtime charge took back what the control
+#   paid. 0 leaves the grace alone. Bounded on purpose -- Overtime is what stops kiting the clock, and an unbounded
+#   pause would hand that back
+AnimusForge.Curriculum.Pulls.ControlGraceMaxMs = 15000
 #   pack: per second the pack has not been engaged once StallGraceMs of the episode are gone
 AnimusForge.Curriculum.Pulls.Stall = 0.08
 AnimusForge.Curriculum.Pulls.StallGraceMs = 15000
 #   pack: the grace grows by the time spent starting buffs, forms, stances, stealth and pet summons out of combat (each
-#   its cast time, at least a global cooldown), up to this much (ms)
+#   its cast time, at least a global cooldown), up to this much (ms). Counted per pull, not per episode: a gauntlet
+#   seat that prepared once used to earn the full refund on every pull after it
 AnimusForge.Curriculum.Pulls.PreparationRefundMaxMs = 15000
 #   pack: per second a ranged spec is hit by a pack member in melee reach
 AnimusForge.Curriculum.Pulls.Spacing = 0.03
