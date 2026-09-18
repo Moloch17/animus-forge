@@ -90,6 +90,7 @@ CMake: `ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`). Bot
 | `ANIMUS_FORGE_OUTPUT_DIR` | `/azerothcore/var/animus-forge` | Becomes `AC_ANIMUS_FORGE_OUTPUT_DIR` |
 | `DOCKER_DB_EXTERNAL_PORT` | `13306` | MySQL on `127.0.0.1` |
 | `DOCKER_TENSORBOARD_EXTERNAL_PORT` | `16006` | TensorBoard on `127.0.0.1` |
+| `DOCKER_DASHBOARD_EXTERNAL_PORT` | `18800` | The forge dashboard on `127.0.0.1` (`python/animus/dashboard.py`) |
 | `DOCKER_DB_ROOT_PASSWORD` | `password` | MySQL root password |
 | `CCUSTOMOPTIONS` | (override) | Extra CMake options, for example `-DMODULE_MOD-ANIMUS=disabled` |
 
