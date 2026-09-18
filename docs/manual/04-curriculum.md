@@ -53,7 +53,7 @@ An `ArenaDefinition` describes one situation:
 |---|---|
 | `Name` | Unique within the stage. Used in episode info, `stage.json`, tuning keys and per-arena gates |
 | `Weight` | Share of episodes, overridable with `<TuningPrefix>Arena.<stage>.<arena>.Weight` |
-| `Seats` | `Solo` (1), `Party` (4 slots, 1-4 filled each episode), `Mirror` (2 that fight each other) |
+| `Seats` | `Solo` (1), `Party` (4 slots beside the owner, 1-4 filled each episode), `Mirror` (2 that fight each other), `Raid` (40: eight groups of five, a tank and a healer at the head of each) |
 | `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
 | `Owner` | A scripted owner the seats fight for |
@@ -131,8 +131,10 @@ every `Reset` calls `Rebuild`:
    the enemy player). Then `BeforeRebuild` for this arena's encounters (the party group disbands before its members are
    replaced).
 4. **`Begin()`** every seat's `BotSlot`, and remember each seat's current character for rollback.
-5. **Pick the seats.** A party arena draws its size from `Party.SizeWeight1-4`. Half the time
-   (`Party.ClassicChance`) the roles are the classic tank, healer, DPS, DPS in shuffled order. Otherwise each seat's
+5. **Pick the seats.** A party arena draws its size from `Party.SizeWeight1-4`; a raid arena takes
+   all forty of its seats. Half the time
+   (`Party.ClassicChance`) the roles are the classic makeup -- a tank and a healer at the head of every group of
+   five, the rest damage -- shuffled over the seats in play. Otherwise each seat's
    role is drawn (`RoleTankChance`, `RoleHealerChance`). Each seat then takes a random layout of its role, or any layout
    if the run has none of that role. Other arenas give every seat any layout. A training episode draws it by the
    learner's per-layout weights (`WEIGHTS`, evenly without them); an evaluation episode doesn't draw at all: seed
@@ -417,7 +419,8 @@ counts the charged presses.
 | `companion` | The owner's presence, health, mana, distance, bearing, combat, movement, level difference and class; enemies on it; which slot it attacks; which enemies attack it; each revive's known and cooldown | Follow, assist (owner's target), guard (an enemy attacking the owner), one revive-on-owner per revive |
 | `party` | Living party size, the most hurt ally's health, living tank and healer present; per teammate: presence, health, mana, distance, bearing, combat, role, class, attackers, target slot, which enemies attack it | Follow the tank; per teammate: assist, guard, revives |
 | `party` teammate goals | Each teammate's goal one-hot (`SeatGoal`), so a party can divide the work | |
-| `support` (stages 3-5, 8) | The selected friend and rank tier (one-hot); per friend slot (self, owner, three teammates): presence, alive, health, mana, distance, line of sight, attackers, role, the bot's own HoT (duration left) and absorb on it, buff coverage | Select a friend (the target of positive unit-target spells); set the rank tier (high, mid, low) |
+| `party` raid summary | The seat's group index, the living share of the raid and of its own group, the share of the living in combat, the most hurt living seat anywhere, and living tanks and healers over `RAID_GROUPS` | |
+| `support` (stages 3-5, 8) | The selected friend and rank tier (one-hot); per friend slot (self, owner, then the party block's teammate slots): presence, alive, health, mana, distance, line of sight, attackers, role, the bot's own HoT (duration left) and absorb on it, buff coverage | Select a friend (the target of positive unit-target spells); set the rank tier (high, mid, low) |
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
