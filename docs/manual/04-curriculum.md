@@ -290,6 +290,22 @@ The same function builds training seats and live companions, so a model gets in 
   login normally casts it, and nothing works without one), and for hunters a stable offer of four tameable beasts of
   different random families.
 
+### Raid stages
+
+`stage13_raid_single` and `stage14_raid_gauntlet` train `MAX_SEATS` learned seats as `RAID_GROUPS` groups of
+`GROUP_SEATS` (`SeatPlan::Raid`), each group with its own tank and healer. The first is one elite and its adds, won
+or lost as the single pack is; the second is pull after pull with recovery between, which is what a wing of a raid
+instance is before its boss.
+
+A raid is not a bigger party, so it does not fight a bigger pack. Its rungs (`RAID_RUNGS`) put the difficulty in what
+the enemy is -- elite, levels above, something on the ground -- rather than in how many there are, which `PACK_SLOTS`
+caps at what a seat can observe anyway. The seats outnumber the enemies on purpose: what is being trained is
+coordination against a fight that punishes standing in the wrong place.
+
+Neither stage is in the default queue, and **neither is runnable at the usual env count**: forty seats an env is
+forty bots an env, so `AnimusForge.Envs` has to come down roughly in proportion (a few dozen envs, not 128) before
+starting one. Train by name: `forge start stage13_raid_single`.
+
 ### What an enemy is doing
 
 A seat used to know one thing about an enemy's spellcasting: that it was happening. One bit, no identity, no clock.
@@ -316,6 +332,13 @@ gnoll shaman's Lightning Bolt and a raid boss's produce the same features, and a
 
 `hazard_seconds`, `hazard_damage` and `interruptible_casts_seen` in the episode info say whether any of it is being
 used -- the last is the denominator the press-to-interrupt ratio always lacked.
+
+For any of it to be learnable, the opponents have to produce it. Nothing did: the duel's pool is default-AI
+creatures, which never cast, and no creature anywhere was selected for putting something on the ground. So
+`Difficulty.CasterChance` (40%) draws a share of duel opponents from the same cast-only scripts the packs use, with
+`Difficulty.HazardChance` (30% of those) from the ones that create a persistent area aura; and the upper pack rungs,
+the last planned pulls and every raid rung include a hazard caster (`OpponentPool::RandomHazardCaster`). One enemy,
+one cast and one pool of fire in a stage 1 duel is the cheapest place any of this can be learned.
 
 ### Durative actions
 

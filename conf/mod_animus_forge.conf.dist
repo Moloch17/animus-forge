@@ -597,6 +597,12 @@ AnimusForge.Curriculum.Difficulty.ReviewChance = 25
 #   percent drawn one tier above the class/role's own, which do not count towards moving it: an evaluation scores
 #   every tier, so nothing should be met there for the first time
 AnimusForge.Curriculum.Difficulty.StretchChance = 10
+#   duel: the share of fights against something that casts, and of those, the share against something that puts a
+#   hazard on the ground. The duel's own pool is default-AI creatures, which never cast at all, so at 0 stage 1
+#   teaches nothing about interrupting, dispelling or stepping out of anything -- all of it waits for stage 2's
+#   packs, where it competes with learning to fight several enemies at once
+AnimusForge.Curriculum.Difficulty.CasterChance = 40
+AnimusForge.Curriculum.Difficulty.HazardChance = 30
 
 #
 #    AnimusForge.Curriculum.Casting.*
