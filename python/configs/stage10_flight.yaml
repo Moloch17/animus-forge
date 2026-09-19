@@ -25,7 +25,7 @@ mappo:
 eval:
   report: [arrived, travel_seconds, mounted_fraction, flying_fraction, flying_mount_fraction,
     knows_flying_mount, could_mount_flying, flew, saved_if_flew, saved_if_ground,
-    flight_speed, flight_height, saved, died]
+    flight_speed, flight_yps, flight_height, saved, died]
 
 # A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
 # it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
