@@ -268,6 +268,9 @@ PAGE = r"""<!doctype html>
   h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .01em; }
   .muted { color: var(--dim); }
   main { padding: 20px; display: grid; gap: 16px; max-width: 1400px; }
+  /* A table of eighteen class/roles is wider than a phone: each one scrolls sideways inside its panel, so the page
+     itself never does. Without this the body scrolls horizontally and the cards and charts go off-screen. */
+  .panel > .scroll, .panel > div[id] { overflow-x: auto; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
   .card .k { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
@@ -280,17 +283,30 @@ PAGE = r"""<!doctype html>
   th:first-child, td:first-child { text-align: left; }
   th { color: var(--dim); font-weight: 600; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
   tbody tr:hover { background: #1d222c; }
-  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 14px; }
   .chart { height: 150px; width: 100%; }
   .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px; }
   .bar > div { height: 100%; background: var(--accent); }
   input[type=search] { background: #11141a; color: var(--text); border: 1px solid var(--line);
-                       border-radius: 8px; padding: 6px 10px; width: 260px; }
+                       border-radius: 8px; padding: 6px 10px; width: 260px; max-width: 100%; }
   label { color: var(--dim); font-size: 12px; margin-left: 12px; }
   .scroll { max-height: 420px; overflow: auto; }
   .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .changed td:first-child::after { content: " changed"; color: var(--warn); font-size: 11px; }
+  @media (max-width: 700px) {
+    main { padding: 12px; gap: 12px; }
+    header { padding: 12px; gap: 8px; }
+    .panel { padding: 10px 12px; }
+    .cards { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+    .card { padding: 8px 10px; }
+    .card .v { font-size: 17px; }
+    th, td { padding: 3px 6px; font-size: 12px; }
+    .scroll { max-height: 320px; }
+    /* The filter and its checkbox wrap under the heading rather than pushing it off the edge. */
+    .panel h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    label { margin-left: 0; }
+  }
 </style></head>
 <body>
 <header>
@@ -307,7 +323,7 @@ PAGE = r"""<!doctype html>
     <div class="scroll"><table id="live"></table></div></div>
   <div class="panel"><h2>Class and role, last evaluation <span id="layoutsteps" class="muted"></span></h2>
     <div class="scroll"><table id="layouts"></table></div></div>
-  <div class="panel"><h2>Runs</h2><table id="runs"></table></div>
+  <div class="panel"><h2>Runs</h2><div class="scroll"><table id="runs"></table></div></div>
   <div class="panel"><h2>Config
       <input type="search" id="filter" placeholder="filter keys and values">
       <label><input type="checkbox" id="changedonly"> changed from the dist default only</label></h2>
