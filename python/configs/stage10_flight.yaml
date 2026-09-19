@@ -23,7 +23,8 @@ mappo:
   gae_lambda: 0.995
 
 eval:
-  report: [arrived, travel_seconds, start_distance, mounted_fraction, flying_fraction, saved, died]
+  report: [arrived, travel_seconds, mounted_fraction, flying_fraction, flying_mount_fraction,
+    knows_flying_mount, could_mount_flying, saved, died]
 
 # A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
 # it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
