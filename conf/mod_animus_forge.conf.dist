@@ -974,8 +974,10 @@ AnimusForge.Curriculum.Travel.FlyingMax = 700.0
 #   potential shaping: per 100 yd closed (taken back for leaving)
 AnimusForge.Curriculum.Travel.Progress = 1.0
 AnimusForge.Curriculum.Travel.Arrive = 3.0
-#   times the fraction of the episode still left
-AnimusForge.Curriculum.Travel.FastArrive = 3.0
+#   times the fraction of the walk the trip saved: 0 on foot, ~0.3 mounted over
+#   a few hundred yards. This is what pays for a mount, so it has to be worth
+#   more than the cast time costs
+AnimusForge.Curriculum.Travel.FastArrive = 6.0
 #   fraction of the bot's health (falls, what it rode past)
 AnimusForge.Curriculum.Travel.DamageTaken = 1.0
 AnimusForge.Curriculum.Travel.Death = 3.0
