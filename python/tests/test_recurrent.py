@@ -86,8 +86,8 @@ def test_a_per_minibatch_auxiliary_is_refused():
 
 
 def test_a_sequence_aware_auxiliary_is_replayed_in_order():
-    """The recurrent update calls a sequence-aware auxiliary (animus.distill.Distiller) once per decision, with the
-    memories it handed out at the start of the sequence, and adds its loss to the actor's."""
+    """The recurrent update hands a sequence-aware auxiliary (animus.distill.Distiller) the whole chunk at once, in
+    order, and adds its loss to the actor's."""
     torch.manual_seed(0)
     steps, envs = 4, 2
     trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=4, epochs=1, minibatches=1))
@@ -101,21 +101,20 @@ def test_a_sequence_aware_auxiliary_is_replayed_in_order():
             self.sequences = []
             self.calls = 0
 
-        def begin_sequence(self, rows, device):
-            self.sequences.append(rows)
-            return {0: torch.zeros(rows, 2, device=device)}
-
-        def step_loss(self, obs, state, layout, mask, logits, memories, dones):
+        def sequence_loss(self, obs, state, layout, mask, logits, dones):
             self.calls += 1
-            assert memories[0].shape[0] == obs.shape[0]
-            assert dones.shape[0] == obs.shape[0]
-            return logits.square().mean() * self.coef, obs.shape[0]
+            self.sequences.append(obs.shape[1])
+            # The leading shape is [steps, rows] on every argument, so the teachers can be replayed in one pass.
+            assert obs.shape[0] == steps and layout.shape == (steps, obs.shape[1])
+            assert dones.shape == (steps, obs.shape[1])
+            assert logits.shape[:2] == (steps, obs.shape[1])
+            return logits.square().mean() * self.coef, steps * obs.shape[1]
 
     distiller = FakeDistiller()
     stats = trainer.update(buffer, auxiliary=distiller)
 
     assert distiller.sequences == [envs]           # one sequence per minibatch of envs
-    assert distiller.calls == steps                # one call per replayed decision
+    assert distiller.calls == 1                    # the whole chunk in one call, not one per decision
     assert stats["distill_rows"] > 0.0 and "distill_kl" in stats
 
 

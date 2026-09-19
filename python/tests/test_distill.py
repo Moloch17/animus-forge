@@ -28,12 +28,12 @@ def stage_with(layouts: dict[str, list[tuple[str, int, int]]], arenas=("duel", "
             "state": {"arena_first": ARENA_FIRST, "arena_count": ARENA_COUNT}}
 
 
-def checkpoint(trainer: MappoTrainer, layouts: list[Layout], stage: dict, hidden) -> dict:
+def checkpoint(trainer: MappoTrainer, layouts: list[Layout], stage: dict, hidden, recurrent_size: int = 0) -> dict:
     return {
         "trainer": trainer.state_dict(),
         "spec": {"scenario": "parent", "layouts": [{"name": l.name, "obs_dim": l.obs_dim, "num_actions": l.num_actions}
                                                    for l in layouts]},
-        "config": {"mappo": {"hidden": list(hidden)}},
+        "config": {"mappo": {"hidden": list(hidden), "recurrent_size": recurrent_size}},
         "stage": stage,
     }
 
@@ -178,3 +178,48 @@ def test_coefficient_decays_to_its_floor():
     assert config.coef_at(0) == pytest.approx(2.0)
     assert config.coef_at(10) == pytest.approx(1.0)
     assert config.coef_at(1000) == pytest.approx(0.1)
+
+
+def test_a_chunk_at_once_matches_replaying_it_decision_by_decision():
+    """sequence_loss is the batched form of the per-decision path: same teachers, same memories, same KL. The loop it
+    replaces cost stage8_crossroads a 306 s update with six teachers."""
+    torch.manual_seed(0)
+    config = MappoConfig(hidden=(16, 16), recurrent_size=4)
+    parent_stage = stage_with({"mage_dps": [("core", 4, 3), ("pvp", 2, 0)]}, arenas=("pvp",))
+    stage = stage_with({"mage_dps": [("core", 4, 3), ("pvp", 2, 0)]})
+    parent = MappoTrainer([(6, 3)], 5, config)
+    student = MappoTrainer([(6, 3)], 5, config)
+    teacher = build_teacher(
+        checkpoint(parent, [Layout("mage_dps", 6, 3)], parent_stage, config.hidden, config.recurrent_size),
+        spec([Layout("mage_dps", 6, 3)]), stage, torch.device("cpu"))
+    assert teacher.recurrent_size  # the path under test is the recurrent one
+
+    steps, rows = 5, 4
+    obs = torch.randn(steps, rows, 6)
+    state = torch.zeros(steps, rows, 5)
+    state[:, :2, ARENA_FIRST + 1] = 1.0          # pvp: taught
+    state[:, 2:, ARENA_FIRST + 0] = 1.0          # duel: no teacher, but still replayed
+    layout = torch.zeros(steps, rows, dtype=torch.long)
+    mask = torch.ones(steps, rows, 3, dtype=torch.bool)
+    dones = torch.zeros(steps, rows, dtype=torch.bool)
+    dones[2, 1] = True                            # an episode ends mid-chunk: the memory clears there
+    logits = torch.stack([student.actor(obs[step], layout[step], mask[step]).logits for step in range(steps)])
+
+    distiller = Distiller(stage, {"pvp": teacher})
+    distiller.coef = 0.5          # the trainer sets this per update; at 0 nothing is taught either way
+    memories = distiller.begin_sequence(rows, torch.device("cpu"))
+    stepwise_total = 0.0
+    stepwise_rows = 0
+    for step in range(steps):
+        taught = distiller.step_loss(obs[step], state[step], layout[step], mask[step], logits[step], memories,
+                                     dones[step])
+        if taught is not None:
+            loss, count = taught
+            stepwise_total += float(loss.detach()) * count
+            stepwise_rows += count
+
+    batched = distiller.sequence_loss(obs, state, layout, mask, logits, dones)
+    assert batched is not None
+    loss, count = batched
+    assert count == stepwise_rows
+    assert float(loss.detach()) == pytest.approx(stepwise_total / stepwise_rows, rel=1e-5)

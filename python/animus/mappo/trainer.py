@@ -397,7 +397,7 @@ class MappoTrainer:
         """One PPO update over the rollout. `auxiliary(data, idx, dist)` may add a loss to each minibatch's actor
         loss: it returns (loss, {stat: value}) or None (see animus.distill)."""
         if self.recurrent_size:
-            if auxiliary is not None and not hasattr(auxiliary, "step_loss"):
+            if auxiliary is not None and not hasattr(auxiliary, "sequence_loss"):
                 raise ValueError("a recurrent actor needs a sequence-aware auxiliary loss (animus.distill.Distiller): "
                                  "its rows are replayed in order, so a per-minibatch hook cannot carry the teachers' "
                                  "memories")
@@ -683,25 +683,22 @@ class MappoTrainer:
 
                 # The teachers' own memories follow the same replayed decisions as the student's (animus.distill),
                 # so distillation is the one part that stays a loop over the sequence.
-                teach = auxiliary if auxiliary is not None and hasattr(auxiliary, "step_loss") else None
+                teach = auxiliary if auxiliary is not None and hasattr(auxiliary, "sequence_loss") else None
                 distill_loss = torch.zeros((), device=self.train_device)
                 distill_rows = 0
                 if teach is not None:
-                    teacher_memories = teach.begin_sequence(rows_here, self.train_device)
-                    logits = dist.logits.reshape(steps, rows_here, -1)
+                    # The whole chunk in one call. A recurrent teacher still sees the decisions in order, but only
+                    # its GRU cell runs per step: replaying every teacher's adapters and trunk decision by decision
+                    # cost stage8_crossroads a 306 s update against a 6 s rollout, with six teachers.
                     state_all = (data["state"][:, chunk][:, :, None, :]
                                  .expand(steps, envs_here, agents, data["state"].shape[-1])
                                  .reshape(steps, rows_here, -1))
-                    for step in range(steps):
-                        taught = teach.step_loss(
-                            obs_all.reshape(steps, rows_here, -1)[step], state_all[step],
-                            layout_all.reshape(steps, rows_here)[step],
-                            mask_all.reshape(steps, rows_here, -1)[step], logits[step],
-                            teacher_memories, dones_all[step])
-                        if taught is not None:
-                            loss, rows = taught
-                            distill_loss = distill_loss + loss
-                            distill_rows += rows
+                    taught = teach.sequence_loss(
+                        obs_all.reshape(steps, rows_here, -1), state_all,
+                        layout_all.reshape(steps, rows_here), mask_all.reshape(steps, rows_here, -1),
+                        dist.logits.reshape(steps, rows_here, -1), dones_all)
+                    if taught is not None:
+                        distill_loss, distill_rows = taught
 
                 counted = valid[:, chunk].to(torch.float32)
                 weight = counted.sum().clamp(min=1.0)

@@ -232,6 +232,108 @@ class Distiller:
         mean = total / rows
         return self.coef * mean, {"distill_kl": float(mean.detach()), "distill_rows": float(rows)}
 
+    def sequence_loss(self, obs: torch.Tensor, state: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
+                      logits: torch.Tensor, dones: torch.Tensor):
+        """The whole replayed chunk at once, in place of a call per decision.
+
+        Every argument carries a leading [steps, rows] (logits [steps, rows, actions]). A recurrent teacher still has
+        to see the decisions in order, but only its GRU cell does: its adapters and trunk run once over every step,
+        which is the difference between a matmul per step per teacher and one per teacher. stage8_crossroads has six
+        teachers and measured a 306 s update against a 6 s rollout before this.
+
+        Returns (loss, rows) with rows 0 when nothing was taught.
+        """
+        if self.coef < 1e-4:
+            return None
+
+        steps, rows = layout.shape[0], layout.shape[1]
+        flat_obs = obs.reshape(steps * rows, -1)
+        flat_layout = layout.reshape(-1)
+        flat_mask = mask.reshape(steps * rows, -1)
+        flat_logits = logits.reshape(steps * rows, -1)
+        arena = self.arenas(state.reshape(steps * rows, -1))
+
+        total = logits.new_zeros(())
+        rows_taught = 0
+        for arena_index, teacher in self.teachers.items():
+            in_arena = arena == arena_index
+            recurrent = bool(teacher.recurrent_size)
+            if not in_arena.any() and not recurrent:
+                continue
+
+            # The teacher's own padded view of every step, built once: a row whose layout the teacher does not have
+            # is not replayed at all, and its memory stands still, exactly as the per-decision path left it.
+            t_obs = flat_obs.new_zeros(steps * rows, teacher.obs_dim)
+            t_mask = torch.zeros(steps * rows, teacher.num_actions, dtype=torch.bool, device=obs.device)
+            t_layout = torch.zeros(steps * rows, dtype=torch.long, device=obs.device)
+            allowed = torch.zeros_like(flat_mask, dtype=torch.bool)
+            mapped = torch.zeros(steps * rows, dtype=torch.bool, device=obs.device)
+            columns: dict[int, torch.Tensor] = {}
+            for layout_index in torch.unique(flat_layout).tolist():
+                mapping = teacher.layouts.get(int(layout_index))
+                if mapping is None:
+                    continue
+
+                of_layout = flat_layout == layout_index
+                picked = torch.nonzero(of_layout if recurrent else of_layout & in_arena, as_tuple=True)[0]
+                if not len(picked):
+                    continue
+
+                student_allowed = flat_mask[picked][:, mapping.actions_student].bool()
+                t_obs[picked.unsqueeze(1), mapping.obs_teacher.unsqueeze(0)] = flat_obs[picked][:,
+                    mapping.obs_student]
+                t_mask[picked.unsqueeze(1), mapping.actions_teacher.unsqueeze(0)] = student_allowed
+                t_layout[picked] = mapping.teacher_layout
+                allowed[picked.unsqueeze(1), mapping.actions_student.unsqueeze(0)] = student_allowed
+                mapped[picked] = True
+                columns[int(layout_index)] = mapping.actions_student
+
+            if not mapped.any():
+                continue
+
+            with torch.no_grad():
+                if recurrent:
+                    encoded = teacher.actor.encode(t_obs, t_layout).reshape(steps, rows, -1)
+                    memory = teacher.actor.initial_memory(rows, device=obs.device)
+                    carried = []
+                    valid = mapped.reshape(steps, rows)
+                    for step in range(steps):
+                        moved = teacher.actor.memory(encoded[step], memory)
+                        # A row the teacher cannot read keeps the memory it had, as it did decision by decision.
+                        memory = torch.where(valid[step].unsqueeze(1), moved, memory)
+                        carried.append(memory)
+                        memory = memory * (~dones[step]).to(memory.dtype).unsqueeze(1)
+                    features = torch.stack(carried).reshape(steps * rows, -1)
+                    t_logits = teacher.actor.action_distribution(features, t_layout, t_mask).logits
+                else:
+                    t_logits = teacher.actor(t_obs, t_layout, t_mask).logits
+
+            # Taught rows are the teacher's own arena, and only where the student had something to choose between.
+            for layout_index, student_columns in columns.items():
+                of_layout = flat_layout == layout_index
+                picked = torch.nonzero(of_layout & in_arena, as_tuple=True)[0]
+                if not len(picked):
+                    continue
+
+                mapping = teacher.layouts[layout_index]
+                row_allowed = allowed[picked][:, student_columns]
+                taught = row_allowed.any(dim=-1)
+                if not taught.any():
+                    continue
+
+                t_logp = torch.log_softmax(
+                    t_logits[picked][:, mapping.actions_teacher].masked_fill(~row_allowed, MASKED_LOGIT), dim=-1)
+                s_logp = torch.log_softmax(
+                    flat_logits[picked][:, student_columns].masked_fill(~row_allowed, MASKED_LOGIT), dim=-1)
+                kl = (t_logp.exp() * (t_logp - s_logp)).masked_fill(~row_allowed, 0.0).sum(dim=-1)
+                total = total + kl[taught].sum()
+                rows_taught += int(taught.sum())
+
+        if rows_taught == 0:
+            return None
+
+        return self.coef * (total / rows_taught), rows_taught
+
     def step_loss(self, obs: torch.Tensor, state: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
                   logits: torch.Tensor, memories: dict[int, torch.Tensor], dones: torch.Tensor):
         """One decision of a replayed sequence (MappoTrainer's recurrent update): the same loss as __call__, with the
