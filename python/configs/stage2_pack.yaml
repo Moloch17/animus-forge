@@ -5,7 +5,7 @@
 
 extends: stage1_duel.yaml
 run_name: stage2_pack
-total_env_steps: 60000000
+total_env_steps: 30000000
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
 # so the duel's 33 s horizon is too short to carry credit from a clear back to the opening. These are the gauntlet's

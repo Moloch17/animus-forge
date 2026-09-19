@@ -13,7 +13,7 @@ extends: stage5_party.yaml
 run_name: stage8_crossroads
 
 # ~20 h at ~15k env steps/s (up to four seats); convergence usually ends the stage sooner.
-total_env_steps: 60000000
+total_env_steps: 30000000
 
 mappo:
   gamma: 0.999

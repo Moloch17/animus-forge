@@ -10,7 +10,7 @@ extends: stage6_pvp.yaml
 run_name: stage7_arena
 
 # ~4 h at ~14k env steps/s (two seats).
-total_env_steps: 60000000
+total_env_steps: 30000000
 
 eval:
   baseline: fight

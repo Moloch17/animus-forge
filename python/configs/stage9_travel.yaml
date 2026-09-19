@@ -7,7 +7,7 @@ extends: stage1_duel.yaml
 run_name: stage9_travel
 
 # Trips take seconds to a minute: shorter than a fight, one policy for every class/role.
-total_env_steps: 60000000
+total_env_steps: 30000000
 
 eval:
   baseline: fight
