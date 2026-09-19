@@ -223,11 +223,12 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
 
     metrics: dict = {}
     layouts: dict = {}
+    live_layouts: dict = {}
     if current:
         run_dir = runs_dir / current["name"]
         metrics = CACHE.get(run_dir / "metrics.csv", parse_metrics) or {}
         layouts = CACHE.get(run_dir / "eval_episodes.jsonl", parse_layouts) or {}
-        live = CACHE.get(run_dir / "layouts.csv", parse_live_layouts) or {}
+        live_layouts = CACHE.get(run_dir / "layouts.csv", parse_live_layouts) or {}
 
     live = CACHE.get(conf_path, parse_conf) or {}
     dist = CACHE.get(DIST_CONF, parse_conf) or {}
@@ -246,7 +247,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
         "series": [{"key": key, "label": label} for key, label in SERIES],
         "metrics": metrics,
         "layouts": layouts,
-        "live": live,
+        "live": live_layouts,
         "config": config,
     }
 
