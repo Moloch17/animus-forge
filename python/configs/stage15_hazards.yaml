@@ -1,0 +1,14 @@
+# Drill: something on the ground in every pull. Hazards are not new to the curriculum -- the pack ladder draws a
+# hazard caster from rung 3, and self-play makes them by the spell (stage7_arena measured 3.1 s of hazard an episode,
+# stage3_gauntlet 1.1 s) -- but a class/role that stalls below rung 3 never meets one, and a second an episode is
+# thin to learn from. Here every pull has one at stage 2's difficulty, so walking out of it is what the episode is
+# about rather than a detail of a harder fight.
+#
+# Trained by name (`forge start stage15_hazards`), after stage2_pack, which it seeds from. Not in the default queue.
+extends: stage2_pack.yaml
+run_name: stage15_hazards
+# A drill, not a stage of the curriculum: it is there to move one behaviour, and the behaviour shows early.
+total_env_steps: 100000000
+convergence:
+  patience: 2
+  min_env_steps: 15000000

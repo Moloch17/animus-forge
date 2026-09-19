@@ -26,10 +26,23 @@ stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ s
 | 10 | `stage10_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
 | 11 | `stage11_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
 | 12 | `stage12_endurance` (by name) | stage3 | stage 3's | 1 | The same eight pulls in the same order, ending on an elite pack two levels up | Won by clearing the last pull; 900 s |
+| 15 | `stage15_hazards` (by name) | stage2 | stage 2's | 1 | A pack with something on the ground in every pull | Ends on clear, death or the 120 s clock |
+| 16 | `stage16_tanking` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the tank; hold what the pull brings | Full length |
+| 17 | `stage17_triage` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the healer; keep the group up | Full length |
 | - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pet, pvp | 1 | Duel or scripted player, half and half | Per arena |
 
 `mix_duel_pvp` is not in the default queue of `forge start`. It exists to test arena mixing, merge seeding and
 distillation on a small problem. Train it by name; a plain `forge fast` trains it with every other stage.
+
+**Drills** (15-17) are not in the default queue either. Each fixes what one episode is about, where the curriculum
+teaches the same skill inside a stage won by something else and the credit for it is smeared over the clear: a pack
+with a hazard in every pull rather than one from rung 3 up, a seat that is always the tank, a seat that is always
+the healer (`ArenaDefinition::Hazards` and `SeatRoles`). They seed from the stage they extend and are trained by
+name. Two things to know before reading their scores: the hazard charge lands about four times harder on a tank
+than on a ranged seat, because a tank cannot walk out of what it is holding an enemy in; and `stage17_triage`
+inherits stage 5's resurrection exploit (nothing clears `m_resurrectGUID`, so one landed Rebirth makes every later
+death of that ally a free instant resurrect that pays the revive reward again), which a forced healer will find
+faster than anything else in the curriculum.
 
 ## 4.1 Defining a stage
 
