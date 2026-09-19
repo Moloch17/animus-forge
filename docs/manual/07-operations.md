@@ -141,6 +141,7 @@ won't seed from it (the command warns you).
 | `forge status` | The live report: rates, ETAs, evaluation scores against baseline, warnings |
 | `forge progress 600` | The same report every 10 minutes |
 | The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class/role. Started by the worldserver container, refreshes every 5 s |
+| `<OutputDir>/runs/<stage>/layouts.csv` | Per class/role, **every update**: what each of them is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). metrics.csv averages all eighteen together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
 | TensorBoard at http://localhost:16006 | `episode_*`, losses, entropy, `eval/*`, `eval_<band>/*`, `eval_arena_<arena>/*` |
 | `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class/role and arena |
 | `<OutputDir>/runs/<stage>/eval.csv`, `eval.jsonl` | Every evaluation, with full tables |

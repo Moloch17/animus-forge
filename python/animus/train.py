@@ -62,6 +62,10 @@ class RunLogger:
         if existing:
             with self.csv_path.open(newline="") as f:
                 columns = next(csv.reader(f))
+        layouts_path = run_dir / "layouts.csv"
+        self._layouts_exist = append and layouts_path.exists() and layouts_path.stat().st_size > 0
+        self._layout_writer = None
+        self._layout_file = None
         self._csv_file = self.csv_path.open("a" if existing else "w", newline="")
         self._csv_writer = csv.DictWriter(self._csv_file, fieldnames=columns, restval="", extrasaction="ignore")
         if not existing:
@@ -72,6 +76,27 @@ class RunLogger:
             self.tb = SummaryWriter(run_dir / "tb")
         except ImportError:
             self.tb = None
+
+    def log_layouts(self, rows: list[dict]) -> None:
+        """One row per class/role per update (layouts.csv): what each of them is doing right now, from the training
+        episodes themselves. metrics.csv averages all eighteen together, which answers how the run is going and
+        never which class is in trouble; the evaluation tables answer that but only every eval.every_env_steps.
+        These are sampled-policy episodes at each class/role's own ladder difficulty, so they are for reading
+        behaviour, not for gating -- the gates stay on the evaluations."""
+        if not rows:
+            return
+
+        if self._layout_writer is None:
+            self._layout_file = (self.csv_path.parent / "layouts.csv").open("a" if self._layouts_exist else "w",
+                                                                           newline="")
+            self._layout_writer = csv.DictWriter(self._layout_file, fieldnames=list(rows[0]), restval="",
+                                                 extrasaction="ignore")
+            if not self._layouts_exist:
+                self._layout_writer.writeheader()
+
+        for row in rows:
+            self._layout_writer.writerow(row)
+        self._layout_file.flush()
 
     def log(self, step: int, row: dict[str, float]) -> None:
         self._csv_writer.writerow(row)
@@ -384,6 +409,9 @@ class TrainingRun:
         self.step = None
         self.last_eval_env_steps = 0
         self.finished_episodes: list[np.ndarray] = []
+        # The class/role each of those episodes was played by, so an update can say what each one is doing rather
+        # than only what all eighteen did on average.
+        self.finished_layouts: list[int] = []
         # A party seat left empty for an episode reports present = 0; its row is not an episode.
         names = spec.episode_info_names
         self.present_column = names.index("present") if "present" in names else None
@@ -707,8 +735,11 @@ class TrainingRun:
                     final_foresight[done] = trainer.foresight_of(step.final_obs[done], layout[done],
                                                                  memory[done] if memory is not None else None)
                 ended = step.episode_info[step.done].reshape(-1, spec.episode_info_dim)
+                ended_layouts = layout[step.done].reshape(-1)
                 present = self.present_column
-                self.finished_episodes.extend(ended if present is None else ended[ended[:, present] > 0.0])
+                keep = slice(None) if present is None else ended[:, present] > 0.0
+                self.finished_episodes.extend(ended[keep])
+                self.finished_layouts.extend(int(index) for index in ended_layouts[keep])
 
             # A new episode starts with nothing remembered and no goal.
             if step.done.any():
@@ -776,6 +807,7 @@ class TrainingRun:
             means = np.mean(self.finished_episodes, axis=0)
             for name, value in zip(spec.episode_info_names, means):
                 row[f"episode_{name}"] = float(value)
+            self.log_layout_rows(spec)
         row.update(stats)
 
         # The floor reads the entropy this update reached against how many actions were legal for it.
@@ -791,6 +823,27 @@ class TrainingRun:
         print(f"update {self.update} | steps {self.env_steps} | {row['env_steps_per_sec']:.0f} sps | {summary}",
               flush=True)
         self.finished_episodes.clear()
+        self.finished_layouts.clear()
+
+    def log_layout_rows(self, spec) -> None:
+        """Per class/role means of this update's training episodes, one row each (RunLogger.log_layouts)."""
+        names = [layout.name for layout in spec.layouts]
+        episodes = np.asarray(self.finished_episodes)
+        layouts = np.asarray(self.finished_layouts)
+        rows = []
+        for index in np.unique(layouts):
+            mine = episodes[layouts == index]
+            if not len(mine):
+                continue
+
+            means = np.mean(mine, axis=0)
+            row = {"update": self.update, "env_steps": self.env_steps,
+                   "layout": names[index] if index < len(names) else str(index), "episodes": len(mine)}
+            row.update({f"episode_{name}": float(value)
+                        for name, value in zip(spec.episode_info_names, means)})
+            rows.append(row)
+
+        self.logger.log_layouts(rows)
 
     def train(self) -> Outcome:
         """Train until the stage decides to move on or halt, or the step budget runs out."""

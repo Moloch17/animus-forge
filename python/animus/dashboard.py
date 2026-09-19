@@ -132,6 +132,31 @@ def parse_metrics(path: Path, points: int = 240) -> dict[str, list]:
     return series
 
 
+def parse_live_layouts(path: Path) -> dict:
+    """The newest update's per class/role training rows (layouts.csv). Training episodes, not an evaluation: sampled
+    actions at each class/role's own ladder difficulty, which is what makes them live -- they arrive every update
+    rather than every eval.every_env_steps."""
+    rows = list(csv.DictReader(io.StringIO(path.read_text(errors="replace"))))
+    if not rows:
+        return {}
+
+    newest = rows[-1].get("update")
+    latest = [row for row in rows if row.get("update") == newest]
+    layouts = []
+    for row in latest:
+        entry = {"layout": row.get("layout", "?")}
+        for key, value in row.items():
+            if key.startswith("episode_") or key in ("episodes", "env_steps"):
+                try:
+                    entry[key.replace("episode_", "")] = float(value)
+                except (TypeError, ValueError):
+                    continue
+        layouts.append(entry)
+
+    layouts.sort(key=lambda entry: entry.get("killed", 0.0))
+    return {"update": newest, "env_steps": layouts[0].get("env_steps", 0) if layouts else 0, "layouts": layouts}
+
+
 def parse_layouts(path: Path) -> dict:
     """Per class/role means over the last evaluation in the episode log (the learner appends every evaluation)."""
     last_steps = None
@@ -202,6 +227,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
         run_dir = runs_dir / current["name"]
         metrics = CACHE.get(run_dir / "metrics.csv", parse_metrics) or {}
         layouts = CACHE.get(run_dir / "eval_episodes.jsonl", parse_layouts) or {}
+        live = CACHE.get(run_dir / "layouts.csv", parse_live_layouts) or {}
 
     live = CACHE.get(conf_path, parse_conf) or {}
     dist = CACHE.get(DIST_CONF, parse_conf) or {}
@@ -220,6 +246,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
         "series": [{"key": key, "label": label} for key, label in SERIES],
         "metrics": metrics,
         "layouts": layouts,
+        "live": live,
         "config": config,
     }
 
@@ -275,6 +302,8 @@ PAGE = r"""<!doctype html>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Training</h2><div class="charts" id="charts"></div></div>
   <div class="panel"><h2>Evaluations</h2><div id="evals"></div></div>
+  <div class="panel"><h2>Class and role, right now <span id="livesteps" class="muted"></span></h2>
+    <div class="scroll"><table id="live"></table></div></div>
   <div class="panel"><h2>Class and role, last evaluation <span id="layoutsteps" class="muted"></span></h2>
     <div class="scroll"><table id="layouts"></table></div></div>
   <div class="panel"><h2>Runs</h2><table id="runs"></table></div>
@@ -350,6 +379,25 @@ function render() {
     ${evals.map(e => `<tr><td>${steps(e.env_steps)}</td><td>${e.policy}</td><td>${fmt(e.score, 3)}</td>
       <td class="muted">${fmt(e.stderr, 3)}</td><td>${e.best === null ? "-" : fmt(e.best, 3)}</td></tr>`).join("")}
     </tbody></table>` : `<span class="muted">none yet</span>`;
+
+  // What each class/role is doing in the training episodes of the newest update, rather than at the last evaluation.
+  const LV = state.live || {};
+  document.getElementById("livesteps").textContent = LV.update !== undefined
+    ? `(update ${LV.update}, ${steps(LV.env_steps || 0)} steps, sampled actions)` : "(waiting for the first update)";
+  const livecols = [["episodes", "eps", 0], ["killed", "kill", 2], ["died", "die", 2], ["timed_out", "t/o", 2],
+                    ["difficulty", "diff", 1], ["in_melee_share", "melee", 2], ["power_left", "power", 2],
+                    ["healing_per_mana", "heal/mana", 2], ["hot_healing_share", "hot", 2],
+                    ["repeated_presses", "repeats", 1], ["hazard_seconds", "haz s", 1],
+                    ["interruptible_casts_seen", "seen", 1], ["reward_interrupt", "r_int", 3]];
+  document.getElementById("live").innerHTML = `
+    <thead><tr><th>layout</th>${livecols.map(c => `<th>${c[1]}</th>`).join("")}</tr></thead><tbody>
+    ${(LV.layouts || []).map(r => `<tr><td>${r.layout}</td>${livecols.map(c => {
+        const v = r[c[0]];
+        let k = "";
+        if (c[0] === "killed") k = v >= 0.9 ? "good" : v < 0.7 ? "bad" : "warn";
+        if (c[0] === "died" || c[0] === "timed_out") k = v <= 0.05 ? "good" : v > 0.2 ? "bad" : "warn";
+        return `<td class="${k}">${v === undefined ? "-" : fmt(v, c[2])}</td>`;
+      }).join("")}</tr>`).join("")}</tbody>`;
 
   const L = state.layouts || {};
   document.getElementById("layoutsteps").textContent = L.env_steps ? `(${steps(L.env_steps)} steps)` : "";
