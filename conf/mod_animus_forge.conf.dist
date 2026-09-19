@@ -631,6 +631,11 @@ AnimusForge.Curriculum.Casting.Cancel = 0.05
 #   so a goal head cannot collapse into one goal, rather than paying for play the stage's own terms already price
 AnimusForge.Curriculum.Goals.Match = 0.02
 AnimusForge.Curriculum.Support.SelfHealing = 0.5
+#   per fraction of the mana pool spent on healing. Healing is worth what it restores for what it costs, and the cost
+#   was never priced: an effective heal of 3% of a health bar cost the same as one of 20%, so choosing a cheaper rank
+#   bought nothing and a heal over time could be stacked on a full bar for free. With it the objective is healing per
+#   mana. Kept well below SelfHealing -- the failure to avoid is a seat that heals too little and dies
+AnimusForge.Curriculum.Support.HealingMana = 0.1
 #   gauntlets: engaging a pull pays this times the share of the class's buff groups up on the bot (and the owner)
 AnimusForge.Curriculum.Support.BuffCoverage = 0.3
 #   a class that keeps a pet (hunter, warlock, death knight, mage) with it out when a fight starts, paid once at the
