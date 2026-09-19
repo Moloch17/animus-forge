@@ -4,6 +4,7 @@
 
 extends: stage1_duel.yaml
 run_name: stage6_pvp
+total_env_steps: 60000000
 
 # gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
 # critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
@@ -21,3 +22,18 @@ mappo:
 
 eval:
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
+
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
+target:
+  metrics: {}
+  layout_metrics: {}
+  role_metrics: {}
+  arenas: {}
+  difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
+  until_passed: false

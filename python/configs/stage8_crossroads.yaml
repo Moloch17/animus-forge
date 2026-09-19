@@ -13,7 +13,7 @@ extends: stage5_party.yaml
 run_name: stage8_crossroads
 
 # ~20 h at ~15k env steps/s (up to four seats); convergence usually ends the stage sooner.
-total_env_steps: 1000000000
+total_env_steps: 60000000
 
 mappo:
   gamma: 0.999
@@ -32,17 +32,20 @@ eval:
     ambushers_killed, casts_completed, casts_cancelled]
 
 convergence:
-  min_env_steps: 100000000
+  min_env_steps: 20000000
 
 # Every situation holds up on its own, not only on average; the new arenas only need to beat the fight baseline.
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
 target:
-  min_arena_episodes: 16
-  arenas:
-    companion: {min_over_baseline: 0.1}
-    party: {min_over_baseline: 0.1}
-    arena_1v1: {min_over_baseline: 0.1}
-    pvp_scripted: {min_over_baseline: 0.1}
-    gauntlet: {min_over_baseline: 0.1}
-    duel: {min_over_baseline: 0.1}
-    ambush: {min_over_baseline: 0.0}
-    escort_duel: {min_over_baseline: 0.0}
+  metrics: {}
+  layout_metrics: {}
+  role_metrics: {}
+  arenas: {}
+  difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
+  until_passed: false

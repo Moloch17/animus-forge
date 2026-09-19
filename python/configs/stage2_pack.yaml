@@ -5,6 +5,7 @@
 
 extends: stage1_duel.yaml
 run_name: stage2_pack
+total_env_steps: 60000000
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
 # so the duel's 33 s horizon is too short to carry credit from a clear back to the opening. These are the gauntlet's
@@ -32,11 +33,17 @@ mappo:
 # first laddered run: at 30M steps it held 91% overall (bound 0.89) but rogues (70%, bound 0.57, stuck between the 2- and
 # 3-creature rungs), druid healers, priest DPS and warlocks (81-82%) stayed under it. Taking adds out with crowd control
 # is stage 3's to teach (its control reward).
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics:
-    clean_kill: {min: 0.85, confidence: 0.95}
-  layout_metrics:
-    clean_kill: {min: 0.65, confidence: 0.95}
-  base_difficulty: 2
+  metrics: {}
+  layout_metrics: {}
+  role_metrics: {}
+  arenas: {}
   difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
   until_passed: false

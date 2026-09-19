@@ -18,7 +18,7 @@ extends: stage2_pack.yaml
 run_name: stage3_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
-total_env_steps: 400000000
+total_env_steps: 60000000
 
 # rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.995 per 100 ms (a ~100 s horizon, ~17 s
 # of GAE trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting
@@ -31,7 +31,7 @@ eval:
   every_env_steps: 15000000
 
 convergence:
-  min_env_steps: 40000000
+  min_env_steps: 20000000
 
 # A win is clean_kill: the gauntlet lasted to the end without a death and with Pulls.SoloGauntletWinPulls (5) pulls
 # cleared (PullsEncounter counts that as the kill; lasting on fewer is a timeout). The gauntlet has no difficulty
@@ -42,14 +42,17 @@ convergence:
 # win is stricter, so the floors are lower: 55% overall and 40% per class/role by the Wilson bound, four pulls cleared
 # on average, no livelocks. The stage halts below them rather than training on; recalibrate from this run's
 # evaluations.
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics:
-    livelocked: {max: 0.01}
-    clean_kill: {min: 0.55, confidence: 0.95}
-    pulls_cleared: {min: 4.0}
-  layout_metrics:
-    livelocked: {max: 0.02}
-    clean_kill: {min: 0.40, confidence: 0.95}
-  base_difficulty: null
+  metrics: {}
+  layout_metrics: {}
+  role_metrics: {}
+  arenas: {}
   difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
   until_passed: false

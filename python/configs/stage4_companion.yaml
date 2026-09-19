@@ -10,6 +10,7 @@
 
 extends: stage3_gauntlet.yaml
 run_name: stage4_companion
+total_env_steps: 60000000
 
 # A win is clean_kill: the 450 s lasted with the owner never dead, no wipe, Pulls.OwnerWinPulls (5) pulls cleared and
 # the seat itself never dead (PullsEncounter counts the first three as the kill; died covers the last). The owner fights
@@ -20,17 +21,17 @@ run_name: stage4_companion
 # wipes, and at least the win's pulls cleared on average. The role checks (owner_heal_share for healers, threat_share
 # for tanks and the rest) are reported per class/role and per role first; gate them (target.role_metrics) once a run
 # shows what the roles reach.
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics:
-    livelocked: {max: 0.01}
-    clean_kill: {min: 0.50, confidence: 0.95}
-    owner_died: {max: 0.35}
-    wipes: {max: 0.2}
-    pulls_cleared: {min: 5.0}
-  layout_metrics:
-    livelocked: {max: 0.02}
-    clean_kill: {min: 0.35, confidence: 0.95}
+  metrics: {}
+  layout_metrics: {}
   role_metrics: {}
-  base_difficulty: null
+  arenas: {}
   difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
   until_passed: false

@@ -7,7 +7,7 @@ extends: stage4_companion.yaml
 run_name: stage5_party
 
 # ~11 h at ~15k env steps/s (four seats); convergence usually ends the stage much sooner (the headroom is for restarts).
-total_env_steps: 600000000
+total_env_steps: 60000000
 
 eval:
   every_env_steps: 20000000
@@ -16,4 +16,19 @@ eval:
     cancelled_target, cancelled_other]
 
 convergence:
-  min_env_steps: 60000000
+  min_env_steps: 20000000
+
+# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
+# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
+# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
+# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
+# to prove a stage rather than to cover ground; they are in git history.
+target:
+  metrics: {}
+  layout_metrics: {}
+  role_metrics: {}
+  arenas: {}
+  difficulties: {}
+  min_over_baseline: null
+  min_layout_over_baseline: null
+  until_passed: false
