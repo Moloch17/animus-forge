@@ -636,6 +636,10 @@ AnimusForge.Curriculum.Support.SelfHealing = 0.5
 #   bought nothing and a heal over time could be stacked on a full bar for free. With it the objective is healing per
 #   mana. Kept well below SelfHealing -- the failure to avoid is a seat that heals too little and dies
 AnimusForge.Curriculum.Support.HealingMana = 0.1
+#   the same charge in the schedules that pay readiness (the gauntlet, a planned run), where mana spent healing
+#   already costs the seat what it brings to the next pull. 0 leaves that accounting to do the work: the charge is a
+#   stand-in for an opportunity cost and is only needed where there is no later fight to have one
+AnimusForge.Curriculum.Support.HealingManaWithReadiness = 0.0
 #   gauntlets: engaging a pull pays this times the share of the class's buff groups up on the bot (and the owner)
 AnimusForge.Curriculum.Support.BuffCoverage = 0.3
 #   a class that keeps a pet (hunter, warlock, death knight, mage) with it out when a fight starts, paid once at the
