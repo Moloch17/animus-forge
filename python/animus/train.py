@@ -44,6 +44,12 @@ from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
 from .rewards import WARN_EVERY, audit, describe, reward_mix
+
+#: A run whose approx_kl stays under this for STALL_WINDOW updates is told it has stopped moving. Measured
+#: against the stages that do stall (they end around 0.001) and those that do not (0.003 to 0.010).
+STALL_KL = 0.0015
+STALL_WINDOW = 10
+STALL_MIN_UPDATES = 20
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
 from .mappo.trainer import schedule
 from .stage import ADVANCE, EXIT_BELOW_TARGET, EXTEND, HALT, RESTART, Outcome, StageController
@@ -476,6 +482,9 @@ class TrainingRun:
         # The update a reward-mix warning was last printed on, so a run that trips it says so without saying it
         # every update for the rest of the run.
         self.reward_warned_at: int | None = None
+        # The recent KL, and when a stall was last mentioned (audit_progress).
+        self.recent_kl: list[float] = []
+        self.stall_warned_at: int | None = None
 
     # ------------------------------------------------------------------ setup
 
@@ -879,6 +888,7 @@ class TrainingRun:
             self.controller.observe_entropy(row["entropy"], self.rollout_allowed_actions)
 
         self.audit_reward(row)
+        self.audit_progress(row)
         self.logger.log(self.update, row)
         self.progress.training(row)
         self.progress.write("training", self.update, self.env_steps)
@@ -889,6 +899,34 @@ class TrainingRun:
               flush=True)
         self.finished_episodes.clear()
         self.finished_layouts.clear()
+
+    def audit_progress(self, row: dict[str, float]) -> None:
+        """Say so when the updates have stopped moving the policy.
+
+        Roughly half the stages measured end their run barely changing: approx_kl falls eight to eleven fold
+        between the first eighth of a run and the last (stage9_party 11.2x, stage19 10.5x, stage8 9.2x,
+        stage4 8.3x) with clip_frac down to ~0.01, so the final third costs wall clock and buys very little.
+        The other half do not -- stage1_duel's KL *rises* over 683 updates, travel and flight stay flat -- so
+        this is reported and never acted on. Stopping a stalled run automatically would have cut stage4
+        short, and it went on to 916 updates.
+        """
+        kl = row.get("approx_kl")
+        if kl is None or self.update < STALL_MIN_UPDATES:
+            return
+
+        self.recent_kl.append(float(kl))
+        if len(self.recent_kl) > STALL_WINDOW:
+            self.recent_kl.pop(0)
+        if len(self.recent_kl) < STALL_WINDOW or max(self.recent_kl) >= STALL_KL:
+            return
+
+        if self.stall_warned_at is not None and self.update - self.stall_warned_at < WARN_EVERY:
+            return
+
+        self.stall_warned_at = self.update
+        print(f"  learning has stalled: approx_kl has stayed under {STALL_KL:g} for {STALL_WINDOW} updates "
+              f"(now {kl:.2g}, clip_frac {row.get('clip_frac', 0.0):.2g}). The policy is barely moving; if the "
+              f"evaluation is not improving either, the rest of this run is wall clock.", flush=True)
 
     def audit_reward(self, row: dict[str, float]) -> None:
         """Say so when a shaping term has become the thing being optimised (animus.rewards)."""
