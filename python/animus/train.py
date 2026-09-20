@@ -320,12 +320,21 @@ class TrainingRun:
         validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
                         else None)
 
+        # The layout that decides on a slow clock, by name: its index moves with the stage, and a stage without
+        # one simply has no agents of it.
+        names = [layout.name for layout in spec.layouts]
+        self.slow_layout = names.index(config.mappo.slow_layout) if config.mappo.slow_layout in names else -1
+        if config.mappo.slow_layout and self.slow_layout < 0:
+            print(f"No layout named {config.mappo.slow_layout!r} in this stage: nothing decides on a slow clock",
+                  flush=True)
+
         self.trainer = MappoTrainer(
             [(layout.obs_dim, layout.num_actions) for layout in spec.layouts],
             spec.state_dim,
             config.mappo,
             train_device=config.resolved_train_device(),
             rollout_device=config.resolved_rollout_device(),
+            slow_layout=self.slow_layout,
         )
         print(f"Updates on {self.trainer.train_device}, rollouts on {config.resolved_rollout_device()}", flush=True)
 
@@ -345,6 +354,18 @@ class TrainingRun:
             f"{config.rollout_length * spec.decision_ms / 1000.0:.1f} s",
             flush=True,
         )
+        if self.trainer.slow_layout >= 0:
+            every = max(1, config.mappo.slow_every_decisions)
+            step_ms = every * spec.decision_ms
+            slow_gamma = config.mappo.slow_gamma
+            slow_trace = slow_gamma * config.mappo.slow_gae_lambda
+            print(
+                f"Per {step_ms / 1000.0:.1f} s {config.mappo.slow_layout} decision ({every} of them): gamma "
+                f"{slow_gamma:.5f} (horizon {horizon_seconds(slow_gamma, step_ms):.0f} s), GAE trace "
+                f"{slow_trace:.5f} (credit {horizon_seconds(slow_trace, step_ms):.0f} s), rollout "
+                f"{config.rollout_length / every:.1f} of its decisions",
+                flush=True,
+            )
 
         self.evaluating = config.eval.every_env_steps > 0
         self.controller = StageController(config)
@@ -707,10 +728,10 @@ class TrainingRun:
             step = self.step
             memory = self.acting.memory.copy() if self.acting.memory is not None else None
             critic_memory = self.acting.critic_memory.copy() if self.acting.critic_memory is not None else None
-            actions, log_probs, values, foresight, goals = trainer.act_and_value(
+            actions, log_probs, values, foresight, goals, chosen = trainer.act_and_value(
                 step.obs, step.mask, step.layout, step.state, state=self.acting)
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
-                                foresight, memory, goals, critic_memory)
+                                foresight, memory, goals, critic_memory, chosen)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
             layout = step.layout
@@ -753,7 +774,10 @@ class TrainingRun:
                       *self.discounts,
                       last_foresight=trainer.foresight_of(self.step.obs, self.step.layout, self.acting.memory),
                       foresight_gammas=self.foresight_discounts,
-                      time_scale_decisions=self.foresight_time_decisions)
+                      time_scale_decisions=self.foresight_time_decisions,
+                      slow_layout=self.slow_layout,
+                      slow_gamma=self.config.mappo.slow_gamma,
+                      slow_gae_lambda=self.config.mappo.slow_gae_lambda)
         # Read before the buffers swap below: log_update runs on the rollout that has just been collected.
         self.rollout_reward = buffer.mean_reward()
         self.rollout_allowed_actions = buffer.mean_allowed_actions()

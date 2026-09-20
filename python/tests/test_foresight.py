@@ -45,7 +45,7 @@ def test_update_learns_the_heads_and_reports_their_loss():
         state = rng.random((envs, 4), dtype=np.float32)
         mask = np.ones((envs, agents, 2), bool)
         layout = np.zeros((envs, agents), np.int64)
-        actions, log_probs, values, foresight, _ = trainer.act_and_value(obs, mask, layout, state)
+        actions, log_probs, values, foresight, _, _ = trainer.act_and_value(obs, mask, layout, state)
         assert foresight.shape == (envs, agents, trainer.foresight_outputs)
         buffer.add_decision(obs, state, mask, layout, actions, log_probs, values, None, foresight)
         dones = np.array([step == steps - 2, False])

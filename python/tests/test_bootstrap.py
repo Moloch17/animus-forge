@@ -98,16 +98,24 @@ def test_a_branch_is_seeded_block_by_block():
     torch.testing.assert_close(new_head[5], fresh_head[5])               # the new block's action keeps its init
 
 
-def test_mismatched_block_sizes_are_rejected():
+def test_a_block_that_changed_shape_is_seeded_from_scratch_and_the_rest_carries_over():
+    """A block whose shape moved cannot be copied column by column, but it is the only part of a layout that
+    cannot. Refusing the whole checkpoint over one block throws away every other block that would have carried,
+    and the trunk with them; the changed one reaches the trunk at zero and is learned."""
+    torch.manual_seed(0)
     config = MappoConfig(hidden=(8,))
     old = MappoTrainer([(7, 5)], 4, config)
     new = MappoTrainer([(8, 5)], 4, config)
     checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec([Layout("mage_dps", 7, 5)]),
                   "stage": stage_with({"mage_dps": [("core", 4, 3), ("duel", 3, 2)]})}
 
-    with pytest.raises(ValueError):
-        seed_trainer(new, checkpoint, spec([Layout("mage_dps", 8, 5)], 4),
-                     stage_with({"mage_dps": [("core", 4, 3), ("duel", 4, 2)]}))
+    seed_trainer(new, checkpoint, spec([Layout("mage_dps", 8, 5)], 4),
+                 stage_with({"mage_dps": [("core", 4, 3), ("duel", 4, 2)]}))
+
+    new_w = new.actor.state_dict()["adapters.0.weight"]
+    # Core kept its four features and carried over; duel went from three to four and starts at nothing.
+    torch.testing.assert_close(new_w[:, :4], old.actor.state_dict()["adapters.0.weight"][:, :4])
+    assert torch.count_nonzero(new_w[:, 4:]) == 0
 
 
 def test_without_spans_the_layout_is_seeded_as_a_prefix():

@@ -48,6 +48,82 @@ def compute_gae(
     return advantages, advantages + values
 
 
+def compute_slow_gae(
+    rewards: np.ndarray,
+    values: np.ndarray,
+    dones: np.ndarray,
+    terminated: np.ndarray,
+    final_values: np.ndarray,
+    last_values: np.ndarray,
+    chosen: np.ndarray,
+    slow: np.ndarray,
+    gamma: float,
+    gae_lambda: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """GAE for agents whose decisions are spaced out, over their own decisions rather than every step.
+
+    One transition runs from the decision an agent actually took to the next one it takes -- or to the end of its
+    episode, or the end of the rollout -- and carries every reward in between. Discounting is then per decision
+    taken, so `gamma` and `gae_lambda` mean what they say on the agent's own clock: at ten decisions a span and
+    250 ms a decision, gamma 0.996 is a ten minute horizon where the seats' 0.9975 is a hundred seconds.
+
+    Shapes as compute_gae, plus `chosen` and `slow` [T, E, A]. Rewards inside a span are summed and not
+    discounted: a span is seconds and the horizon is minutes, so the difference is far below the noise.
+
+    Only the chosen steps of slow agents get an advantage; everything else is left untouched for the caller's
+    own per-decision GAE to fill.
+    """
+    steps, envs, agents = rewards.shape
+    advantages = np.zeros_like(rewards, dtype=np.float32)
+    returns = np.zeros_like(rewards, dtype=np.float32)
+
+    for env in range(envs):
+        for agent in range(agents):
+            if not slow[:, env, agent].any():
+                continue
+
+            # Walk the rollout once, cutting it into the transitions this agent actually made.
+            spans = []      # (step, summed reward, bootstrap value, whether credit flows past it)
+            step = 0
+            while step < steps:
+                if not (chosen[step, env, agent] and slow[step, env, agent]):
+                    step += 1
+                    continue
+
+                reward = 0.0
+                end = step
+                while True:
+                    reward += float(rewards[end, env, agent])
+                    if dones[end, env] or end + 1 >= steps or chosen[end + 1, env, agent]:
+                        break
+                    end += 1
+
+                if dones[end, env]:
+                    # The episode ended inside the span: nothing follows a termination, and a truncation is
+                    # worth the value of the state it was cut off in.
+                    bootstrap = 0.0 if terminated[end, env] else float(final_values[end, env, agent])
+                    flows = False
+                elif end + 1 < steps:
+                    bootstrap = float(values[end + 1, env, agent])
+                    flows = True
+                else:
+                    # The rollout ended first; the value of what came next is all there is to go on.
+                    bootstrap = float(last_values[env, agent])
+                    flows = True
+
+                spans.append((step, reward, bootstrap, flows))
+                step = end + 1
+
+            gae = 0.0
+            for start, reward, bootstrap, flows in reversed(spans):
+                delta = reward + gamma * bootstrap - float(values[start, env, agent])
+                gae = delta + (gamma * gae_lambda * gae if flows else 0.0)
+                advantages[start, env, agent] = gae
+                returns[start, env, agent] = gae + float(values[start, env, agent])
+
+    return advantages, returns
+
+
 def compute_foresight(
     rewards: np.ndarray,
     predictions: np.ndarray,
@@ -111,6 +187,10 @@ class RolloutBuffer:
         self.mask = np.zeros((*shape, num_actions), dtype=bool)
         self.layout = np.zeros(shape, dtype=np.int64)
         self.valid = np.ones(shape, dtype=bool)  # False for a seat without a character: not a sample
+        # False for a decision a slow layout did not actually take (its previous call still standing). The
+        # agent was there and the env moved on, so the recurrence has to replay it -- but it chose nothing, so
+        # it is not a sample: `samples` is what the loss and the advantages are drawn from.
+        self.chosen = np.ones(shape, dtype=bool)
         self.actions = np.zeros(shape, dtype=np.int64)
         self.log_probs = np.zeros(shape, dtype=np.float32)
         self.values = np.zeros(shape, dtype=np.float32)  # denormalised
@@ -128,8 +208,13 @@ class RolloutBuffer:
         self.foresight_valid = np.zeros((*shape, foresight), dtype=bool)
         self.cursor = 0
 
+    @property
+    def samples(self) -> np.ndarray:
+        """The rows the loss is drawn from: an agent that had a character and made a decision of its own."""
+        return self.valid & self.chosen
+
     def add_decision(self, obs, state, mask, layout, actions, log_probs, values, present=None,
-                     foresight=None, memory=None, goals=None, critic_memory=None) -> None:
+                     foresight=None, memory=None, goals=None, critic_memory=None, chosen=None) -> None:
         """Record what the policy saw and did at step `cursor`; `present` [E, A] marks the agents with a character
         (default: all)."""
         t = self.cursor
@@ -138,6 +223,7 @@ class RolloutBuffer:
         self.mask[t] = mask
         self.layout[t] = layout
         self.valid[t] = True if present is None else present
+        self.chosen[t] = True if chosen is None else chosen
         self.actions[t] = actions
         self.log_probs[t] = log_probs
         self.values[t] = values
@@ -166,7 +252,8 @@ class RolloutBuffer:
         return self.cursor >= self.steps
 
     def finish(self, last_values: np.ndarray, gamma: float, gae_lambda: float, last_foresight=None,
-               foresight_gammas: tuple[float, ...] = (), time_scale_decisions: float = 0.0) -> None:
+               foresight_gammas: tuple[float, ...] = (), time_scale_decisions: float = 0.0,
+               slow_layout: int = -1, slow_gamma: float = 0.0, slow_gae_lambda: float = 0.0) -> None:
         self.advantages, self.returns = compute_gae(
             self.rewards,
             self.values,
@@ -177,6 +264,27 @@ class RolloutBuffer:
             gamma,
             gae_lambda,
         )
+
+        # A slow layout's own clock, over its own decisions: the per-decision advantages above are meaningless
+        # for it, because nine decisions in ten it did nothing and the tenth is credited with 250 ms of
+        # consequences rather than the 2.5 s its call actually governed.
+        if slow_layout >= 0:
+            slow = self.layout == slow_layout
+            if slow.any():
+                advantages, returns = compute_slow_gae(
+                    self.rewards,
+                    self.values,
+                    self.dones,
+                    self.terminated,
+                    self.final_values,
+                    last_values,
+                    self.chosen,
+                    slow,
+                    slow_gamma,
+                    slow_gae_lambda,
+                )
+                self.advantages = np.where(slow, advantages, self.advantages)
+                self.returns = np.where(slow, returns, self.returns)
         if not self.foresight or last_foresight is None:
             return
 
@@ -209,7 +317,7 @@ class RolloutBuffer:
         Seats without a character (``valid`` False) are left out: they only have the no-op and earn nothing, so as
         samples they would only dilute the advantages, the entropy and the value targets."""
         steps, envs, agents = self.actions.shape
-        keep = self.valid.reshape(-1)
+        keep = self.samples.reshape(-1)
         # Boolean indexing copies, so torch gets writable arrays.
         state = np.broadcast_to(self.state[:, :, None, :], (steps, envs, agents, self.state.shape[-1]))
         return {
@@ -237,7 +345,7 @@ class RolloutBuffer:
             "state": self.state,
             "mask": self.mask,
             "layout": self.layout,
-            "valid": self.valid,
+            "valid": self.samples,
             "actions": self.actions,
             "log_probs": self.log_probs,
             "values": self.values,

@@ -73,6 +73,26 @@ class MappoConfig:
     # policy's decision: its log probability joins the action's in the PPO ratio on the decisions that chose one.
     goal_count: int = 0
     goal_every_decisions: int = 16
+    # A layout whose agents decide on a slower clock than the seats and are credited on that clock: the director
+    # (Curriculum::DirectorLayout). Named rather than indexed, because a layout's index moves with the stage.
+    #
+    # Its agents choose an action every slow_every_decisions and keep it in between, as the goal head keeps a
+    # goal, and -- unlike the goal head -- their transitions are stored over those choices: one transition runs
+    # from the decision that made a call to the next one, carrying every reward in between. Without that the
+    # cadence buys nothing, because a call would still be credited over the seats' horizon.
+    #
+    # The cadence is not only about credit. Measured on stage19_duo_led at 5.9M steps with the director choosing
+    # every decision: it changed the standing order on 0.706 of them, where the scripted director changed it on
+    # 0.03. A seat cannot follow an order that moves every 1.4 decisions, and order_focus_kept sat at chance for
+    # the whole run.
+    slow_layout: str = ""
+    slow_every_decisions: int = 10
+    # Per slow decision, not per reference_decision_ms: with slow_every_decisions 10 and 250 ms decisions, a step
+    # is 2.5 s, so 0.996 is a ~10 minute value horizon and 0.98 about 2 minutes of credit -- against the seats'
+    # 100 s and 9 s. Rewards inside one span are summed rather than discounted: a span is seconds, the horizon
+    # minutes.
+    slow_gamma: float = 0.996
+    slow_gae_lambda: float = 0.98
     foresight_coef: float = 0.0
     foresight_horizons_seconds: tuple[float, ...] = (5.0, 30.0)
     foresight_time_scale_seconds: float = 60.0
@@ -92,9 +112,12 @@ class ActingState:
     critic_memory: np.ndarray | None = None
     goal: np.ndarray | None = None
     age: np.ndarray | None = None
+    # A slow layout's standing action and how many decisions it has stood for, kept as the goal is.
+    action: np.ndarray | None = None
+    slow_age: np.ndarray | None = None
 
     def clear(self, done: np.ndarray) -> None:
-        """An episode ended in these envs: nothing is remembered and a goal is chosen afresh."""
+        """An episode ended in these envs: nothing is remembered, and a goal and a call are made afresh."""
         if self.memory is not None:
             self.memory[done] = 0.0
         if self.critic_memory is not None:
@@ -102,6 +125,10 @@ class ActingState:
         if self.goal is not None:
             self.goal[done] = 0
             self.age[done] = 0
+        if self.slow_age is not None:
+            # 0 makes the first decision of the new episode a choosing one, so a span never crosses an episode.
+            self.action[done] = 0
+            self.slow_age[done] = 0
 
 
 #: An epoch may exceed the target this far before the update stops: the measure is noisy over one epoch.
@@ -136,11 +163,15 @@ class MappoTrainer:
         config: MappoConfig,
         train_device: str = "cpu",
         rollout_device: str = "cpu",
+        slow_layout: int = -1,
     ):
-        """layouts: (obs dim, action count) per agent layout, in the sim's layout order."""
+        """layouts: (obs dim, action count) per agent layout, in the sim's layout order. `slow_layout` is the
+        index of config.slow_layout among them, resolved by the caller (layouts carry no names here); -1 when the
+        run has none."""
         skip_distribution_checks()
         self.config = config
         self.layouts = list(layouts)
+        self.slow_layout = slow_layout if config.slow_layout else -1
         self.state_dim = state_dim
         self.train_device = torch.device(train_device)
         self.rollout_device = torch.device(rollout_device)
@@ -233,7 +264,7 @@ class MappoTrainer:
         `state` is carried in and updated in place (memory, goal): the policy of a decision is the policy of what it
         remembers and is pursuing.
         """
-        actions, log_probs, _, _ = self._decide(obs, mask, layout, deterministic, state)
+        actions, log_probs, _, _, _ = self._decide(obs, mask, layout, deterministic, state)
         return actions, log_probs
 
     @torch.inference_mode()
@@ -241,10 +272,11 @@ class MappoTrainer:
                       deterministic: bool = False, state: "ActingState | None" = None):
         """act() and value() of one decision in one pass over the inputs: the rows are converted and grouped by
         layout once for both networks. Returns (actions, log_probs, values, foresight or None, goals or None), the
-        last two [E, A, H + 1] and (goal, goal log prob, whether this decision chose it)."""
+        last three [E, A, H + 1], (goal, goal log prob, whether this decision chose it), and which
+        decisions are samples (a slow layout's held ones are not; None when the run has no slow layout)."""
         envs, agents = layout.shape
         rows = envs * agents
-        actions, log_probs, foresight, goals = self._decide(obs, mask, layout, deterministic, state)
+        actions, log_probs, foresight, goals, chosen = self._decide(obs, mask, layout, deterministic, state)
 
         obs_t = self._tensor(obs).reshape(rows, -1)
         layout_t = self._tensor(layout, torch.long).reshape(rows)
@@ -259,7 +291,7 @@ class MappoTrainer:
             state.critic_memory = carried.reshape(envs, agents, self.recurrent_size).cpu().numpy()
         if self._rollout_value_norm is not None:
             values = self._rollout_value_norm.denormalize(values)
-        return actions, log_probs, values.reshape(envs, agents).cpu().numpy(), foresight, goals
+        return actions, log_probs, values.reshape(envs, agents).cpu().numpy(), foresight, goals, chosen
 
     @torch.no_grad()
     def _decide(self, obs: np.ndarray, mask: np.ndarray, layout: np.ndarray, deterministic: bool,
@@ -297,6 +329,20 @@ class MappoTrainer:
         actions = dist.logits.argmax(dim=-1) if deterministic else dist.sample()
         log_probs = dist.log_prob(actions)
 
+        # A slow layout speaks on its own clock and its call stands in between, so the seats have something
+        # steady enough to act on. The log probabilities of the held decisions are the sampled action's and not
+        # the held one's, which costs nothing: a held decision is not a sample and never reaches the loss.
+        chosen = None
+        if self.slow_layout >= 0 and state is not None and state.slow_age is not None:
+            every = max(1, self.config.slow_every_decisions)
+            slow = layout == self.slow_layout
+            choosing = slow & (state.slow_age % every == 0)
+            holding = slow & ~choosing
+            if holding.any():
+                actions = torch.where(self._tensor(holding).reshape(rows).bool(),
+                                      self._tensor(state.action, torch.long).reshape(rows), actions)
+            chosen = ~slow | choosing
+
         foresight = None
         if self.foresight_outputs:
             foresight = self._rollout_actor.foresight(features).reshape(
@@ -304,8 +350,14 @@ class MappoTrainer:
         if state is not None and self.recurrent_size:
             state.memory = features.reshape(envs, agents, self.recurrent_size).cpu().numpy()
 
-        return (actions.reshape(envs, agents).cpu().numpy(), log_probs.reshape(envs, agents).cpu().numpy(),
-                foresight, goals)
+        taken = actions.reshape(envs, agents).cpu().numpy()
+        if chosen is not None:
+            state.action = taken
+            # A choosing decision starts the count again at 1, as the goal head's age does.
+            state.slow_age = np.where(layout == self.slow_layout,
+                                      np.where(chosen, 1, state.slow_age + 1), 0)
+
+        return taken, log_probs.reshape(envs, agents).cpu().numpy(), foresight, goals, chosen
 
     @torch.no_grad()
     def foresight_of(self, obs: np.ndarray, layout: np.ndarray, memory: np.ndarray | None = None) -> np.ndarray | None:
@@ -338,6 +390,8 @@ class MappoTrainer:
                            if self.recurrent_size else None),
             goal=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
             age=np.zeros((envs, agents), dtype=np.int64) if self.goal_count else None,
+            action=np.zeros((envs, agents), dtype=np.int64) if self.slow_layout >= 0 else None,
+            slow_age=np.zeros((envs, agents), dtype=np.int64) if self.slow_layout >= 0 else None,
         )
 
     def acting_memory(self, envs: int, agents: int) -> np.ndarray | None:
