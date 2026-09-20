@@ -231,6 +231,13 @@ grows without bound.
   `Player::UpdateAdditionalSaves` drops queued partial saves (inventory, quests, achievements).
 - **Achievements.** Every `AchievementMgr` entry point returns immediately (update, criteria, timed achievements,
   completion, save, packets). Bots don't use achievements.
+- **Pets.** `Pet::SavePetToDB` returns after its own guards, before any database work. `Player::RemovePet` calls it
+  with `PET_SAVE_AS_DELETED` whenever a bot with a pet is torn down, which is a large share of the characters
+  rebuilt each episode: without this it opened a transaction for auras, spells and cooldowns and then a second one
+  through `Pet::DeleteFromDB`, about 1.2 transactions per decision. Nothing reads any of it back -- the curriculum
+  summons a pet outright rather than loading one. The aura wipe a stable save does is kept, since it is the one
+  effect in the function that is not a write. `Pet::DeleteFromDB` itself is untouched: its other caller is
+  character deletion, which the sim never reaches.
 - **Sim sessions.** `WorldSession::SetSimSession(true)` marks a session whose account and characters
   exist only in memory. On such a session, logout skips marking the account's characters offline
   (`CHAR_UPD_ACCOUNT_ONLINE`), the destructor skips the `account.totaltime` update, and
