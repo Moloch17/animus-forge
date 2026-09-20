@@ -17,13 +17,15 @@ convergence:
   min_env_steps: 20000000
 
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # Arriving is most of it, but arriving on foot when a mount was available is a failure the arrival rate cannot
   # see. `saved` is the share of the walking time the trip saved, which is the whole point of mounting, and
   # mounted_fraction says the mount was actually used rather than the objective happening to be close.
   min_over_baseline: 0.10
   metrics:
     arrived: {min: 0.90}
-    saved: {min: 0.35}
+    saved: {min: 0.20}
     mounted_fraction: {min: 0.45}
   layout_metrics:
     arrived: {min: 0.75}

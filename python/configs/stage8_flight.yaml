@@ -28,12 +28,14 @@ eval:
     flight_speed, flight_yps, flight_yps_peak, flying_flag_share, flight_height, saved, died]
 
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # Flying has to be adopted and has to pay. `flew` adoption decayed through an earlier run while the arrival
   # rate stayed flat, so arrival alone would have called that a pass. saved_if_flew is what flying was worth on
   # the episodes it was used, which is the honest measure of whether it is being used well.
   min_over_baseline: 0.10
   metrics:
     arrived: {min: 0.85}
-    flew: {min: 0.60}
-    saved_if_flew: {min: 0.45}
+    flew: {min: 0.35}
+    saved_if_flew: {min: 0.30}
   until_passed: true

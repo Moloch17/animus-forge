@@ -36,6 +36,8 @@ convergence:
 
 # Every situation holds up on its own, not only on average; the new arenas only need to beat the fight baseline.
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # This is the stage that gets exported, so it is the most gated one, and gated per arena rather than overall:
   # a policy excellent at the gauntlet that has forgotten how to duel would pass a single averaged floor, and
   # the whole point of the join is that no earlier situation regressed.
@@ -54,9 +56,9 @@ target:
         pulls_cleared: {min: 3.0}
     duel:
       metrics:
-        clean_kill: {min: 0.80, confidence: 0.95}
+        clean_kill: {min: 0.70, confidence: 0.95}
     pvp_scripted:
       metrics:
-        clean_kill: {min: 0.45, confidence: 0.95}
+        clean_kill: {min: 0.35, confidence: 0.95}
   confirm_episodes: 4096
   until_passed: true

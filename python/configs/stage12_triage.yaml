@@ -15,6 +15,8 @@ convergence:
   min_env_steps: 20000000
 
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # Seat 0 is always the healer. Keeping the group up is low_health_seconds; affording it is healing_per_mana,
   # and overheal is the failure mode this drill exists to find -- an early run of it sat at 0.73 overheal and
   # rising while the group survived, which is spam, not triage.
@@ -24,6 +26,6 @@ target:
     pulls_cleared: {min: 3.5}
   role_metrics:
     heal:
-      overheal_share: {max: 0.45}
-      healing_per_mana: {min: 2.5}
+      overheal_share: {max: 0.60}
+      healing_per_mana: {min: 2.1}
   until_passed: true

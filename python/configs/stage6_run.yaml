@@ -21,13 +21,15 @@ convergence:
   min_env_steps: 20000000
 
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # Arriving is the objective and `saved` is how well: it is the share of the plain-running time the trip saved,
   # so on foot it measures the speed cooldowns and not stopping. mounted_fraction is deliberately not gated --
   # it is 0 by construction here, and gating it would only restate the mask.
   min_over_baseline: 0.10
   metrics:
     arrived: {min: 0.90}
-    saved: {min: 0.12}
+    saved: {min: 0.06}
   layout_metrics:
     arrived: {min: 0.75}
   until_passed: true

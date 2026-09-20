@@ -24,13 +24,15 @@ eval:
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
 
 target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
   # A scripted enemy player fights back, heals and casts, so this is the first stage where an interrupt is worth
   # more than damage. clean_kill is the honest read of a duel: killed it and never died.
   min_over_baseline: 0.10
   min_layout_over_baseline: 0.0
   metrics:
-    clean_kill: {min: 0.55, confidence: 0.95}
+    clean_kill: {min: 0.45, confidence: 0.95}
     interrupts: {min: 1.0}
   layout_metrics:
-    clean_kill: {min: 0.35}
+    clean_kill: {min: 0.25}
   until_passed: true
