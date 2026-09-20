@@ -7,7 +7,7 @@
 # on that score like any other stage's.
 
 extends: stage15_pvp.yaml
-run_name: stage18_arena
+run_name: stage19_arena
 
 # ~4 h at ~14k env steps/s (two seats).
 total_env_steps: 60000000

@@ -140,7 +140,7 @@ pilot only when named), skipping any stage whose run already advanced. Each stag
 3. starts the learner, which seeds from the closest trained ancestor,
 4. trains until it advances (the next stage starts), halts below its target (the plan stops), or is cancelled.
 
-To train particular stages: `forge start stage15_pvp stage18_arena`. List each stage after the stage it extends, or it
+To train particular stages: `forge start stage15_pvp stage19_arena`. List each stage after the stage it extends, or it
 won't seed from it (the command warns you). With no arguments the queue is all twenty-two stages in number order,
 which is already a valid order, so the usual case needs no arguments at all.
 
@@ -260,7 +260,7 @@ The plan stops with outcome `below target` and the learner exits 3.
 2. **Copy both files for every class/role** to the realm's `Animus.ModelDir` (default `<DataDir>/animus`).
 
 3. **Configure the realm** (`mod_animus.conf`): set `Animus.Curriculum.Stage` to the stage whose models companions
-   should play (`stage10_party`, or `stage22_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
+   should play (`stage10_party`, or `stage23_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
    training decision interval.
 
 4. **Load.** Models load on first use. On a running realm, `.reload config` resets the model cache.
@@ -286,7 +286,7 @@ On a stock realm with mod-animus and the models (`.animus stage open` turns GM m
 
 To see exactly the training conditions, copy the run's `stage.json` `"tuning"` values into `Animus.Curriculum.*`, and
 match `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*` to the forge settings. To look at one
-situation of stage 8: `.animus stage open stage22_crossroads model ambush`. To compare with the baseline:
+situation of stage 8: `.animus stage open stage23_crossroads model ambush`. To compare with the baseline:
 `.animus stage open stage10_party fight`.
 
 ## 7.8 Running the learner by hand
@@ -316,7 +316,7 @@ docker compose exec -w /azerothcore/modules/mod-animus-forge/python ac-dev-serve
 
 ```bash
 python -m animus.evaluate --checkpoint runs/stage1_duel/best.pt --episodes 128 --seed 1000 --baseline fight
-python -m animus.evaluate --checkpoint runs/stage18_arena/best.pt --baseline fight --opponent-baseline
+python -m animus.evaluate --checkpoint runs/stage19_arena/best.pt --baseline fight --opponent-baseline
 ```
 
 ## 7.9 Extending the curriculum

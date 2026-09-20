@@ -8,8 +8,8 @@
 # The reward splits the way a team game does: a capture, pickup, return or carrier kill pays every seat of the
 # side, while a death charges only the seat that died. The critic is shared, so team credit is what it is built to
 # handle; per-seat credit for a team objective would make nine seats of every ten look useless.
-extends: stage20_flag.yaml
-run_name: stage21_warsong
+extends: stage21_flag.yaml
+run_name: stage22_warsong
 total_env_steps: 60000000
 # Ten a side is twenty agents an env against the mirror's two, so a rollout covers ten times the experience per
 # decision. The horizon stays stage 11's: a capture is still a minute of riding, fighting and carrying, and a

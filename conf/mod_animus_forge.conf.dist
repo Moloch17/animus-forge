@@ -61,7 +61,7 @@ AnimusForge.OutputDir = ""
 #                       "stage14_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
 #                       "stage15_arena"     - self-play one-on-one: two learned seats of any classes
-#                       "stage22_crossroads" - PvE and PvP in one policy: every earlier situation, an
+#                       "stage23_crossroads" - PvE and PvP in one policy: every earlier situation, an
 #                                            ambush of the owner mid-gauntlet and a ganked owner
 #                                            (merges both branches)
 #                     Only when named (not in an empty queue):
@@ -631,7 +631,7 @@ AnimusForge.Curriculum.Casting.Cancel = 0.05
 AnimusForge.Curriculum.Goals.Match = 0.02
 #   every arena with a director, per decision a seat spends fighting the enemy its director called, while one is
 #   called and alive. Compliance shaping: an order is meant to be followed because following it wins fights, but a
-#   channel that correlates with nothing cannot bootstrap into that. stage19_duo_led ran 30M steps with the order
+#   channel that correlates with nothing cannot bootstrap into that. stage20_duo_led ran 30M steps with the order
 #   paying nothing and order_focus_kept sat at chance the whole way, so the director's calls changed nothing in the
 #   world and it never left exploration. The same job Goals.Match does for the goal head; anneal towards 0 once
 #   order_focus_kept holds up without it. The director itself never earns this -- it is taken back out of its own
@@ -951,8 +951,22 @@ AnimusForge.Curriculum.Evade.BreakCooldownMs = 5000
 AnimusForge.Curriculum.Evade.EscapeMs = 8000
 
 #
+#    AnimusForge.Curriculum.Stealth.*
+#        Stalking (stage18_stealth): closing on someone while stealthed and unseen, and holding there. The one
+#        reward in the curriculum paid per decision rather than on a transition, and capped for it. Time unseen
+#        is still never paid -- the distance condition is what makes this a skill, since detection is a check
+#        the seat is losing the whole time it stands inside the band.
+
+#   paid each decision the seat is stealthed, unseen and within StalkYards of a living opponent
+AnimusForge.Curriculum.Stealth.Stalk = 0.02
+#   how close counts as stalking, in yards
+AnimusForge.Curriculum.Stealth.StalkYards = 10.0
+#   the most the stalk nudge may pay in one episode, so the opener it sets up stays the larger prize
+AnimusForge.Curriculum.Stealth.StalkMax = 1.0
+
+#
 #    AnimusForge.Curriculum.Ambush.*
-#        Scripted enemy players who ambush the owner (stage22_crossroads' ambush and escort_duel arenas).
+#        Scripted enemy players who ambush the owner (stage23_crossroads' ambush and escort_duel arenas).
 #        Their class, role and level follow the Opponent.* chances and spread.
 
 #   beside pulls: they arrive at a random time between these, in ms (at most 3/4 into the episode)

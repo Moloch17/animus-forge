@@ -23,21 +23,21 @@ stage1_duel
 │                    └─ stage12_triage
 │                       └─ stage13_raid_single
 │                          └─ stage14_raid_gauntlet
-│                             └─ stage22_crossroads   (+ 6 merges)
+│                             └─ stage23_crossroads   (+ 6 merges)
 ├─ stage6_run
 │  └─ stage7_travel
 │     └─ stage8_flight
 └─ stage15_pvp
    ├─ stage16_evade
    │  └─ stage17_hide
-   │     └─ stage18_arena
-   │        ├─ stage19_duo_led
-   │        └─ stage20_flag                           (+ merges stage7_travel)
-   │           └─ stage21_warsong
+   │     └─ stage19_arena
+   │        ├─ stage20_duo_led
+   │        └─ stage21_flag                           (+ merges stage7_travel)
+   │           └─ stage22_warsong
    └─ mix_duel_pvp                                    (a pilot, trained by name)
 ```
 
-`stage22_crossroads` extends `stage14_raid_gauntlet` and merges `stage21_warsong`, `stage18_arena`,
+`stage23_crossroads` extends `stage14_raid_gauntlet` and merges `stage22_warsong`, `stage19_arena`,
 `stage15_pvp`, `stage8_flight`, `stage9_companion`, `stage4_gauntlet` and `stage1_duel`: it is where the PvE
 line, the PvP line and the travel line become one policy.
 
@@ -73,11 +73,11 @@ one commanding each side (see 4.12).
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage17_hide` | stage16_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
-| `stage18_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
-| `stage19_duo_led` | stage18_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
-| `stage20_flag` | stage18_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
-| `stage21_warsong` | stage20_flag | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
-| `stage22_crossroads` | stage14_raid_gauntlet (+ 6 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+| `stage19_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
+| `stage20_duo_led` | stage19_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
+| `stage21_flag` | stage19_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
+| `stage22_warsong` | stage21_flag | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
+| `stage23_crossroads` | stage14_raid_gauntlet (+ 6 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
 
 ### Trained by name
 
@@ -1250,7 +1250,7 @@ does not fall apart when the group it is in is one of eight.
 
 The raid clearing pull after pull, recovering between them, over 600 s. It is the last PvE stage: everything
 the PvE line taught -- the duel, the pack, the hazard, the gauntlet's recovery, the companion, the party's
-roles, the raid's size -- is in one episode. `stage22_crossroads` seeds from it.
+roles, the raid's size -- is in one episode. `stage23_crossroads` seeds from it.
 
 ### Stage 15: `stage15_pvp`
 
@@ -1288,7 +1288,7 @@ lesson is recognising a losing fight and leaving it, not obeying a rule that say
 
 The gate drops the baseline comparison (`min_over_baseline: 0`) on purpose: the yardstick would be a policy
 trained to win fights that are not winnable here, so surviving is a new axis rather than a better version of
-the old one. `stage18_arena` seeds from this stage, not from `stage15_pvp`, so every class carries the lesson
+the old one. `stage19_arena` seeds from this stage, not from `stage15_pvp`, so every class carries the lesson
 into self-play.
 
 **Two things had to be true before any of this could work, and neither was.**
@@ -1355,14 +1355,14 @@ Racials stay fully available everywhere, here and in every other stage: the acti
 Will of the Forsaken, Blood Fury, Escape Artist and the rest, and `Encoding::IsSpellActionAllowed` masks each
 by `HasActiveSpell`, so the race that actually rolled is the one whose racials are offered.
 
-### Stage 18: `stage18_arena`
+### Stage 18: `stage19_arena`
 
 Self-play. Two learned seats of random classes and roles at one level, both played by the policy, so every fight is
 training data for both sides. A policy's score against itself doesn't track progress, so evaluation uses
 `eval.opponent_baseline`: the `fight` baseline plays seat 2, the score is seat 1 against it, and the baseline score is
 `fight` against `fight` on the same seeds. Budget 200M.
 
-### Stage 19: `stage19_duo_led`
+### Stage 19: `stage20_duo_led`
 
 Two against two under a **director**: one more agent a side, choosing the team's posture, the enemy it
 concentrates on, the shape it takes, whose turn the next duty is, and -- since the place channel landed -- where
@@ -1376,14 +1376,14 @@ Blocks: core, duel, pack, pet, pvp, context, hostiles, support, order. Its arena
 comparison between the two has not been run**, and 4.12 says why it should be before more budget goes into the
 learned one.
 
-### Stage 20: `stage20_flag`
+### Stage 20: `stage21_flag`
 
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
 flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
 
-### Stage 21: `stage21_warsong`
+### Stage 21: `stage22_warsong`
 
 Warsong Gulch at its proper size: ten a side, both sides learned, on a real battleground instance. The flag
 rules are stage 20's; what is new is that a side is ten seats and a group, so the objective has to be shared --
@@ -1393,10 +1393,10 @@ party block on top of the flag line.
 The instance logs `GetBGObject: gameobject (type: 10) not found` repeatedly. That is pre-existing core noise,
 not a stage fault.
 
-### Stage 22: `stage22_crossroads`
+### Stage 22: `stage23_crossroads`
 
-Every line joins. It extends `stage14_raid_gauntlet` (the trunk and the PvE blocks) and merges `stage21_warsong`,
-`stage18_arena` (the pvp block), `stage15_pvp`, `stage8_flight` (travel), `stage9_companion`, `stage4_gauntlet` and
+Every line joins. It extends `stage14_raid_gauntlet` (the trunk and the PvE blocks) and merges `stage22_warsong`,
+`stage19_arena` (the pvp block), `stage15_pvp`, `stage8_flight` (travel), `stage9_companion`, `stage4_gauntlet` and
 `stage1_duel`, adding `context` and `hostiles`. Its layouts contain the PvE, PvP and travel blocks (the pet block
 included). It is the last stage in the queue, and the one whose checkpoint is what ships.
 
@@ -1420,7 +1420,7 @@ inherited arenas, at least baseline for `ambush` and `escort_duel`, each with at
 
 Stage 15's blocks, seeded from `stage15_pvp`, merging `stage1_duel`, with `duel` and `pvp_scripted` arenas half and
 half. Each is taught by the parent that trained it, and each must beat baseline by 10% on its own. It checks that one
-policy can train PvE and PvP side by side on a small problem before `stage22_crossroads` mixes eight larger arenas.
+policy can train PvE and PvP side by side on a small problem before `stage23_crossroads` mixes eight larger arenas.
 It is a leaf and is trained only by name: `forge start mix_duel_pvp`.
 
 ## 4.12 Team play and the director
@@ -1598,5 +1598,5 @@ the time by construction.
 through a compliance reward, a slower clock and a clean channel. The seats improve (evaluation 6.6-6.9 to
 8.3-8.8 in every run) but that is them learning two on two, and it happens just as much without a director.
 The open question is whether a director is worth anything at two a side at all, which the scripted director
-answers directly: run `stage19_duo_led` with `DirectorLearned` off and compare. If a perfect caller does not
+answers directly: run `stage20_duo_led` with `DirectorLearned` off and compare. If a perfect caller does not
 beat the undirected arena, there is nothing at this stage for a learned one to find.
