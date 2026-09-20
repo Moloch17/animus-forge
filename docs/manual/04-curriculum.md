@@ -71,7 +71,7 @@ one commanding each side (see 4.12).
 | `stage14_raid_gauntlet` | stage13_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
-| `stage17_stealth` | stage16_evade | Solo | same | **Drill, and a leaf.** The same fight six levels up, for the class/roles whose kit has a stealth aura: open from stealth, and get back into it when the fight turns |
+| `stage17_stealth` | stage16_evade | Solo | same | **Drill, and a leaf.** The same fight six levels up, for the four class/roles whose kit has a stealth aura (rogue and the three druids): open from stealth, and get back into it when the fight turns |
 | `stage18_arena` | stage16_evade | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage19_duo_led` | stage18_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage20_flag` | stage18_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -1314,8 +1314,15 @@ or 26 yd genuinely escapes.
 
 **Drill, and a leaf.** The same losing fight six levels up rather than ten, so that it is winnable *from a
 stealth opener* and unwinnable head-on. Played only by the class/roles whose kit contains a stealth aura:
-`StageDefinition::NeedsStealth` drops the rest by scanning the action catalog for `SPELL_AURA_MOD_STEALTH`, so
-the list follows the kit and does not rot the first time a spec changes.
+`StageDefinition::NeedsStealth` drops the rest by scanning `ClassKit` -- the class trainers' spell list -- for
+`SPELL_AURA_MOD_STEALTH`, so the list follows the kit and does not rot the first time a spec changes. It
+resolves to four: `rogue_dps` (Stealth) and the three druids (Prowl).
+
+**Not** the action catalog, which was the first attempt and returned eleven of the eighteen. The catalog is the
+union over every race a class may be, and that union holds Shadowmeld (58984), the night elf racial, which
+carries a stealth aura -- so warriors, priests, death knights and hunters all qualified, and a warrior that
+rolled a human would have played a stealth stage with no stealth at all. The kit is per class, so what it holds
+is true of every member of the class.
 
 The lesson is the round trip: open from stealth, and when the fight turns, break contact and get back into it.
 `re_stealths` is the column that says whether the second half happened, and it is what the gate asks for.
