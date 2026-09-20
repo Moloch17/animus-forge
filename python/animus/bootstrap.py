@@ -103,8 +103,14 @@ def _common_blocks(old: dict[str, tuple[Span, Span]], new: dict[str, tuple[Span,
             if block == "core" and old_names and new_names:
                 segments = _core_by_name((old_obs, old_actions), (new_obs, new_actions), old_names, new_names)
             if segments is None:
-                raise ValueError(f"{name}: block {block} is {old_obs[1]} features and {old_actions[1]} actions in "
-                                 f"the checkpoint, {new_obs[1]} and {new_actions[1]} now")
+                # A block that changed shape cannot be copied column by column, but it is the only part of the
+                # layout that cannot: seeding everything else and leaving this one to start from nothing is worth
+                # far more than refusing the whole checkpoint. It reaches the trunk at zero and has to be learned,
+                # which is the honest cost of having changed it.
+                print(f"  {name}: block {block} was {old_obs[1]} features and {old_actions[1]} actions, is "
+                      f"{new_obs[1]} and {new_actions[1]}: seeded from scratch, the rest of the layout carries "
+                      f"over", flush=True)
+                continue
             common.extend(segments)
             continue
         common.append(((old_obs, old_actions), (new_obs, new_actions)))
