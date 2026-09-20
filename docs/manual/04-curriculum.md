@@ -1327,6 +1327,12 @@ is true of every member of the class.
 The lesson is the round trip: open from stealth, and when the fight turns, break contact and get back into it.
 `re_stealths` is the column that says whether the second half happened, and it is what the gate asks for.
 
+Measured `fight` baseline, 2048 episodes over the four layouts: `survived` 0.555, `won` 0.417,
+`contact_breaks` 0.440, `unseen_seconds` 3.02, and `stealth_openers` and `re_stealths` both exactly 0.0000 --
+the scripted baseline simply fights, and never opens from stealth or returns to it. That zero is why
+`re_stealths` can carry the gate on its own; `survived` sits a little above the baseline as a sanity floor
+rather than as the thing being asked for.
+
 **Nothing may extend or merge it**, and `Problem()` in `Stages.cpp` refuses any stage that does. Its checkpoint
 holds only the stealth layouts, and `init_from: auto` takes the first checkpoint in the chain that exists -- a
 stage seeding from it would find that one, stop looking, and start every other class/role from random weights

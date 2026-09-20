@@ -25,14 +25,16 @@ target:
   # of them on the evade arena, so any non-zero figure is behaviour that did not exist before; half an episode's
   # worth is a low bar deliberately, saying the behaviour exists rather than that it is good.
   #
-  # Unlike stage 16's, these floors are not set from a measured baseline of this arena -- the opponent is six
-  # levels up here rather than ten, and the class/roles are only the three or four that can stealth. Re-measure
-  # and tighten after the first full run.
+  # Measured `fight` baseline on this arena (2048 episodes, four layouts, opponent +6 levels): survived 0.555,
+  # won 0.417, contact_breaks 0.440, unseen_seconds 3.02, and stealth_openers and re_stealths both exactly
+  # 0.0000 -- the scripted baseline simply fights, and never opens from stealth or returns to it. So re_stealths
+  # is the gate that carries the stage, above a floor of zero, and survived is a sanity floor a little above the
+  # baseline rather than the thing being asked for. The worst layout's baseline survived is druid_heal at 0.496.
   min_over_baseline: 0.0
   min_layout_over_baseline: 0.0
   metrics:
     re_stealths: {min: 0.5, confidence: 0.95}
-    survived: {min: 0.45}
+    survived: {min: 0.60}
   layout_metrics:
-    survived: {min: 0.25}
+    survived: {min: 0.45}
   until_passed: true
