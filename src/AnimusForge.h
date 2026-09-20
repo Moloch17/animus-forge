@@ -179,6 +179,8 @@ namespace AnimusForge
         /// The run of `scenario` finished and moved on (<RunsDir>/<scenario>/finished.json with "advanced": true, or
         /// a finished.json from before stage targets).
         [[nodiscard]] bool RunAdvanced(ForgeConfig const& config, std::string const& scenario) const;
+        /// Whether a stage has a checkpoint the learner would seed from, which is not the same question.
+        [[nodiscard]] bool RunSeedable(ForgeConfig const& config, std::string const& scenario) const;
 
         /// Warn about stages listed before the stage they extend and seed from (unless that one already advanced).
         void WarnSeedOrder(ForgeConfig const& config, std::vector<std::string> const& scenarios,

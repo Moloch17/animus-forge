@@ -517,11 +517,24 @@ bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string cons
     return !advanced || *advanced != 0.0;
 }
 
+/// What the learner will actually seed from, which is the checkpoint and not the verdict.
+///
+/// animus.config.resolved_init_from walks the seed chain and takes the first best.pt that exists, whether or not
+/// that stage passed its target and whether or not it ever wrote finished.json -- an interrupted run does not
+/// write one. RunAdvanced answers a different question (did this stage pass), and using it here warned that a
+/// parent would not be seeded from whenever its run had merely been cancelled, while the learner went on to seed
+/// from it: every `forge start stage19_duo_led` this session printed that warning and then seeded from
+/// stage15_arena's best.pt in the next breath. A warning that is usually wrong teaches operators to skip them.
+bool AnimusForge::Forge::RunSeedable(ForgeConfig const& config, std::string const& scenario) const
+{
+    std::error_code error;
+    return std::filesystem::exists(config.RunsDir() / scenario / "best.pt", error);
+}
+
 void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<std::string> const& scenarios,
     LineSink const& out) const
 {
-    // A stage seeds from the closest trained stage it extends (and a merge from its other parents): a parent that has
-    // no finished run in this config's runs directory and is not trained earlier in this plan is not seeded from.
+    // A stage seeds from the closest stage it extends that has a checkpoint (and a merge from its other parents).
     for (std::size_t index = 0; index < scenarios.size(); ++index)
     {
         Animus::Curriculum::StageDefinition const* stage = Animus::Curriculum::FindStage(scenarios[index]);
@@ -532,16 +545,27 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
         parents.insert(parents.end(), stage->Merges.begin(), stage->Merges.end());
         for (std::string const& parent : parents)
         {
-            if (RunAdvanced(config, parent)
-                || std::find(scenarios.begin(), scenarios.begin() + index, parent) != scenarios.begin() + index)
+            // Trained earlier in this plan: it will have a checkpoint by the time this stage starts.
+            if (std::find(scenarios.begin(), scenarios.begin() + index, parent) != scenarios.begin() + index)
                 continue;
+
+            if (RunSeedable(config, parent))
+            {
+                // It will be seeded from. Worth saying only that the checkpoint never passed its target, which
+                // is a reason to read this stage's scores carefully and not a reason to retrain anything.
+                if (!RunAdvanced(config, parent))
+                    out(Acore::StringFormat("  {} seeds from {}'s best checkpoint, which has not passed its "
+                        "target (the run was cancelled or fell short).", stage->Name, parent));
+                continue;
+            }
 
             if (std::find(scenarios.begin() + index + 1, scenarios.end(), parent) != scenarios.end())
                 out(Acore::StringFormat("  Warning: {} comes before {}, which it builds on and seeds from; it will "
                     "not seed from it. List {} first.", stage->Name, parent, parent));
             else
-                out(Acore::StringFormat("  Warning: {} builds on {}, which has no finished run in {}; it will not "
-                    "seed from it. Train {} first.", stage->Name, parent, config.RunsDir().string(), parent));
+                out(Acore::StringFormat("  Warning: {} builds on {}, which has no checkpoint in {}; it will not "
+                    "seed from it and starts from scratch. Train {} first.", stage->Name, parent,
+                    config.RunsDir().string(), parent));
         }
     }
 }
