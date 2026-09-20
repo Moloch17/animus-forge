@@ -43,25 +43,57 @@ from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
+from .rewards import WARN_EVERY, audit, describe, reward_mix
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
 from .mappo.trainer import schedule
 from .stage import ADVANCE, EXIT_BELOW_TARGET, EXTEND, HALT, RESTART, Outcome, StageController
 from .stages import STAGE_FILE, load_stage
 
 
+def _rotate(path: Path, columns: list[str]) -> bool:
+    """Whether `path` can be appended to under `columns`: it exists and its header is exactly them.
+
+    A resumed run used to take its field names from the file already on disk and write with
+    extrasaction="ignore", so a column added since the run started -- a new episode info column, a new reward
+    term -- was dropped row after row without a word. layouts.csv had it worse: its field names came from the
+    *current* rows while it appended under the *old* header, so every header-based reader mis-attributed the
+    extra columns to the wrong names. Both were hit for real once and repaired by renaming the files by hand.
+
+    Rather than guess, a file whose header no longer matches is moved aside and a new one started. The run's
+    history is then in two files, which is honest and greppable, instead of one file that quietly lies.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+
+    with path.open(newline="") as f:
+        header = next(csv.reader(f), [])
+    if header == columns:
+        return False
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    moved = path.with_name(f"{path.stem}-before-{stamp}{path.suffix}")
+    path.rename(moved)
+    added = [name for name in columns if name not in header]
+    gone = [name for name in header if name not in columns]
+    change = ", ".join(filter(None, [f"added {', '.join(added)}" if added else "",
+                                     f"dropped {', '.join(gone)}" if gone else ""]))
+    print(f"  {path.name}: the columns changed since this run started ({change}); the rows so far are in "
+          f"{moved.name} and a new file starts here", flush=True)
+    return True
+
+
 class RunLogger:
     """CSV always; TensorBoard when it is installed.
 
-    Columns are fixed up front so metrics that only exist some updates (episode stats) are never
-    dropped. A resumed run appends to its metrics.csv under the header already there.
+    Columns are fixed up front so metrics that only exist some updates (episode stats) are never dropped. A
+    resumed run appends to its metrics.csv, unless its columns have changed since -- see _rotate.
     """
 
     def __init__(self, run_dir: Path, columns: list[str], append: bool = False):
         self.csv_path = run_dir / "metrics.csv"
-        existing = append and self.csv_path.exists() and self.csv_path.stat().st_size > 0
-        if existing:
-            with self.csv_path.open(newline="") as f:
-                columns = next(csv.reader(f))
+        existing = append and not _rotate(self.csv_path, columns)
+        existing = existing and self.csv_path.exists() and self.csv_path.stat().st_size > 0
+        self._columns = list(columns)
         layouts_path = run_dir / "layouts.csv"
         self._layouts_exist = append and layouts_path.exists() and layouts_path.stat().st_size > 0
         self._layout_writer = None
@@ -87,9 +119,14 @@ class RunLogger:
             return
 
         if self._layout_writer is None:
-            self._layout_file = (self.csv_path.parent / "layouts.csv").open("a" if self._layouts_exist else "w",
-                                                                           newline="")
-            self._layout_writer = csv.DictWriter(self._layout_file, fieldnames=list(rows[0]), restval="",
+            path = self.csv_path.parent / "layouts.csv"
+            columns = list(rows[0])
+            # The same check metrics.csv gets, and for the same reason -- more sharply here, because these
+            # field names come from the rows themselves and so always match the data, never the old header.
+            if self._layouts_exist and _rotate(path, columns):
+                self._layouts_exist = False
+            self._layout_file = path.open("a" if self._layouts_exist else "w", newline="")
+            self._layout_writer = csv.DictWriter(self._layout_file, fieldnames=columns, restval="",
                                                  extrasaction="ignore")
             if not self._layouts_exist:
                 self._layout_writer.writeheader()
@@ -436,6 +473,9 @@ class TrainingRun:
         # A party seat left empty for an episode reports present = 0; its row is not an episode.
         names = spec.episode_info_names
         self.present_column = names.index("present") if "present" in names else None
+        # The update a reward-mix warning was last printed on, so a run that trips it says so without saying it
+        # every update for the rest of the run.
+        self.reward_warned_at: int | None = None
 
     # ------------------------------------------------------------------ setup
 
@@ -838,6 +878,7 @@ class TrainingRun:
         if "entropy" in row:
             self.controller.observe_entropy(row["entropy"], self.rollout_allowed_actions)
 
+        self.audit_reward(row)
         self.logger.log(self.update, row)
         self.progress.training(row)
         self.progress.write("training", self.update, self.env_steps)
@@ -848,6 +889,19 @@ class TrainingRun:
               flush=True)
         self.finished_episodes.clear()
         self.finished_layouts.clear()
+
+    def audit_reward(self, row: dict[str, float]) -> None:
+        """Say so when a shaping term has become the thing being optimised (animus.rewards)."""
+        finding = audit(reward_mix(row))
+        if finding is None:
+            self.reward_warned_at = None
+            return
+
+        if self.reward_warned_at is not None and self.update - self.reward_warned_at < WARN_EVERY:
+            return
+
+        self.reward_warned_at = self.update
+        print(f"  {describe(finding, reward_mix(row))}", flush=True)
 
     def log_layout_rows(self, spec) -> None:
         """Per class/role means of this update's training episodes, one row each (RunLogger.log_layouts)."""
