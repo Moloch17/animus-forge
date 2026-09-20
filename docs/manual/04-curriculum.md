@@ -1280,10 +1280,25 @@ trained to win fights that are not winnable here, so surviving is a new axis rat
 the old one. `stage18_arena` seeds from this stage, not from `stage15_pvp`, so every class carries the lesson
 into self-play.
 
-One thing that had to be checked before it could work: `ScriptedPlayer::Search` mills within `SEARCH_RADIUS`
-(10 yd) of the last sighting and never gives up. That is smaller than the outer cover rings `FindCover` uses
-(8, 16 and 26 yd), so breaking line of sight at 16 or 26 yd genuinely escapes and the hunter needs no give-up
-timer.
+**Two things had to be true before any of this could work, and neither was.**
+
+`Unit::CanSeeOrDetect` does not raycast -- it is grid visibility plus stealth and invisibility detection, and it
+stays true through a wall. Every "can this see that" in the curriculum used it, so the drill's first run read
+0.0000 for `unseen_seconds` and `contact_breaks` across 2048 episodes, and the scripted hunter could never lose
+a quarry that was not stealthed, which meant its `Search` behaviour had essentially never run. `Encoding::CanSee`
+now answers that question -- detect, then `IsWithinLOSInMap` -- and the hiding tracker, the scripted hunter and
+the director's `SideCanSee` all go through it. (The per-seat observation filters deliberately still use the bare
+check: those run for every seat in every stage, and changing what a seat observes is a different change.)
+
+And the arena has to have something to hide behind. With line of sight working but the default open-field spawn,
+twelve of the eighteen class/roles still read exactly 0.000 breaks -- only the three that can stealth registered
+anything, because on flat ground a warrior cannot break line of sight at all. Both drills now spawn inside
+Durnholde Keep and among the Southshore farms, on the same instance map, at exact ground coordinates taken from
+the world database.
+
+`ScriptedPlayer::Search` needs no give-up timer: it mills within `SEARCH_RADIUS` (10 yd) of the last sighting,
+which is smaller than the outer cover rings `FindCover` uses (8, 16 and 26 yd), so breaking line of sight at 16
+or 26 yd genuinely escapes.
 
 ### Stage 17: `stage17_stealth`
 
