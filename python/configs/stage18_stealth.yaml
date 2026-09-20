@@ -30,14 +30,24 @@ target:
   # being spotted, and `stealth_openers` says the position was used for what it is for.
   #
   # `closest_stealthed` is reported rather than gated because it is a distance -- lower is better, and a gate
-  # floor cannot say that. Floors are placeholders until this arena's own `fight` baseline is measured over the
-  # four layouts; the scripted baseline never stealths at all, so most of them start from zero.
+  # floor cannot say that.
+  #
+  # The `fight` baseline reads 0.0000 on every stalk column, because it never presses Stealth at all -- which
+  # means a zero here proves nothing about whether the channel works. The figures the floors are set against
+  # are the *at_start learner* instead, which explores into Stealth by accident: stalked_into_range 0.066 over
+  # 2048 episodes (136 of them non-zero), stalk_seconds 0.14 with a 21.75 s maximum, stealth_openers 0.044,
+  # reward_stalk 0.011 and reaching the 1.0 cap in at least one episode.
+  #
+  # No per-layout floor on stalked_into_range, deliberately. Untrained, rogue_dps reads 0.236 and druid_tank
+  # reads exactly 0.000: Prowl needs cat form, and a bear tank would have to shift out of its role, stalk, and
+  # shift back. That may be learnable and it may not, and a layout floor here would halt the whole queue on it.
+  # survived is the per-layout check instead -- it only says no layout collapsed.
   min_over_baseline: 0.0
   min_layout_over_baseline: 0.0
   metrics:
     stalked_into_range: {min: 0.30, confidence: 0.95}
-    stalk_seconds: {min: 2.0}
-    stealth_openers: {min: 0.30}
+    stalk_seconds: {min: 1.5}
+    stealth_openers: {min: 0.20}
   layout_metrics:
-    stalked_into_range: {min: 0.20}
+    survived: {min: 0.30}
   until_passed: true

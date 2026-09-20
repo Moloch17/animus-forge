@@ -1397,6 +1397,19 @@ corner of the map is the absence of one.
 | `closest_stealthed` | The nearest it got while stealthed. Reported, never gated: it is a distance, and a gate floor cannot say "lower is better" |
 | `stealth_openers` | The position used for what it is for |
 
+**Read these against the at_start learner, not against `fight`.** The scripted baseline reads 0.0000 on every
+stalk column because it never presses Stealth at all, so a zero there says nothing about whether the channel
+works -- it is the same ambiguous zero that hid the line-of-sight bug in stage 16 for two runs. The untrained
+learner explores into Stealth by accident and is the honest first reading: `stalked_into_range` 0.066 over
+2048 episodes (136 of them non-zero), `stalk_seconds` 0.14 with a 21.75 s maximum, `stealth_openers` 0.044,
+and `reward_stalk` 0.011 reaching its 1.0 cap in at least one episode -- which is also the check that the cap
+fires.
+
+**`druid_tank` reads exactly 0.000 untrained, and that is not a bug.** Prowl needs cat form, so a bear tank
+would have to shift out of its role, stalk, and shift back. It may learn that and it may not, which is why
+there is no per-layout floor on `stalked_into_range`: one layout that cannot reach it would halt the whole
+queue. `survived` is the per-layout check instead, and it only says no layout collapsed.
+
 ### Stage 19: `stage19_arena`
 
 Self-play. Two learned seats of random classes and roles at one level, both played by the policy, so every fight is
