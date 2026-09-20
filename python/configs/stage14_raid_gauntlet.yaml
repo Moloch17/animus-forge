@@ -1,0 +1,24 @@
+# Stage 14 of the curriculum: a raid clearing pull after pull and recovering between them. The raid version of
+# stage 4, and the last of the PvE trunk -- stage 20 joins it with the PvP and movement lines.
+
+extends: stage13_raid_single.yaml
+run_name: stage14_raid_gauntlet
+
+total_env_steps: 60000000
+
+eval:
+  baseline: fight
+  report: [pulls_cleared, died, engage_health, engage_mana, low_health_seconds, owner_deaths]
+
+convergence:
+  min_env_steps: 40000000
+
+target:
+  # The same thing stage 4 gates, at forty seats: what the raid brings to the next pull, not only that it
+  # cleared the last one.
+  min_over_baseline: 0.05
+  metrics:
+    pulls_cleared: {min: 3.0}
+    engage_health: {min: 0.70}
+    died: {max: 0.30}
+  until_passed: true

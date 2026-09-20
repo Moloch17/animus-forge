@@ -1,0 +1,30 @@
+# Stage 7: getting somewhere. A character of level 20 or more (riding and a mount of its level)
+# starts in Old Hillsbrad with a place 60-320 yd away by path. Mounting takes a cast, so a short trip is faster on foot
+# and a long one on a mount; the policy learns which, and to arrive on the ground ready to fight. Paid by potential
+# shaping on the distance left, arriving (faster pays more), damage taken and death. Episodes end on arriving.
+
+extends: stage6_run.yaml
+run_name: stage7_travel
+
+# Trips take seconds to a minute: shorter than a fight, one policy for every class/role.
+total_env_steps: 30000000
+
+eval:
+  baseline: fight
+  report: [arrived, travel_seconds, start_distance, mounted_fraction, saved, died]
+
+convergence:
+  min_env_steps: 20000000
+
+target:
+  # Arriving is most of it, but arriving on foot when a mount was available is a failure the arrival rate cannot
+  # see. `saved` is the share of the walking time the trip saved, which is the whole point of mounting, and
+  # mounted_fraction says the mount was actually used rather than the objective happening to be close.
+  min_over_baseline: 0.10
+  metrics:
+    arrived: {min: 0.90}
+    saved: {min: 0.35}
+    mounted_fraction: {min: 0.45}
+  layout_metrics:
+    arrived: {min: 0.75}
+  until_passed: true

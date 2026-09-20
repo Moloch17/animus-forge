@@ -1,15 +1,15 @@
-# Stage 11 of the curriculum: Warsong Gulch's rules between two learned seats. Each has a flag at its base 100-180 yd
+# Stage 18: Warsong Gulch's rules between two learned seats. Each has a flag at its base 100-180 yd
 # from the other's: take the other side's flag home while one's own is there, return one's own when it is dropped,
 # and stop the carrier. A carrier cannot ride, the dead stand up at their base after a 15 s wave, and the first to
-# three captures wins. Seeded from stage15_arena (the fight) and stage6_travel (mounting between bases).
+# three captures wins. Seeded from stage16_arena (the fight) and stage7_travel (mounting between bases).
 #
 # As in the arena, a score against itself says little, so evaluation plays the other seat with the fight baseline,
 # which heads for the flags on a mount.
 
-extends: stage15_arena.yaml
-run_name: stage17_flag
+extends: stage16_arena.yaml
+run_name: stage18_flag
 
-total_env_steps: 30000000
+total_env_steps: 60000000
 
 # gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
 # critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
@@ -30,17 +30,11 @@ eval:
 convergence:
   min_env_steps: 20000000
 
-# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
-# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
-# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
-# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
-# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  until_passed: false
+  # Warsong's rules one on one. flag_pickups above zero was never once confirmed in earlier work, so it is
+  # gated first: a stage that never touches a flag cannot teach a capture. Captures follow.
+  min_over_baseline: 0.10
+  metrics:
+    flag_pickups: {min: 1.0}
+    flag_captures: {min: 0.60}
+  until_passed: true

@@ -1,0 +1,24 @@
+# Stage 13 of the curriculum: a raid of eight groups of five against one elite and its adds, won or lost as the
+# single pack is. The party stages taught a group of five; this asks whether the same policy holds together at
+# forty, where threat, healing and standing out of things all scale differently.
+
+extends: stage12_triage.yaml
+run_name: stage13_raid_single
+
+total_env_steps: 60000000
+
+eval:
+  baseline: fight
+  report: [pulls_cleared, died, low_health_seconds, threat_share, owner_deaths]
+
+convergence:
+  min_env_steps: 40000000
+
+target:
+  # Forty seats on one elite and its adds. A raid that clears while a third of it is dead has not learned to
+  # raid, so the death rate is gated alongside the clear.
+  min_over_baseline: 0.05
+  metrics:
+    pulls_cleared: {min: 0.80}
+    died: {max: 0.25}
+  until_passed: true

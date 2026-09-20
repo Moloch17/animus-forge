@@ -1,0 +1,33 @@
+# Stage 6 of the curriculum: covering ground on its own legs. A character starts in the Barrens with a place
+# 40-160 yd away by path and no mount available -- the mount actions are masked out, not merely unpaid, so the
+# policy cannot explore into riding and the lesson stays clean.
+#
+# What is left is everything a player does before it can ride: Sprint, Dash, Travel Form, Aspect of the Cheetah,
+# and simply not stopping or wandering off the path. That is worth its own stage because a mount is barred in
+# combat, indoors and below level 20, which is most of the times a bot actually has to get somewhere. Stage 7
+# adds the mount on top of this and stage 8 adds flight.
+
+extends: stage1_duel.yaml
+run_name: stage6_run
+
+# Short trips, one policy for every class/role.
+total_env_steps: 30000000
+
+eval:
+  baseline: fight
+  report: [arrived, travel_seconds, start_distance, saved, died]
+
+convergence:
+  min_env_steps: 20000000
+
+target:
+  # Arriving is the objective and `saved` is how well: it is the share of the plain-running time the trip saved,
+  # so on foot it measures the speed cooldowns and not stopping. mounted_fraction is deliberately not gated --
+  # it is 0 by construction here, and gating it would only restate the mask.
+  min_over_baseline: 0.10
+  metrics:
+    arrived: {min: 0.90}
+    saved: {min: 0.12}
+  layout_metrics:
+    arrived: {min: 0.75}
+  until_passed: true

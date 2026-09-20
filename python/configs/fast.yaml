@@ -34,6 +34,9 @@ target:
   min_layout_over_baseline: null
   metrics: {}
   layout_metrics: {}
+  # role_metrics too, or a fast sweep halts on the per-role floors the real stages carry (a tank's threat
+  # share, a healer's overheal): the overlay merges key by key, so a section it does not name survives.
+  role_metrics: {}
   arenas: {}
   difficulties: {}
   confirm_episodes: 64

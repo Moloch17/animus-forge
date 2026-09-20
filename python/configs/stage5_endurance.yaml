@@ -22,13 +22,10 @@ convergence:
 # Won by finishing the run. The floors are provisional, to be reset from the first run: clearing the last pull is
 # hard, and the interesting number early on is how far a run gets (pulls_cleared, 8 is the whole thing).
 target:
+  # A known run of eight pulls, won by finishing it. This is the stage that says whether sustain actually holds
+  # up over a whole run rather than over two pulls.
+  min_over_baseline: 0.10
   metrics:
-    livelocked: {max: 0.01}
-    clean_kill: {min: 0.35, confidence: 0.95}
-    pulls_cleared: {min: 6.0}
-  layout_metrics:
-    livelocked: {max: 0.02}
-    clean_kill: {min: 0.20, confidence: 0.95}
-  base_difficulty: null
-  difficulties: {}
-  until_passed: false
+    pulls_cleared: {min: 7.0}
+    died: {max: 0.40}
+  until_passed: true

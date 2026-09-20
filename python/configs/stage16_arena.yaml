@@ -1,0 +1,27 @@
+# Stage 16: self-play one-on-one. Two learned agents of random classes and roles fight in each env,
+# both played by this policy, so both sides of every fight are training data, across class matchups.
+#
+# Against itself a policy's score says little about progress (both sides improve together), so evaluation plays the
+# other side with the fight baseline (eval.opponent_baseline): the score is the learner's first seat against a fixed
+# scripted opponent, and the baseline score is fight against fight on the same seeds. Convergence and the target work
+# on that score like any other stage's.
+
+extends: stage15_pvp.yaml
+run_name: stage16_arena
+
+# ~4 h at ~14k env steps/s (two seats).
+total_env_steps: 60000000
+
+eval:
+  baseline: fight
+  opponent_baseline: true
+  report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
+
+target:
+  # Self-play: `won` is 0.5 whatever happens, because both sides are this policy. It cannot be gated on and is
+  # not. What can be gated is the score against the scripted-opponent baseline, which is a fixed yardstick, and
+  # the per-class floor so no class/role is carried by the rest.
+  min_over_baseline: 0.15
+  min_layout_over_baseline: 0.0
+  min_layout_episodes: 32
+  until_passed: true

@@ -1,0 +1,30 @@
+# Stage 10: up to four learned agents per env -- a tank, a healer and damage dealers of
+# random classes -- with the scripted owner as the fifth player, against elite-heavy packs. Every agent assists,
+# guards and heals its teammates; tanks hold the pull, healers keep the party up, damage dealers stay off the threat
+# table. Like the gauntlet, give it episodes of several minutes. Env steps count every agent's decisions.
+
+extends: stage9_companion.yaml
+run_name: stage10_party
+
+# ~11 h at ~15k env steps/s (four seats); convergence usually ends the stage much sooner (the headroom is for restarts).
+total_env_steps: 120000000
+
+eval:
+  every_env_steps: 20000000
+  report: [dps, died, deaths, kills, pulls_cleared, wipes, owner_deaths, owner_healing, teammates_died,
+    teammate_healing, threat_on_teammates, casts_completed, casts_cancelled, cancelled_stopped, cancelled_moved,
+    cancelled_target, cancelled_other]
+
+convergence:
+  min_env_steps: 20000000
+
+target:
+  # Four learned seats and the owner against elite-heavy pulls. low_health_seconds is the group's health as a
+  # whole -- a party that clears by letting each other sit at 10% has not learned this stage.
+  min_over_baseline: 0.10
+  min_layout_over_baseline: 0.0
+  metrics:
+    pulls_cleared: {min: 3.5}
+    owner_deaths: {max: 0.30}
+    low_health_seconds: {max: 25.0}
+  until_passed: true

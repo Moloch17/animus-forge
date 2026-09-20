@@ -1,11 +1,11 @@
-# Stage 19: two a side, each side commanded by a learned director. The seats already fight one on one from the
+# Stage 17: two a side, each side commanded by a learned director. The seats already fight one on one from the
 # arena; what is new is being told what the pair is doing -- concentrate on that one, you take the next
 # interrupt -- and learning that following the call pays, while the director learns what to call.
 #
 # order_focus_kept, the share of a side's seats on the called target, is the measure that matters: a seat that
 # never obeys and a channel that never arrives look identical without it.
-extends: stage15_arena.yaml
-run_name: stage19_duo_led
+extends: stage16_arena.yaml
+run_name: stage17_duo_led
 total_env_steps: 30000000
 rollout_length: 256
 mappo:
@@ -28,11 +28,13 @@ eval:
 convergence:
   min_env_steps: 20000000
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
+  # Two a side under a learned director. The gate is on the director's calls being worth following, not on the
+  # seats obeying: order_focus_lowest is how often it names the most hurt enemy, order_focus_chance is what
+  # naming one at random would score, and the first has to clear the second. It has not in four runs, so this
+  # is expected to fail until the director works -- until_passed is false so the queue moves on rather than
+  # grinding here.
+  min_over_baseline: 0.05
+  metrics:
+    order_focus_lowest: {min: 0.45}
+    order_focus_alive: {min: 0.80}
   until_passed: false

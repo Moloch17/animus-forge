@@ -1,4 +1,4 @@
-# Stage 4 of the curriculum: the gauntlet fought beside a scripted owner, a player of a random class and
+# Stage 9: the gauntlet fought beside a scripted owner, a player of a random class and
 # role near the bot's level that wanders, engages each pull and takes real damage. The bot follows, assists and guards
 # it; tanks keep enemies on themselves, healers keep the owner alive, damage dealers avoid pulling threat. Nobody's
 # death ends the episode: the dead stand up after the pull. The arena runs 450 s, as the solo gauntlet.
@@ -9,8 +9,8 @@
 # costs 10 and every owner death 15 (Owner.Death), so guarding the owner comes before the seat's own health.
 
 extends: stage4_gauntlet.yaml
-run_name: stage8_companion
-total_env_steps: 30000000
+run_name: stage9_companion
+total_env_steps: 90000000
 
 # A win is clean_kill: the 450 s lasted with the owner never dead, no wipe, Pulls.OwnerWinPulls (5) pulls cleared and
 # the seat itself never dead (PullsEncounter counts the first three as the kill; died covers the last). The owner fights
@@ -21,17 +21,15 @@ total_env_steps: 30000000
 # wipes, and at least the win's pulls cleared on average. The role checks (owner_heal_share for healers, threat_share
 # for tanks and the rest) are reported per class/role and per role first; gate them (target.role_metrics) once a run
 # shows what the roles reach.
-# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
-# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
-# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
-# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
-# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  until_passed: false
+  # The owner living through the gauntlet is the objective; clearing while it dies is a failure this stage must
+  # not pass. Healers are asked for a real share of the healing they do to go on the owner.
+  min_over_baseline: 0.10
+  min_layout_over_baseline: 0.0
+  metrics:
+    owner_deaths: {max: 0.25}
+    pulls_cleared: {min: 4.0}
+  role_metrics:
+    heal:
+      owner_heal_share: {min: 0.30}
+  until_passed: true

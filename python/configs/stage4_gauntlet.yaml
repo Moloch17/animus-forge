@@ -1,4 +1,4 @@
-# Stage 3 of the curriculum: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with breaks
+# Stage 4: pull after pull (1-4 creatures, sometimes an elite or a higher-level pack) with breaks
 # between, for seven and a half minutes or until the bot dies. What it teaches is recovering between fights and lasting
 # through many of them:
 #
@@ -18,7 +18,7 @@ extends: stage2_pack.yaml
 run_name: stage4_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
-total_env_steps: 30000000
+total_env_steps: 90000000
 
 # rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.995 per 100 ms (a ~100 s horizon, ~17 s
 # of GAE trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting
@@ -42,17 +42,17 @@ convergence:
 # win is stricter, so the floors are lower: 55% overall and 40% per class/role by the Wilson bound, four pulls cleared
 # on average, no livelocks. The stage halts below them rather than training on; recalibrate from this run's
 # evaluations.
-# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
-# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
-# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
-# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
-# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  until_passed: false
+  # Pull after pull with short breaks. Clearing is not enough: the seat has to arrive at the next pull with
+  # something left, which is what eating, drinking and healing between pulls are for. engage_health and
+  # engage_mana are what it brings to the next fight -- the thing this stage exists to teach.
+  min_over_baseline: 0.10
+  min_layout_over_baseline: 0.0
+  metrics:
+    pulls_cleared: {min: 4.0}
+    engage_health: {min: 0.75}
+    died: {max: 0.35}
+  role_metrics:
+    heal:
+      engage_mana: {min: 0.55}
+  until_passed: true

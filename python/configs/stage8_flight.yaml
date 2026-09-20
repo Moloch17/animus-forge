@@ -1,11 +1,11 @@
-# Stage 10 of the curriculum: flying. Characters of level 60 or more (Expert Riding and a flying mount; Artisan and a
+# Stage 8: flying. Characters of level 60 or more (Expert Riding and a flying mount; Artisan and a
 # fast one from 70) start in Outland's Nagrand, where flying mounts fly, with a place 350-700 yd away. Flying is several
 # times faster than riding and passes over everything, but dismounting in the air falls with a player's fall damage:
 # the policy learns to take off, keep a height, land and then dismount. Battlegrounds never allow flying mounts, so
-# this is for the open world. Seeded from stage6_travel.
+# this is for the open world. Seeded from stage7_travel.
 
-extends: stage6_travel.yaml
-run_name: stage7_flight
+extends: stage7_travel.yaml
+run_name: stage8_flight
 
 total_env_steps: 30000000
 
@@ -27,17 +27,13 @@ eval:
     knows_flying_mount, could_mount_flying, flew, saved_if_flew, saved_if_ground,
     flight_speed, flight_yps, flight_yps_peak, flying_flag_share, flight_height, saved, died]
 
-# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
-# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
-# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
-# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
-# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  until_passed: false
+  # Flying has to be adopted and has to pay. `flew` adoption decayed through an earlier run while the arrival
+  # rate stayed flat, so arrival alone would have called that a pass. saved_if_flew is what flying was worth on
+  # the episodes it was used, which is the honest measure of whether it is being used well.
+  min_over_baseline: 0.10
+  metrics:
+    arrived: {min: 0.85}
+    flew: {min: 0.60}
+    saved_if_flew: {min: 0.45}
+  until_passed: true

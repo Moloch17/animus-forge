@@ -1,10 +1,12 @@
 """Stage target gates and their startup validation."""
 
+import re
 from pathlib import Path
 
 import pytest
 
 from animus.config import TargetConfig, TrainConfig
+from animus.evaluation import DERIVED_METRICS
 from animus.gates import check_gates, required_score, validate_target
 
 
@@ -186,10 +188,27 @@ def test_validate_target():
     validate_target(config, ("killed",))
 
 
+def sim_episode_info() -> tuple[str, ...]:
+    """Every episode info column the sim can emit, read from the bundled animus-lib.
+
+    This used to be `tuple(config.target.metrics)` -- the config's own top-level metric names -- which made the
+    check very nearly tautological: a name was validated against itself, and any name under role_metrics,
+    layout_metrics or arenas failed simply for not being repeated at the top level. At run time
+    validate_target is handed the scenario's real column list, so the honest stand-in here is that list, taken
+    from the source that registers it. A config that gates on something the sim never emits now fails here
+    instead of five hours into a queue."""
+    root = Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
+    names: set[str] = set()
+    for source in root.rglob("*.cpp"):
+        names |= set(re.findall(r'Add\("([a-z0-9_]+)"', source.read_text()))
+    assert names, f"no episode info registrations found under {root}"
+    return tuple(names | set(DERIVED_METRICS))
+
+
 @pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "configs").glob("*.yaml")), ids=str)
 def test_shipped_configs_load_and_validate(path):
     config = TrainConfig.load(path)
-    validate_target(config, tuple(config.target.metrics))
+    validate_target(config, sim_episode_info())
 
 
 def test_score_gate_allows_evaluation_noise():

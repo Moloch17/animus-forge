@@ -1,11 +1,11 @@
-# Stage 2 of the curriculum: the duel's random characters against a pack of 2-4 same-level creatures,
+# Stage 2: the duel's random characters against a pack of 2-4 same-level creatures,
 # casters included, usually linked. The policy picks targets, interrupts, crowd-controls and clears the pack fast while
 # losing little health. Episodes end when the pack is cleared, the bot dies or the 150 s clock runs out (a lost fight,
 # as in the duel).
 
 extends: stage1_duel.yaml
 run_name: stage2_pack
-total_env_steps: 30000000
+total_env_steps: 60000000
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,
 # so the duel's 33 s horizon is too short to carry credit from a clear back to the opening. These are the gauntlet's
@@ -33,17 +33,14 @@ mappo:
 # first laddered run: at 30M steps it held 91% overall (bound 0.89) but rogues (70%, bound 0.57, stuck between the 2- and
 # 3-creature rungs), druid healers, priest DPS and warlocks (81-82%) stayed under it. Taking adds out with crowd control
 # is stage 3's to teach (its control reward).
-# A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
-# it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so
-# an inherited `metrics` survives unless an empty map replaces it -- which disables the target (TargetConfig.enabled)
-# and makes convergence and the budget both advance instead of halting the queue. Restore the gates for a run meant
-# to prove a stage rather than to cover ground; they are in git history.
 target:
-  metrics: {}
-  layout_metrics: {}
-  role_metrics: {}
-  arenas: {}
-  difficulties: {}
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  until_passed: false
+  # A pack is cleared, and the casters in it are actually interrupted. Interrupt uptake was measured weak in an
+  # earlier sweep and nothing would have caught it: the clear rate alone can be met by out-damaging a healer.
+  min_over_baseline: 0.10
+  min_layout_over_baseline: 0.0
+  metrics:
+    pulls_cleared: {min: 0.90}
+    died: {max: 0.20}
+  layout_metrics:
+    pulls_cleared: {min: 0.70}
+  until_passed: true
