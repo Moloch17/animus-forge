@@ -1,0 +1,35 @@
+# Stage 16: a scripted enemy player six levels above the seat, for 120 s. The fight is not winnable straight, so
+# the lesson is the one nothing before this stage has ever paid for: leave. Break away, break line of sight, use
+# whatever the class has (Blink, Disengage, Feign Death, Vanish, Sprint) and be alive when the clock runs out.
+#
+# Time spent unseen is counted and never paid -- the optimal policy for paid seconds out of sight is to walk to
+# the far corner at t=0 and stand there. What is paid is the transition out of contact (Evade.BrokeContact),
+# once per break with a cooldown, so strobing around a pillar earns nothing.
+
+extends: stage15_pvp.yaml
+run_name: stage16_evade
+total_env_steps: 60000000
+
+rollout_length: 256
+
+mappo:
+  gamma: 0.999
+  gae_lambda: 0.995
+
+eval:
+  report: [survived, escaped, contact_breaks, line_of_sight_breaks, unseen_seconds, unseen_longest_seconds, died]
+
+target:
+  # Conservative on purpose: a failed gate halts the queue, so these ask whether the stage's lesson happened at
+  # all. The baseline comparison is dropped (min_over_baseline 0) because the yardstick for this arena is a
+  # policy trained to win fights it cannot win here -- surviving is the new axis, not a better version of the
+  # old one. clean_kill is deliberately absent: killing a level-56 enemy at 50 is not what is being asked.
+  min_over_baseline: 0.0
+  min_layout_over_baseline: 0.0
+  metrics:
+    survived: {min: 0.35, confidence: 0.95}
+    unseen_seconds: {min: 5.0}
+    contact_breaks: {min: 0.5}
+  layout_metrics:
+    survived: {min: 0.15}
+  until_passed: true

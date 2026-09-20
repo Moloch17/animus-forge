@@ -1,0 +1,33 @@
+# Stage 17: the same losing fight, four levels up instead of six, for the class/roles whose kit contains a
+# stealth aura (NeedsStealth drops the rest, so the list follows the action catalog and not a hard-coded one).
+# Winnable from a stealth opener, unwinnable head-on: open from stealth, and when the fight turns, break contact
+# and get back into it.
+#
+# A leaf: nothing extends this stage. Its checkpoint holds only the stealth layouts, and init_from: auto takes
+# the first checkpoint in the chain that exists -- a stage extending it would find that one, stop looking, and
+# start every other class/role from random weights without saying so.
+
+extends: stage16_evade.yaml
+run_name: stage17_stealth
+total_env_steps: 40000000
+
+rollout_length: 256
+
+mappo:
+  gamma: 0.999
+  gae_lambda: 0.995
+
+eval:
+  report: [survived, re_stealths, stealth_openers, escaped, contact_breaks, unseen_seconds, died]
+
+target:
+  # re_stealths is the stage: getting back into stealth after being seen. Half an episode's worth is a low bar
+  # deliberately -- it says the behaviour exists, not that it is good.
+  min_over_baseline: 0.0
+  min_layout_over_baseline: 0.0
+  metrics:
+    re_stealths: {min: 0.5, confidence: 0.95}
+    survived: {min: 0.45}
+  layout_metrics:
+    survived: {min: 0.25}
+  until_passed: true
