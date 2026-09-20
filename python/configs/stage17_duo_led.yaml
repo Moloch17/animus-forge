@@ -25,7 +25,8 @@ eval:
   episodes: 512
   report: [won, killed, died, damage, order_focus_kept, order_focus_lowest, order_focus_chance,
            order_focus_alive, order_focus_unseen, director_enemies_seen, order_has_focus,
-           order_changes, order_posture]
+           order_changes, order_posture, order_place_called, order_place_reached,
+           order_place_distance, reward_place_match]
 convergence:
   min_env_steps: 20000000
 target:
