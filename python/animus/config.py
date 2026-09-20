@@ -254,14 +254,19 @@ class TrainConfig:
     # joined, one rollout later), which is data one update staler than the strictly serial loop; its log_probs come
     # from the same weights, so the PPO ratio stays consistent. Update stats are logged one update late as well.
     #
-    # On by default because serially the sim blocks in ReceiveAny for the whole update, which is not a rounding
-    # error: stage6_run measures a 1.82 s update against a 3.2 s rollout, stage18_stealth 3.08 s against 4.26 s --
-    # 36-42% of wall clock spent with the sim idle. The rollout is the longer of the two in both, so overlapping
-    # hides the update rather than merely shortening it. The old guidance to leave it off assumed the two would
-    # contend for cores; `forge bench` moved learner time by 0.1% between torch_threads 0 and 8, which says the
-    # update is not thread-bound. Contention would show as a longer rollout, so measure rollout_seconds across the
-    # switch rather than trusting this note.
-    overlap_updates: bool = True
+    # Off, and stage1_duel sets it off explicitly for the whole curriculum that extends it. The arithmetic argues
+    # the other way -- the sim blocks in ReceiveAny for the whole update, which is 1.82 s against a 3.2 s rollout
+    # on stage6_run and 3.08 s against 4.26 s on stage18_stealth, so 36-42% of wall clock with the sim idle, and
+    # the rollout being the longer of the two is the case overlap should hide completely. It was measured on this
+    # machine anyway and the arithmetic lost: 5,365 against 5,323 env steps/s, inside the noise (see the note in
+    # configs/stage1_duel.yaml). The rollout's forward pass and the update evidently contend for something the
+    # per-decision accounting does not show, so the idle time does not convert into throughput.
+    #
+    # Not settled: that measurement was taken at a 1.1 s update against a 2 s rollout. The ratio is the same today
+    # but updates now run on the GPU, and `forge bench` moves learner time by 0.1% between torch_threads 0 and 8,
+    # which is what a GPU-bound update looks like. Worth one A/B on a fast stage -- compare rollout_seconds, not
+    # update_seconds, since contention shows up as a longer rollout -- before changing this.
+    overlap_updates: bool = False
 
     train_device: str = AUTO  # "auto": cuda when torch sees a GPU (ROCm included), else cpu
     rollout_device: str = "cpu"  # one small forward pass per decision is faster on the CPU

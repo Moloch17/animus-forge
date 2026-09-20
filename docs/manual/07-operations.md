@@ -437,14 +437,17 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   Rollouts stay on the CPU on purpose. Serially that time is sim idle time: `env_steps_per_sec` in `metrics.csv` is the
   rollout's own rate, and the rate over the wall clock is lower by the update's share. `overlap_updates` runs the
   update on a worker thread while the sim collects the next rollout and closes most of that gap; the rollout then acts
-  on the update before last, and update stats are logged one update late. It is on by default. The reading that an
-  update must cost *more* than a rollout to be worth overlapping had it backwards: an update shorter than the rollout
-  is the case overlap hides completely, and a longer one is the case it can only partly hide. Measured:
-  `stage6_run` 1.82 s of update against a 3.2 s rollout, `stage18_stealth` 3.08 s against 4.26 s -- 36-42% of wall
-  clock with the sim blocked in `ReceiveAny`. The objection that the two contend for cores is not supported by
-  `forge bench`, which moved learner time by 0.1% between `torch_threads` 0 and 8. Contention, if there is any, shows
-  up as a longer rollout, so compare `rollout_seconds` across the switch and turn it back off if that is what you
-  see.
+  on the update before last, and update stats are logged one update late. It is **off**, and `stage1_duel` sets it
+  off for the whole curriculum that extends it. The serial cost is real and large -- `stage6_run` is a 1.82 s update
+  against a 3.2 s rollout, `stage18_stealth` 3.08 s against 4.26 s, so 36-42% of wall clock with the sim blocked in
+  `ReceiveAny`, and the rollout being the longer of the two is the case overlap should hide completely. It was
+  measured on this machine anyway and gained nothing: 5,365 against 5,323 env steps/s, inside the noise. Whatever
+  the rollout's forward pass and the update contend for does not show up in the per-decision buckets. Do not
+  re-enable it on the arithmetic alone.
+  What would settle it: that measurement was taken at a 1.1 s update against a 2 s rollout -- the same ratio as
+  today, but updates now run on the GPU, and `forge bench` moves learner time by 0.1% between `torch_threads` 0 and
+  8, which is what a GPU-bound update looks like. One A/B on a fast stage would say. Compare `rollout_seconds`, not
+  `update_seconds`: contention shows up as a longer rollout.
 - **Evaluation cost.** Every evaluation resets all envs and runs `eval.episodes` seeded episodes plus confirmation
   episodes. Large evaluations every few million steps can take a significant share of wall time. `eval.every_env_steps`
   and `eval.episodes` trade that time against the reliability of convergence decisions -- but the trade is cheap in the
