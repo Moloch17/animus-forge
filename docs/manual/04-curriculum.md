@@ -1334,6 +1334,12 @@ Columns that carry the gate:
 | `re_hides` | Contact broken again after the first time: getting back out of sight once something is already looking for you, which is the harder half and the one every class can do |
 | `survived` | A sanity floor, not the thing being asked for |
 
+Measured `fight` baseline, 2048 episodes over all eighteen layouts: `escaped` 0.079, `re_hides` 0.240,
+`contact_breaks` 0.541, `unseen_seconds` 3.17, `survived` 0.551, `won` 0.450, `re_stealths` exactly 0.0000.
+**Every one of the eighteen produced both gate metrics**, which is the check that mattered: no layout is asked
+for something it has no way to do. The spread runs from `warlock_dps` (survived 0.257) to `deathknight_tank`
+(0.781), and the layout floor is set against the bottom of it.
+
 `re_stealths` and `stealth_openers` are **reported and never gated**. Fourteen class/roles have no stealth
 button, and a gate on one would ask them for something they cannot do; the columns are still worth reading,
 because they are what a rogue, a druid or any night elf actually presses.
