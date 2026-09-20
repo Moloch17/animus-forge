@@ -724,6 +724,10 @@ class TrainingRun:
         tracker, controller = self.tracker, self.controller
         self.eval_log.write_outcome(self.update, self.env_steps, outcome, controller.restarts)
         failures = "; ".join(outcome.gates.failures) if outcome.gates else ""
+        # Gates that could not be judged at all -- a layout with no baseline row, or with too few episodes to read
+        # through the noise. Skipping them is deliberate, but a stage that advances with gates that never ran has
+        # been judged on less than its target asks for, and nothing said so.
+        skipped = "; ".join(outcome.gates.skipped) if outcome.gates else ""
         if outcome.action == RESTART:
             self.restart_from_best()
             print(f"Converged below the target ({outcome.stage}: {failures}). Restart {controller.restarts} of "
@@ -742,6 +746,8 @@ class TrainingRun:
         else:
             print(f"Stage complete ({outcome.reason}): best score {tracker.best:.4g} at {tracker.best_env_steps} env "
                   f"steps after {controller.restarts} restarts.", flush=True)
+        if skipped:
+            print(f"  Gates not judged ({outcome.stage}): {skipped}", flush=True)
         return True
 
     # ------------------------------------------------------------------ training
