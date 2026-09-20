@@ -101,10 +101,19 @@ forge fast
 ```
 
 It trains every curriculum stage in order (the `mix_duel_pvp` pilot included), each from scratch, with 32 envs,
-four class/roles at level 20 (raised to a stage's minimum level: 20 for travel and the flag match, 60 for flight), and
-quick convergence settings, into `<OutputDir>/fast/`. Nothing is skipped, so typing it again runs the whole
-curriculum again. `forge fast stage2_pack` trains one stage, seeded from the fast `stage1_duel` run. Set
-`AnimusForge.Fast.Queue` to train a shorter list.
+**all eighteen class/roles at the stage's own levels**, into `<OutputDir>/fast/`. Nothing is skipped, so typing it
+again runs the whole curriculum again. `forge fast stage2_pack` trains one stage, seeded from the fast
+`stage1_duel` run. Set `AnimusForge.Fast.Queue` to train a shorter list.
+
+**It is a fixed-budget sweep, not an early-stopping smoke test.** Each stage trains a set number of steps and
+moves on: 20,000,000 by default, and `forge fast 30M` (or `forge fast 30M stage2_pack`) overrides it for that
+invocation. The mechanism is `convergence.patience: 0` in `configs/fast.yaml`, which makes
+`ConvergenceTracker.converged` return false, so the stage cannot stop early and cannot trigger a restart; the
+cleared `target:` block means a gate cannot halt the sweep either. That makes the sweep a genuine rehearsal of
+the real build -- same class/roles, same levels, same stages, less budget -- rather than a different problem.
+
+The budget in force is printed at the start of the run and in `forge status`, so what is reported is the budget
+actually used and not the configured default.
 
 What to check, in `fast/runs/<stage>/`:
 
@@ -131,8 +140,9 @@ pilot only when named), skipping any stage whose run already advanced. Each stag
 3. starts the learner, which seeds from the closest trained ancestor,
 4. trains until it advances (the next stage starts), halts below its target (the plan stops), or is cancelled.
 
-To train particular stages: `forge start stage14_pvp stage15_arena`. List each stage after the stage it extends, or it
-won't seed from it (the command warns you).
+To train particular stages: `forge start stage15_pvp stage18_arena`. List each stage after the stage it extends, or it
+won't seed from it (the command warns you). With no arguments the queue is all twenty-two stages in number order,
+which is already a valid order, so the usual case needs no arguments at all.
 
 ### Monitoring
 
@@ -196,7 +206,7 @@ of the run is wall clock and the budget is better spent on the next stage.
 | Freeze everything, sim and learner | `forge pause`, later `forge resume` |
 | Stop and keep the progress | `forge cancel` (saves `latest.pt`), later `forge resume` |
 | Give up on the current stage and go to the next | `forge skip` |
-| Continue a particular stage from its checkpoint | `forge resume stage4_gauntlet [stage8_companion ...]` |
+| Continue a particular stage from its checkpoint | `forge resume stage4_gauntlet [stage9_companion ...]` |
 | Retrain a finished stage | `forge start stage4_gauntlet`, which archives the old run |
 | Fine-tune a stage from its own best (after reward or mask changes) | copy its `best.pt` to `runs/_finetune/<stage>/best.pt`, then `forge start <stage>`: the learner seeds from it before the seed chain (`finetune_from`) |
 
@@ -239,18 +249,18 @@ The plan stops with outcome `below target` and the learner exits 3.
 1. **Export**, even during training:
 
    ```
-   forge export stage9_party            # best.pt, else latest.pt
-   forge export stage9_party latest
+   forge export stage10_party            # best.pt, else latest.pt
+   forge export stage10_party latest
    ```
 
    Output goes to `AnimusForge.ModelDir` (default `modules/mod-animus-forge/models/`) as one `.amdl` and one `.json`
    per class/role, for example `warrior_tank_party.amdl` and `warrior_tank_party.json`. The export log is
-   `animus-export.log`. "Export of stage9_party finished" appears in the console.
+   `animus-export.log`. "Export of stage10_party finished" appears in the console.
 
 2. **Copy both files for every class/role** to the realm's `Animus.ModelDir` (default `<DataDir>/animus`).
 
 3. **Configure the realm** (`mod_animus.conf`): set `Animus.Curriculum.Stage` to the stage whose models companions
-   should play (`stage9_party`, or `stage16_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
+   should play (`stage10_party`, or `stage22_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
    training decision interval.
 
 4. **Load.** Models load on first use. On a running realm, `.reload config` resets the model cache.
@@ -276,8 +286,8 @@ On a stock realm with mod-animus and the models (`.animus stage open` turns GM m
 
 To see exactly the training conditions, copy the run's `stage.json` `"tuning"` values into `Animus.Curriculum.*`, and
 match `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*` to the forge settings. To look at one
-situation of stage 8: `.animus stage open stage16_crossroads model ambush`. To compare with the baseline:
-`.animus stage open stage9_party fight`.
+situation of stage 8: `.animus stage open stage22_crossroads model ambush`. To compare with the baseline:
+`.animus stage open stage10_party fight`.
 
 ## 7.8 Running the learner by hand
 
@@ -306,7 +316,7 @@ docker compose exec -w /azerothcore/modules/mod-animus-forge/python ac-dev-serve
 
 ```bash
 python -m animus.evaluate --checkpoint runs/stage1_duel/best.pt --episodes 128 --seed 1000 --baseline fight
-python -m animus.evaluate --checkpoint runs/stage15_arena/best.pt --baseline fight --opponent-baseline
+python -m animus.evaluate --checkpoint runs/stage18_arena/best.pt --baseline fight --opponent-baseline
 ```
 
 ## 7.9 Extending the curriculum

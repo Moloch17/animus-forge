@@ -68,7 +68,7 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 |---|---|---|
 | `Animus.Enable` | `1` | `0`: no summons or stages, existing ones removed, no models loaded |
 | `Animus.ModelDir` | `"animus"` | Model directory, relative to `DataDir` |
-| `Animus.Curriculum.Stage` | `"stage9_party"` | The stage whose models companions play |
+| `Animus.Curriculum.Stage` | `"stage10_party"` | The stage whose models companions play |
 | `Animus.Curriculum.DecisionMs` | `250` | Companion decision interval |
 | `Animus.Stage.Policy` | `"model"` | Default stage viewer policy |
 | `Animus.Stage.DecisionMs` | `250` | Stage viewer decision interval |
@@ -355,7 +355,7 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 
 ```json
 {
-  "format": 2, "stage": "stage8_companion", "suffix": "_companion", "extends": "stage4_gauntlet",
+  "format": 2, "stage": "stage9_companion", "suffix": "_companion", "extends": "stage4_gauntlet",
   "summary": "...", "seats": 1,
   "blocks": ["core", "duel", "pet", "pack", "gauntlet", "companion"],
   "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0}],
