@@ -84,12 +84,16 @@ namespace AnimusForge
         /// Only the fast profile sets it (AnimusForge.Fast.Level).
         uint32 Level = 0;
 
-        /// AnimusForge.Fast.*: the low-resolution profile `forge fast` trains with (see FastProfile).
+        /// AnimusForge.Fast.*: the profile `forge fast` trains with (see FastProfile).
         uint32 FastEnvs = 16;
-        uint32 FastLevel = 20;
+        /// AnimusForge.Fast.Budget: env steps each stage of a fast run trains for before the next one starts,
+        /// overridden per invocation by `forge fast <steps>`. A fast run is a fixed-budget sweep of the whole
+        /// curriculum, not a smoke test: it plays the same content at every class/role and every level, and only
+        /// the budget is smaller. Fast.Level and Fast.ClassRoles used to make the problem easier as well, which
+        /// meant a fast pass rehearsed something the real build never trains.
+        uint64 FastBudget = 20000000;
         /// AnimusForge.Fast.Queue: what `forge fast` trains when given no scenarios; empty = every curriculum stage.
         std::vector<std::string> FastQueue;
-        std::vector<std::string> FastClassRoles;    // empty = AnimusForge.ClassRoles
         std::string FastOutputDir;                  // resolved: never empty after Load
         std::string FastLearnerOverlay;             // resolved: never empty after Load
         std::vector<std::string> FastLearnerArgs;
@@ -129,10 +133,10 @@ namespace AnimusForge
         /// evaluation, no seeding, no distillation -- when `remote`.
         [[nodiscard]] ForgeConfig BenchProfile(uint32 envs, bool remote, uint32 torchThreads) const;
 
-        /// These settings with the fast profile applied: fewer envs, a few class/roles at one level, and the learner's
-        /// quick convergence settings (FastLearnerOverlay). Everything goes to FastOutputDir (runs,
-        /// layouts and models), so a test run never archives, seeds from or overwrites a real run.
-        [[nodiscard]] ForgeConfig FastProfile() const;
+        /// These settings with the fast profile applied: fewer envs and the learner's fast overlay, with every
+        /// stage trained for `budget` env steps and no early convergence. Everything goes to FastOutputDir
+        /// (runs, layouts and models), so a test run never archives, seeds from or overwrites a real run.
+        [[nodiscard]] ForgeConfig FastProfile(uint64 budget) const;
 
         /// Where learners train: <OutputDir>/runs, runs/<scenario>/ per scenario.
         [[nodiscard]] std::filesystem::path RunsDir() const;

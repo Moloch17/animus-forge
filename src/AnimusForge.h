@@ -142,6 +142,8 @@ namespace AnimusForge
             std::string Policy;             // "remote" trains; anything else runs locally
             uint64 LocalEpisodes = 0;       // local policy: episodes per scenario (0 = until cancelled)
             bool Fast = false;              // `forge fast`: trained with ForgeConfig::FastProfile
+            /// Env steps each stage of a fast run trains for (`forge fast <steps>`); 0 = AnimusForge.Fast.Budget.
+            uint64 Budget = 0;
 
             [[nodiscard]] bool Remote() const { return Policy == "remote"; }
         };
@@ -242,7 +244,9 @@ namespace AnimusForge
         [[nodiscard]] bool ValidScenario(std::string const& scenario, LineSink const& out) const;
 
         ForgeConfig _config;
-        ForgeConfig _fastConfig;            // _config.FastProfile()
+        /// _config.FastProfile(budget): rebuilt when `forge fast <steps>` names a budget of its own, so
+        /// ConfigFor(plan) hands the learner the budget that invocation asked for.
+        ForgeConfig _fastConfig;
         std::unique_ptr<Animus::Scenario> _scenario;
         std::unique_ptr<Animus::EnvPool> _pool;
         LockstepServer _server;

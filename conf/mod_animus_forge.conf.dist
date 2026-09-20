@@ -396,24 +396,23 @@ AnimusForge.Fast.Queue = ""
 #        Description: Parallel envs of a fast run.
 #        Default:     32
 #
-#    AnimusForge.Fast.Level
-#        Description: The level of every character in a fast run (raised to a class's starting level, e.g.
-#                     55 for death knights). One level means fewer spells, gear and matchups to learn.
-#        Default:     20
-#                     0  - (the curriculum's random levels, AnimusForge.Curriculum.Characters.*)
+#    AnimusForge.Fast.Budget
+#        Description: Env steps each stage of a fast run trains for before the next one starts. A fast run
+#                     is a fixed-budget sweep of the whole curriculum, not a smoke test: it plays the same
+#                     content at every class/role and every level, and only the budget and the env count are
+#                     smaller. Convergence is off for these runs, so a stage trains every step it was given
+#                     rather than stopping as soon as its score flattens.
+#
+#                     Override per invocation: `forge fast 30M`, `forge fast 30M stage1_duel`. A suffix of K
+#                     or M is understood, and a bare number under 1000 is read as a scenario name rather
+#                     than a budget.
+#
+#                     At the default this is a day or more over the whole queue; `forge status` reports the
+#                     total so it is not started by accident.
+#        Default:     20000000
 
 AnimusForge.Fast.Envs = 32
-AnimusForge.Fast.Level = 20
-
-#
-#    AnimusForge.Fast.ClassRoles
-#        Description: Comma-separated class/roles a fast run plays (see AnimusForge.ClassRoles). The
-#                     default covers a tank, a healer (so stage 5 can form its party), melee with
-#                     stealth and energy, and a ranged class with a pet.
-#        Default:     "warrior_tank, priest_heal, rogue_dps, hunter_dps"
-#                     ""  - (AnimusForge.ClassRoles)
-
-AnimusForge.Fast.ClassRoles = "warrior_tank, priest_heal, rogue_dps, hunter_dps"
+AnimusForge.Fast.Budget = 20000000
 
 #
 #    AnimusForge.Fast.OutputDir

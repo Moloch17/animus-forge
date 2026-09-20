@@ -177,9 +177,8 @@ void AnimusForge::ForgeConfig::Load()
     ProgressInterval = sConfigMgr->GetOption<uint32>("AnimusForge.Progress.Interval", 0);
 
     FastEnvs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Envs", 16));
-    FastLevel = std::min<uint32>(DEFAULT_MAX_LEVEL, sConfigMgr->GetOption<uint32>("AnimusForge.Fast.Level", 20));
+    FastBudget = std::max<uint64>(1000, sConfigMgr->GetOption<uint64>("AnimusForge.Fast.Budget", 20000000));
     FastQueue = GetList("AnimusForge.Fast.Queue", "");
-    FastClassRoles = GetList("AnimusForge.Fast.ClassRoles", "warrior_tank, priest_heal, rogue_dps, hunter_dps");
 
     fs::path fastOutputDir = sConfigMgr->GetOption<std::string>("AnimusForge.Fast.OutputDir", "fast");
     if (fastOutputDir.empty())
@@ -302,21 +301,31 @@ AnimusForge::ForgeConfig AnimusForge::ForgeConfig::BenchProfile(uint32 envs, boo
     return bench;
 }
 
-AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile() const
+AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile(uint64 budget) const
 {
     ForgeConfig fast = *this;
     fast.Policy = "remote";
     fast.Envs = FastEnvs;
-    fast.Level = FastLevel;
     fast.ReportEpisodes = std::min<uint32>(ReportEpisodes, 64);
-    if (!FastClassRoles.empty())
-        fast.ClassRoles = FastClassRoles;
+    // The budget this profile was built for, so whatever reports the profile reports the budget in force and
+    // not the configured default -- `forge fast 30M` saying "20,000,000 steps a stage" is a message that lies.
+    fast.FastBudget = budget;
 
+    // Level and ClassRoles are deliberately NOT narrowed. A fast run used to train four class/roles at level 20,
+    // which made it a rehearsal of a problem the real build never trains: the classes it skipped were the ones
+    // whose faults a sweep is for finding. Only the budget and the env count are smaller now.
     fast.OutputDir = FastOutputDir;
     fast.ModelDir = (fs::path(FastOutputDir) / "models").string();
 
-    // The overlay goes first: AnimusForge.Learner.Args and AnimusForge.Fast.Learner.Args (--set) still win over it.
-    fast.LearnerArgs = { "--overlay", FastLearnerOverlay };
+    // The overlay goes first, then the budget, then the operator's own --set: AnimusForge.Learner.Args and
+    // AnimusForge.Fast.Learner.Args still win over both, because --set is applied in order.
+    //
+    // convergence.patience 0 is what makes the budget a budget: ConvergenceTracker.converged returns false at
+    // once when patience is 0, so a stage trains every step it was given instead of stopping as soon as its
+    // score flattens. A fast run is then a fixed, predictable sweep rather than a race of uneven lengths.
+    fast.LearnerArgs = { "--overlay", FastLearnerOverlay,
+        "--set", Acore::StringFormat("total_env_steps={}", budget),
+        "--set", "convergence.patience=0" };
     fast.LearnerArgs.insert(fast.LearnerArgs.end(), LearnerArgs.begin(), LearnerArgs.end());
     fast.LearnerArgs.insert(fast.LearnerArgs.end(), FastLearnerArgs.begin(), FastLearnerArgs.end());
     return fast;

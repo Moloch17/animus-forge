@@ -92,7 +92,7 @@ AnimusForge::Forge* AnimusForge::Forge::Instance()
 void AnimusForge::Forge::OnStartup()
 {
     _config.Load();
-    _fastConfig = _config.FastProfile();
+    _fastConfig = _config.FastProfile(_config.FastBudget);
     _progressInterval = _config.ProgressInterval;
 
     if (!_config.Enable)

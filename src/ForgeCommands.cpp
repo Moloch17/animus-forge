@@ -27,6 +27,9 @@
 #include "Log.h"
 #include "StringFormat.h"
 #include <algorithm>
+#include <cctype>
+#include <charconv>
+#include <optional>
 #include <boost/json/parse.hpp>
 #include <boost/json/value.hpp>
 #include <filesystem>
@@ -44,6 +47,44 @@ namespace
     /// How many of its last points a `noisy` build improvises, when the command asks for one. The curriculum
     /// draws this per character (Characters.TalentNoisePoints); the command shows the middle of that range.
     constexpr uint32 TALENTS_NOISE_POINTS = 3;
+
+    /// A step budget written as `20M`, `20m`, `500K` or a plain count, for `forge fast <steps>`.
+    ///
+    /// A bare number below this is not a budget: `forge fast 20` is far more likely to be a mistyped scenario
+    /// than a request to train twenty steps, and treating it as a budget would silently swallow the argument.
+    constexpr uint64 SMALLEST_BUDGET = 1000;
+
+    std::optional<uint64> ParseBudget(std::string const& word)
+    {
+        if (word.empty())
+            return std::nullopt;
+
+        uint64 scale = 1;
+        std::string digits = word;
+        switch (char const suffix = digits.back())
+        {
+            case 'K': case 'k': scale = 1000; break;
+            case 'M': case 'm': scale = 1000000; break;
+            default:
+                if (!std::isdigit(static_cast<unsigned char>(suffix)))
+                    return std::nullopt;
+                break;
+        }
+
+        if (scale > 1)
+            digits.pop_back();
+        if (digits.empty() || !std::all_of(digits.begin(), digits.end(),
+            [](unsigned char c) { return std::isdigit(c) != 0; }))
+            return std::nullopt;
+
+        uint64 value = 0;
+        auto const [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), value);
+        if (error != std::errc() || end != digits.data() + digits.size())
+            return std::nullopt;
+
+        value *= scale;
+        return value >= SMALLEST_BUDGET ? std::optional<uint64>(value) : std::nullopt;
+    }
 
     std::string Join(std::vector<std::string> const& names, char const* separator = ", ")
     {
@@ -398,6 +439,20 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
         return false;
     }
 
+    // A leading step count is this run's budget: `forge fast 30M`, `forge fast 30M stage1_duel`. Only the first
+    // word is considered, and only if it parses as one, so a scenario name is never eaten by mistake.
+    uint64 budget = _config.FastBudget;
+    if (!scenarios.empty())
+        if (std::optional<uint64> const named = ParseBudget(scenarios.front()))
+        {
+            budget = *named;
+            scenarios.erase(scenarios.begin());
+        }
+
+    // The budget is per invocation, so the fast profile is rebuilt around it; ConfigFor(plan) hands the learner
+    // this one.
+    _fastConfig = _config.FastProfile(budget);
+
     // Without names: the whole fast queue (AnimusForge.Fast.Queue, else every curriculum stage), every stage trained
     // again from scratch in order, so one `forge fast` is a full run of the curriculum with nothing skipped.
     if (scenarios.empty())
@@ -412,6 +467,7 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
     Plan plan;
     plan.Policy = _fastConfig.Policy;
     plan.Fast = true;
+    plan.Budget = budget;
     for (std::string const& scenario : scenarios)
     {
         if (!ValidScenario(scenario, out))
@@ -423,9 +479,10 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
     _requested = std::move(plan);
     _request = Request::Start;
 
-    out(Acore::StringFormat("Fast test run of {}: {}.", Join(scenarios), FastSummary()));
-    out(Acore::StringFormat("  Learner settings from {} over each stage's config: each stage ends when its evaluation "
-        "score stops improving.", _fastConfig.FastLearnerOverlay));
+    out(Acore::StringFormat("Fast run of {}: {}.", Join(scenarios), FastSummary()));
+    out(Acore::StringFormat("  Learner settings from {} over each stage's config. Every stage trains its whole "
+        "budget: convergence is off, so none of them stops early when its score flattens.",
+        _fastConfig.FastLearnerOverlay));
     out(Acore::StringFormat("  Runs, layouts and models go to {}: each scenario trains from scratch there (an earlier "
         "fast run of it is archived), seeding from the fast runs of the stages it builds on. The runs in {} are not "
         "touched.", _fastConfig.OutputDir, _config.RunsDir().string()));
@@ -1096,9 +1153,16 @@ bool AnimusForge::Forge::CommandClean(std::string const& target, std::string con
 
 std::string AnimusForge::Forge::FastSummary() const
 {
-    return Acore::StringFormat("{} envs, {}, {}", _fastConfig.Envs,
+    // The total is worth saying out loud: a fast run of the whole curriculum at its default budget is a day or
+    // more of training, and it used to be minutes. Nobody should start one by accident.
+    uint64 const budget = _fastConfig.FastBudget;
+    std::size_t const stages = FastQueue().size();
+    return Acore::StringFormat("{} envs, {}, {}, {} steps a stage{}", _fastConfig.Envs,
         _fastConfig.Level ? Acore::StringFormat("level {}", _fastConfig.Level) : std::string("random levels"),
-        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles));
+        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles),
+        Format::Count(budget),
+        stages ? Acore::StringFormat(" ({} over {} stages)", Format::Count(budget * stages), stages)
+            : std::string());
 }
 
 void AnimusForge::Forge::CommandProgress(std::optional<uint32> seconds, LineSink const& out)
