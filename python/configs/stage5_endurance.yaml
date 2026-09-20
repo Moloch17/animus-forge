@@ -3,10 +3,10 @@
 # last pull, and whether the fourth pull (a small one) is used as a rest or as a chance to get ahead. It is won by
 # clearing the last pull alive: the 900 s clock running out is a loss however far it got.
 #
-# Trained by name (`forge start stage12_endurance`), after stage3_gauntlet, which it seeds from.
+# Trained by name (`forge start stage5_endurance`), after stage4_gauntlet, which it seeds from.
 
-extends: stage3_gauntlet.yaml
-run_name: stage12_endurance
+extends: stage4_gauntlet.yaml
+run_name: stage5_endurance
 
 total_env_steps: 300000000
 

@@ -68,7 +68,7 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 |---|---|---|
 | `Animus.Enable` | `1` | `0`: no summons or stages, existing ones removed, no models loaded |
 | `Animus.ModelDir` | `"animus"` | Model directory, relative to `DataDir` |
-| `Animus.Curriculum.Stage` | `"stage5_party"` | The stage whose models companions play |
+| `Animus.Curriculum.Stage` | `"stage9_party"` | The stage whose models companions play |
 | `Animus.Curriculum.DecisionMs` | `250` | Companion decision interval |
 | `Animus.Stage.Policy` | `"model"` | Default stage viewer policy |
 | `Animus.Stage.DecisionMs` | `250` | Stage viewer decision interval |
@@ -347,11 +347,11 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 
 ```json
 {
-  "format": 2, "stage": "stage4_companion", "suffix": "_companion", "extends": "stage3_gauntlet",
+  "format": 2, "stage": "stage8_companion", "suffix": "_companion", "extends": "stage4_gauntlet",
   "summary": "...", "seats": 1,
   "blocks": ["core", "duel", "pet", "pack", "gauntlet", "companion"],
   "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0}],
-  "seed_chain": ["stage3_gauntlet", "stage2_pack", "stage1_duel"],
+  "seed_chain": ["stage4_gauntlet", "stage2_pack", "stage1_duel"],
   "merges": [],
   "state": {"arena_first": 13, "arena_count": 8},
   "models": {"warrior_tank": "warrior_tank_companion", "...": "..."},

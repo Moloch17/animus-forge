@@ -53,20 +53,20 @@ AnimusForge.OutputDir = ""
 #                                            it fast, taking little damage (the first stage, from scratch)
 #                       "stage2_pack"      - a pack of 2-4 (casters, usually linked): targets,
 #                                            interrupts, crowd control
-#                       "stage3_gauntlet"  - pull after pull with short breaks: heals, food, drink
-#                       "stage4_companion" - the gauntlet beside a scripted owner: follow, assist,
+#                       "stage4_gauntlet"  - pull after pull with short breaks: heals, food, drink
+#                       "stage8_companion" - the gauntlet beside a scripted owner: follow, assist,
 #                                            guard and heal it
-#                       "stage5_party"     - up to four learned seats and the scripted owner against
+#                       "stage9_party"     - up to four learned seats and the scripted owner against
 #                                            elite-heavy pulls
-#                       "stage6_pvp"       - one-on-one against a scripted enemy player (branches off
+#                       "stage14_pvp"       - one-on-one against a scripted enemy player (branches off
 #                                            the duel)
-#                       "stage7_arena"     - self-play one-on-one: two learned seats of any classes
-#                       "stage8_crossroads" - PvE and PvP in one policy: every earlier situation, an
+#                       "stage15_arena"     - self-play one-on-one: two learned seats of any classes
+#                       "stage16_crossroads" - PvE and PvP in one policy: every earlier situation, an
 #                                            ambush of the owner mid-gauntlet and a ganked owner
 #                                            (merges both branches)
 #                     Only when named (not in an empty queue):
 #                       "mix_duel_pvp"     - pilot arena mix: each episode a creature duel or a scripted
-#                                            enemy player (seeds from stage6_pvp)
+#                                            enemy player (seeds from stage14_pvp)
 #        Example:     "stage1_duel" - (train a single scenario)
 #        Default:     "" - (the whole curriculum, first stage to last)
 
@@ -386,7 +386,7 @@ AnimusForge.Bench.LearnerTorchThreads = "0, 8"
 #        Description: Comma-separated scenarios `forge fast` trains when given none, in order, each again
 #                     from scratch (nothing is skipped because an earlier fast run of it finished).
 #        Default:     ""  - (every curriculum stage in order, the mix_duel_pvp pilot included: a full run)
-#                     "stage1_duel, stage6_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
+#                     "stage1_duel, stage14_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
 #                     scripted enemy player, and a stage that mixes arenas, merges parents and distills)
 
 AnimusForge.Fast.Queue = ""
@@ -916,7 +916,7 @@ AnimusForge.Curriculum.Opponent.TankChance = 20
 
 #
 #    AnimusForge.Curriculum.Ambush.*
-#        Scripted enemy players who ambush the owner (stage8_crossroads' ambush and escort_duel arenas).
+#        Scripted enemy players who ambush the owner (stage16_crossroads' ambush and escort_duel arenas).
 #        Their class, role and level follow the Opponent.* chances and spread.
 
 #   beside pulls: they arrive at a random time between these, in ms (at most 3/4 into the episode)

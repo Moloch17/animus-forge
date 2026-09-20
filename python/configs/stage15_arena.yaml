@@ -6,8 +6,8 @@
 # scripted opponent, and the baseline score is fight against fight on the same seeds. Convergence and the target work
 # on that score like any other stage's.
 
-extends: stage6_pvp.yaml
-run_name: stage7_arena
+extends: stage14_pvp.yaml
+run_name: stage15_arena
 
 # ~4 h at ~14k env steps/s (two seats).
 total_env_steps: 30000000

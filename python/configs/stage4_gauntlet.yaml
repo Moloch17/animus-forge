@@ -15,7 +15,7 @@
 #   is charged as in stage 2. The gauntlet arena runs 450 s whatever AnimusForge.EpisodeSeconds says.
 
 extends: stage2_pack.yaml
-run_name: stage3_gauntlet
+run_name: stage4_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 30000000

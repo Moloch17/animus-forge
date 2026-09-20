@@ -1,9 +1,14 @@
-# Stage 6 of the curriculum: one-on-one against a scripted enemy player of a random class and role near
-# the bot's level. Episodes end when either dies; the reward is the duel's (damage, a fast kill, little damage taken,
-# casts).
+# Stage 11 of the curriculum: Warsong Gulch's rules between two learned seats. Each has a flag at its base 100-180 yd
+# from the other's: take the other side's flag home while one's own is there, return one's own when it is dropped,
+# and stop the carrier. A carrier cannot ride, the dead stand up at their base after a 15 s wave, and the first to
+# three captures wins. Seeded from stage15_arena (the fight) and stage6_travel (mounting between bases).
+#
+# As in the arena, a score against itself says little, so evaluation plays the other seat with the fight baseline,
+# which heads for the flags on a mount.
 
-extends: stage1_duel.yaml
-run_name: stage6_pvp
+extends: stage15_arena.yaml
+run_name: stage17_flag
+
 total_env_steps: 30000000
 
 # gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
@@ -15,13 +20,15 @@ rollout_length: 256
 # learned only through the critic. 0.995 is about 17 s of credit, for more variance than the critic (explained variance
 # ~0.93 through stages 2 and 3) has trouble with.
 mappo:
-  # A fight is shaped by what happened tens of seconds earlier (a stealthy approach, a trinket baited out, a cooldown
-  # saved): ~100 s horizon, ~17 s GAE trace.
+  # A capture is a minute of riding, fighting and carrying.
   gamma: 0.999
   gae_lambda: 0.995
 
 eval:
-  report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
+  report: [match_won, flag_captures, flag_pickups, flag_returns, carrier_kills, flag_deaths, mounted_fraction]
+
+convergence:
+  min_env_steps: 20000000
 
 # A sweep of the whole curriculum: every stage trains for at most total_env_steps and then moves on, whether or not
 # it would have passed. The gates are cleared rather than left to the extended stage -- sections merge key by key, so

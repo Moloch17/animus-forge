@@ -4,13 +4,13 @@
 # middle of a gauntlet, and a lone enemy player attacking the owner (escort_duel). The context and hostiles blocks let
 # the policy tell them apart as a live server would. PvE arenas run 5-minute episodes, one-on-ones 60-90 s.
 #
-# Seeding: the trunk and PvE blocks from stage5_party; the pvp block from stage7_arena (merges). Distillation: each
-# arena is taught by the first parent that has it (party by stage5_party, arena_1v1 by stage7_arena, pvp_scripted by
-# stage6_pvp, companion by stage4_companion, gauntlet by stage3_gauntlet, duel by stage1_duel); the new arenas learn
+# Seeding: the trunk and PvE blocks from stage9_party; the pvp block from stage15_arena (merges). Distillation: each
+# arena is taught by the first parent that has it (party by stage9_party, arena_1v1 by stage15_arena, pvp_scripted by
+# stage14_pvp, companion by stage8_companion, gauntlet by stage4_gauntlet, duel by stage1_duel); the new arenas learn
 # from the reward alone.
 
-extends: stage5_party.yaml
-run_name: stage8_crossroads
+extends: stage9_party.yaml
+run_name: stage16_crossroads
 
 # ~20 h at ~15k env steps/s (up to four seats); convergence usually ends the stage sooner.
 total_env_steps: 30000000

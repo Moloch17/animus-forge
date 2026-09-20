@@ -126,8 +126,8 @@ def test_without_spans_the_layout_is_seeded_as_a_prefix():
 
 
 def test_init_from_follows_the_stage_seed_chain():
-    stage = {"stage": "stage3_gauntlet", "seed_chain": ["stage2_pack", "stage1_duel"]}
-    config = TrainConfig(run_name="stage3_gauntlet", runs_dir="/out/runs")
+    stage = {"stage": "stage4_gauntlet", "seed_chain": ["stage2_pack", "stage1_duel"]}
+    config = TrainConfig(run_name="stage4_gauntlet", runs_dir="/out/runs")
     assert config.resolved_init_from(stage) == ["/out/runs/stage2_pack/best.pt", "/out/runs/stage1_duel/best.pt"]
 
     # The first stage, and a scenario the sim wrote no stage.json for, train from scratch.
@@ -142,8 +142,8 @@ def test_init_from_follows_the_stage_seed_chain():
 
 
 def test_finetune_from_names_the_stage_checkpoint():
-    config = TrainConfig(run_name="stage3_gauntlet", runs_dir="/out/runs")
-    assert config.resolved_finetune_from() == "/out/runs/_finetune/stage3_gauntlet/best.pt"
+    config = TrainConfig(run_name="stage4_gauntlet", runs_dir="/out/runs")
+    assert config.resolved_finetune_from() == "/out/runs/_finetune/stage4_gauntlet/best.pt"
     assert TrainConfig(finetune_from="").resolved_finetune_from() == ""
 
 

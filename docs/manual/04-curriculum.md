@@ -6,29 +6,29 @@ one-on-one fight. One branch ends with a stage that mixes PvE and PvP; another t
 flying) and plays Warsong Gulch's rules.
 
 ```
-stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
-             ├─ stage6_pvp ─ stage7_arena ─┬──────────────────────────────────────┘
-             │                             └─ stage11_flag
-             └─ stage9_travel ─┬─ stage10_flight      (stage11_flag also merges stage9_travel)
+stage1_duel ─┬─ stage2_pack ─ stage4_gauntlet ─ stage8_companion ─ stage9_party ─┬─ stage16_crossroads
+             ├─ stage14_pvp ─ stage15_arena ─┬──────────────────────────────────────┘
+             │                             └─ stage17_flag
+             └─ stage6_travel ─┬─ stage7_flight      (stage17_flag also merges stage6_travel)
 ```
 
 | # | Stage | Extends (merges) | Blocks | Seats | Opposition | Episode |
 |---|---|---|---|---|---|---|
 | 1 | `stage1_duel` | none | core, duel, pet | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
 | 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear, death or the 150 s clock (a loss) |
-| 3 | `stage3_gauntlet` | stage2 | + gauntlet, support | 1 | Pull after pull with breaks | Runs until death or the time limit |
-| 4 | `stage4_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
-| 5 | `stage5_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
-| 6 | `stage6_pvp` | stage1 | core, duel, pet, pvp | 1 | A scripted enemy player | Ends when either dies |
-| 7 | `stage7_arena` | stage6 | core, duel, pet, pvp | 2 (self-play) | The other seat | Ends when either dies |
-| 8 | `stage8_crossroads` | stage5 (stage7, 6, 4, 3, 1) | the PvE and PvP ten | up to 4 | Eight arenas, including ambushes | Per arena |
-| 9 | `stage9_travel` | stage1 | core, duel, pet, travel | 1 | A place 60-320 yd away by path, level 20+ | Ends on arriving or death |
-| 10 | `stage10_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
-| 11 | `stage11_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
-| 12 | `stage12_endurance` (by name) | stage3 | stage 3's | 1 | The same eight pulls in the same order, ending on an elite pack two levels up | Won by clearing the last pull; 900 s |
-| 15 | `stage15_hazards` (by name) | stage2 | stage 2's | 1 | A pack with something on the ground in every pull | Ends on clear, death or the 120 s clock |
-| 16 | `stage16_tanking` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the tank; hold what the pull brings | Full length |
-| 17 | `stage17_triage` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the healer; keep the group up | Full length |
+| 3 | `stage4_gauntlet` | stage2 | + gauntlet, support | 1 | Pull after pull with breaks | Runs until death or the time limit |
+| 4 | `stage8_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
+| 5 | `stage9_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
+| 6 | `stage14_pvp` | stage1 | core, duel, pet, pvp | 1 | A scripted enemy player | Ends when either dies |
+| 7 | `stage15_arena` | stage6 | core, duel, pet, pvp | 2 (self-play) | The other seat | Ends when either dies |
+| 8 | `stage16_crossroads` | stage5 (stage7, 6, 4, 3, 1) | the PvE and PvP ten | up to 4 | Eight arenas, including ambushes | Per arena |
+| 9 | `stage6_travel` | stage1 | core, duel, pet, travel | 1 | A place 60-320 yd away by path, level 20+ | Ends on arriving or death |
+| 10 | `stage7_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
+| 11 | `stage17_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
+| 12 | `stage5_endurance` (by name) | stage3 | stage 3's | 1 | The same eight pulls in the same order, ending on an elite pack two levels up | Won by clearing the last pull; 900 s |
+| 15 | `stage3_hazards` (by name) | stage2 | stage 2's | 1 | A pack with something on the ground in every pull | Ends on clear, death or the 120 s clock |
+| 16 | `stage10_tanking` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the tank; hold what the pull brings | Full length |
+| 17 | `stage11_triage` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the healer; keep the group up | Full length |
 | - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pet, pvp | 1 | Duel or scripted player, half and half | Per arena |
 
 `mix_duel_pvp` is not in the default queue of `forge start`. It exists to test arena mixing, merge seeding and
@@ -39,7 +39,7 @@ teaches the same skill inside a stage won by something else and the credit for i
 with a hazard in every pull rather than one from rung 3 up, a seat that is always the tank, a seat that is always
 the healer (`ArenaDefinition::Hazards` and `SeatRoles`). They seed from the stage they extend and are trained by
 name. Two things to know before reading their scores: the hazard charge lands about four times harder on a tank
-than on a ranged seat, because a tank cannot walk out of what it is holding an enemy in; and `stage17_triage`
+than on a ranged seat, because a tank cannot walk out of what it is holding an enemy in; and `stage11_triage`
 inherits stage 5's resurrection exploit (nothing clears `m_resurrectGUID`, so one landed Rebirth makes every later
 death of that ally a free instant resurrect that pays the revive reward again), which a forced healer will find
 faster than anything else in the curriculum.
@@ -50,9 +50,9 @@ A stage is one `StageDefinition` entry in `Stages/Stages.cpp`:
 
 ```cpp
 stages.push_back({
-    .Name = "stage4_companion",          // scenario name
+    .Name = "stage8_companion",          // scenario name
     .Suffix = "_companion",              // model names: warrior_tank_companion
-    .Extends = "stage3_gauntlet",        // seeds from it (the trunk)
+    .Extends = "stage4_gauntlet",        // seeds from it (the trunk)
     .Summary = "the gauntlet beside a scripted owner: follow, assist, guard and heal it",
     .Blocks = { Core, Duel, Pet, Pack, Gauntlet, Companion },   // layout order
     .Arenas = { { .Name = "companion", .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
@@ -78,7 +78,7 @@ An `ArenaDefinition` describes one situation:
 
 A `StageDefinition` may also name its own `MapId` and `SpawnPoints` (0 = the host's `SpawnMapId` and `SpawnPosition`)
 and a `MinLevel` that raises every character's level, a fixed host level included. On a continent (a map that isn't
-instanceable, like Outland for `stage10_flight`) every env shares the map: each env's seats take one of the spawn
+instanceable, like Outland for `stage7_flight`) every env shares the map: each env's seats take one of the spawn
 points by env index and live in their own phase (`StageScenario::EnvPhase`), so no env sees another's.
 
 **Validation.** `CurriculumStages()` checks each definition in order and leaves out (with an error log) any stage
@@ -305,7 +305,7 @@ The same function builds training seats and live companions, so a model gets in 
 
 ### Raid stages
 
-`stage13_raid_single` and `stage14_raid_gauntlet` train `MAX_SEATS` learned seats as `RAID_GROUPS` groups of
+`stage12_raid_single` and `stage13_raid_gauntlet` train `MAX_SEATS` learned seats as `RAID_GROUPS` groups of
 `GROUP_SEATS` (`SeatPlan::Raid`), each group with its own tank and healer. The first is one elite and its adds, won
 or lost as the single pack is; the second is pull after pull with recovery between, which is what a wing of a raid
 instance is before its boss.
@@ -317,7 +317,7 @@ coordination against a fight that punishes standing in the wrong place.
 
 Neither stage is in the default queue, and **neither is runnable at the usual env count**: forty seats an env is
 forty bots an env, so `AnimusForge.Envs` has to come down roughly in proportion (a few dozen envs, not 128) before
-starting one. Train by name: `forge start stage13_raid_single`.
+starting one. Train by name: `forge start stage12_raid_single`.
 
 ### What an enemy is doing
 
@@ -1067,7 +1067,7 @@ and 65% per class/role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty
 first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
 score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
 
-### Stage 3: `stage3_gauntlet`
+### Stage 3: `stage4_gauntlet`
 
 Adds the gauntlet block: sustained combat, recovery between pulls with food, drink and the core's sustain spells.
 Between pulls there is no target, so target features are 0 and only self-cast actions are allowed. The gauntlet arena
@@ -1084,7 +1084,7 @@ four pulls cleared on average, no livelocks; `until_passed: false`. The first ru
 merely lasting) reached 63-66% survived with 12% of its wins on at most one pull cleared, rogues and healers avoiding
 the pulls.
 
-### Stage 4: `stage4_companion`
+### Stage 4: `stage8_companion`
 
 Adds the companion block and the scripted owner. The seat learns to follow, assist, guard, heal and resurrect it, and
 role-specific behaviour appears (tank threat, healer throughput, DPS threat discipline). Deaths recover after pulls and
@@ -1098,7 +1098,7 @@ episode, at least 5 pulls cleared on average, no livelocks. The role checks are 
 `threat_share`, the share of the enemies' attention on the seat rather than the owner, high for tanks and low for the
 rest. `target.role_metrics` gates them once a run shows what each role reaches.
 
-### Stage 5: `stage5_party`
+### Stage 5: `stage9_party`
 
 Adds the party block. One to four learned seats (like a player bringing one to four companions) plus the owner form a
 sim group. Every seat plays the same policy and sees the other three. An empty seat has no character and only the
@@ -1106,24 +1106,24 @@ no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450
 evaluation every 20M steps, at least 60M steps, a party-focused report. It inherits stage 4's target, which says nothing
 of teammates' deaths yet: set its own before it runs.
 
-### Stage 6: `stage6_pvp`
+### Stage 6: `stage14_pvp`
 
 The PvP branch. It extends the duel and keeps only core, duel and pet, adding pvp. The pack, gauntlet, companion and
 party blocks aren't in its layouts, so the PvP line can train right after the duel. Scored against `fight`. Config:
 gamma 0.999 and lambda 0.99, as a fight turns on what happened tens of seconds before (a stealthy approach, a trinket
 baited out).
 
-### Stage 7: `stage7_arena`
+### Stage 7: `stage15_arena`
 
 Self-play. Two learned seats of random classes and roles at one level, both played by the policy, so every fight is
 training data for both sides. A policy's score against itself doesn't track progress, so evaluation uses
 `eval.opponent_baseline`: the `fight` baseline plays seat 2, the score is seat 1 against it, and the baseline score is
 `fight` against `fight` on the same seeds. Budget 200M.
 
-### Stage 8: `stage8_crossroads`
+### Stage 8: `stage16_crossroads`
 
-Both branches join. It extends `stage5_party` (trunk and PvE blocks) and merges `stage7_arena` (the pvp block),
-`stage6_pvp`, `stage4_companion`, `stage3_gauntlet` and `stage1_duel`, and adds `context` and `hostiles`. Its layouts
+Both branches join. It extends `stage9_party` (trunk and PvE blocks) and merges `stage15_arena` (the pvp block),
+`stage14_pvp`, `stage8_companion`, `stage4_gauntlet` and `stage1_duel`, and adds `context` and `hostiles`. Its layouts
 contain the ten PvE and PvP blocks (the pet block included).
 
 | Arena | Weight | Episode | Situation |
@@ -1142,14 +1142,14 @@ arenas learn from reward alone), coef 1.0 halving every 50M steps. 256 evaluatio
 arena_1v1 seat scored against `fight`. Budget 1B, at least 100M steps. Per-arena targets: +10% over baseline for the six
 inherited arenas, at least baseline for `ambush` and `escort_duel`, each with at least 16 episodes.
 
-### Stage 9: `stage9_travel`
+### Stage 9: `stage6_travel`
 
 Getting somewhere, off the duel. A character of level 20 or more, with its level's riding and its side's mounts, starts
 in Old Hillsbrad (which allows mounts) with a place 60-320 yd away by path. A mount's cast time only pays on a long
 trip, and arriving on foot is what lets it fight at the end. Blocks: core, duel, pet, travel. 150 s episodes. Config:
 budget 150M, at least 20M steps, a travel report.
 
-### Stage 10: `stage10_flight`
+### Stage 10: `stage7_flight`
 
 Flying, off travel. Characters of level 60 or more (Expert Riding, and Artisan with a fast flying mount from 70) start
 in Outland's Nagrand, where flying mounts fly, at one of eight spawn points, each env in its own phase. The place is
@@ -1158,14 +1158,14 @@ player's fall damage, so the policy learns to take off, keep a height, land and 
 flying mounts (the zone must be Outland or Northrend, `SpellInfo::CheckLocation`), so this is for the open world.
 180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 150M.
 
-### Stage 11: `stage11_flag`
+### Stage 11: `stage17_flag`
 
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
 flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
 
-### Stage 12: `stage12_endurance` (by name)
+### Stage 12: `stage5_endurance` (by name)
 
 A planned run: eight pulls in a fixed order, the same every episode, seeded from stage 3 and using its blocks. The
 order is an opener of two, three, four with two casters, a small one, four, three with an elite, four with an elite a
@@ -1175,10 +1175,10 @@ used as a rest. It is won by clearing the last pull alive; the 900 s clock runni
 and `pulls_cleared` (out of 8) is how far. `PullSchedule::Sequence` builds it; `eval.trace_episodes: 4` records four
 whole runs decision by decision, which is how a plan is read.
 
-Train it after stage 3: `forge start stage12_endurance` (it is not in the default queue).
+Train it after stage 3: `forge start stage5_endurance` (it is not in the default queue).
 
 ### Pilot: `mix_duel_pvp`
 
-Stage 6's blocks, seeded from `stage6_pvp`, merging `stage1_duel`, with `duel` and `pvp_scripted` arenas half and half.
+Stage 6's blocks, seeded from `stage14_pvp`, merging `stage1_duel`, with `duel` and `pvp_scripted` arenas half and half.
 Each is taught by the parent that trained it, and each must beat baseline by 10% on its own. It checks that one policy
 can train PvE and PvP side by side before stage 8 mixes larger arenas.

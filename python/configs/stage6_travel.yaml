@@ -4,7 +4,7 @@
 # shaping on the distance left, arriving (faster pays more), damage taken and death. Episodes end on arriving.
 
 extends: stage1_duel.yaml
-run_name: stage9_travel
+run_name: stage6_travel
 
 # Trips take seconds to a minute: shorter than a fight, one policy for every class/role.
 total_env_steps: 30000000
