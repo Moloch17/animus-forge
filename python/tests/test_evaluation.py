@@ -11,7 +11,8 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, layout_weights, run_evaluation
+from animus.evaluation import (LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, layout_weights,
+                               run_evaluation, standard_error)
 from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
@@ -540,3 +541,35 @@ def test_a_trace_records_every_decision_of_the_first_seeds():
 
     untraced, _ = run_evaluation(env, spec, choose, episodes=2, seed=1)
     assert untraced.trace == []
+
+
+def test_the_noise_is_measured_over_episodes_not_over_the_agents_sharing_one():
+    """A row is one agent, and the agents of one episode share its seed, its spawn, its opponents and its
+    outcome. Treating them as independent draws divides the spread by the square root of the agent count instead
+    of the episode count, which understates the noise by up to sqrt(agents per episode) -- a factor of two in a
+    four-seat party, more in a ten-a-side battleground.
+
+    The gates spend this number (animus.gates.noise_allowance), and an understated one passes stages that did not
+    actually improve, which is the direction that propagates silently down a seed chain."""
+    infos = np.zeros((8, 1), np.float32)
+    returns = np.array([1.0, 1.0, 3.0, 3.0, 5.0, 5.0, 7.0, 7.0])
+    seeds = (0, 0, 1, 1, 2, 2, 3, 3)          # four episodes of two agents each
+
+    grouped = EvalResult("learner", returns, infos, ("difficulty",), seeds=seeds)
+    # The four episodes are 1, 3, 5, 7: the same spread whether each was played by two agents or by one.
+    alone = EvalResult("learner", np.array([1.0, 3.0, 5.0, 7.0]), np.zeros((4, 1), np.float32), ("difficulty",),
+                       seeds=(0, 1, 2, 3))
+    assert grouped.stderr == pytest.approx(alone.stderr)
+    assert grouped.stderr == pytest.approx(standard_error(np.array([1.0, 3.0, 5.0, 7.0])))
+
+    # Duplicating an episode's agents must not buy confidence the evaluation did not earn.
+    assert grouped.stderr > standard_error(returns)
+    assert grouped.summary(())["stderr"] == pytest.approx(grouped.stderr)
+
+
+def test_unlabelled_rows_still_report_a_standard_error():
+    """Callers that never filled in `seeds` (and the baselines recorded before it was kept) fall back to one row
+    per draw rather than reporting nothing."""
+    returns = np.array([1.0, 3.0, 5.0, 7.0])
+    result = EvalResult("learner", returns, np.zeros((4, 1), np.float32), ("difficulty",))
+    assert result.stderr == pytest.approx(standard_error(returns))

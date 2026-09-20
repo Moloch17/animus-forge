@@ -483,14 +483,6 @@ class MappoTrainer:
         # How much of the returns' spread the critic already accounts for, on the values it produced during the
         # rollout. value_loss is reported in normalised space and shrinks with the normaliser, so it cannot say
         # whether the critic actually fits; this can. 0 = no better than predicting the mean, 1 = perfect.
-        # From this rollout, before it is learned from: the data the update is about to fit is the distribution
-        # the statistics should describe. The rollout that produced it ran on the previous ones, which is the
-        # usual one-update lag and is what keeps the acting and training views of a feature identical.
-        if cfg.normalise_observations:
-            update_norms(self.actor.norms, data["obs"], data["layout"], self.actor.obs_dims)
-            update_norms(self.critic.norms, data["obs"], data["layout"], self.critic.obs_dims)
-            self.critic.state_norm.update(data["state"])
-
         returns, values = data["returns"], data["values"]
         variance = returns.var()
         explained = 1.0 - (returns - values).var() / variance if float(variance) > 0.0 else torch.zeros(())
@@ -604,6 +596,15 @@ class MappoTrainer:
                     and float(epoch_kl) / epoch_updates > EPOCH_KL_TOLERANCE * cfg.target_kl:
                 break
 
+        # After the epochs, not before: the rollout acted through these statistics, and its stored log_probs are
+        # the denominator of every PPO ratio in the loop above. Advancing them first makes the ratio something
+        # other than 1 at epoch 0 -- a normaliser shift read as a policy change. Updating here and syncing the
+        # rollout copies below keeps the acting and training views of a feature identical, one rollout apart.
+        if cfg.normalise_observations:
+            update_norms(self.actor.norms, data["obs"], data["layout"], self.actor.obs_dims)
+            update_norms(self.critic.norms, data["obs"], data["layout"], self.critic.obs_dims)
+            self.critic.state_norm.update(data["state"])
+
         if sync:
             self._sync_rollout()
         stats = {name: float(total) for name, total in totals.items()}
@@ -677,13 +678,6 @@ class MappoTrainer:
             old_values = self.value_norm.normalize(data["values"])
         else:
             returns_target, old_values = data["returns"], data["values"]
-
-        if cfg.normalise_observations:
-            flat_obs = data["obs"].reshape(-1, data["obs"].shape[-1])[rows]
-            update_norms(self.actor.norms, flat_obs, flat_layout[rows], self.actor.obs_dims)
-            update_norms(self.critic.norms, flat_obs, flat_layout[rows], self.critic.obs_dims)
-            states = data["state"][:, :, None, :].expand(steps, envs, agents, data["state"].shape[-1])
-            self.critic.state_norm.update(states.reshape(-1, data["state"].shape[-1])[rows])
 
         returns, values = data["returns"].reshape(-1)[rows], data["values"].reshape(-1)[rows]
         variance = returns.var()
@@ -782,10 +776,12 @@ class MappoTrainer:
                     totals["foresight_loss"] += foresight_loss.detach()
 
                 if distill_rows:
-                    # Averaged over the sequence's taught decisions, as the flat path averages over a minibatch's.
-                    actor_loss = actor_loss + distill_loss / max(1, steps)
+                    # Already a mean over the sequence's taught decisions (Distiller.sequence_loss divides by
+                    # rows_taught), exactly as the flat path's is over a minibatch's. Both paths add it as it comes:
+                    # dividing again by the chunk length would scale the coefficient down by rollout_length.
+                    actor_loss = actor_loss + distill_loss
                     auxiliary_stats["distill_kl"] = auxiliary_stats.get("distill_kl", 0.0) + float(
-                        distill_loss.detach() / max(1e-6, teach.coef) / max(1, steps))
+                        distill_loss.detach() / max(1e-6, teach.coef))
                     auxiliary_stats["distill_rows"] = auxiliary_stats.get("distill_rows", 0.0) + float(distill_rows)
                     auxiliary_updates += 1
 
@@ -848,6 +844,17 @@ class MappoTrainer:
         stats.update(self._goal_stats(data))
         stats.update({name: value / auxiliary_updates for name, value in auxiliary_stats.items()})
         # What the update itself cost, as the flat path reports it.
+        # After the epochs, not before: the rollout acted through these statistics, and its stored log_probs are
+        # the denominator of every PPO ratio in the loop above. Advancing them first makes the ratio something
+        # other than 1 at epoch 0 -- a normaliser shift read as a policy change. Updating here and syncing the
+        # rollout copies below keeps the acting and training views of a feature identical, one rollout apart.
+        if cfg.normalise_observations:
+            flat_obs = data["obs"].reshape(-1, data["obs"].shape[-1])[rows]
+            update_norms(self.actor.norms, flat_obs, flat_layout[rows], self.actor.obs_dims)
+            update_norms(self.critic.norms, flat_obs, flat_layout[rows], self.critic.obs_dims)
+            states = data["state"][:, :, None, :].expand(steps, envs, agents, data["state"].shape[-1])
+            self.critic.state_norm.update(states.reshape(-1, data["state"].shape[-1])[rows])
+
         stats["update_compute_seconds"] = time.perf_counter() - started
         if sync:
             self._sync_rollout()

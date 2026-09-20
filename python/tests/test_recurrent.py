@@ -281,3 +281,68 @@ def test_seeding_carries_the_memories(tmp_path):
     seed_trainer(fresh, checkpoint, spec)
     assert torch.allclose(fresh.actor.memory.weight_hh, trained.actor.memory.weight_hh)
     assert torch.allclose(fresh.critic.memory.weight_hh, trained.critic.memory.weight_hh)
+
+
+def test_the_taught_loss_is_added_at_the_coefficient_it_was_configured_with():
+    """The distilled KL arrives already averaged over the rows it taught (animus.distill.Distiller returns
+    `coef * total / rows_taught`), so the update adds it as it comes, exactly as the flat path does with its own.
+
+    The recurrent path used to divide it a second time by the chunk length, which ran distillation at
+    1/rollout_length of the coefficient the stage asked for -- 0.78% at the configured 128, and worst on the merge
+    stages, whose whole purpose is to carry six teachers' behaviour into one policy."""
+    torch.manual_seed(0)
+    steps, envs = 4, 2
+    coef, taught_kl = 0.5, 1.5
+
+    class FixedTeacher:
+        """Teaches a known KL, so what reaches the actor can be compared against what was configured."""
+        def __init__(self):
+            self.coef = coef
+
+        def sequence_loss(self, obs, state, layout, mask, logits, dones):
+            rows = logits.shape[0] * logits.shape[1]
+            return logits.sum() * 0.0 + self.coef * taught_kl, rows
+
+    trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=4, epochs=1, minibatches=1))
+    buffer = RolloutBuffer(steps, envs, 1, 3, 4, 2, 0, trainer.recurrent_size)
+    fill(trainer, buffer, steps, envs, 1, 3, 4, 2, done_at=2)
+
+    stats = trainer.update(buffer, auxiliary=FixedTeacher())
+    # distill_kl is the loss divided back by the coefficient, so it is the KL the teacher actually taught --
+    # not that KL scaled down by the length of the chunk it was taught over.
+    assert stats["distill_kl"] == pytest.approx(taught_kl, rel=1e-4)
+
+
+def test_the_first_epoch_replays_the_statistics_the_rollout_acted_through():
+    """PPO's ratio is 1 at epoch 0 by construction: the stored log_probs come from the same weights the first
+    forward uses. Folding the rollout into the observation normalisers *before* the epochs breaks that -- the
+    rollout acted through the old statistics and the update scores it through the new ones, so the first gradient
+    step reads a normaliser shift as a policy change. The statistics are folded in after the epochs instead, and
+    synced to the rollout copies there, which is what makes the acting and training views of a feature identical.
+
+    A fresh trainer is the worst case: RunningNorm passes rows through raw at count 0, so the rollout is
+    unnormalised and the update would have scored it normalised. The auxiliary runs inside the minibatch, just
+    after the forward, so it can say what the statistics were when the ratio was taken -- approx_kl is second
+    order in the log ratio and stays near zero even when the two views disagree, so it cannot be asked this.
+    """
+    torch.manual_seed(0)
+    steps, envs = 4, 2
+    trainer = MappoTrainer([(3, 2)], 4, MappoConfig(hidden=(8, 8), recurrent_size=4, epochs=1, minibatches=1,
+                                                   normalise_observations=True))
+    assert float(trainer.actor.norms[0].count) == 0.0
+    buffer = RolloutBuffer(steps, envs, 1, 3, 4, 2, 0, trainer.recurrent_size)
+    fill(trainer, buffer, steps, envs, 1, 3, 4, 2, done_at=2)
+
+    seen = []
+
+    class Watcher:
+        """Teaches nothing; records the statistics each minibatch's forward was taken through."""
+        coef = 0.0
+
+        def sequence_loss(self, obs, state, layout, mask, logits, dones):
+            seen.append(float(trainer.actor.norms[0].count))
+            return None
+
+    trainer.update(buffer, auxiliary=Watcher())
+    assert seen and seen[0] == 0.0          # the rollout's own view, which is what its log_probs came from
+    assert float(trainer.actor.norms[0].count) == steps * envs   # and folded in once the epochs were done

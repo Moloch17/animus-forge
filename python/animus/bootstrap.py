@@ -117,6 +117,12 @@ def _common_blocks(old: dict[str, tuple[Span, Span]], new: dict[str, tuple[Span,
     return common
 
 
+# Rows of observation a seeded normaliser is treated as having seen, for a block that gained features. About one
+# rollout: the new columns are half described after a single update and all but settled after a handful, while the
+# inherited ones barely move. See _seed_norm_blocks.
+SEED_COUNT_CAP = 16384.0
+
+
 def _action_names(stage: dict | None, layout: str) -> list[str]:
     return list(((stage or {}).get("layouts", {}).get(layout) or {}).get("action_names", []))
 
@@ -135,14 +141,27 @@ def _seed_norm_blocks(new: dict, old: dict, prefix: str, common) -> None:
     """Carry an observation normaliser's statistics across, feature by feature, for the blocks both stages have.
 
     They are per input feature, so they remap exactly like the adapter columns beside them. A feature the new
-    stage adds keeps its starting mean 0 and variance 1 until the first rollouts describe it."""
+    stage adds keeps its starting mean 0 and variance 1 until the first rollouts describe it.
+
+    `count` is one scalar for the whole normaliser while mean and var are per feature, so it cannot say "certain
+    about these columns, ignorant of those". Inheriting it whole applies the parent's confidence to features that
+    have never been observed: RunningNorm.update moves the mean by batch_count / (count + batch_count), so a
+    rollout's rows against a parent's tens of millions move a new feature by a fraction of a percent per update,
+    and it spends most of the stage feeding tanh a value it never learned the scale of. Where the block gained
+    features, the count is capped so the new columns are described within the first few rollouts; the inherited
+    columns are already close, so re-weighting them towards new data costs nothing. It stays above zero because
+    RunningNorm.forward passes rows through raw at count 0, which would throw the seeded statistics away for a
+    rollout."""
     for name in ("mean", "var"):
         new_stat, old_stat = new[f"{prefix}.{name}"], old[f"{prefix}.{name}"]
         new_stat.copy_(torch.zeros_like(new_stat) if name == "mean" else torch.ones_like(new_stat))
         for ((old_first, count), _), ((new_first, _), _) in common:
             new_stat[new_first : new_first + count] = old_stat[old_first : old_first + count]
 
-    new[f"{prefix}.count"].copy_(old[f"{prefix}.count"])
+    carried = sum(count for ((_, count), _), _ in common)
+    inherited = old[f"{prefix}.count"]
+    gained = carried < new[f"{prefix}.mean"].numel()
+    new[f"{prefix}.count"].copy_(inherited.clamp(max=SEED_COUNT_CAP) if gained else inherited)
 
 
 def _seed_norm(new: dict, old: dict, prefix: str) -> None:

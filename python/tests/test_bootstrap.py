@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from animus.bootstrap import seed_trainer
+from animus.bootstrap import SEED_COUNT_CAP, seed_trainer
 from animus.config import TrainConfig
 from animus.mappo.trainer import MappoConfig, MappoTrainer
 from animus.protocol import Layout
@@ -183,3 +183,41 @@ def test_a_core_catalog_that_lost_a_spell_is_seeded_by_action_name():
     old_head = old.actor.state_dict()["heads.0.weight"]
     torch.testing.assert_close(new_head[1], old_head[2])                                    # smite's row
     torch.testing.assert_close(new_head[2], old_head[3])                                    # the duel action
+
+
+def test_a_block_the_parent_lacked_is_not_normalised_on_the_parents_confidence():
+    """`count` is one scalar for a whole normaliser while mean and var are per feature, so it cannot say
+    "certain about these columns, ignorant of those". Inheriting a parent's tens of millions of rows whole applies
+    that confidence to features that have never been observed: RunningNorm.update moves a mean by
+    batch_count / (count + batch_count), so a rollout barely touches them and the new block spends most of the
+    stage feeding tanh a value whose scale it never learned.
+
+    The carried-over columns are already close, so capping the count costs them nothing and lets the new ones be
+    described within the first few rollouts. It stays above zero because RunningNorm.forward passes rows through
+    raw at count 0, which would throw the seeded statistics away for a whole rollout."""
+    torch.manual_seed(0)
+    config = MappoConfig(hidden=(16, 16))
+    base = stage_with({"warrior_dps": [("core", 4, 3), ("duel", 3, 2)]})
+    branch = stage_with({"warrior_dps": [("core", 4, 3), ("duel", 3, 2), ("arena", 2, 1)]})
+    old = MappoTrainer([(7, 5)], 4, config)
+    new = MappoTrainer([(9, 6)], 4, config)
+
+    # A parent that trained for 30M steps, with statistics on the blocks it had.
+    old.actor.norms[0].mean.copy_(torch.full((7,), 5.0))
+    old.actor.norms[0].var.copy_(torch.full((7,), 4.0))
+    old.actor.norms[0].count.fill_(30_000_000.0)
+
+    seeded = {"trainer": old.state_dict(), "spec": checkpoint_spec([Layout("warrior_dps", 7, 5)]), "stage": base}
+    seed_trainer(new, seeded, spec([Layout("warrior_dps", 9, 6)], 4), branch)
+
+    norm = new.actor.norms[0]
+    torch.testing.assert_close(norm.mean[:7], old.actor.norms[0].mean)   # the shared blocks carried over
+    assert float(norm.mean[7:].abs().max()) == 0.0                       # the new block starts at 0/1
+    assert float(norm.var[7:].min()) == 1.0
+    assert 0.0 < float(norm.count) <= SEED_COUNT_CAP
+
+    # One rollout describes the new block: its mean lands near the batch's, while the inherited columns hold.
+    rows = torch.cat([torch.full((4096, 7), 5.0), torch.full((4096, 2), 40.0)], dim=-1)
+    norm.update(rows)
+    assert float(norm.mean[7:].min()) > 4.0      # moved most of the way from 0 towards 40
+    torch.testing.assert_close(norm.mean[:7], old.actor.norms[0].mean)

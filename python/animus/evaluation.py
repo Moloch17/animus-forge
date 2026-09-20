@@ -83,7 +83,11 @@ class EvalResult:
 
     @property
     def stderr(self) -> float:
-        return standard_error(self.returns)
+        return standard_error(self.returns, self._episode_of_row())
+
+    def _episode_of_row(self) -> np.ndarray | None:
+        """The episode each row belongs to, for standard_error; None when the rows were not labelled."""
+        return np.asarray(self.seeds) if len(self.seeds) == len(self.returns) else None
 
     def episodes_log(self, columns: tuple[str, ...] | None = None) -> list[dict]:
         """One row per scored episode: its seed, layout, return, `columns` of its episode info (None: every column)
@@ -163,12 +167,14 @@ class EvalResult:
         difficulty tier, and for each tier but the top one everything up to it, per layout too ("up_to")."""
         present = [c for c in columns if c in self.info_names]
         derived = self.derived()
+        episodes = self._episode_of_row()
 
         def means(rows: np.ndarray) -> dict:
             out = {
                 "episodes": int(rows.sum()),
                 "score": float(self.returns[rows].mean()) if rows.any() else None,
-                "stderr": standard_error(self.returns[rows]),
+                "stderr": standard_error(self.returns[rows],
+                                         episodes[rows] if episodes is not None else None),
             }
             for name in present:
                 values = self.column(name)[rows]
@@ -269,8 +275,20 @@ def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ra
     return {name: float(weight) for name, weight in zip(names, weights)}
 
 
-def standard_error(values: np.ndarray) -> float:
-    """Standard error of the mean; 0 with fewer than two values."""
+def standard_error(values: np.ndarray, groups: np.ndarray | None = None) -> float:
+    """Standard error of the mean; 0 with fewer than two values.
+
+    `groups` labels the independent draw each value came from -- for an evaluation, the episode. A row is one
+    agent, and the agents of one episode share its seed, its spawn, its opponents and its outcome, so they are not
+    independent of each other: dividing by the square root of the agent count instead of the episode count
+    understates the noise by up to sqrt(agents per episode), which in a party or raid stage is a factor of two or
+    more. The gates spend this number (animus.gates.noise_allowance), and understating it passes stages that did
+    not improve. Averaging each episode to one value first measures the spread the gate actually needs.
+    """
+    values = np.asarray(values, dtype=float)
+    if groups is not None and len(groups) == len(values) and len(values):
+        groups = np.asarray(groups)
+        values = np.array([values[groups == group].mean() for group in np.unique(groups)])
     return float(np.std(values, ddof=1) / math.sqrt(len(values))) if len(values) > 1 else 0.0
 
 
