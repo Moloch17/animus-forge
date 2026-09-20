@@ -29,11 +29,11 @@ stage1_duel
 │     └─ stage8_flight
 └─ stage15_pvp
    ├─ stage16_evade
-   │  ├─ stage17_stealth                              (a leaf)
-   │  └─ stage18_arena
-   │     ├─ stage19_duo_led
-   │     └─ stage20_flag                              (+ merges stage7_travel)
-   │        └─ stage21_warsong
+   │  └─ stage17_hide
+   │     └─ stage18_arena
+   │        ├─ stage19_duo_led
+   │        └─ stage20_flag                           (+ merges stage7_travel)
+   │           └─ stage21_warsong
    └─ mix_duel_pvp                                    (a pilot, trained by name)
 ```
 
@@ -41,11 +41,12 @@ stage1_duel
 `stage15_pvp`, `stage8_flight`, `stage9_companion`, `stage4_gauntlet` and `stage1_duel`: it is where the PvE
 line, the PvP line and the travel line become one policy.
 
-> **Two stages are leaves and must stay leaves.** `stage17_stealth` is played only by the class/roles whose kit
-> has a stealth aura, and `mix_duel_pvp` is a pilot. A restricted stage writes a checkpoint holding only the
-> layouts it played, and `init_from: auto` takes the **first checkpoint in the chain that exists** -- so a stage
-> seeding from one would find it, stop looking, and start every other class/role from random weights without
-> saying so. `Problem()` in `Stages.cpp` refuses any stage that extends or merges a `NeedsStealth` stage.
+> **Every stage in the queue is played by all eighteen class/roles**, and every class/role draws its races as
+> usual, so each one meets its own kit and its own racials. Keep it that way. A stage restricted to a subset
+> writes a checkpoint holding only the layouts it played, and `init_from: auto` takes the **first checkpoint in
+> the chain that exists** -- so a stage seeding from it would find that one, stop looking, and start every
+> other class/role from random weights without saying so. `mix_duel_pvp` is the only stage outside the queue,
+> and it is a full-width pilot trained by name rather than a restricted one.
 
 ## The stages
 
@@ -71,8 +72,8 @@ one commanding each side (see 4.12).
 | `stage14_raid_gauntlet` | stage13_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
-| `stage17_stealth` | stage16_evade | Solo | same | **Drill, and a leaf.** The same fight six levels up, for the four class/roles whose kit has a stealth aura (rogue and the three druids): open from stealth, and get back into it when the fight turns |
-| `stage18_arena` | stage16_evade | Mirror | same | Self-play one-on-one: two learned seats of any classes |
+| `stage17_hide` | stage16_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
+| `stage18_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage19_duo_led` | stage18_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage20_flag` | stage18_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
 | `stage21_warsong` | stage20_flag | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
@@ -1310,33 +1311,43 @@ the world database.
 which is smaller than the outer cover rings `FindCover` uses (8, 16 and 26 yd), so breaking line of sight at 16
 or 26 yd genuinely escapes.
 
-### Stage 17: `stage17_stealth`
+### Stage 17: `stage17_hide`
 
-**Drill, and a leaf.** The same losing fight six levels up rather than ten, so that it is winnable *from a
-stealth opener* and unwinnable head-on. Played only by the class/roles whose kit contains a stealth aura:
-`StageDefinition::NeedsStealth` drops the rest by scanning `ClassKit` -- the class trainers' spell list -- for
-`SPELL_AURA_MOD_STEALTH`, so the list follows the kit and does not rot the first time a spec changes. It
-resolves to four: `rogue_dps` (Stealth) and the three druids (Prowl).
+**Drill.** The same losing fight six levels up rather than ten, for **every class and every race**. The lesson
+is becoming unseen and staying unseen, and hiding again once the hunter has found you.
 
-**Not** the action catalog, which was the first attempt and returned eleven of the eighteen. The catalog is the
-union over every race a class may be, and that union holds Shadowmeld (58984), the night elf racial, which
-carries a stealth aura -- so warriors, priests, death knights and hunters all qualified, and a warrior that
-rolled a human would have played a stealth stage with no stealth at all. The kit is per class, so what it holds
-is true of every member of the class.
+Stealth is one way to do that and the rarest: four of the eighteen class/roles have a stealth aura in their own
+kit -- `rogue_dps` (Stealth) and the three druids (Prowl). It is not the lesson. Every class can get out of
+sight with terrain, with distance, and with whatever its kit and its race give it -- Blink, Disengage, Feign
+Death, Invisibility, Ice Block, Sprint, and Shadowmeld for any night elf of any class. So the stage grades the
+**outcome**, not which button produced it.
 
-The lesson is the round trip: open from stealth, and when the fight turns, break contact and get back into it.
-`re_stealths` is the column that says whether the second half happened, and it is what the gate asks for.
+Six levels rather than stage 16's ten, so the fight is winnable often enough that hiding is a choice rather
+than the only move left. That is the whole difference between the two: stage 16 is about leaving a fight that
+is lost, this one is about not being found once you have.
 
-Measured `fight` baseline, 2048 episodes over the four layouts: `survived` 0.555, `won` 0.417,
-`contact_breaks` 0.440, `unseen_seconds` 3.02, and `stealth_openers` and `re_stealths` both exactly 0.0000 --
-the scripted baseline simply fights, and never opens from stealth or returns to it. That zero is why
-`re_stealths` can carry the gate on its own; `survived` sits a little above the baseline as a sanity floor
-rather than as the thing being asked for.
+Columns that carry the gate:
 
-**Nothing may extend or merge it**, and `Problem()` in `Stages.cpp` refuses any stage that does. Its checkpoint
-holds only the stealth layouts, and `init_from: auto` takes the first checkpoint in the chain that exists -- a
-stage seeding from it would find that one, stop looking, and start every other class/role from random weights
-without saying so.
+| Column | What it says |
+|---|---|
+| `escaped` | One unbroken stretch out of sight of at least `Evade.EscapeMs` (8 s) -- the hunter lost the seat rather than blinked |
+| `re_hides` | Contact broken again after the first time: getting back out of sight once something is already looking for you, which is the harder half and the one every class can do |
+| `survived` | A sanity floor, not the thing being asked for |
+
+`re_stealths` and `stealth_openers` are **reported and never gated**. Fourteen class/roles have no stealth
+button, and a gate on one would ask them for something they cannot do; the columns are still worth reading,
+because they are what a rogue, a druid or any night elf actually presses.
+
+> **An earlier version of this stage was restricted to the class/roles that could stealth, and that was wrong
+> twice over.** It excluded fourteen class/roles from a lesson all of them need. And the test it used -- does
+> the action catalog contain a stealth aura -- returned eleven of the eighteen, because the catalog is the
+> union over every race a class may be and that union holds Shadowmeld (58984), the night elf racial. A warrior
+> that rolled a human would have played a stealth stage with no stealth at all. `StageDefinition::NeedsStealth`
+> and its validation are gone; nothing in the curriculum restricts a stage to a subset of class/roles.
+
+Racials stay fully available everywhere, here and in every other stage: the action catalog carries Shadowmeld,
+Will of the Forsaken, Blood Fury, Escape Artist and the rest, and `Encoding::IsSpellActionAllowed` masks each
+by `HasActiveSpell`, so the race that actually rolled is the one whose racials are offered.
 
 ### Stage 18: `stage18_arena`
 
