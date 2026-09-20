@@ -25,7 +25,7 @@ eval:
   # matches still score 2,560 episodes, which is more than the 1 v 1 stage got from 1024, because twenty seats
   # play each one.
   episodes: 128
-  report: [match_won, flag_captures, flag_pickups, flag_returns, carrier_kills, flag_deaths, team_seat,
+  report: [match_won, flag_captures, flag_pickups, flag_returns, carrier_kills, flag_deaths, team_seat, flag_in_reach,
     mounted_fraction, healing_done]
 convergence:
   min_env_steps: 20000000
