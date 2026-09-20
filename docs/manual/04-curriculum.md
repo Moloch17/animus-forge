@@ -1,14 +1,14 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. Twenty-three scenarios are defined; **twenty-two are the default queue**, in the
+`src/Scenario/Curriculum/`. Twenty-four scenarios are defined; **twenty-three are the default queue**, in the
 order they are trained, and one (`mix_duel_pvp`) is a pilot trained only by name.
 
 Every stage trains the same eighteen class/role policies over a shared trunk, so what one class learns about
 moving, threat or interrupts helps the others. A stage names the one it `Extends`, and its networks are seeded
 from that stage's best checkpoint block by block: blocks it keeps carry over, blocks it drops are left behind,
 blocks it adds start from nothing. That makes the curriculum a tree, not a line -- but the numbers now sort
-into the training order, so `forge start` with no arguments walks the whole thing from stage 1 to stage 22 and
+into the training order, so `forge start` with no arguments walks the whole thing from stage 1 to stage 23 and
 never reaches a stage before the stage it seeds from.
 
 ```
@@ -30,6 +30,7 @@ stage1_duel
 └─ stage15_pvp
    ├─ stage16_evade
    │  └─ stage17_hide
+   │     ├─ stage18_stealth                           (a leaf: four layouts)
    │     └─ stage19_arena
    │        ├─ stage20_duo_led
    │        └─ stage21_flag                           (+ merges stage7_travel)
@@ -41,12 +42,14 @@ stage1_duel
 `stage15_pvp`, `stage8_flight`, `stage9_companion`, `stage4_gauntlet` and `stage1_duel`: it is where the PvE
 line, the PvP line and the travel line become one policy.
 
-> **Every stage in the queue is played by all eighteen class/roles**, and every class/role draws its races as
-> usual, so each one meets its own kit and its own racials. Keep it that way. A stage restricted to a subset
-> writes a checkpoint holding only the layouts it played, and `init_from: auto` takes the **first checkpoint in
-> the chain that exists** -- so a stage seeding from it would find that one, stop looking, and start every
-> other class/role from random weights without saying so. `mix_duel_pvp` is the only stage outside the queue,
-> and it is a full-width pilot trained by name rather than a restricted one.
+> **One stage is restricted, and it must stay a leaf.** `stage18_stealth` is played by the four class/roles
+> whose own kit carries a stealth aura, because closing on someone unseen is a thing only a real stealth aura
+> can do. Its checkpoint therefore holds four of the eighteen layouts, and `init_from: auto` takes the **first
+> checkpoint in the chain that exists** -- so a stage seeding from it would find that one, stop looking, and
+> start the other fourteen from random weights without saying so. `stage19_arena` extends `stage17_hide`,
+> reaching past it, and `Problem()` in `Stages.cpp` refuses anything that tries to extend or merge a
+> `NeedsStealth` stage. Every other stage is played by all eighteen, each drawing its races as usual, so every
+> class/role meets its own kit and its own racials.
 
 ## The stages
 
@@ -73,6 +76,7 @@ one commanding each side (see 4.12).
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage17_hide` | stage16_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
+| `stage18_stealth` | stage17_hide | Solo | same | **Drill, and a leaf.** For the four class/roles whose own kit carries a stealth aura (rogue and the three druids): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
 | `stage19_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage20_duo_led` | stage19_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage21_flag` | stage19_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -1355,14 +1359,52 @@ Racials stay fully available everywhere, here and in every other stage: the acti
 Will of the Forsaken, Blood Fury, Escape Artist and the rest, and `Encoding::IsSpellActionAllowed` masks each
 by `HasActiveSpell`, so the race that actually rolled is the one whose racials are offered.
 
-### Stage 18: `stage19_arena`
+### Stage 18: `stage18_stealth`
+
+**Drill, and a leaf.** The one stage in the curriculum restricted to a subset of class/roles, and the reason
+the restriction is worth its cost.
+
+Hiding and stealth are different lessons. Stage 17 is *not being found*: every class can do it, with terrain,
+with distance, and with whatever its kit and race give it -- Shadowmeld included. This stage is being **close**
+and not found: crossing the ground to someone who is looking for you, arriving inside strike range with the
+opener still in hand, and holding there. Shadowmeld cannot do that at all, because it breaks the moment you
+move. Only a real stealth aura can, so only the four class/roles whose own kit carries one play it:
+`rogue_dps` (Stealth) and the three druids (Prowl). `StageDefinition::NeedsStealth` asks `ClassKit`, the class
+trainers' list, so the answer is true of every member of the class rather than of one race of it.
+
+The opponent is six levels up, as on the hide stage: the fight has to be one the opener decides, or getting
+into position is a flourish before a fight that was winnable anyway.
+
+**`RewardTerm::Stalk` is the only reward in the curriculum paid per decision rather than on a transition**, and
+that is deliberate rather than an oversight. What made the order nudge farmable -- 5.01 an episode, 23.7% of
+gross, cut to a fifth of a percent -- was that it paid for a state that was *free to hold*: a focus that never
+changed still paid every decision. This pays only while the seat is stealthed, unseen, and within
+`Stealth.StalkYards` (10 yd) of a **living** opponent that is actively looking, which is the opposite of free:
+detection is a distance check the seat is losing the whole time it stands there. `Stealth.StalkMax` caps the
+episode's total at 1.0 regardless, so the opener it sets up stays the larger prize and loitering cannot change
+the sum.
+
+Time unseen is still never paid. The distance condition is the entire difference between this and the farmable
+shape: staying stealthed inside melee range of something hunting you is a skill, and staying unseen in the far
+corner of the map is the absence of one.
+
+| Column | What it says |
+|---|---|
+| `stalked_into_range` | Got inside the band at all, stealthed and unseen -- the gate's headline |
+| `stalk_seconds` | Held there, rather than touching the band and being spotted |
+| `stalk_longest_seconds` | ... in one unbroken approach |
+| `stalk_approaches` | Times it came from outside the band to inside it |
+| `closest_stealthed` | The nearest it got while stealthed. Reported, never gated: it is a distance, and a gate floor cannot say "lower is better" |
+| `stealth_openers` | The position used for what it is for |
+
+### Stage 19: `stage19_arena`
 
 Self-play. Two learned seats of random classes and roles at one level, both played by the policy, so every fight is
 training data for both sides. A policy's score against itself doesn't track progress, so evaluation uses
 `eval.opponent_baseline`: the `fight` baseline plays seat 2, the score is seat 1 against it, and the baseline score is
 `fight` against `fight` on the same seeds. Budget 200M.
 
-### Stage 19: `stage20_duo_led`
+### Stage 20: `stage20_duo_led`
 
 Two against two under a **director**: one more agent a side, choosing the team's posture, the enemy it
 concentrates on, the shape it takes, whose turn the next duty is, and -- since the place channel landed -- where
@@ -1376,14 +1418,14 @@ Blocks: core, duel, pack, pet, pvp, context, hostiles, support, order. Its arena
 comparison between the two has not been run**, and 4.12 says why it should be before more budget goes into the
 learned one.
 
-### Stage 20: `stage21_flag`
+### Stage 21: `stage21_flag`
 
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
 flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
 
-### Stage 21: `stage22_warsong`
+### Stage 22: `stage22_warsong`
 
 Warsong Gulch at its proper size: ten a side, both sides learned, on a real battleground instance. The flag
 rules are stage 20's; what is new is that a side is ten seats and a group, so the objective has to be shared --
@@ -1393,7 +1435,7 @@ party block on top of the flag line.
 The instance logs `GetBGObject: gameobject (type: 10) not found` repeatedly. That is pre-existing core noise,
 not a stage fault.
 
-### Stage 22: `stage23_crossroads`
+### Stage 23: `stage23_crossroads`
 
 Every line joins. It extends `stage14_raid_gauntlet` (the trunk and the PvE blocks) and merges `stage22_warsong`,
 `stage19_arena` (the pvp block), `stage15_pvp`, `stage8_flight` (travel), `stage9_companion`, `stage4_gauntlet` and

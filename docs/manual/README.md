@@ -34,7 +34,7 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 ## If you only read one thing
 
 Training is one command against a running server: `./forge.sh` attaches to the console, `forge start` trains
-the whole twenty-two-stage queue in order, and `forge status` says how it is going. Everything else in this
+the whole twenty-three-stage queue in order, and `forge status` says how it is going. Everything else in this
 manual is detail under that.
 
 ## Where to start
@@ -62,7 +62,7 @@ manual is detail under that.
 - The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are overviews that link
   into this manual; the detail lives here. Where the manual and the source code disagree, the code is authoritative.
   Please report the mismatch.
-- Stage numbers now sort into the training order: stage 1 to stage 22 is what `forge start` walks, and no stage
+- Stage numbers now sort into the training order: stage 1 to stage 23 is what `forge start` walks, and no stage
   is reached before the stage it seeds from. The tree in [chapter 4](04-curriculum.md) and each stage's `Extends`
   are still what decide what follows what -- the numbers agree with them rather than replacing them.
 - Numbers quoted from runs (a reward share, a revive count, an entropy) are measurements, with the stage and
