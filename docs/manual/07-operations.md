@@ -156,6 +156,39 @@ Warnings to act on:
 - **"approx KL / clip fraction high"**: updates are too large. Lower the learning rates or the epochs.
 - **"best below baseline after 2 evaluations"**: check the reward for that stage, and compare against the fast run.
 
+### Warnings the learner prints without being asked
+
+Two things are checked every update and reported when they happen. Neither changes what the run does; both are
+there because the failure they describe is invisible in the ordinary metrics until a run has been wasted on it.
+
+**`reward: <term> earns N an episode, X% of the largest outcome term`**
+
+A shaping term has grown into the objective. Outcome terms -- the kill, the clear, the capture, the arrival --
+are what a stage is *for* and may be any size; everything else is a nudge, and a nudge worth more than half a
+kill is not a nudge. Only earnings trip it, never charges: a penalty is not farmable, and the largest negative
+term in a fight is the death, which is the point of having one.
+
+What to do: read the mix on the same line and decide whether the term is mispriced or exploitable. Three times
+in this project it was both. A resurrection offer the core never clears was being accepted every decision and
+came to 88% of `druid_dps`'s return; a goal paid for every decision it was held made standing at range the
+second largest earner; an order nudge priced per decision reached 23.7% of gross, level with the kill. The
+first two were found by hand after runs had already trained on them.
+
+The rule lives in `python/animus/rewards.py`, including which terms count as outcomes. A resurrection is
+deliberately not one of them -- standing an ally up is a means, and listing it as an outcome is exactly what
+would let a farmable revive read itself as the yardstick.
+
+**`learning has stalled: approx_kl has stayed under ... for N updates`**
+
+The updates have stopped moving the policy. Roughly half the stages measured end their run this way --
+`approx_kl` falls eight to elevenfold between the first eighth of a run and the last, with `clip_frac` down to
+about 0.01 -- so the final third costs wall clock and buys very little.
+
+What to do: **nothing automatically.** The other half of the stages do not stall at all (`stage1_duel`'s KL
+*rises* over 683 updates; travel and flight stay flat), and `stage4_gauntlet` trips this check and then went on
+to 916 productive updates. Read it together with the evaluation: if the score is not improving either, the rest
+of the run is wall clock and the budget is better spent on the next stage.
+
 ### Controlling a run
 
 | Goal | Command |

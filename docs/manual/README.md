@@ -21,8 +21,8 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
    loop, the game clock, the stripped packet and database paths, and how the fork stays rebasable.
 3. [animus-lib](03-animus-lib.md): the scenario interface, env pools, sessionless bots, core seams, layouts and
    manifests, and the `.amdl` model runtime.
-4. [The curriculum](04-curriculum.md): the eight stages, their blocks, arenas, encounters and rewards, and the
-   characters the seats become.
+4. [The curriculum](04-curriculum.md): the stages and how they seed each other, their blocks, arenas,
+   encounters and rewards, the characters the seats become, and team play under a director.
 5. [Animus Forge](05-animus-forge.md): the training module (plans, the lock-step bridge, the learner process, console,
    progress, export) and the Python learner (MAPPO, seeding, distillation, evaluation, convergence and stage targets).
 6. [Animus](06-animus.md): companions and the stage viewer on a live, stock server.
@@ -30,6 +30,12 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
    extending and troubleshooting.
 8. [Reference](08-reference.md): configuration keys, the wire protocol, file formats, run directories, account
    ranges, exit codes and a glossary.
+
+## If you only read one thing
+
+Training is one command against a running server: `./forge.sh` attaches to the console, `forge start` trains
+the default queue of eleven stages in order, and `forge status` says how it is going. Everything else in this
+manual is detail under that.
 
 ## Where to start
 
@@ -40,6 +46,9 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 - **You want to change the simulator.** Read [the forge core](02-forge-core.md) first. It explains the rules the fork
   follows, and breaking them makes upstream rebases painful.
 - **You run a realm and want companions.** Read [Animus](06-animus.md).
+- **A run is telling you something you do not recognise.** The learner prints two kinds of unprompted warning:
+  a reward-mix line when a shaping term has grown into the objective, and a stall line when the updates have
+  stopped moving the policy. Both are explained in [Operations](07-operations.md).
 
 ## Conventions
 
@@ -53,3 +62,8 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 - The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are overviews that link
   into this manual; the detail lives here. Where the manual and the source code disagree, the code is authoritative.
   Please report the mismatch.
+- Stage numbers are labels, not an order. `stage19_duo_led` trains before `stage18_warsong`; the tree in
+  [chapter 4](04-curriculum.md) and each stage's `Extends` are what decide what follows what.
+- Numbers quoted from runs (a reward share, a revive count, an entropy) are measurements, with the stage and
+  the point in the run they came from. They are there to show the size of a thing, and they go stale; re-measure
+  before relying on one.

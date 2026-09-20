@@ -11,9 +11,14 @@ run dungeons, group quests and PvP with them. The design document (`core/design-
   are well understood and don't need learning.
 
 The networks are trained with **MAPPO** (multi-agent PPO with a centralised critic). Each agent observes only its own
-situation and decides independently, like a human player. No orchestrator controls the group. There is one model per
-class and role (`warrior_tank`, `priest_heal`, ...). All roles share one trunk during training, so what one class learns
-about moving, threat or interrupts helps the others.
+situation and decides independently, like a human player. There is one model per class and role (`warrior_tank`,
+`priest_heal`, ...). All roles share one trunk during training, so what one class learns about moving, threat or
+interrupts helps the others.
+
+Nothing controls a seat. Team stages add a **director** -- one agent a side that calls a target, a posture, a
+rally point and whose turn the next interrupt is -- but what it emits is advice a seat reads and weighs, not a
+lever: the `Order` block has thirteen observations and no actions. A seat under a director still chooses every
+action it takes. See [4.12](04-curriculum.md#412-team-play-and-the-director).
 
 Rewards are dense because a dungeon clear is too rare a signal to learn from. They pay for damage dealt, effective
 healing, kills, interrupts, resurrections and protecting allies. They penalise damage taken, deaths and losing threat.

@@ -1,48 +1,79 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. It has eleven stages that train one policy for all 18 class/roles, starting from a
-one-on-one fight. One branch ends with a stage that mixes PvE and PvP; another teaches getting somewhere (riding,
-flying) and plays Warsong Gulch's rules.
+`src/Scenario/Curriculum/`. Twenty scenarios are defined; **eleven are in the default queue** and the rest are
+trained by name -- drills that isolate one skill, raid stages, team stages, and a pilot used to test the
+machinery itself.
+
+Every stage trains the same eighteen class/role policies over a shared trunk, so what one class learns about
+moving, threat or interrupts helps the others. A stage names the one it `Extends`, and its networks are seeded
+from that stage's best checkpoint block by block: blocks it keeps carry over, blocks it drops are left behind,
+blocks it adds start from nothing. That makes the curriculum a tree, not a line.
 
 ```
-stage1_duel ─┬─ stage2_pack ─ stage4_gauntlet ─ stage8_companion ─ stage9_party ─┬─ stage16_crossroads
-             ├─ stage14_pvp ─ stage15_arena ─┬──────────────────────────────────────┘
-             │                             └─ stage17_flag
-             └─ stage6_travel ─┬─ stage7_flight      (stage17_flag also merges stage6_travel)
+stage1_duel
+├─ stage2_pack ──────── stage3_hazards (drill)
+│  └─ stage4_gauntlet ─ stage5_endurance (drill)
+│     └─ stage8_companion ── stage9_party
+│                            ├─ stage10_tanking (drill)
+│                            ├─ stage11_triage (drill)
+│                            ├─ stage12_raid_single ─ stage13_raid_gauntlet
+│                            └─ stage16_crossroads
+├─ stage14_pvp ──────── mix_duel_pvp (pilot)
+│  └─ stage15_arena
+│     ├─ stage17_flag ─ stage18_warsong
+│     └─ stage19_duo_led
+└─ stage6_travel ────── stage7_flight
 ```
 
-| # | Stage | Extends (merges) | Blocks | Seats | Opposition | Episode |
-|---|---|---|---|---|---|---|
-| 1 | `stage1_duel` | none | core, duel, pet | 1 | A same-level creature, out of aggro range | Ends on the kill or death |
-| 2 | `stage2_pack` | stage1 | + pack | 1 | A pack of 2-4, usually linked | Ends on clear, death or the 150 s clock (a loss) |
-| 3 | `stage4_gauntlet` | stage2 | + gauntlet, support | 1 | Pull after pull with breaks | Runs until death or the time limit |
-| 4 | `stage8_companion` | stage3 | + companion | 1 | The gauntlet beside a scripted owner | Full length, deaths recover |
-| 5 | `stage9_party` | stage4 | + party | 1-4 + owner | Elite-heavy pulls, in a real group | Full length |
-| 6 | `stage14_pvp` | stage1 | core, duel, pet, pvp | 1 | A scripted enemy player | Ends when either dies |
-| 7 | `stage15_arena` | stage6 | core, duel, pet, pvp | 2 (self-play) | The other seat | Ends when either dies |
-| 8 | `stage16_crossroads` | stage5 (stage7, 6, 4, 3, 1) | the PvE and PvP ten | up to 4 | Eight arenas, including ambushes | Per arena |
-| 9 | `stage6_travel` | stage1 | core, duel, pet, travel | 1 | A place 60-320 yd away by path, level 20+ | Ends on arriving or death |
-| 10 | `stage7_flight` | stage9 | core, duel, pet, travel | 1 | A place 350-700 yd away in Nagrand, level 60+ | Ends on arriving or death |
-| 11 | `stage17_flag` | stage7 (stage9) | core, duel, pet, pvp, travel, flag | 2 (self-play) | Warsong Gulch's rules, level 20+ | First to three captures |
-| 12 | `stage5_endurance` (by name) | stage3 | stage 3's | 1 | The same eight pulls in the same order, ending on an elite pack two levels up | Won by clearing the last pull; 900 s |
-| 15 | `stage3_hazards` (by name) | stage2 | stage 2's | 1 | A pack with something on the ground in every pull | Ends on clear, death or the 120 s clock |
-| 16 | `stage10_tanking` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the tank; hold what the pull brings | Full length |
-| 17 | `stage11_triage` (by name) | stage5 | stage 5's | 1-4 + owner | Seat 0 is always the healer; keep the group up | Full length |
-| - | `mix_duel_pvp` (pilot) | stage6 (stage1) | core, duel, pet, pvp | 1 | Duel or scripted player, half and half | Per arena |
+> **The numbers do not sort into the training order.** `stage19_duo_led` is trained *before* `stage18_warsong`:
+> two a side is the smaller lesson and comes first. The names are labels, the tree above and
+> `StageDefinition::Extends` are the order. Renaming the two would cost every checkpoint and run directory that
+> carries the old name, which is why it has not been done.
 
-`mix_duel_pvp` is not in the default queue of `forge start`. It exists to test arena mixing, merge seeding and
-distillation on a small problem. Train it by name; a plain `forge fast` trains it with every other stage.
+## The stages
 
-**Drills** (15-17) are not in the default queue either. Each fixes what one episode is about, where the curriculum
-teaches the same skill inside a stage won by something else and the credit for it is smeared over the clear: a pack
-with a hazard in every pull rather than one from rung 3 up, a seat that is always the tank, a seat that is always
-the healer (`ArenaDefinition::Hazards` and `SeatRoles`). They seed from the stage they extend and are trained by
-name. Two things to know before reading their scores: the hazard charge lands about four times harder on a tank
-than on a ranged seat, because a tank cannot walk out of what it is holding an enemy in; and `stage11_triage`
-inherits stage 5's resurrection exploit (nothing clears `m_resurrectGUID`, so one landed Rebirth makes every later
-death of that ally a free instant resurrect that pays the revive reward again), which a forced healer will find
-faster than anything else in the curriculum.
+Seats are the learned agents an episode runs: `Solo` is one, `Party` up to five, `Raid` eight groups of five,
+`Mirror` two seats fighting each other, `Teams` two sides of `TeamSeats`. A directed arena adds two more agents,
+one commanding each side (see 4.12).
+
+| Stage | Extends | Seats | Blocks added | What it is |
+|---|---|---|---|---|
+| `stage1_duel` | — | Solo | core, duel, pet | A same-level creature out of aggro range: close in and kill it fast, taking little damage |
+| `stage2_pack` | stage1_duel | Solo | + pack | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
+| `stage4_gauntlet` | stage2_pack | Solo | + gauntlet, support | Pull after pull with short breaks: heals, food and drink |
+| `stage6_travel` | stage1_duel | Solo | + travel (−pack) | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
+| `stage7_flight` | stage6_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+ |
+| `stage8_companion` | stage4_gauntlet | Solo | + companion | The gauntlet beside a scripted owner: follow, assist, guard and heal it |
+| `stage9_party` | stage8_companion | Party | + party | Four learned seats and the scripted owner against elite-heavy pulls |
+| `stage14_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
+| `stage15_arena` | stage14_pvp | Mirror | same | Self-play one-on-one: two learned seats of any classes |
+| `stage16_crossroads` | stage9_party | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+| `stage17_flag` | stage15_arena | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
+
+### Trained by name
+
+These are not in `forge start`'s queue. Train one with `forge start <stage>`; `forge fast` trains everything.
+
+| Stage | Extends | Seats | What it is for |
+|---|---|---|---|
+| `stage3_hazards` | stage2_pack | Solo | **Drill.** A pack with something on the ground in *every* pull, rather than only from ladder rung 3 up, so walking out of one is learnable on its own |
+| `stage5_endurance` | stage4_gauntlet | Solo | **Drill.** A known run of eight pulls, won by finishing it: 900 s, ending on an elite pack two levels up |
+| `stage10_tanking` | stage9_party | Party | **Drill.** Seat 0 is always the tank: hold what the pull brings, and keep it off the others |
+| `stage11_triage` | stage9_party | Party | **Drill.** Seat 0 is always the healer: keep the hurt one up, and spend mana to do it |
+| `stage12_raid_single` | stage9_party | Raid | A raid of eight groups against one elite and its adds, won or lost as the single pack is |
+| `stage13_raid_gauntlet` | stage12_raid_single | Raid | A raid clearing pull after pull, recovering between them |
+| `stage19_duo_led` | stage15_arena | Teams (2) | Two against two under a **director**: told who to kill and whose turn it is (4.12) |
+| `stage18_warsong` | stage17_flag | Teams (10) | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
+| `mix_duel_pvp` | stage14_pvp | Solo | **Pilot.** Half the episodes a creature duel, half a scripted enemy player. Exists to test arena mixing, merge seeding and distillation on a small problem |
+
+**A drill** fixes what one episode is about, where the curriculum otherwise teaches the same skill inside a stage
+won by something else and the credit for it is smeared over the clear. Each seeds from the stage it extends.
+
+Two things to know before reading a drill's scores. The hazard charge lands about four times harder on a tank
+than on a ranged seat, because a tank cannot walk out of what it is holding an enemy in. And a forced-healer
+stage will find any fault in the resurrection path faster than anything else in the curriculum -- it found the
+farmable revive described in 4.6.
 
 ## 4.1 Defining a stage
 
@@ -182,11 +213,25 @@ every `Reset` calls `Rebuild`:
 
 1. every active encounter's `UpdateEnemies` (linked packs join fights), then `Update` (the owner acts, the next pull
    spawns, the scripted opponent acts, ambushers arrive),
-2. `AcceptResurrections`: dead seats and the owner accept a pending resurrection request as a client would, and the
-   seat that cast it is credited (`StepRevivedAlly`, `Revives`),
+2. `AcceptResurrections`: dead seats and the owner accept a pending resurrection request as a client would, and
+   the seat that cast it is credited once the ally is actually alive (`StepRevivedAlly`, `Revives`) -- see the
+   note below,
 3. for each seat with a living bot: `CurrentTarget` (the first encounter whose `SelectTarget` answers, else target 0),
    `BeforeSeatAction` on every encounter, build the `SeatView`, `SeatEncoder::Apply`, fold the result into the seat's
    totals, `OnSeatAction` on every encounter, and summon a called hunter beast.
+
+> **Why accepting a resurrection needs bookkeeping.** A client answers an offer once, with one
+> `CMSG_RESURRECT_RESPONSE`, so nothing in the core clears the request afterwards -- neither
+> `Player::ResurectUsingRequestData` nor `ResurrectPlayer` touches `m_resurrectGUID`. Polling it every decision,
+> as this must, therefore has to remember what it has already accepted. Before it did, one landed Rebirth stood
+> its target back up free of charge every decision it died for the rest of the episode: 38.4 revives an episode
+> against 0.97 owner deaths in stage 4, earning 57.55 of `druid_dps`'s 65.08 return. Every stage seeded from
+> those learned that a druid scores by standing near a corpse.
+>
+> The fix is the module's and not the core's: remember which offer was accepted, wait for it (a delayed teleport
+> reschedules the resurrect, so it does not always land on the decision it was taken), pay once the ally is
+> alive, and clear the request then. A retry window gives up on one that never lands rather than barring the
+> seat for the episode.
 
 `Observe`: each seat's row through `SeatEncoder::Observe` (tracking when the seat entered combat for the combat-time
 feature), then `WriteState`.
@@ -494,6 +539,7 @@ counts the charged presses.
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
 | `travel` (16) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing and height; at the objective; in combat; speed; moving | Mount the fastest ground mount, mount the fastest flying mount, dismount, move to the objective (by path, or straight in the air), climb 15 yd, descend 15 yd |
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
+| `order` (13) | What the side's director asked of this seat: the posture and rally one-hots, distance and bearing to the rally place, distance, bearing, health and whether the seat is already on the called target, and whether this seat holds the duty. All zero in an arena with no director | none: an order is advice, not a lever |
 
 The core block's 67 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
@@ -983,6 +1029,94 @@ Encounters then add their own columns:
 
 Then come the `reward_<term>` columns. Columns of encounters an episode's arena doesn't use read 0. The exact list for a
 stage is `episode_info` in its `stage.json`.
+
+## 4.12 Team play and the director
+
+`SeatPlan::Teams` splits an arena's seats down the middle: `TeamSeats` a side, `TEAM_COUNT` (2) sides, seat
+`s` on side `s / TeamSeats`. Two a side is an arena, ten a side is a battleground. `StageScenario::SideOf`
+answers which side a seat plays for and `SideSeats` lists a side's seats in order.
+
+A Teams arena fights the other side, not a scripted opponent: `OpponentEncounter` makes every cross-side pair
+hostile, offers each seat the enemy side as selectable slots (so target selection has something to choose
+between), and ends the episode when a whole side is down. One seat a side reduces to exactly the old `Mirror`
+behaviour.
+
+### The order
+
+A **director** commands one side. It decides what the team is doing -- who to kill, what posture to hold,
+where to gather, whose turn the next interrupt is -- while the seats keep deciding how. Two of the four are
+things a seat provably cannot work out alone: nothing in seat 7's own view says it is next in the rotation,
+and ten seats each picking their own target is the classic way to lose a fight you should win.
+
+The order reaches a seat through the `Order` block, which has **thirteen observations and no actions**. An
+order is advice, not a lever: the seat reads the posture, the rally point, the called target and whether it
+holds the duty, and still chooses its own action. Everything reads zero in an arena without a director.
+
+A call is dropped the moment it cannot be followed -- the focus when its enemy dies, the duty when its seat
+does. Without that the order stands at a corpse until the director's next decision and, if it never spends
+another focus action, for good: measured at 37% of all decisions carrying an order aimed at someone dead.
+
+### Scripted or learned
+
+`ArenaDefinition::Directed` gives an arena a director; `DirectorLearned` makes it an agent rather than a
+script.
+
+The **scripted** director (`DirectorEncounter::Command`) thinks every 10 decisions and calls the lowest-health
+enemy, rotating the duty around the side and switching to Recover below 40% average health. It is the yardstick:
+its call quality is near-perfect by construction, so it is what a learned director is measured against.
+
+The **learned** director is an ordinary layout (`DirectorLayout`) with its own 194 observations and 27 actions,
+seeded down the stage chain like any other. Two more agents an env, one a side, opted into per arena; an
+undirected episode marks them absent rather than resizing anything.
+
+Its action space is one call per decision, not four heads at once: `hold`, then posture (5), rally (7), focus
+slot (`PACK_SLOTS`), duty slot (`TEAM_SEATS`). The standing order is state it edits, and an action names the
+single field it changes -- everything else keeps what it was. That is closer to what a leader does than four
+simultaneous heads would be (a call stands until it is changed) and it needs no new transport: the wire carries
+one categorical action per agent.
+
+It is paid the mean of its side's seat rewards, less any order-compliance shaping those seats earned, because
+that is the one part of their reward it can move without the fight going any better. A director that kept it
+would learn to call whoever its seats were already fighting.
+
+It decides on a **slower clock** than the seats -- `mappo.slow_layout` in the learner -- choosing every
+`slow_every_decisions` and holding in between, with its transitions stored and discounted over its own
+decisions. Both clocks are printed when a run starts:
+
+```
+Per 250 ms decision:         gamma 0.99750 (horizon 100 s), GAE trace 0.97275 (credit   9.2 s)
+Per 2.5 s director decision: gamma 0.99600 (horizon 625 s), GAE trace 0.97608 (credit 105 s)
+```
+
+The cadence is not only about credit. With the director choosing every decision it moved the standing order on
+0.706 of them, against the scripted director's 0.03; nothing can follow a call that changes every 1.4
+decisions.
+
+### What to measure
+
+A director is worth having only where it beats its own absence, so a directed stage is read against the
+undirected one it came from. The columns, all reported per seat:
+
+| Column | What it says |
+|---|---|
+| `order_focus_alive` | The call named a living enemy at all |
+| `order_focus_lowest` | ... and it was the most hurt of them, the call the scripted director makes |
+| `order_focus_chance` | What naming one of the living at random would have scored |
+| `order_focus_kept` | The share of a side's seats on the called target |
+| `order_changes` | How often the call moved |
+
+`lowest` against `chance` is the one that matters, and it is the same scale whether a side is two or ten: it
+tells a director that calls well apart from one the arena makes look good. `order_focus_kept` alone cannot --
+a seat that ignores its director and a director that names nothing worth fighting look identical in it, and at
+two a side its chance floor is 0.5, because a seat parked on the first enemy slot is on the called target half
+the time by construction.
+
+**Honest status.** As of this writing the learned director has not beaten chance on `lowest` in four 30M runs,
+through a compliance reward, a slower clock and a clean channel. The seats improve (evaluation 6.6-6.9 to
+8.3-8.8 in every run) but that is them learning two on two, and it happens just as much without a director.
+The open question is whether a director is worth anything at two a side at all, which the scripted director
+answers directly: run `stage19_duo_led` with `DirectorLearned` off and compare. If a perfect caller does not
+beat the undirected arena, there is nothing at this stage for a learned one to find.
 
 ## 4.11 Stage by stage
 

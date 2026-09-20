@@ -98,6 +98,13 @@ CMake: `ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`). Bot
 
 Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). Per-decision terms are tuned per 50 ms.
 
+This table is a quick reference to the values worth knowing. **The authoritative list is each module's
+`conf/*.conf.dist`**, which documents every key with a comment saying what it does, and is checked against
+`CurriculumTuning::Visit` by `python/tests/test_conf_covers_tuning.py` and again by
+`tools/update-animus-lib.sh` -- both directions, so a key the sim reads and the template omits, or a key the
+template offers and the sim ignores, fails. A missing key is otherwise silent: `CurriculumTuning::Load` asks
+for every key with a default and no warning, so an undocumented one quietly keeps its compiled-in value.
+
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
 | `Characters.HighLevelFirst` | 61 | | `Pulls.LinkedChance` | 70 |
@@ -166,6 +173,7 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 | | | | `Pulls.NextPullShrinkMs` | 1000 |
 | | | | `Pulls.NextPullFloorMs` | 4000 |
 | `Goals.Match` | 0.02 | | | |
+| `Order.Focus` | 0.001 | | | |
 | `Pulls.GauntletDenseScale` | 0.5 | | | |
 | `Support.SelfHealing` | 0.5 | | | |
 | `Support.PetReady` | 0.3 | | | |
