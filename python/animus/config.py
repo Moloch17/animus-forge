@@ -253,7 +253,15 @@ class TrainConfig:
     # rollout then acts on the weights of the update before last (the rollout networks are synced when the update is
     # joined, one rollout later), which is data one update staler than the strictly serial loop; its log_probs come
     # from the same weights, so the PPO ratio stays consistent. Update stats are logged one update late as well.
-    overlap_updates: bool = False
+    #
+    # On by default because serially the sim blocks in ReceiveAny for the whole update, which is not a rounding
+    # error: stage6_run measures a 1.82 s update against a 3.2 s rollout, stage18_stealth 3.08 s against 4.26 s --
+    # 36-42% of wall clock spent with the sim idle. The rollout is the longer of the two in both, so overlapping
+    # hides the update rather than merely shortening it. The old guidance to leave it off assumed the two would
+    # contend for cores; `forge bench` moved learner time by 0.1% between torch_threads 0 and 8, which says the
+    # update is not thread-bound. Contention would show as a longer rollout, so measure rollout_seconds across the
+    # switch rather than trusting this note.
+    overlap_updates: bool = True
 
     train_device: str = AUTO  # "auto": cuda when torch sees a GPU (ROCm included), else cpu
     rollout_device: str = "cpu"  # one small forward pass per decision is faster on the CPU
