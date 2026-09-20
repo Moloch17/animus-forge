@@ -21,8 +21,13 @@ eval:
   report: [survived, re_stealths, stealth_openers, escaped, contact_breaks, unseen_seconds, died]
 
 target:
-  # re_stealths is the stage: getting back into stealth after being seen. Half an episode's worth is a low bar
-  # deliberately -- it says the behaviour exists, not that it is good.
+  # re_stealths is the stage: getting back into stealth after being seen. The `fight` baseline measured 0.0000
+  # of them on the evade arena, so any non-zero figure is behaviour that did not exist before; half an episode's
+  # worth is a low bar deliberately, saying the behaviour exists rather than that it is good.
+  #
+  # Unlike stage 16's, these floors are not set from a measured baseline of this arena -- the opponent is six
+  # levels up here rather than ten, and the class/roles are only the three or four that can stealth. Re-measure
+  # and tighten after the first full run.
   min_over_baseline: 0.0
   min_layout_over_baseline: 0.0
   metrics:

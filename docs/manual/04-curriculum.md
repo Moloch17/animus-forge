@@ -70,8 +70,8 @@ one commanding each side (see 4.12).
 | `stage13_raid_single` | stage12_triage | Raid | same | A raid of eight groups against one elite and its adds, won or lost as the single pack is |
 | `stage14_raid_gauntlet` | stage13_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
-| `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player six levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
-| `stage17_stealth` | stage16_evade | Solo | same | **Drill, and a leaf.** The same fight four levels up, for the class/roles whose kit has a stealth aura: open from stealth, and get back into it when the fight turns |
+| `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
+| `stage17_stealth` | stage16_evade | Solo | same | **Drill, and a leaf.** The same fight six levels up, for the class/roles whose kit has a stealth aura: open from stealth, and get back into it when the fight turns |
 | `stage18_arena` | stage16_evade | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage19_duo_led` | stage18_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage20_flag` | stage18_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -1260,7 +1260,7 @@ baited out).
 
 ### Stage 16: `stage16_evade`
 
-**Drill.** A scripted enemy player **six levels above** the seat
+**Drill.** A scripted enemy player **ten levels above** the seat
 (`ArenaDefinition::OpponentLevelBonus`), for 120 s. The fight is not winnable straight, and that is the point:
 everything up to here rewards winning the fight in front of it, so a losing fight is a class of situation the
 policy has never been paid to handle and it dies with its cooldowns up. The score is being alive when the clock
@@ -1274,6 +1274,16 @@ break when it was achieved without stealth -- the effect, not the button press.
 
 Columns: `survived`, `escaped` (a single unbroken stretch out of sight of at least `Evade.EscapeMs`, 8 s),
 `contact_breaks`, `line_of_sight_breaks`, `unseen_seconds`, `unseen_longest_seconds`, `re_stealths`.
+
+Measured `fight` baseline on this arena, 2048 episodes: `survived` 0.405, `contact_breaks` 0.514,
+`unseen_seconds` 3.72, `escaped` 0.094, `won` 0.290. `fight` never tries to hide, so those breaks are incidental
+terrain occlusion during a chase -- they are the floor a policy that learned nothing already clears, and the
+gates sit well above them (`survived` 0.55, `contact_breaks` 0.90, `unseen_seconds` 6.0).
+
+The level bonus is ten because six stopped being a losing fight once the spawn had cover: terrain blocks the
+scripted opponent's casting as readily as it hides the seat, and the baseline's `won` went 0.188 → 0.447 on the
+same change. At ten it is back to 0.290 -- still beatable about three times in ten, which is deliberate. The
+lesson is recognising a losing fight and leaving it, not obeying a rule that says every fight here is lost.
 
 The gate drops the baseline comparison (`min_over_baseline: 0`) on purpose: the yardstick would be a policy
 trained to win fights that are not winnable here, so surviving is a new axis rather than a better version of
@@ -1302,7 +1312,7 @@ or 26 yd genuinely escapes.
 
 ### Stage 17: `stage17_stealth`
 
-**Drill, and a leaf.** The same losing fight four levels up rather than six, so that it is winnable *from a
+**Drill, and a leaf.** The same losing fight six levels up rather than ten, so that it is winnable *from a
 stealth opener* and unwinnable head-on. Played only by the class/roles whose kit contains a stealth aura:
 `StageDefinition::NeedsStealth` drops the rest by scanning the action catalog for `SPELL_AURA_MOD_STEALTH`, so
 the list follows the kit and does not rot the first time a spec changes.
