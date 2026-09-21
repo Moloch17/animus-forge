@@ -156,9 +156,10 @@ std::string Animus::Curriculum::MoveBlock::ActionName(Layout const& /*layout*/, 
 
 void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, uint8* mask) const
 {
-    Layout const& layout = *view.L;
-    BlockSlice const& slice = layout.Slice(BlockId::Move);
-    float* out = obs + slice.ObsFirst;
+    // `obs` and `mask` are already this block's own slice of the seat's row: SeatEncoder::Observe offsets them
+    // before it calls a block. Offsetting again wrote the whole block past the end of its slice, so every bearing
+    // stayed masked and no seat could steer (stage1_move, 2026-09-21).
+    float* out = obs;
     Player* bot = view.Bot;
 
     // Everything a seat needs to place its feet, and nothing about whether it has an enemy: this block is the one
@@ -238,7 +239,7 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
     if (!mask)
         return;
 
-    uint8* allowed = mask + slice.ActionFirst;
+    uint8* allowed = mask;
     for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
         allowed[ACTION_BEARING_FIRST + bearing] = canMove ? 1 : 0;
 
