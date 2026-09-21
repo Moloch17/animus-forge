@@ -36,7 +36,6 @@ namespace
 {
     using namespace Animus::Curriculum;
 
-    constexpr uint32 TRAVEL_MOVE_POINT_ID = 6;
     constexpr float MAX_GROUND_SEARCH = 200.0f;
     constexpr float AIRBORNE_ABOVE = 2.0f;      // higher than this without flight is falling
 

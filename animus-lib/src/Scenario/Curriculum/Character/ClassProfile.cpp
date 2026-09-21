@@ -42,6 +42,11 @@ namespace
     }
 }
 
+float Animus::Curriculum::DamageScale(uint8 level)
+{
+    return 15.0f * std::exp(0.068f * float(level));
+}
+
 std::vector<Animus::Curriculum::ClassProfile> const& Animus::Curriculum::ClassProfiles()
 {
     using enum WeaponLayout;

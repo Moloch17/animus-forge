@@ -340,7 +340,15 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
         return;
     }
 
-    Encoding::SnapToGround(bot->GetMap(), bot->GetPhaseMask(), destination, bot->GetPositionZ(), STEP_YARDS);
+    // No ground within a step of where the seat stands means the bearing leads off the map or over a drop too big
+    // to walk down. Keep the facing -- it asked to look that way and that much is free -- and do not issue the
+    // move: the pathfinder would otherwise pick its own way round, which is the seat being steered by something
+    // that is not the policy.
+    if (!Encoding::SnapToGround(bot->GetMap(), bot->GetPhaseMask(), destination, bot->GetPositionZ(), STEP_YARDS))
+    {
+        FaceWhile(view, heading);
+        return;
+    }
 
     // Pathfinding on, which is the default: a bearing is where the seat wants to go, not a licence to walk through
     // a wall to get there.
