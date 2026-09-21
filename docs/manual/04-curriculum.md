@@ -10,49 +10,64 @@ per (class, role) -- eighteen such pairs -- so joining the models did not join t
 
 A stage names the one it `Extends`, and its networks are seeded
 from that stage's best checkpoint block by block: blocks it keeps carry over, blocks it drops are left behind,
-blocks it adds start from nothing. That makes the curriculum a tree, not a line -- but the numbers now sort
-into the training order, so `forge start` with no arguments walks the whole thing from stage 1 to stage 23 and
-never reaches a stage before the stage it seeds from.
+blocks it adds start from nothing. The chain is one line, and the numbers are the training order, so
+`forge start` with no arguments walks the whole thing from stage 1 to stage 23 and never reaches a stage before
+the stage it seeds from.
 
 ```
-stage5_duel
-├─ stage6_pack
-│  └─ stage2_dodge
-│     └─ stage7_gauntlet
-│        └─ stage8_endurance
-│           └─ stage14_companion
-│              └─ stage15_party
-│                 └─ stage16_tanking
-│                    └─ stage17_triage
-│                       └─ stage20_raid_single
-│                          └─ stage21_raid_gauntlet
-│                             └─ stage23_crossroads   (+ 7 merges)
-├─ stage1_move
-│  └─ stage3_travel
-│     └─ stage4_flight
-└─ stage9_pvp
-   ├─ stage10_evade
-   │  └─ stage11_hide
-   │     ├─ stage12_stealth                           (a leaf: four layouts)
-   │     └─ stage13_arena
-   │        ├─ stage22_duo_led
-   │        └─ stage18_flag                           (+ merges stage3_travel)
-   │           └─ stage19_warsong
-   └─ mix_duel_pvp                                    (a pilot, trained by name)
+stage1_move          open ground, broken ground, water   ── the feet
+└─ stage2_dodge      fire underfoot, nothing to fight
+   └─ stage3_travel  the mount
+      └─ stage4_flight
+         └─ stage5_duel        ── and only now, something that fights back
+            └─ stage6_pack
+               └─ stage7_gauntlet
+                  └─ stage8_endurance
+                     └─ stage9_pvp        ── against people
+                        └─ stage10_evade
+                           └─ stage11_hide
+                              └─ stage12_stealth   (restricted: only classes that can)
+                                 └─ stage13_arena
+                                    └─ stage14_companion   ── beside others
+                                       └─ stage15_party
+                                          └─ stage16_tanking
+                                             └─ stage17_triage   ── the class curriculum's leaf
+                                                ├─ stage18_flag  (+ merges stage3_travel)
+                                                │  └─ stage19_warsong
+                                                │     └─ stage22_duo_led   (a director)
+                                                ├─ stage20_raid_single
+                                                │  └─ stage21_raid_gauntlet
+                                                └─ stage23_crossroads      (+ 7 merges)
+
+mix_duel_pvp                                      (a pilot off stage9_pvp, trained by name)
 ```
 
-`stage23_crossroads` extends `stage21_raid_gauntlet` and merges `stage19_warsong`, `stage13_arena`,
-`stage9_pvp`, `stage4_flight`, `stage14_companion`, `stage7_gauntlet` and `stage5_duel`: it is where the PvE
-line, the PvP line and the travel line become one policy.
+**The first four stages have nothing to kill in them, and that is the point.** A seat steers itself -- eight
+egocentric bearings under a held yaw and pitch, with the ground read along each of them -- and where a seat puts
+its feet is not something only some stages are about. Putting movement first means everything after it inherits
+legs that already work, instead of learning to fight and to walk at the same time and doing both badly.
 
-> **One stage is restricted, and it must stay a leaf.** `stage12_stealth` is played by the two classes whose
+**It is a line rather than a tree** for one reason: a branch is cheaper to train but ends in several checkpoints,
+and everything a leaf teaches is discarded unless the stage exported from is downstream of it. That is how the
+drills, the raids and the team stages became a dead end under the old tree. A line ends in one leaf carrying the
+lot, which is also what the per-class join needs to take from each class.
+
+`stage23_crossroads` extends `stage17_triage` and merges `stage19_warsong`, `stage13_arena`, `stage9_pvp`,
+`stage4_flight`, `stage14_companion`, `stage7_gauntlet` and `stage5_duel`: it is where every line becomes one
+policy.
+
+> **One stage is restricted, and it used to have to be a leaf.** `stage12_stealth` is played by the classes whose
 > own kit carries a stealth aura -- rogue and druid -- because closing on someone unseen is a thing only a real
-> stealth aura can do. Its checkpoint therefore holds two of the ten layouts, and `init_from: auto` takes the
-> **first checkpoint in the chain that exists** -- so a stage seeding from it would find that one, stop looking,
-> and start the other eight from random weights without saying so. `stage13_arena` extends `stage11_hide`,
-> reaching past it, and `Problem()` in `Stages.cpp` refuses anything that tries to extend or merge a
-> `NeedsStealth` stage. Every other stage is played by all ten, each drawing its races as usual, so every class
-> meets its own kit and its own racials.
+> stealth aura can do. In a run of all ten classes its checkpoint holds two of the ten layouts, and
+> `init_from: auto` takes the **first checkpoint in the chain that exists** -- so a stage seeding from it would
+> find that one, stop looking, and start the other eight from random weights without saying so.
+>
+> `Problem()` used to prevent that by refusing to let anything extend or merge a `NeedsStealth` stage at all,
+> which was too blunt: **in a run of one class that stealths, every layout plays the stage and the checkpoint is
+> not partial.** That is exactly the druid case, and it is where Prowl has to reach the arena and the flag. The
+> check now lives in `animus.bootstrap`, where the run's actual layouts are known: a layout the checkpoint lacks
+> is refused, loudly, with the classes it was trained on named. So the chain runs through the stage, and a run
+> whose classes cannot all play it is stopped with an error rather than seeded in silence.
 
 ## The stages
 
@@ -62,29 +77,37 @@ one commanding each side (see 4.12).
 
 | Stage | Extends | Seats | Blocks added | What it is |
 |---|---|---|---|---|
-| `stage5_duel` | — | Solo | core, move, duel, pet | A same-level creature out of aggro range: close in and kill it fast, taking little damage |
-| `stage6_pack` | stage5_duel | Solo | + pack | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
-| `stage2_dodge` | stage6_pack | Solo | + support | **Drill.** Nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
-| `stage7_gauntlet` | stage2_dodge | Solo | + gauntlet | Pull after pull with short breaks: heals, food and drink |
-| `stage8_endurance` | stage7_gauntlet | Solo | same | **Drill.** A known run of eight pulls, won by finishing it: 900 s, ending on an elite pack two levels up |
-| `stage1_move` | stage5_duel | Solo | + travel (−pack) | A place 40-160 yd away **on foot**: mounting is masked, so the trip is made with the speed cooldowns the class has |
-| `stage3_travel` | stage1_move | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
+| `stage1_move` | — | Solo | core, move, travel, duel | **The root, and nothing to fight.** A place 40-160 yd away on foot -- mounting is masked, so the trip is made with the speed cooldowns the class has. Three arenas: open ground, broken ground, and water whose way round is longer than the way through |
+| `stage2_dodge` | stage1_move | Solo | same | **Drill.** Still nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
+| `stage3_travel` | stage2_dodge | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
 | `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+ |
-| `stage14_companion` | stage8_endurance | Solo | + companion | The gauntlet beside a scripted owner: follow, assist, guard and heal it |
-| `stage15_party` | stage14_companion | Party | + party | Four learned seats and the scripted owner against elite-heavy pulls |
-| `stage16_tanking` | stage15_party | Party | same | **Drill.** Seat 0 is always the tank: hold what the pull brings, and keep it off the others |
-| `stage17_triage` | stage16_tanking | Party | same | **Drill.** Seat 0 is always the healer: keep the hurt one up, and spend mana to do it |
-| `stage20_raid_single` | stage17_triage | Raid | same | A raid of eight groups against one elite and its adds, won or lost as the single pack is |
-| `stage21_raid_gauntlet` | stage20_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
-| `stage9_pvp` | stage5_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
+| `stage5_duel` | stage4_flight | Solo | + pet | **Where the fighting starts.** A same-level creature out of aggro range: close in and kill it fast, taking little damage. It arrives already knowing how to place its feet |
+| `stage6_pack` | stage5_duel | Solo | + pack (−travel) | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
+| `stage7_gauntlet` | stage6_pack | Solo | + gauntlet, support | Pull after pull with short breaks: heals, food and drink |
+| `stage8_endurance` | stage7_gauntlet | Solo | same | **Drill.** A known run of eight pulls, won by finishing it: 900 s, ending on an elite pack two levels up |
+| `stage9_pvp` | stage8_endurance | Solo | + pvp (−pack, −gauntlet) | One-on-one against a scripted enemy player |
 | `stage10_evade` | stage9_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage11_hide` | stage10_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
-| `stage12_stealth` | stage11_hide | Solo | same | **Drill, and a leaf.** For the two classes whose own kit carries a stealth aura (rogue and druid): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
-| `stage13_arena` | stage11_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
-| `stage22_duo_led` | stage13_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
-| `stage18_flag` | stage13_arena (+ stage3_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
+| `stage12_stealth` | stage11_hide | Solo | same | **Drill, restricted.** For the classes whose own kit carries a stealth aura (rogue and druid): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement. No longer a leaf: in a run of one class that stealths the checkpoint is not partial, and the check that matters lives in `animus.bootstrap` |
+| `stage13_arena` | stage12_stealth | Mirror | same | Self-play one-on-one: two learned seats of any classes |
+| `stage14_companion` | stage13_arena | Solo | + pack, gauntlet, companion, support (−pvp) | The gauntlet beside a scripted owner: follow, assist, guard and heal it |
+| `stage15_party` | stage14_companion | Party | + party | Four learned seats and the scripted owner against elite-heavy pulls |
+| `stage16_tanking` | stage15_party | Party | same | **Drill.** Seat 0 is drawn from builds that can hold the pull: hold what it brings, and keep it off the others |
+| `stage17_triage` | stage16_tanking | Party | same | **Drill, and the leaf of the class curriculum.** Seat 0 is drawn from builds that can keep the hurt one up, and has to spend mana doing it |
+| `stage18_flag` | stage17_triage (+ stage3_travel) | Mirror | + pvp, travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
 | `stage19_warsong` | stage18_flag | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
-| `stage23_crossroads` | stage21_raid_gauntlet (+ 7 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+| `stage20_raid_single` | stage17_triage | Raid | same as triage | A raid of eight groups against one elite and its adds, won or lost as the single pack is |
+| `stage21_raid_gauntlet` | stage20_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
+| `stage22_duo_led` | stage19_warsong | Teams (2) | + context, hostiles, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
+| `stage23_crossroads` | stage17_triage (+ 7 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+
+The first four stages have nothing in them to kill, and that is the point. A seat steers itself now, and where it
+puts its feet is not something only some stages are about -- so everything after them inherits legs that already
+work, rather than learning to fight and to walk at the same time and doing both badly.
+
+The chain is one line rather than a tree. A branch is cheaper to train and ends in several checkpoints, and
+everything a leaf teaches is discarded unless the stage exported from is downstream of it -- which is how the
+drills, the raids and the team stages became a dead end. A line ends in one leaf that carries the lot.
 
 ### Trained by name
 
@@ -133,7 +156,7 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage2_dodge` | 60M | 10M | 2048 | 15M | `stage9_pvp` | 60M | 10M | 2048 | 30M |
 | `stage7_gauntlet` | 90M | 15M | 2048 | 20M | `stage10_evade` | 60M | 10M | 2048 | 30M |
 | `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage11_hide` | 40M | 10M | 2048 | 30M |
-| `stage1_move` | 30M | 10M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
+| `stage1_move` | 40M | 10M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
 | `stage3_travel` | 30M | 10M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
 | `stage4_flight` | 30M | 10M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
 | `stage14_companion` | 90M | 15M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
@@ -141,7 +164,7 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
 | `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
 
-**The queue is 2,090M env steps over 23 stages** (2,150M with the `mix_duel_pvp` pilot, which is not in the
+**The queue is 2,100M env steps over 23 stages** (2,160M with the `mix_duel_pvp` pilot, which is not in the
 queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage
 descends from, but `stage8_endurance` is also 300M -- 14% of the whole queue on one drill, ten times

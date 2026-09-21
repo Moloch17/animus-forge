@@ -21,7 +21,9 @@ def test_seeded_actor_matches_earlier_stage_on_its_inputs_and_actions():
     torch.manual_seed(0)
     config = MappoConfig(hidden=(16, 16))
     old_layouts = [Layout("warrior_dps", 6, 3), Layout("mage_dps", 5, 4)]
-    new_layouts = [Layout("mage_dps", 8, 6), Layout("warrior_dps", 9, 5), Layout("priest_heal", 7, 4)]
+    # The same layouts, in a different order and wider: a later stage keeps its base's classes and adds features
+    # and actions to them.
+    new_layouts = [Layout("mage_dps", 8, 6), Layout("warrior_dps", 9, 5)]
     old = MappoTrainer([(l.obs_dim, l.num_actions) for l in old_layouts], 4, config)
     new = MappoTrainer([(l.obs_dim, l.num_actions) for l in new_layouts], 11, config)
     checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec(old_layouts)}
@@ -38,6 +40,38 @@ def test_seeded_actor_matches_earlier_stage_on_its_inputs_and_actions():
     old_logits = old.actor(padded_old, torch.zeros(4, dtype=torch.long), torch.ones(4, 4)).logits[:, :3]
     new_logits = new.actor(new_obs, torch.ones(4, dtype=torch.long), torch.ones(4, 6)).logits[:, :3]
     torch.testing.assert_close(new_logits - new_logits[:, :1], old_logits - old_logits[:, :1], rtol=1e-4, atol=1e-4)
+
+
+def test_a_layout_the_checkpoint_lacks_is_refused_rather_than_started_from_scratch():
+    """The rule that replaced the sim's "a restricted stage must be a leaf".
+
+    A stage only some classes play leaves a partial checkpoint, and `init_from: auto` takes the first checkpoint
+    in the chain that exists -- so seeding a full run from it used to start the missing classes from random
+    weights in the middle of the curriculum, silently, which looks exactly like a class that has not learned
+    anything yet. Only here are the run's actual layouts known, so this is where it can be caught.
+    """
+    config = MappoConfig(hidden=(8,))
+    old_layouts = [Layout("rogue", 6, 3)]
+    new_layouts = [Layout("rogue", 6, 3), Layout("mage", 6, 3)]
+    old = MappoTrainer([(6, 3)], 4, config)
+    new = MappoTrainer([(6, 3), (6, 3)], 4, config)
+    checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec(old_layouts)}
+
+    with pytest.raises(ValueError, match="the checkpoint has no mage"):
+        seed_trainer(new, checkpoint, spec(new_layouts, 4))
+
+
+def test_the_director_is_the_one_layout_allowed_to_be_missing():
+    """It is an agent a stage adds, not a class the run plays, so the first directed stage in a chain
+    necessarily seeds from one without it."""
+    config = MappoConfig(hidden=(8,))
+    old_layouts = [Layout("rogue", 6, 3)]
+    new_layouts = [Layout("rogue", 6, 3), Layout("director", 6, 3)]
+    old = MappoTrainer([(6, 3)], 4, config)
+    new = MappoTrainer([(6, 3), (6, 3)], 4, config)
+    checkpoint = {"trainer": old.state_dict(), "spec": checkpoint_spec(old_layouts)}
+
+    assert seed_trainer(new, checkpoint, spec(new_layouts, 4)) == ["rogue"]
 
 
 def test_critic_state_encoder_and_head_are_not_copied():

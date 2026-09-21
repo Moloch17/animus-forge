@@ -60,8 +60,8 @@ def test_the_queue_total_is_what_the_manual_says():
     """The manual states the whole queue in one number, which is the one a person plans a run from."""
     rows = documented()
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k != "mix_duel_pvp")
-    assert queue == 2_090_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,090M"
-    assert sum(v["total_env_steps"] for v in rows.values()) == 2_150_000_000
+    assert queue == 2_100_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,100M"
+    assert sum(v["total_env_steps"] for v in rows.values()) == 2_160_000_000
 
 
 # --------------------------------------------------------------------------- 8.2 tuning defaults
