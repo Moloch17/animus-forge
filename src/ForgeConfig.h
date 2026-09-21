@@ -80,7 +80,7 @@ namespace AnimusForge
         /// AnimusForge.Learner.TorchThreads: CPU threads the learner's torch uses (0 = torch's own default). The
         /// learner runs beside the map update threads on the same cores, so `forge bench` sweeps both.
         uint32 LearnerTorchThreads = 0;
-        std::vector<std::string> ClassRoles;    // AnimusForge.ClassRoles; empty = every class/role
+        std::vector<std::string> Classes;       // AnimusForge.Classes; empty = every class
 
         /// AnimusForge.SpawnPoint.*: the instanceable map and position every env's bots start at.
         uint32 SpawnMapId = 560;
@@ -99,8 +99,8 @@ namespace AnimusForge
         uint32 FastEnvs = 16;
         /// AnimusForge.Fast.Budget: env steps each stage of a fast run trains for before the next one starts,
         /// overridden per invocation by `forge fast <steps>`. A fast run is a fixed-budget sweep of the whole
-        /// curriculum, not a smoke test: it plays the same content at every class/role and every level, and only
-        /// the budget is smaller. Fast.Level and Fast.ClassRoles used to make the problem easier as well, which
+        /// curriculum, not a smoke test: it plays the same content at every class and every level, and only
+        /// the budget is smaller. Fast.Level and Fast.Classes used to make the problem easier as well, which
         /// meant a fast pass rehearsed something the real build never trains.
         uint64 FastBudget = 20000000;
         /// AnimusForge.Fast.Queue: what `forge fast` trains when given no scenarios; empty = every curriculum stage.

@@ -41,14 +41,16 @@ AnimusForge.OutputDir = ""
 #                     name and lists the available scenarios. Each scenario trains in
 #                     <OutputDir>/runs/<scenario>/. Like any config key it can also be set from the
 #                     environment: AC_ANIMUS_FORGE_QUEUE.
-#        Values:      Curriculum: one policy for every class/role of AnimusForge.ClassRoles,
-#                     one scenario per stage. Every episode each learned seat is a new character of a
-#                     class/role: a random race the class allows, gender, level (1-80; 55-80 for death
-#                     knights), one of the role's specs with its standard talent build and glyphs, the
-#                     trainer spells of the level, gear from the item level band of the level with
-#                     enchants and gems, and potions, bandages and stones it learns to use. Each
-#                     class/role is a layout of the policy and exports as its own model. Each stage's
-#                     layouts extend the stage it builds on, which seeds it:
+#        Values:      Curriculum: one policy for every class of AnimusForge.Classes, one scenario per
+#                     stage. Every episode each learned seat is a new character: a random race the class
+#                     allows, gender, level (1-80; 55-80 for death knights), a role the episode's makeup
+#                     calls for and one of the class's specs that plays it, with its standard talent
+#                     build and glyphs, the trainer spells of the level, gear from the item level band of
+#                     the level with enchants and gems, and potions, bandages and stones it learns to
+#                     use. Each class is a layout of the policy and exports as its own model, covering
+#                     every role it can play: what the model is told is its role and its talents, never
+#                     its spec, so it learns to play the character it was handed. Each stage's layouts
+#                     extend the stage it builds on, which seeds it:
 #                       "stage1_duel"      - a same-level creature out of aggro range: close in and kill
 #                                            it fast, taking little damage (the first stage, from scratch)
 #                       "stage2_pack"      - a pack of 2-4 (casters, usually linked): targets,
@@ -95,16 +97,20 @@ AnimusForge.Queue.SkipFinished = 1
 AnimusForge.Queue.LocalEpisodes = 0
 
 #
-#    AnimusForge.ClassRoles
-#        Description: Comma-separated class/roles the curriculum stages play (their layouts). A subset
-#                     trains a policy for just those, e.g. "warrior_dps, priest_heal". Changing the list
-#                     changes the layouts: models of the earlier list do not fit the new one.
-#                     Available: warrior_dps, warrior_tank, paladin_heal, paladin_tank, paladin_dps,
-#                     hunter_dps, rogue_dps, priest_heal, priest_dps, deathknight_tank, deathknight_dps,
-#                     shaman_dps, shaman_heal, mage_dps, warlock_dps, druid_dps, druid_tank, druid_heal
+#    AnimusForge.Classes
+#        Description: Comma-separated classes the curriculum stages play (their layouts). A subset trains
+#                     a policy for just those, e.g. "warrior, priest". Changing the list changes the
+#                     layouts: models of the earlier list do not fit the new one.
+#                     A class brings every role it can play with it -- there is one model per class, not
+#                     one per class and role -- so listing "paladin" trains its healing, its tanking and
+#                     its damage in one policy. Leaving out a class can leave a stage unable to fill a
+#                     composition: a run of only rogues and mages has no tank to offer a party, and the
+#                     seats fall back to whatever the run does have.
+#                     Available: warrior, paladin, hunter, rogue, priest, deathknight, shaman, mage,
+#                     warlock, druid
 #        Default:     "" - (all of them)
 
-AnimusForge.ClassRoles = ""
+AnimusForge.Classes = ""
 
 ###################################################################################################
 # ENVIRONMENTS
@@ -397,7 +403,7 @@ AnimusForge.Bench.LearnerTorchThreads = "0, 8"
 #
 #    `forge fast [scenario ...]` trains stages (default: every curriculum stage) on an easier
 #    problem, to see quickly that training works and learns before a long run: fewer envs, a few
-#    class/roles at one level, and learner settings that end each stage as soon as its evaluation
+#    classes at one level, and learner settings that end each stage as soon as its evaluation
 #    score stops improving. It always uses the remote policy and trains from scratch, in its own
 #    output directory, so it never archives, seeds from or overwrites a real run. Every other
 #    setting (decision interval, episode length, rewards) is the one above.
@@ -419,7 +425,7 @@ AnimusForge.Fast.Queue = ""
 #    AnimusForge.Fast.Budget
 #        Description: Env steps each stage of a fast run trains for before the next one starts. A fast run
 #                     is a fixed-budget sweep of the whole curriculum, not a smoke test: it plays the same
-#                     content at every class/role and every level, and only the budget and the env count are
+#                     content at every class and every level, and only the budget and the env count are
 #                     smaller. Convergence is off for these runs, so a stage trains every step it was given
 #                     rather than stopping as soon as its score flattens.
 #
@@ -613,7 +619,7 @@ AnimusForge.Curriculum.Duel.RangedRange = 25.0
 
 #
 #    AnimusForge.Curriculum.Difficulty.*
-#        How hard the creature duel's opponents are, per class/role. Tier t below EliteTier is a normal
+#        How hard the creature duel's opponents are, per class and role. Tier t below EliteTier is a normal
 #        creature t x LevelsPerTier levels above the seat; from EliteTier on an elite, (t - EliteTier) x
 #        LevelsPerTier levels above. Evaluations spread their seeds over every tier.
 
@@ -622,14 +628,14 @@ AnimusForge.Curriculum.Difficulty.MaxTier = 6
 #   the first elite tier (above MaxTier: no elites)
 AnimusForge.Curriculum.Difficulty.EliteTier = 4
 AnimusForge.Curriculum.Difficulty.LevelsPerTier = 1
-#   a class/role moves up a tier when it wins (kills without dying) this share of Window fights at its tier ...
+#   a class in a role moves up a tier when it wins (kills without dying) this share of Window fights at its tier ...
 AnimusForge.Curriculum.Difficulty.RaiseAbove = 0.9
 #   ... and down below this share
 AnimusForge.Curriculum.Difficulty.LowerBelow = 0.6
 AnimusForge.Curriculum.Difficulty.Window = 200
 #   percent of training fights drawn from a lower tier, so none is forgotten
 AnimusForge.Curriculum.Difficulty.ReviewChance = 25
-#   percent drawn one tier above the class/role's own, which do not count towards moving it: an evaluation scores
+#   percent drawn one tier above that class and role's own, which do not count towards moving it: an evaluation scores
 #   every tier, so nothing should be met there for the first time
 AnimusForge.Curriculum.Difficulty.StretchChance = 10
 #   duel: the share of fights against something that casts, and of those, the share against something that puts a
@@ -792,7 +798,7 @@ AnimusForge.Curriculum.Pulls.PackHealthKept = 0.5
 AnimusForge.Curriculum.Pulls.PackDeath = 10.0
 #   pack: the clock ran out with the pack and the seat both alive; the episode ends as a lost fight
 #   pack: the single pack's top ladder rung (0-5: 2, 3, 4 creatures with a caster, two casters, an elite, an elite a
-#   level above), climbed per class/role at the Difficulty.* rates; 0 keeps every pack on the first rung
+#   level above), climbed per class and role at the Difficulty.* rates; 0 keeps every pack on the first rung
 AnimusForge.Curriculum.Pulls.MaxTier = 5
 #   pack: the clock running out, charged times the share of the pull still standing, as the duel's is
 AnimusForge.Curriculum.Pulls.Timeout = 10.0

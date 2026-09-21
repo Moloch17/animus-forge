@@ -37,7 +37,7 @@ from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
-from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, format_summary, layout_weights,
+from .evaluation import (DERIVED_METRICS, ROLES, ConvergenceTracker, EvalResult, casting_weights, format_summary,
                          run_evaluation)
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
@@ -116,11 +116,11 @@ class RunLogger:
             self.tb = None
 
     def log_layouts(self, rows: list[dict]) -> None:
-        """One row per class/role per update (layouts.csv): what each of them is doing right now, from the training
-        episodes themselves. metrics.csv averages all eighteen together, which answers how the run is going and
-        never which class is in trouble; the evaluation tables answer that but only every eval.every_env_steps.
-        These are sampled-policy episodes at each class/role's own ladder difficulty, so they are for reading
-        behaviour, not for gating -- the gates stay on the evaluations."""
+        """One row per (class, role) per update (layouts.csv): what each of them is doing right now, from the
+        training episodes themselves. metrics.csv averages them all together, which answers how the run is going
+        and never which class is in trouble; the evaluation tables answer that but only every
+        eval.every_env_steps. These are sampled-policy episodes at each class and role's own ladder difficulty, so
+        they are for reading behaviour, not for gating -- the gates stay on the evaluations."""
         if not rows:
             return
 
@@ -214,7 +214,7 @@ class EvalLog:
         with self.jsonl_path.open("a") as f:
             f.write(json.dumps({**row, "summary": summary}) + "\n")
 
-        # The episodes behind the summary, every episode info column of each: which seeds a class/role failed, not
+        # The episodes behind the summary, every episode info column of each: which seeds a class failed, not
         # just that its mean is low, and what those episodes have in common.
         with self.episodes_path.open("a") as f:
             for episode in result.episodes_log():
@@ -495,7 +495,7 @@ class TrainingRun:
         self.step = None
         self.last_eval_env_steps = 0
         self.finished_episodes: list[np.ndarray] = []
-        # The class/role each of those episodes was played by, so an update can say what each one is doing rather
+        # The class each of those episodes was played by, so an update can say what each one is doing rather
         # than only what all eighteen did on average.
         self.finished_layouts: list[int] = []
         # A party seat left empty for an episode reports present = 0; its row is not an episode.
@@ -690,17 +690,24 @@ class TrainingRun:
               flush=True)
 
     def send_layout_weights(self, summary: dict, baseline: dict | None) -> None:
-        """Weight the training episodes toward the class/roles furthest below their baseline (protocol WEIGHTS)."""
+        """Weight the training episodes toward the (class, role) pairs furthest below their baseline (WEIGHTS).
+
+        The wire vector is one weight per pair, layout-major in the spec's layout order and role-minor in the
+        sim's Role order, so a class that cannot play a role still has a slot for it -- never drawn, and left at
+        the even 1.0. Per pair and not per layout because a layout is a whole class: weighting a paladin by its
+        average would send more tanking episodes to fix its healing.
+        """
         sampling = self.config.layout_sampling
-        if not sampling.enabled or baseline is None or not summary.get("layouts"):
+        if not sampling.enabled or baseline is None or not summary.get("castings"):
             return
 
-        weights = layout_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
-        names = [layout.name for layout in self.spec.layouts]
-        self.env.set_layout_weights([weights.get(name, 1.0) for name in names])
+        weights = casting_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
+        vector = [weights.get(f"{layout.name}_{role}", 1.0)
+                  for layout in self.spec.layouts for role in ROLES]
+        self.env.set_layout_weights(vector)
         heaviest = sorted(weights.items(), key=lambda item: -item[1])[:3]
         print("Layout weights: " + ", ".join(f"{name} {weight:.2f}" for name, weight in heaviest)
-              + f" (of {len(weights)} class/roles)", flush=True)
+              + f" (of {len(weights)} class/roles, {len(vector)} slots)", flush=True)
 
     def confirm_best(self) -> tuple[dict, dict | None]:
         """Score best.pt on the held-out confirmation seeds, then put the training networks back."""
@@ -971,22 +978,41 @@ class TrainingRun:
         print(f"  {describe(finding, reward_mix(row))}", flush=True)
 
     def log_layout_rows(self, spec) -> None:
-        """Per class/role means of this update's training episodes, one row each (RunLogger.log_layouts)."""
+        """Per (class, role) means of this update's training episodes, one row each (RunLogger.log_layouts).
+
+        Split by role and not only by layout, because a layout is a whole class: averaging a paladin's healing
+        episodes into its tanking ones would report a number describing neither, and episode_role itself would
+        come out as a fraction between two roles. The class is the `layout` column and the role its own, so the
+        pairs read the way the eighteen layouts used to.
+        """
         names = [layout.name for layout in spec.layouts]
         episodes = np.asarray(self.finished_episodes)
         layouts = np.asarray(self.finished_layouts)
+        info = list(spec.episode_info_names)
+        role_at = info.index("role") if "role" in info else None
         rows = []
         for index in np.unique(layouts):
+            name = names[index] if index < len(names) else str(index)
             mine = episodes[layouts == index]
             if not len(mine):
                 continue
 
-            means = np.mean(mine, axis=0)
-            row = {"update": self.update, "env_steps": self.env_steps,
-                   "layout": names[index] if index < len(names) else str(index), "episodes": len(mine)}
-            row.update({f"episode_{name}": float(value)
-                        for name, value in zip(spec.episode_info_names, means)})
-            rows.append(row)
+            if role_at is None:
+                groups = [("", mine)]
+            else:
+                roles = mine[:, role_at].astype(int)
+                groups = [(ROLES[role] if 0 <= role < len(ROLES) else str(role), mine[roles == role])
+                          for role in np.unique(roles)]
+
+            for role, group in groups:
+                if not len(group):
+                    continue
+
+                means = np.mean(group, axis=0)
+                row = {"update": self.update, "env_steps": self.env_steps, "layout": name, "role": role,
+                       "episodes": len(group)}
+                row.update({f"episode_{field}": float(value) for field, value in zip(info, means)})
+                rows.append(row)
 
         self.logger.log_layouts(rows)
 

@@ -4,8 +4,11 @@ The curriculum is the set of scenarios the policies train on. It lives in animus
 `src/Scenario/Curriculum/`. Twenty-four scenarios are defined; **twenty-three are the default queue**, in the
 order they are trained, and one (`mix_duel_pvp`) is a pilot trained only by name.
 
-Every stage trains the same eighteen class/role policies over a shared trunk, so what one class learns about
-moving, threat or interrupts helps the others. A stage names the one it `Extends`, and its networks are seeded
+Every stage trains the same ten class policies over a shared trunk, so what one class learns about moving,
+threat or interrupts helps the others. A class policy plays every role its class has specs for, and is measured
+per (class, role) -- eighteen such pairs -- so joining the models did not join the bookkeeping.
+
+A stage names the one it `Extends`, and its networks are seeded
 from that stage's best checkpoint block by block: blocks it keeps carry over, blocks it drops are left behind,
 blocks it adds start from nothing. That makes the curriculum a tree, not a line -- but the numbers now sort
 into the training order, so `forge start` with no arguments walks the whole thing from stage 1 to stage 23 and
@@ -42,14 +45,14 @@ stage1_duel
 `stage15_pvp`, `stage8_flight`, `stage9_companion`, `stage4_gauntlet` and `stage1_duel`: it is where the PvE
 line, the PvP line and the travel line become one policy.
 
-> **One stage is restricted, and it must stay a leaf.** `stage18_stealth` is played by the four class/roles
-> whose own kit carries a stealth aura, because closing on someone unseen is a thing only a real stealth aura
-> can do. Its checkpoint therefore holds four of the eighteen layouts, and `init_from: auto` takes the **first
-> checkpoint in the chain that exists** -- so a stage seeding from it would find that one, stop looking, and
-> start the other fourteen from random weights without saying so. `stage19_arena` extends `stage17_hide`,
+> **One stage is restricted, and it must stay a leaf.** `stage18_stealth` is played by the two classes whose
+> own kit carries a stealth aura -- rogue and druid -- because closing on someone unseen is a thing only a real
+> stealth aura can do. Its checkpoint therefore holds two of the ten layouts, and `init_from: auto` takes the
+> **first checkpoint in the chain that exists** -- so a stage seeding from it would find that one, stop looking,
+> and start the other eight from random weights without saying so. `stage19_arena` extends `stage17_hide`,
 > reaching past it, and `Problem()` in `Stages.cpp` refuses anything that tries to extend or merge a
-> `NeedsStealth` stage. Every other stage is played by all eighteen, each drawing its races as usual, so every
-> class/role meets its own kit and its own racials.
+> `NeedsStealth` stage. Every other stage is played by all ten, each drawing its races as usual, so every class
+> meets its own kit and its own racials.
 
 ## The stages
 
@@ -76,7 +79,7 @@ one commanding each side (see 4.12).
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage17_hide` | stage16_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
-| `stage18_stealth` | stage17_hide | Solo | same | **Drill, and a leaf.** For the four class/roles whose own kit carries a stealth aura (rogue and the three druids): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
+| `stage18_stealth` | stage17_hide | Solo | same | **Drill, and a leaf.** For the four classes whose own kit carries a stealth aura (rogue and the three druids): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
 | `stage19_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage20_duo_led` | stage19_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage21_flag` | stage19_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -179,7 +182,7 @@ An `ArenaDefinition` describes one situation:
 | `Seats` | `Solo` (1), `Party` (4 slots beside the owner, 1-4 filled each episode), `Mirror` (2 that fight each other), `Raid` (40: eight groups of five, a tank and a healer at the head of each) |
 | `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats), `Hazards` (nothing to fight: ground to get off) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
-| `MaxRung` | Pin the pack ladder instead of letting it climb: `-1` leaves it to `Pulls.MaxTier`, `0` and up hold every class/role at that rung, for training and evaluation alike. Overridable with `<TuningPrefix>Arena.<stage>.<arena>.MaxRung`. A drill wants one variable |
+| `MaxRung` | Pin the pack ladder instead of letting it climb: `-1` leaves it to `Pulls.MaxTier`, `0` and up hold every class and role at that rung, for training and evaluation alike. Overridable with `<TuningPrefix>Arena.<stage>.<arena>.MaxRung`. A drill wants one variable |
 | `Owner` | A scripted owner the seats fight for |
 | `PartyGroup` | The owner and seats form a core group |
 | `Pvp` | Resilience gear, no self-resurrection |
@@ -223,10 +226,10 @@ stages may share a base.
 
 1. **Tuning.** `CurriculumTuning::Load(settings.TuningPrefix)` reads every value (4.9). `DecisionScale =
    DecisionMs / 50`.
-2. **Layouts.** One `Layout` per class/role in `StageSettings::ClassRoles` (or all 18) whose assets have at least one
+2. **Layouts.** One `Layout` per class in `StageSettings::Classes` (or all 10) whose assets have at least one
    race. `Layout::Index` is its position in this list, which is the index the learner sees.
-3. **Scripted-player assets.** If any arena has an owner or a scripted enemy player, every class/role's assets are
-   built now, because those bots can be any class/role. Building takes seconds per class/role, and doing it now avoids
+3. **Scripted-player assets.** If any arena has an owner or a scripted enemy player, every class's assets are
+   built now, because those bots can be any class. Building takes seconds per class, and doing it now avoids
    stalling the world thread during an episode reset.
 4. **Spec.** `AgentsPerEnv` is the largest arena's seat count. `ObsDim` and `NumActions` are the largest layout's.
    `StateDim` is fixed (4.8).
@@ -262,16 +265,16 @@ every `Reset` calls `Rebuild`:
    role is drawn (`RoleTankChance`, `RoleHealerChance`). Each seat then takes a random layout of its role, or any layout
    if the run has none of that role. Other arenas give every seat any layout. A training episode draws it by the
    learner's per-layout weights (`WEIGHTS`, evenly without them); an evaluation episode doesn't draw at all: seed
-   *i* plays candidate *(i + seat) mod count*, so every class/role is scored on an equal share of the seeds. Seats
+   *i* plays candidate *(i + seat) mod count*, so every class is scored on an equal share of the seeds. Seats
    beyond the active count get no layout and no bot.
 6. **Pick one level** every seat's class can be (death knights start at 55). It is `StageSettings::Level` if set;
    otherwise `Characters.HighLevelChance` percent of the time a level from `HighLevelFirst` to 80,
    `Characters.LowLevelChance` percent of the time a level from the class minimum to `LowLevelLast` (20; skipped when
    the class can't be that low), else any level from the class minimum to 80. An **evaluation** episode takes its
-   band from its seed instead, as it takes its difficulty tier: seed *i* plays band *(i / the class/roles) mod 4* of
+   band from its seed instead, as it takes its difficulty tier: seed *i* plays band *(i / the pairs) mod 4* of
    1-20, 21-40, 41-60, 61-80 (the next band up when the seat's classes cannot be that low). Training then keeps the
    level mix the shipped companions play while the evaluation measures every band in equal numbers -- drawn, the
-   middle bands were ~9% of the episodes each, too thin to read a class/role's hole from.
+   middle bands were ~9% of the episodes each, too thin to read a class's hole from.
 7. **Build each seat** (`BuildSeat`): random race and spec, `DamageScale(level)`, a bot named
    `Forge<envId>s<seat><a|b>` on the slot's idle session and account, placed in the env's instance (the first build of
    an env opens a new instance, unless the host placed the env). Party seats start spread around the spawn point, and a
@@ -515,7 +518,7 @@ on its own condition (the fight starts, the target dies, nothing is left to eat,
 Each option's own action is masked while it runs, so nothing cancels itself. What it does is counted as a press would
 be (food and drink used, an interrupt pending on a caster). The core block reports how much of each option's clock is
 left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode info say how
-much a class/role uses them.
+much a class uses them.
 
 ### The action catalog
 
@@ -621,7 +624,7 @@ counts the charged presses.
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 | `order` (13) | What the side's director asked of this seat: the posture and rally one-hots, distance and bearing to the rally place, distance, bearing, health and whether the seat is already on the called target, and whether this seat holds the duty. All zero in an arena with no director | none: an order is advice, not a lever |
 
-The core block's 67 global features are: level; race one-hot (10); spec one-hot (3); health; mana; rage; energy; runic
+The core block's 71 global features are: level; race one-hot (10); role one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
@@ -655,16 +658,16 @@ for each phase: `RewardTerms`, `AddEpisodeInfo`, `ResetEpisode`, `BeforeRebuild`
 **`CreatureEncounter`** (`Opposition::Creature`). It spawns a random creature whose natural level range covers the
 seat's level: normal rank, attackable, default AI with no script, no NPC services, not a civilian, guard or trigger,
 walking on the ground in plain sight (no flying, hovering, swim-only or rooted movement, and no stealth or invisibility
-aura on its addon), and spawned somewhere in the world. **Difficulty adapts per class/role** (`Difficulty.*`): tier t
+aura on its addon), and spawned somewhere in the world. **Difficulty adapts per class and role** (`Difficulty.*`): tier t
 below `EliteTier` (4) is a normal creature t x `LevelsPerTier` (1) levels above the seat, and from `EliteTier` on an
-elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class/role moves up a tier once it wins (kills without
+elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class and role moves up a tier once it wins (kills without
 dying) `RaiseAbove` (90%) of `Window` (200) fights at its tier, and down below `LowerBelow` (60%);
 `ReviewChance` (25%) of its training fights come from a lower tier, so none is forgotten, and `StretchChance` (10%)
-from the tier above, which does not count towards moving it: an evaluation scores every tier, so a class/role that has
+from the tier above, which does not count towards moving it: an evaluation scores every tier, so a class and role that has
 stalled should not be meeting the tiers above its own for the first time there (the rogue sat at tier 4 and lost 44% of
 the elite fights it was scored on). A fight that simple play wins
-every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier, every class/role over
-every one (seed i plays class/role i mod the class/roles and tier (i / the class/roles) mod the tiers), so two
+every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier, every class and role over
+every one (seed i plays pair i mod the pairs, at tier (i / the pairs) mod the tiers), so two
 checkpoints meet the same fights, and the summary scores each tier on its own
 (`difficulties`; stage targets can gate a tier, `target.difficulties`). Tiers restart at 0 with the worldserver.
 `difficulty` and `opponent_elite` in the episode info say what each fight was. The bookkeeping is
@@ -682,7 +685,7 @@ casters and ability users) to the duel pool.
 
 - **Single pack** (stage 2): creatures at the seat's level, clustered 40-50 yd away. `Pulls.LinkedChance` (70%)
   are linked, meaning once one member is in combat the rest attack. The episode is terminal on clear, death or the
-  clock. **The pack climbs a ladder per class/role**, with the duel's `Difficulty.*` rates (up at 90% of 200 packs
+  clock. **The pack climbs a ladder per class and role**, with the duel's `Difficulty.*` rates (up at 90% of 200 packs
   cleared without dying, down below 60%, 25% reviews), up to `Pulls.MaxTier` (5). Every rung has a spellcaster: a
   creature whose SmartAI casts a spell with a cast time, one an interrupt can stop (`OpponentPool::RandomCaster`).
   The other members are any pack creature, and the slots are shuffled.
@@ -1164,25 +1167,25 @@ Pets are played as a player has them:
   are there out of combat, to position a pet before a pull.
 - **The `fight` baseline uses pets:** out of combat it calls a stable beast or casts its best summon (Felguard,
   Voidwalker, Felhunter, Succubus, Imp; Raise Dead; Water Elemental) when no living pet is out, and sends the pet at
-  the target, so the per-class/role gates of pet classes compare with a character that plays its pet.
+  the target, so the per (class, role) gates of pet classes compare with a character that plays its pet.
 
 Learner (`configs/stage1_duel.yaml`, the root every other config extends):
 
-- **Networks:** hidden `[256, 512, 512]`: a 256-wide adapter per class/role and a two-layer 512-wide shared trunk,
-  which puts the capacity where every class/role trains it. Every stage keeps these sizes, or the trunk can't be
+- **Networks:** hidden `[256, 512, 512]`: a 256-wide adapter per class and a two-layer 512-wide shared trunk,
+  which puts the capacity where every class trains it. Every stage keeps these sizes, or the trunk can't be
   copied.
 - **PPO:** gamma 0.997 and lambda 0.985 per 100 ms of game time (`reference_decision_ms`, compounded to
   `AnimusForge.DecisionMs` so horizons stay the same in seconds: a ~33 s horizon and a ~5.5 s GAE credit trace, printed
   at start), clip 0.2, entropy 0.01 with an entropy floor at 30% of `ln(legal actions)` (boosted up to 4x), learning
   rates 3e-4, 4 epochs stopped early past approx KL 0.03 (`target_kl` 0.02 x the 1.5 tolerance), 8 minibatches,
   rollout 128 with updates run serially, value
-  normaliser beta 0.99, advantages normalised per class/role. Budget 300M env steps.
+  normaliser beta 0.99, advantages normalised per class. Budget 300M env steps.
 - **Evaluation:** every 10M steps and at the start, 2048 seeded episodes against `fight`. Training episodes lean
-  toward the class/roles furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
+  toward the class and role pairs furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
 - **Convergence:** patience 3, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps.
-- **Target:** at least baseline for every class/role (16+ episodes, 1 standard error of slack) on the same spread of
+- **Target:** at least baseline for every class (16+ episodes, 1 standard error of slack) on the same spread of
   difficulty tiers, 95% of base-tier fights won outright (`clean_kill`, by its Wilson bound; `target.difficulties`),
-  and no livelocks, overall and for every class/role; confirmed on 4096 held-out episodes. Up to 2 restarts with 3x
+  and no livelocks, overall and for every class; confirmed on 4096 held-out episodes. Up to 2 restarts with 3x
   entropy decaying over 10M steps and fresh optimizers.
 
 ### Stage 2: `stage2_pack`
@@ -1193,7 +1196,7 @@ is up to four of the duel's creatures, which took stage 1's policy about 17 s ea
 ones (4.6).
 
 Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is clean wins of at least 85% overall
-and 65% per class/role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
+and 65% per class and role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
 first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
 score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
 
@@ -1243,7 +1246,7 @@ columns: `engage_health` and `engage_mana` (means over the pulls engaged, taken 
 `control_seconds` (enemy-seconds kept out of the fight, as the control reward counts them).
 Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
 stealthing in is tied to the clear it pays for), rollout 256, budget 90M, at least 20M steps, evaluations every 15M.
-Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class/role (Wilson bound),
+Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class (Wilson bound),
 four pulls cleared on average, no livelocks; `until_passed: false`. The first run (300 s, pulls that waited, a win by
 merely lasting) reached 63-66% survived with 12% of its wins on at most one pull cleared, rogues and healers avoiding
 the pulls.
@@ -1296,8 +1299,8 @@ the episode always runs its full length (450 s; without its own the arena took t
 die is never a way to escape penalties.
 
 The target (provisional, for the first run to calibrate): `clean_kill` -- the win above, with the seat never dead -- of
-50% overall and 35% per class/role by the Wilson bound, the owner dead in at most 35% of episodes, wipes at most 0.2 an
-episode, at least 5 pulls cleared on average, no livelocks. The role checks are reported per class/role and per role
+50% overall and 35% per class by the Wilson bound, the owner dead in at most 35% of episodes, wipes at most 0.2 an
+episode, at least 5 pulls cleared on average, no livelocks. The role checks are reported per class and per role
 (the summary's `roles`): `owner_heal_share`, the share of the owner's damage taken the seat healed, for healers, and
 `threat_share`, the share of the enemies' attention on the seat rather than the owner, high for tanks and low for the
 rest. `target.role_metrics` gates them once a run shows what each role reaches.
@@ -1387,7 +1390,7 @@ the director's `SideCanSee` all go through it. (The per-seat observation filters
 check: those run for every seat in every stage, and changing what a seat observes is a different change.)
 
 And the arena has to have something to hide behind. With line of sight working but the default open-field spawn,
-twelve of the eighteen class/roles still read exactly 0.000 breaks -- only the three that can stealth registered
+twelve of the eighteen classes still read exactly 0.000 breaks -- only the three that can stealth registered
 anything, because on flat ground a warrior cannot break line of sight at all. Both drills now spawn inside
 Durnholde Keep and among the Southshore farms, on the same instance map, at exact ground coordinates taken from
 the world database.
@@ -1401,7 +1404,7 @@ or 26 yd genuinely escapes.
 **Drill.** The same losing fight six levels up rather than ten, for **every class and every race**. The lesson
 is becoming unseen and staying unseen, and hiding again once the hunter has found you.
 
-Stealth is one way to do that and the rarest: four of the eighteen class/roles have a stealth aura in their own
+Stealth is one way to do that and the rarest: four of the eighteen classes have a stealth aura in their own
 kit -- `rogue_dps` (Stealth) and the three druids (Prowl). It is not the lesson. Every class can get out of
 sight with terrain, with distance, and with whatever its kit and its race give it -- Blink, Disengage, Feign
 Death, Invisibility, Ice Block, Sprint, and Shadowmeld for any night elf of any class. So the stage grades the
@@ -1425,16 +1428,16 @@ Measured `fight` baseline, 2048 episodes over all eighteen layouts: `escaped` 0.
 for something it has no way to do. The spread runs from `warlock_dps` (survived 0.257) to `deathknight_tank`
 (0.781), and the layout floor is set against the bottom of it.
 
-`re_stealths` and `stealth_openers` are **reported and never gated**. Fourteen class/roles have no stealth
+`re_stealths` and `stealth_openers` are **reported and never gated**. Eight of the ten classes have no stealth
 button, and a gate on one would ask them for something they cannot do; the columns are still worth reading,
 because they are what a rogue, a druid or any night elf actually presses.
 
-> **An earlier version of this stage was restricted to the class/roles that could stealth, and that was wrong
-> twice over.** It excluded fourteen class/roles from a lesson all of them need. And the test it used -- does
+> **An earlier version of this stage was restricted to the classes that could stealth, and that was wrong
+> twice over.** It excluded fourteen classes from a lesson all of them need. And the test it used -- does
 > the action catalog contain a stealth aura -- returned eleven of the eighteen, because the catalog is the
 > union over every race a class may be and that union holds Shadowmeld (58984), the night elf racial. A warrior
 > that rolled a human would have played a stealth stage with no stealth at all. `StageDefinition::NeedsStealth`
-> and its validation are gone; nothing in the curriculum restricts a stage to a subset of class/roles.
+> and its validation are gone; nothing in the curriculum restricts a stage to a subset of classes.
 
 Racials stay fully available everywhere, here and in every other stage: the action catalog carries Shadowmeld,
 Will of the Forsaken, Blood Fury, Escape Artist and the rest, and `Encoding::IsSpellActionAllowed` masks each
@@ -1442,14 +1445,14 @@ by `HasActiveSpell`, so the race that actually rolled is the one whose racials a
 
 ### Stage 18: `stage18_stealth`
 
-**Drill, and a leaf.** The one stage in the curriculum restricted to a subset of class/roles, and the reason
+**Drill, and a leaf.** The one stage in the curriculum restricted to a subset of classes, and the reason
 the restriction is worth its cost.
 
 Hiding and stealth are different lessons. Stage 17 is *not being found*: every class can do it, with terrain,
 with distance, and with whatever its kit and race give it -- Shadowmeld included. This stage is being **close**
 and not found: crossing the ground to someone who is looking for you, arriving inside strike range with the
 opener still in hand, and holding there. Shadowmeld cannot do that at all, because it breaks the moment you
-move. Only a real stealth aura can, so only the four class/roles whose own kit carries one play it:
+move. Only a real stealth aura can, so only the four classes whose own kit carries one play it:
 `rogue_dps` (Stealth) and the three druids (Prowl). `StageDefinition::NeedsStealth` asks `ClassKit`, the class
 trainers' list, so the answer is true of every member of the class rather than of one race of it.
 
@@ -1634,7 +1637,7 @@ metrics show the place channel is used at all.
 ### The director is not omniscient
 
 `ViewSide` used to read every enemy's `IsAlive`, health, combat and casting state, live position and even its
-class/role straight out of the world with no visibility check. Now **the director sees only what its own side's
+class straight out of the world with no visibility check. Now **the director sees only what its own side's
 living seats can see**: `StageScenario::SideCanSee(env, side, unit)` is true when any living seat of that side
 `CanSeeOrDetect`s it, so a side that wiped stops spotting. The seen-mask is computed once per decision in
 `Update` and read by `ViewSide`, because a `SideCanSee` per slot per side would be O(own × enemy)

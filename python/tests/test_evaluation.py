@@ -11,7 +11,7 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import (LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, layout_weights,
+from animus.evaluation import (LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, casting_weights,
                                run_evaluation, standard_error)
 from animus.train import init_from_checkpoint
 
@@ -451,42 +451,42 @@ def test_summary_groups_by_talent_build():
     assert same.summary(())["builds"] == {}
 
 
-def test_layout_weights_favour_the_layouts_below_baseline():
-    summary = {"layouts": {"rogue_dps": {"score": 6.0}, "mage_dps": {"score": 9.0}, "priest_dps": {"score": 8.0}}}
-    baseline = {"layouts": {"rogue_dps": {"score": 8.5}, "mage_dps": {"score": 4.0}, "priest_dps": {"score": 8.0}}}
-    weights = layout_weights(summary, baseline, strength=1.0, max_ratio=3.0)
+def test_casting_weights_favour_the_layouts_below_baseline():
+    summary = {"castings": {"rogue_dps": {"score": 6.0}, "mage_dps": {"score": 9.0}, "priest_dps": {"score": 8.0}}}
+    baseline = {"castings": {"rogue_dps": {"score": 8.5}, "mage_dps": {"score": 4.0}, "priest_dps": {"score": 8.0}}}
+    weights = casting_weights(summary, baseline, strength=1.0, max_ratio=3.0)
 
     assert weights["rogue_dps"] > weights["priest_dps"] > weights["mage_dps"]
     assert np.mean(list(weights.values())) == pytest.approx(1.0)  # the episode count is unchanged
     assert max(weights.values()) / min(weights.values()) <= 3.0 + 1e-6
 
 
-def test_layout_weights_follow_the_metric_short_of_the_gate_too():
+def test_casting_weights_follow_the_metric_short_of_the_gate_too():
     """stage1_duel's mage beat the scripted mage's score while killing 68% of the time: the baseline gap alone gave
-    it less data than a class/role already killing every time."""
-    summary = {"layouts": {
+    it less data than a class and role already killing every time."""
+    summary = {"castings": {
         "mage_dps": {"score": 7.0, "clean_kill": 0.68},
         "rogue_dps": {"score": 7.8, "clean_kill": 0.95},
         "warrior_dps": {"score": 7.4, "clean_kill": 0.93},
     }}
-    baseline = {"layouts": {"mage_dps": {"score": 2.6}, "rogue_dps": {"score": 7.6}, "warrior_dps": {"score": 7.0}}}
+    baseline = {"castings": {"mage_dps": {"score": 2.6}, "rogue_dps": {"score": 7.6}, "warrior_dps": {"score": 7.0}}}
 
-    by_score = layout_weights(summary, baseline, 1.0, 4.0)
+    by_score = casting_weights(summary, baseline, 1.0, 4.0)
     assert by_score["mage_dps"] < by_score["rogue_dps"]
-    weights = layout_weights(summary, baseline, 1.0, 4.0, metric="clean_kill")
+    weights = casting_weights(summary, baseline, 1.0, 4.0, metric="clean_kill")
     assert weights["mage_dps"] == max(weights.values())
     assert np.mean(list(weights.values())) == pytest.approx(1.0)
     # A metric some layout does not report leaves the baseline gap to decide.
-    del summary["layouts"]["rogue_dps"]["clean_kill"]
-    assert layout_weights(summary, baseline, 1.0, 4.0, metric="clean_kill") == pytest.approx(by_score)
+    del summary["castings"]["rogue_dps"]["clean_kill"]
+    assert casting_weights(summary, baseline, 1.0, 4.0, metric="clean_kill") == pytest.approx(by_score)
 
 
-def test_layout_weights_are_even_without_a_spread_or_a_baseline():
-    summary = {"layouts": {"a": {"score": 5.0}, "b": {"score": 5.0}}}
-    baseline = {"layouts": {"a": {"score": 4.0}, "b": {"score": 4.0}}}
-    assert layout_weights(summary, baseline, 1.0, 3.0) == {"a": 1.0, "b": 1.0}
-    assert layout_weights(summary, baseline, 0.0, 3.0) == {"a": 1.0, "b": 1.0}  # strength 0 = uniform
-    assert layout_weights({"layouts": {}}, baseline, 1.0, 3.0) == {}
+def test_casting_weights_are_even_without_a_spread_or_a_baseline():
+    summary = {"castings": {"a": {"score": 5.0}, "b": {"score": 5.0}}}
+    baseline = {"castings": {"a": {"score": 4.0}, "b": {"score": 4.0}}}
+    assert casting_weights(summary, baseline, 1.0, 3.0) == {"a": 1.0, "b": 1.0}
+    assert casting_weights(summary, baseline, 0.0, 3.0) == {"a": 1.0, "b": 1.0}  # strength 0 = uniform
+    assert casting_weights({"castings": {}}, baseline, 1.0, 3.0) == {}
 
 
 def test_livelocked_counts_episodes_not_cancels():

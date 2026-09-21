@@ -1196,7 +1196,7 @@ void AnimusForge::Forge::RemoteDecision()
             if (header.Count)
                 std::memcpy(weights.data(), payload.data() + sizeof(WeightsHeader), header.Count * sizeof(float));
 
-            // Takes effect as envs reset; the episodes already running keep the class/roles they were built with.
+            // Takes effect as envs reset; the episodes already running keep the classes they were built with.
             _pool->SetLayoutWeights(weights);
             continue;
         }

@@ -68,7 +68,7 @@ data, builds and runs. A GPU is optional: updates run on the CPU without one, ju
    - `AnimusForge.Envs`: 64 by default. Raise it until the learner, not the world thread, is the bottleneck (7.11).
    - `AnimusForge.EpisodeSeconds`: 60 by default. Arenas with their own length ignore it. Stages 3-5 need episodes of
      several minutes, and stage 8's arenas set their own.
-   - `AnimusForge.ClassRoles`: empty trains all 18. A subset trains faster, but a later change to the list breaks
+   - `AnimusForge.Classes`: empty trains all 10. A subset trains faster, but a later change to the list breaks
      seeding and resuming from those runs.
 
 **Native (without Docker).** Build the forge core with the modules as usual (`acore.sh compiler build`). Create the venv
@@ -101,7 +101,7 @@ forge fast
 ```
 
 It trains every curriculum stage in order (the `mix_duel_pvp` pilot included), each from scratch, with 32 envs,
-**all eighteen class/roles at the stage's own levels**, into `<OutputDir>/fast/`. Nothing is skipped, so typing it
+**all ten classes at the stage's own levels**, into `<OutputDir>/fast/`. Nothing is skipped, so typing it
 again runs the whole curriculum again. `forge fast stage2_pack` trains one stage, seeded from the fast
 `stage1_duel` run. Set `AnimusForge.Fast.Queue` to train a shorter list.
 
@@ -110,7 +110,7 @@ moves on: 20,000,000 by default, and `forge fast 30M` (or `forge fast 30M stage2
 invocation. The mechanism is `convergence.patience: 0` in `configs/fast.yaml`, which makes
 `ConvergenceTracker.converged` return false, so the stage cannot stop early and cannot trigger a restart; the
 cleared `target:` block means a gate cannot halt the sweep either. That makes the sweep a genuine rehearsal of
-the real build -- same class/roles, same levels, same stages, less budget -- rather than a different problem.
+the real build -- same classes, same levels, same stages, less budget -- rather than a different problem.
 
 The budget in force is printed at the start of the run and in `forge status`, so what is reported is the budget
 actually used and not the configured default.
@@ -135,7 +135,7 @@ forge start
 With an empty `AnimusForge.Queue`, this trains every default-queue stage in order (stages 1 to 11; the `mix_duel_pvp`
 pilot only when named), skipping any stage whose run already advanced. Each stage:
 
-1. builds its env pool (world stalls for a few seconds per class/role on the first build),
+1. builds its env pool (world stalls for a few seconds per class on the first build),
 2. writes `layouts/<stage>/`,
 3. starts the learner, which seeds from the closest trained ancestor,
 4. trains until it advances (the next stage starts), halts below its target (the plan stops), or is cancelled.
@@ -150,10 +150,10 @@ which is already a valid order, so the usual case needs no arguments at all.
 |---|---|
 | `forge status` | The live report: rates, ETAs, evaluation scores against baseline, warnings |
 | `forge progress 600` | The same report every 10 minutes |
-| The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class/role. It shows `forge fast` runs as well as real ones, and picks each stage's curves out of its own metrics.csv rather than plotting a fixed list. Started by the worldserver container, refreshes every 5 s. With `SOAP.Enabled` and an `etc/animus-dashboard.auth` holding `user:password` for an account with SEC_ADMINISTRATOR, it also gets pause/resume/skip/cancel and the seeding choice below; without them it is read-only |
-| `<OutputDir>/runs/<stage>/layouts.csv` | Per class/role, **every update**: what each of them is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). metrics.csv averages all eighteen together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
+| The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class. It shows `forge fast` runs as well as real ones, and picks each stage's curves out of its own metrics.csv rather than plotting a fixed list. Started by the worldserver container, refreshes every 5 s. With `SOAP.Enabled` and an `etc/animus-dashboard.auth` holding `user:password` for an account with SEC_ADMINISTRATOR, it also gets pause/resume/skip/cancel and the seeding choice below; without them it is read-only |
+| `<OutputDir>/runs/<stage>/layouts.csv` | Per (class, role), **every update**: what each pair is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). The `layout` column is the class and `role` its own, so a paladin appears twice. metrics.csv averages them all together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
 | TensorBoard at http://localhost:16006 | `episode_*`, losses, entropy, `eval/*`, `eval_<band>/*`, `eval_arena_<arena>/*` |
-| `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class/role and arena |
+| `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class and arena |
 | `<OutputDir>/runs/<stage>/eval.csv`, `eval.jsonl` | Every evaluation, with full tables |
 
 #### Turning the dashboard's controls on
@@ -259,7 +259,7 @@ Or run `./forge.sh --build`, which recreates the container and builds before sta
 
 - `forge start` continues with the stages that haven't advanced yet, **from scratch**.
 - `forge resume <stage>` continues a run from its `latest.pt`, **if the stage's shapes didn't change**. If a block,
-  catalog or the class/role list changed, the learner refuses to resume. Start the stage fresh; it still seeds from its
+  catalog or the class list changed, the learner refuses to resume. Start the stage fresh; it still seeds from its
   ancestors.
 
 If layouts changed for a stage that earlier stages were trained on, those ancestors still seed block by block where
@@ -271,7 +271,7 @@ The plan stops with outcome `below target` and the learner exits 3.
 
 1. Read `runs/<stage>/finished.json` (reason, best score, gates) and the last lines of `stage.jsonl`, which list the
    failed gates, for example `layout priest_heal: score 1.2 < baseline 1.5`.
-2. Read `eval.jsonl` for per-class/role, per-band and per-arena scores next to the baseline.
+2. Read `eval.jsonl` for per class, per-band and per-arena scores next to the baseline.
 3. Decide:
    - **The target is too strict.** The configs' targets are first guesses. Edit `python/configs/<stage>.yaml` (for
      example `target.min_layout_over_baseline: -0.1`), or apply it to every stage with `AnimusForge.Learner.Args =
@@ -292,10 +292,10 @@ The plan stops with outcome `below target` and the learner exits 3.
    ```
 
    Output goes to `AnimusForge.ModelDir` (default `modules/mod-animus-forge/models/`) as one `.amdl` and one `.json`
-   per class/role, for example `warrior_tank_party.amdl` and `warrior_tank_party.json`. The export log is
+   per class, for example `warrior_tank_party.amdl` and `warrior_tank_party.json`. The export log is
    `animus-export.log`. "Export of stage10_party finished" appears in the console.
 
-2. **Copy both files for every class/role** to the realm's `Animus.ModelDir` (default `<DataDir>/animus`).
+2. **Copy both files for every class** to the realm's `Animus.ModelDir` (default `<DataDir>/animus`).
 
 3. **Configure the realm** (`mod_animus.conf`): set `Animus.Curriculum.Stage` to the stage whose models companions
    should play (`stage10_party`, or `stage23_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
@@ -435,7 +435,7 @@ agent per env, provide a real global `State`.
 
 Edit `tools/spec_builds/builds.py`, run `validate.py`, then `generate.py` to rewrite `SpecBuilds.cpp`. After a rebuild,
 `forge talents <class_role> [spec] [points] [plan]` prints the build a character gets at any point count, under any of
-the three talent plans. Talent features change, so models of that class/role must be retrained.
+the three talent plans. Talent features change, so models of that class must be retrained.
 
 ## 7.10 Changing the forge core
 
@@ -460,7 +460,7 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   actions and updates). In remote mode every decision is one Python round trip for all envs.
   - If the learner's forward pass dominates (high CPU in the learner process, the world thread idle waiting), fewer,
     larger batches help: raise `AnimusForge.Envs`.
-  - If the world thread dominates, more map threads (`MapUpdate.Threads`) and fewer class/roles or simpler arenas help.
+  - If the world thread dominates, more map threads (`MapUpdate.Threads`) and fewer classes or simpler arenas help.
   - The learner's torch and the map update threads share the cores: `AnimusForge.Learner.TorchThreads` caps torch,
     and the benchmark sweeps both together.
 - **Know which part of the sim.** The `sim parts` row splits that **sim** share into reward, observe (which carries
@@ -490,8 +490,8 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   episodes. Large evaluations every few million steps can take a significant share of wall time. `eval.every_env_steps`
   and `eval.episodes` trade that time against the reliability of convergence decisions -- but the trade is cheap in the
   curriculum stages: an evaluation is seconds of sim time against tens of minutes of training, while its noise sets the
-  convergence margin and the per-class/role gates. Too few episodes is the more common mistake.
-- **Asset builds** take a few seconds per class/role at the start of each stage (trainer data and item pools). This is
+  convergence margin and the per (class, role) gates. Too few episodes is the more common mistake.
+- **Asset builds** take a few seconds per class at the start of each stage (trainer data and item pools). This is
   expected.
 - **Memory.** Instances are created once and reused. Bots reuse two GUIDs per slot. Steadily growing memory during a run
   points to a leak worth investigating (a new per-GUID core cache, or instances not unloading).

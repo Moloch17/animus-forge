@@ -111,7 +111,7 @@ void AnimusForge::ForgeConfig::Load()
     Queue = GetList("AnimusForge.Queue");
     QueueSkipFinished = sConfigMgr->GetOption<bool>("AnimusForge.Queue.SkipFinished", true);
     QueueLocalEpisodes = sConfigMgr->GetOption<uint32>("AnimusForge.Queue.LocalEpisodes", 0);
-    ClassRoles = GetList("AnimusForge.ClassRoles");
+    Classes = GetList("AnimusForge.Classes");
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
     if (Envs > Animus::BotAccounts::MAX_ENVS)
@@ -276,7 +276,7 @@ Animus::StageSettings AnimusForge::ForgeConfig::Stage() const
     stage.DecisionMs = DecisionMs;
     stage.EpisodeSeconds = EpisodeSeconds;
     stage.ReportEpisodes = ReportEpisodes;
-    stage.ClassRoles = ClassRoles;
+    stage.Classes = Classes;
     stage.SpawnMapId = SpawnMapId;
     stage.SpawnPosition = SpawnPosition;
     stage.Level = Level;
@@ -328,7 +328,7 @@ AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile(uint64 budget) co
     // not the configured default -- `forge fast 30M` saying "20,000,000 steps a stage" is a message that lies.
     fast.FastBudget = budget;
 
-    // Level and ClassRoles are deliberately NOT narrowed. A fast run used to train four class/roles at level 20,
+    // Level and Classes are deliberately NOT narrowed. A fast run used to train four classes at level 20,
     // which made it a rehearsal of a problem the real build never trains: the classes it skipped were the ones
     // whose faults a sweep is for finding. Only the budget and the env count are smaller now.
     fast.OutputDir = FastOutputDir;

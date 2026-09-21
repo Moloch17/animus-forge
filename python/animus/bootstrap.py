@@ -1,7 +1,7 @@
 """Seed a curriculum stage's networks from the stage it extends.
 
 Networks are layout-aware (animus.mappo.networks): a per-layout input adapter, a shared trunk and (actor) a
-per-layout action head. Layouts are matched by name (the class/role). A stage keeps some of its base's blocks, may
+per-layout action head. Layouts are matched by name (the class). A stage keeps some of its base's blocks, may
 drop others and adds its own (the curriculum is a tree), so a layout is seeded block by block:
 
 - Input adapters (actor and critic): each kept block's feature columns move to where the block sits now; new blocks'

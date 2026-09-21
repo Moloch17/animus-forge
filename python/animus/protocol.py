@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 8
+PROTOCOL_VERSION = 9
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48
@@ -44,7 +44,7 @@ MAX_REPLAY_SEEDS = 65536
 
 @dataclass(frozen=True)
 class Layout:
-    """One agent layout: the observation features and actions of one kind of agent (e.g. a class/role).
+    """One agent layout: the observation features and actions of one kind of agent (e.g. a class).
 
     An agent of this layout fills only obs[:obs_dim] and mask[:num_actions] of the padded arrays.
     """

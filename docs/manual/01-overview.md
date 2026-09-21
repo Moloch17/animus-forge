@@ -11,9 +11,18 @@ run dungeons, group quests and PvP with them. The design document (`core/design-
   are well understood and don't need learning.
 
 The networks are trained with **MAPPO** (multi-agent PPO with a centralised critic). Each agent observes only its own
-situation and decides independently, like a human player. There is one model per class and role (`warrior_tank`,
-`priest_heal`, ...). All roles share one trunk during training, so what one class learns about moving, threat or
-interrupts helps the others.
+situation and decides independently, like a human player. There is **one model per class** (`warrior`, `priest`,
+...), ten in all, and each covers every role its class can play: one paladin network tanks, heals and deals
+damage. All ten share one trunk during training, so what one class learns about moving, threat or interrupts
+helps the others.
+
+A model is told which role it is in and what talents it has, never which spec it is. The role is the contract it
+is graded under -- a tank is paid for threat, a healer for healing -- and one network covering three roles has to
+know which it is in. The spec is only a name for a talent build, and the build itself is already observed, rank
+by rank; the character generator picks a spec that plays the role the episode asked for, and the model plays the
+character it was handed. The (class, role) pair is still the unit everything is *measured* at: the difficulty
+ladder, the sampling weights and the evaluation seed spread all key on it, so a paladin's healing is scored apart
+from its tanking. Ten things do the playing; eighteen are watched.
 
 Nothing controls a seat. Team stages add a **director** -- one agent a side that calls a target, a posture, a
 rally point and whose turn the next interrupt is -- but what it emits is advice a seat reads and weighs, not a
@@ -69,7 +78,7 @@ socket bridge to the learner, the learner child process, progress reports and mo
 is the learner: MAPPO networks and updates, rollouts, seeded evaluation, convergence and stage targets, seeding from
 earlier stages, distillation and export. See [chapter 5](05-animus-forge.md).
 
-**Animus** (`mod-animus`) runs trained models on an ordinary realm with real clients. Players summon class/role
+**Animus** (`mod-animus`) runs trained models on an ordinary realm with real clients. Players summon class
 companions into their party. Game masters can watch any curriculum stage play out in their own instance. It needs no
 core changes. See [chapter 6](06-animus.md).
 
@@ -97,7 +106,7 @@ learner reads and writes.
 arena has two. Each episode, every seat becomes a **new character**: random race, level, spec, standard talents and
 glyphs, trainer spells, level-appropriate gear with enchants and gems, and consumables.
 
-**Class/role and layout.** A class/role (`hunter_dps`) is one trained model. Its **layout** at a stage is the exact
+**Class/role and layout.** A class (`hunter_dps`) is one trained model. Its **layout** at a stage is the exact
 observation vector and action list it gets. The layout is built by placing the stage's **blocks** (`core`, `duel`,
 `pack`, ...) one after another. The layout's **manifest** records everything the layout's meaning depends on. A
 model only works on a server that builds the same manifest.
@@ -134,7 +143,7 @@ pass.
    opponents every time, with argmax actions. It compares the score with a scripted baseline on the same seeds. A new
    best score saves `best.pt`.
 5. **Decide.** When the score stops improving, the learner checks the stage target (beat the baseline overall, for
-   every class/role, and optionally per arena), then confirms it on held-out seeds. If the target passes, the learner
+   every class, and optionally per arena), then confirms it on held-out seeds. If the target passes, the learner
    exits 0 and the plan moves to the next stage. If not, it restarts from `best.pt` with more exploration. When the
    restarts run out, it exits 3 and the plan halts.
 6. **Export.** `forge export <stage>` writes one `<class>_<role><suffix>.amdl` per layout (the observation normaliser,

@@ -35,7 +35,7 @@ def main() -> None:
     parser.add_argument("--stochastic", action="store_true", help="sample actions instead of taking the argmax")
     parser.add_argument("--episodes-file", metavar="PATH",
                         help="write one JSON line per scored episode (seed, layout, return, episode info) there, as "
-                             "training writes eval_episodes.jsonl: which seeds a class/role fails, not just its mean")
+                             "training writes eval_episodes.jsonl: which seeds a class fails, not just its mean")
     args = parser.parse_args()
 
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -48,7 +48,7 @@ def main() -> None:
     if spec.scenario != checkpoint["spec"]["scenario"]:
         raise SystemExit(f"checkpoint was trained on {checkpoint['spec']['scenario']}, sim runs {spec.scenario}")
 
-    # Layouts must match by name as well as size: two class/role lists can have equally sized layouts.
+    # Layouts must match by name as well as size: two class lists can have equally sized layouts.
     if mismatch := resume_mismatch(checkpoint["spec"], asdict(spec)):
         raise SystemExit(f"the checkpoint's {', '.join(mismatch)} do not match the sim's (AnimusForge.ClassRoles?)")
     layouts = [(layout.obs_dim, layout.num_actions) for layout in spec.layouts]

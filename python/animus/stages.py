@@ -58,5 +58,5 @@ def block_spans(stage: dict | None, layout: str) -> dict[str, tuple[Span, Span]]
 
 
 def model_names(stage: dict | None) -> dict[str, str]:
-    """Layout name -> model name (warrior_dps -> warrior_dps_duel)."""
+    """Layout name -> model name (warrior -> warrior_duel): one model per class, covering its every role."""
     return dict(stage.get("models", {})) if stage else {}

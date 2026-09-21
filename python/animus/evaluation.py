@@ -7,7 +7,8 @@ random, so the scores are averages over the seeds, not replays.
 
 The score is the mean episode return over every agent of every seeded episode: the scenario's own reward summed
 over each episode, so it measures what training optimises and is comparable between checkpoints of one scenario
-(not between scenarios). Summaries also break it down by level band, by layout (class/role) and, for a stage that
+(not between scenarios). Summaries also break it down by level band, by layout (the class), by (class, role) and,
+for a stage that
 mixes arenas, by arena, each with the standard error of its score: combat rolls make two evaluations of the same
 networks differ, and the convergence test only counts an improvement that stands out from that noise.
 
@@ -93,7 +94,7 @@ class EvalResult:
         """One row per scored episode: its seed, layout, return, `columns` of its episode info (None: every column)
         and the derived fields.
 
-        The summaries average these away, and an average cannot say whether a class/role is a little worse
+        The summaries average these away, and an average cannot say whether a class is a little worse
         everywhere or fine except for a handful of episodes it never finishes -- which is what a per-layout gate
         actually turns on. Why those episodes failed is in the columns no summary reports (the character's level and
         spec, the opponent, the form and distance it ended in), so the training run logs them all to
@@ -185,8 +186,8 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "roles": {}, "arenas": {},
-                  "builds": {}, "difficulties": {}, "up_to": {}}
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "roles": {},
+                  "castings": {}, "arenas": {}, "builds": {}, "difficulties": {}, "up_to": {}}
         levels = self.column("level")
         if levels is not None:
             for low, high in LEVEL_BANDS:
@@ -203,6 +204,17 @@ class EvalResult:
                 rows = roles == index
                 if rows.any():
                     result["roles"][role] = means(rows)
+        # Each (class, role) on its own, which is the grain the sim draws at and the grain a class model can be
+        # good at one part of and bad at another: one model plays every role its class has, so a paladin's healing
+        # has to be scored apart from its tanking or the average hides it. Named class_role, as the layouts were
+        # before the models were joined.
+        if roles is not None and self.layouts and len(self.layouts) == self.episodes:
+            names = np.array(self.layouts)
+            for layout in sorted(set(self.layouts)):
+                for index, role in enumerate(ROLES):
+                    rows = (names == layout) & (roles == index)
+                    if rows.any():
+                        result["castings"][f"{layout}_{role}"] = means(rows)
         arenas = self.column("arena")
         if len(self.arenas) > 1 and arenas is not None:
             for index, arena in enumerate(self.arenas):
@@ -216,7 +228,7 @@ class EvalResult:
             for tier in seen:
                 result["difficulties"][str(tier)] = means(tiers == tier)
             # The easier tiers together (target.base_difficulty): a stage whose ladder climbs above what it is judged
-            # on still gates the class/roles on the fights below.
+            # on still gates the classes on the fights below.
             names = np.array(self.layouts) if len(self.layouts) == self.episodes else None
             for tier in seen[:-1]:
                 rows = tiers <= tier
@@ -235,20 +247,21 @@ class EvalResult:
         return result
 
 
-def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float,
-                   metric: str = "") -> dict[str, float]:
-    """How often training episodes should draw each layout, from the gap to the baseline's score for that layout
-    and, with `metric`, from how far the layout falls short on that summary field (higher is better).
+def casting_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float,
+                    metric: str = "") -> dict[str, float]:
+    """How often training episodes should draw each (class, role), from the gap to the baseline's score for it
+    and, with `metric`, from how far it falls short on that summary field (higher is better).
 
-    A stage is gated on its weakest class/role, so an episode of a layout that trails its baseline is worth more
-    than one of a layout that is already clear of it. The baseline gap alone misses a layout that beats a weak
-    baseline yet fails an absolute gate -- stage1_duel's mage beat the scripted mage while killing 68% of the time --
-    so the shortfall on the gated metric counts as well, whichever of the two is larger. Each is measured in its own
-    standard deviations, so the
-    weights do not depend on the size of the scenario's rewards, and the spread is capped: the heaviest layout
-    draws at most `max_ratio` times the lightest, whatever the scores are. Weights average 1 (the even draw).
+    A stage is gated on its weakest class and role, so an episode of a pair that trails its baseline is worth more
+    than one of a pair that is already clear of it. Per pair and not per model: one model is a whole class now, and
+    weighting a paladin that heals badly by its average would send it more tanking episodes it did not need. The
+    baseline gap alone misses a pair that beats a weak baseline yet fails an absolute gate -- stage1_duel's mage
+    beat the scripted mage while killing 68% of the time -- so the shortfall on the gated metric counts as well,
+    whichever of the two is larger. Each is measured in its own standard deviations, so the weights do not depend
+    on the size of the scenario's rewards, and the spread is capped: the heaviest pair draws at most `max_ratio`
+    times the lightest, whatever the scores are. Weights average 1 (the even draw).
     """
-    rows = summary.get("layouts", {})
+    rows = summary.get("castings", {})
     names = [name for name, row in rows.items() if row.get("score") is not None]
     if not names or strength <= 0.0 or max_ratio <= 1.0:
         return {name: 1.0 for name in rows}
@@ -257,7 +270,7 @@ def layout_weights(summary: dict, baseline: dict | None, strength: float, max_ra
         spread = float(values.std())
         return (values - values.mean()) / spread if spread > 1e-9 else np.zeros_like(values)
 
-    base = (baseline or {}).get("layouts", {})
+    base = (baseline or {}).get("castings", {})
     gaps = np.array([float(base.get(name, {}).get("score") or 0.0) - float(rows[name]["score"]) for name in names])
     need = standardised(gaps)
     if metric and all(rows[name].get(metric) is not None for name in names):
@@ -328,7 +341,7 @@ def run_evaluation(env, spec, choose_actions, episodes: int, seed: int, baseline
     env_rows, agent_rows = np.indices((envs, agents))
     finished: dict[int, list[tuple[float, np.ndarray, str, np.ndarray, np.ndarray]]] = {}
     info_names = list(spec.episode_info_names)
-    # A party seat left empty for an episode reports present = 0: it is not an episode of any class/role.
+    # A party seat left empty for an episode reports present = 0: it is not an episode of any class.
     present = info_names.index("present") if "present" in info_names else None
     # Against a scripted opponent its seats are not the learner's (nor, for the baseline, the seat being scored).
     opponent_seat = info_names.index("opponent_seat") if opponents and "opponent_seat" in info_names else None

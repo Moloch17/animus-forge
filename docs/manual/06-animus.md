@@ -4,7 +4,7 @@ Animus (`mod-animus`, repository `Moloch17/animus`) brings the forge's trained m
 with real clients. It offers two features:
 
 - **Class/role companions.** A player summons up to four characters of any class and role at their level. The
-  companions join the player's party and play their class/role models in combat.
+  companions join the player's party and play their class models in combat.
 - **The stage viewer.** A game master runs any curriculum stage exactly as the forge trains it, in their own instance,
   and watches the seats play their models, a scripted baseline, or random actions.
 
@@ -65,14 +65,14 @@ placed by hand), then the image's reference config directory (`env/ref/etc/modul
 
 For each layout it needs, the module looks for `<ModelDir>/<class>_<role><stage suffix>.amdl` and the `.json` manifest
 beside it. `ModelLibrary` accepts a model only if the manifest file is exactly the manifest this server builds for that
-layout (same stage, class/role, sizes, block offsets, actions, talents), and the `.amdl` header matches the layout's
+layout (same stage, class, sizes, block offsets, actions, talents), and the `.amdl` header matches the layout's
 dimensions. Failures are logged once and cached. Models load on first use, and again after `.reload config`, which
 resets the library.
 
-Where the models come from: `forge export <stage>` in the forge writes both files per class/role into
+Where the models come from: `forge export <stage>` in the forge writes both files per class into
 `AnimusForge.ModelDir`. Copy them to the realm. Build the realm with an animus-lib revision whose blocks, stages and
 catalogs match the one the model trained with, or the manifests won't match. A layout's manifest doesn't depend on
-which other class/roles the run trained (`AnimusForge.ClassRoles`), only on its own stage, class/role and blocks.
+which other classes the run trained (`AnimusForge.Classes`), only on its own stage, class and blocks.
 
 ## 6.5 Class/role companions
 
@@ -83,7 +83,7 @@ All `.animus` commands need game master security and don't work from the console
 | Command | Effect |
 |---|---|
 | `.animus summon <race> <class> <role>` | Build a companion of that race, class and role at your level (`human priest heal`, `orc warrior tank`). It joins your party |
-| `.animus list` | Your companions, their class/roles and levels, whether their models are loaded, and whether they are waiting for you to land |
+| `.animus list` | Your companions, their classes and levels, whether their models are loaded, and whether they are waiting for you to land |
 | `.animus dismiss` | Remove all your companions |
 
 ### Summoning
@@ -94,7 +94,7 @@ All `.animus` commands need game master security and don't work from the console
 | `class` | `warrior`, `paladin`, `hunter`, `rogue`, `priest`, `deathknight` (or `dk`), `shaman`, `mage`, `warlock`, `druid` |
 | `role` | `dps` (or `damage`), `tank`, `heal` (or `healer`) |
 
-Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The class/roles are the forge's 18 (4.3).
+Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The classes are the forge's 18 (4.3).
 `AnimusMod::Summon` and `CompanionParty::Add` refuse when:
 
 - the module is disabled,
@@ -108,8 +108,8 @@ Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The class/
 
 You can summon in the open world, in a dungeon or raid instance, and on a boat, zeppelin or elevator. Otherwise:
 
-1. **Layout.** `LayoutFor(profile)` builds and caches the class/role's layout at `Animus.Curriculum.Stage` (default
-   `stage1_duel`, the stage whose models the module ships). The first build of a class/role's assets takes a few
+1. **Layout.** `LayoutFor(profile)` builds and caches the class's layout at `Animus.Curriculum.Stage` (default
+   `stage1_duel`, the stage whose models the module ships). The first build of a class's assets takes a few
    seconds and stalls the world thread.
 2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of the race you named
    and a random gender, at your level or the class's first level if that is higher (a death knight is at least 55),
@@ -211,9 +211,9 @@ curriculum's own:
 
 - **tier**: the difficulty tier of a stage that fights one creature (stage 1's `duel`), 0 to
   `Animus.Curriculum.Difficulty.MaxTier`, as 4.5 describes it (below `EliteTier` a normal creature that many levels
-  above the character, from it an elite). `any` is the class/role's own training tier, which starts at 0 on every
+  above the character, from it an elite). `any` is the class and role's own training tier, which starts at 0 on every
   server start and climbs as it wins. Other stages refuse a tier.
-- **class_role**: what the first seat plays (`warlock_dps`), one of the stage's class/roles.
+- **class_role**: what the first seat plays (`warlock_dps`), one of the stage's classes.
 - **level**: every character's level, raised to what its class can be (a death knight is at least 55).
 
 ### Lifecycle
@@ -231,21 +231,21 @@ map, the stage ends.
 
 **Build.** A `StageScenario` is created with the viewer's `StageSettings`:
 
-- one env, the viewer's env id, `Animus.Stage.*` decision interval, episode length, class/roles, spawn point and level
+- one env, the viewer's env id, `Animus.Stage.*` decision interval, episode length, classes, spawn point and level
 - the `Animus.Curriculum.` tuning prefix
 - report means over each episode
 - no layouts directory
 
 A baseline policy is checked against the stage. The arena is forced if one was named. The env pool is told to build
 env 0 **in your instance** (`EnvPool::PlaceEnv`), then `Setup`, `ResetAll` and `PoolRegistry::Register`, so animus-lib's
-own hooks count the seats' damage and healing. The first episode is frozen. The first build of a class/role's assets
+own hooks count the seats' damage and healing. The first episode is frozen. The first build of a class's assets
 stalls the world for a few seconds.
 
 **Frozen.** Every living unit within 150 yd of you and of each seat gets the GM freeze aura (9454, what `.freeze` puts
 on a unit): the seats, their pets and summons, the creatures and the owner, but no player that isn't the stage's. Nobody
 decides and the episode's clock stands still. Every 500 ms, units that turned up since (a pet arriving) are frozen
 too. `spawn` passes its choices to the scenario (`StageScenario::ForceTier`, `ForceLayout`, `ForceLevel`; a forced tier
-is what `CreatureEncounter` fights at, and doesn't move the class/role's own), lifts the freeze, calls `ResetAll()` and
+is what `CreatureEncounter` fights at, and doesn't move the class's own), lifts the freeze, calls `ResetAll()` and
 freezes the new episode. `start` lifts the freeze; `stop` freezes whatever is there, mid-fight too (a cast in progress
 is interrupted by the stun).
 
@@ -257,7 +257,7 @@ is interrupted by the stun).
 - every `Animus.Stage.DecisionMs` of accumulated time, **one** decision. A long world update doesn't queue up extra
   decisions:
   1. `Collect()` (rewards, episode end, auto-reset, observe). When an episode ended, a chat report shows the arena,
-     length and whether it ended or hit the time limit, and per present seat: level, class/role, damage and DPS, damage
+     length and whether it ended or hit the time limit, and per present seat: level, class, damage and DPS, damage
      taken, kill, died, health left and total reward (the sum of the `reward_*` columns),
   2. actions: `model` asks `ModelLibrary` for each present seat's layout and calls `Decide`. A seat with a missing or
      refused model does nothing, and you are told once per model. Any other policy calls
@@ -274,7 +274,7 @@ is safe to call more than once.
   Your presence changes nothing the seats observe.
 - **Match the settings** to the forge run: `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*`
   like the run's `AnimusForge.*` keys, and `Animus.Curriculum.*` like the run's `stage.json` `"tuning"`.
-  `Animus.Stage.ClassRoles` only chooses which characters appear. Unlike the forge's list, it doesn't change what the
+  `Animus.Stage.Classes` only chooses which characters appear. Unlike the forge's list, it doesn't change what the
   models were trained on.
 - **Nothing is saved.** Seats, owners and enemy players have no character rows. The rows a stock core writes for their
   instance binds and groups are removed when they go.

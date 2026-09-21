@@ -22,7 +22,7 @@
  */
 
 #include "AnimusForge.h"
-#include "ClassRoleAssets.h"
+#include "ClassAssets.h"
 #include "Config.h"
 #include "Log.h"
 #include "StringFormat.h"
@@ -723,7 +723,7 @@ bool AnimusForge::Forge::CommandRun(std::string const& scenario, std::string con
     return true;
 }
 
-bool AnimusForge::Forge::CommandTalents(std::string const& classRole, std::string const& spec, uint32 points,
+bool AnimusForge::Forge::CommandTalents(std::string const& playerClass, std::string const& spec, uint32 points,
     std::string const& plan, LineSink const& out)
 {
     using namespace Animus::Curriculum;
@@ -731,24 +731,24 @@ bool AnimusForge::Forge::CommandTalents(std::string const& classRole, std::strin
     if (!Enabled(out))
         return false;
 
-    auto const profile = std::find_if(ClassRoleProfiles().begin(), ClassRoleProfiles().end(),
-        [&classRole](ClassRoleProfile const& candidate) { return candidate.Name == classRole; });
-    if (profile == ClassRoleProfiles().end())
+    auto const profile = std::find_if(ClassProfiles().begin(), ClassProfiles().end(),
+        [&playerClass](ClassProfile const& candidate) { return candidate.Name == playerClass; });
+    if (profile == ClassProfiles().end())
     {
         std::vector<std::string> names;
-        for (ClassRoleProfile const& candidate : ClassRoleProfiles())
+        for (ClassProfile const& candidate : ClassProfiles())
             names.push_back(candidate.Name);
 
-        out(Acore::StringFormat("Unknown class/role '{}'. Available: {}", classRole, Join(names)));
+        out(Acore::StringFormat("Unknown class '{}'. Available: {}", playerClass, Join(names)));
         return false;
     }
 
-    // Building the assets is what a stage does on its first episode of this class/role: trainer spells, gear
+    // Building the assets is what a stage does on its first episode of this class: trainer spells, gear
     // pools, the talent trees. It is cached from here on, so asking twice is cheap.
-    ClassRoleAssets const& assets = ClassRoleAssets::For(*profile);
+    ClassAssets const& assets = ClassAssets::For(*profile);
     if (!assets.Talents || profile->Specs.empty())
     {
-        out(Acore::StringFormat("{} has no talent trees to show", classRole));
+        out(Acore::StringFormat("{} has no talent trees to show", playerClass));
         return false;
     }
 
@@ -763,7 +763,7 @@ bool AnimusForge::Forge::CommandTalents(std::string const& classRole, std::strin
             for (SpecProfile const& candidate : profile->Specs)
                 names.push_back(candidate.Name);
 
-            out(Acore::StringFormat("{} has no spec '{}'. Available: {}", classRole, spec, Join(names)));
+            out(Acore::StringFormat("{} has no spec '{}'. Available: {}", playerClass, spec, Join(names)));
             return false;
         }
 
@@ -784,7 +784,7 @@ bool AnimusForge::Forge::CommandTalents(std::string const& classRole, std::strin
         return false;
     }
 
-    out(Acore::StringFormat("{} {} ({} plan): {} points", classRole, chosen->Name,
+    out(Acore::StringFormat("{} {} ({} plan): {} points", playerClass, chosen->Name,
         plan.empty() ? "standard" : plan, points));
 
     TextTable table({ { "Tree" }, { "Row", TextTable::Align::Right }, { "Talent" },
@@ -1159,7 +1159,7 @@ std::string AnimusForge::Forge::FastSummary() const
     std::size_t const stages = FastQueue().size();
     return Acore::StringFormat("{} envs, {}, {}, {} steps a stage{}", _fastConfig.Envs,
         _fastConfig.Level ? Acore::StringFormat("level {}", _fastConfig.Level) : std::string("random levels"),
-        _fastConfig.ClassRoles.empty() ? "every class/role" : Join(_fastConfig.ClassRoles),
+        _fastConfig.Classes.empty() ? "every class" : Join(_fastConfig.Classes),
         Format::Count(budget),
         stages ? Acore::StringFormat(" ({} over {} stages)", Format::Count(budget * stages), stages)
             : std::string());

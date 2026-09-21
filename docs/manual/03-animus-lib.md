@@ -21,7 +21,7 @@ This chapter covers the machinery: scenarios, env pools, bots, core seams, layou
 | `.../Layout/` | `Block` (interface), `Layout` (block placement, manifests), `SeatView`, `SeatEncoder`, `EncoderSupport` |
 | `.../Blocks/` | One class per block: `CoreBlock`, `DuelBlock`, `PetBlock`, `PackBlock`, `GauntletBlock`, `CompanionBlock`, `PartyBlock`, `PvpBlock`, `ContextBlock`, `HostilesBlock`, `TravelBlock`, `FlagBlock`; `Blocks.cpp` (`GetBlock`) |
 | `.../Encounters/` | `Encounter` (interface), creature, pulls, owner, party, opponent, ambush, travel and flag encounters, `ScriptedPlayer`, `EnemyPlayers` (building scripted enemy players), `Opponents` (creature pools and spawn points), `EpisodeInfoTable` |
-| `.../Character/` | `ClassRoleProfile` (the 18 class/roles), `ClassRoleAssets`, `ClassKit`, `TalentBuilder`, `SpecBuilds` (generated), `ActionCatalog`, `GearBuilder`, `GearStats`, `GearEnhancements`, `PetTalents`, `Supplies`, `WorldCreatures`, `SeatCharacter` |
+| `.../Character/` | `ClassProfile` (the 10 classes and their 31 specs), `ClassAssets`, `ClassKit`, `TalentBuilder`, `SpecBuilds` (generated), `ActionCatalog`, `GearBuilder`, `GearStats`, `GearEnhancements`, `PetTalents`, `Supplies`, `WorldCreatures`, `SeatCharacter` |
 | `.../Rewards/` | `RewardLedger`, `CombatReward` (the shared one-on-one and pull reward terms) |
 | `.../Baselines/` | The scripted `greedy` and `fight` policies |
 | `src/Env/` | `Env`, `EnvPool`, `PoolRegistry` |
@@ -95,7 +95,7 @@ it in `ScenarioNames`.
 | `DecisionMs` | `AnimusForge.DecisionMs` | `Animus.Stage.DecisionMs` |
 | `EpisodeSeconds` | `AnimusForge.EpisodeSeconds` | `Animus.Stage.EpisodeSeconds` |
 | `ReportEpisodes` | `AnimusForge.ReportEpisodes` | 1 |
-| `ClassRoles` | `AnimusForge.ClassRoles` | `Animus.Stage.ClassRoles` |
+| `Classes` | `AnimusForge.Classes` | `Animus.Stage.Classes` |
 | `SpawnMapId`, `SpawnPosition` | `AnimusForge.SpawnPoint.*` | `Animus.Stage.SpawnPoint.*` |
 | `Level` | 0 (the curriculum's random levels; a fast run does not narrow this) | `Animus.Stage.Level` |
 | `TuningPrefix` | `AnimusForge.Curriculum.` | `Animus.Curriculum.` |
@@ -186,7 +186,7 @@ reset on, envs take seed indexes `0..episodes-1` in the order they reset. `Reset
 
 1. computes `seed = (seedBase + 1) * 2654435761 ^ (index + 1) * 2246822519` (never 0),
 2. calls `CoreHooks::SeedRandom(seed)` so the world thread's generator restarts,
-3. runs `Scenario::Reset`, which draws the arena, class/roles, race, level, spec, gear, opponents and spawn points from
+3. runs `Scenario::Reset`, which draws the arena, classes, race, level, spec, gear, opponents and spawn points from
    that generator,
 4. calls `CoreHooks::SeedRandom(0)` to return to entropy,
 5. clears the step and episode stats. Tearing down the old character still reports to the hooks (a cancelled cast, a
@@ -343,10 +343,10 @@ gracefully on a stock core:
 
 ## 3.7 Layouts and manifests
 
-A **layout** (`Layout/Layout.h`) is what one class/role policy sees and does at one stage. `Layout::Build(profile,
+A **layout** (`Layout/Layout.h`) is what one class policy sees and does at one stage. `Layout::Build(profile,
 stage)`:
 
-1. gets (or builds, which takes seconds per class/role) the profile's `ClassRoleAssets`: allowed races, `ClassKit`
+1. gets (or builds, which takes seconds per class) the profile's `ClassRoleAssets`: allowed races, `ClassKit`
    (trainer spells by level, resolved learn-spells), `TalentBuilder`, `ActionCatalog` and `GearBuilder`,
 2. if the stage has the companion or party block, collects `AllyHeals` (sustain spells that are positive and need an
    explicit unit target) and `AllyRevives` (resurrections, plus the soulstone for warlocks),
@@ -369,14 +369,14 @@ that change whenever a block does:
            {"name":"pet","obs":[...,0],"actions":[...,0]}]}
 ```
 
-A block a class/role has no use for (the `pet` block for a warrior) still appears, with no features and no actions.
+A block a class has no use for (the `pet` block for a warrior) still appears, with no features and no actions.
 
 Each block adds its own entries through `Block::DescribeManifest`: the catalog and talents (core), stable slots (duel),
 enemy slots (pack), food and drink (gauntlet), revives (companion), member slots (party), friend slots, rank tiers and
 buff groups (support).
 
 **Any change that affects the manifest invalidates models.** That includes a new feature in a block, a new spell in a
-catalog (a new spell rule, a different talent build), a block added to a stage, or a different class/role list.
+catalog (a new spell rule, a different talent build), a block added to a stage, or a different class list.
 `ModelLibrary` compares the exported manifest with the one the server builds, character for character (trailing
 whitespace ignored), and refuses a model on any difference. Retrain and export again.
 
@@ -415,7 +415,7 @@ zero-weight agent column.
 ### ModelLibrary
 
 `ModelLibrary::Find(layout, error)` loads `<dir>/<model name>.amdl` with `<model name>.json` beside it, on first use.
-The model name is the class/role plus the stage suffix (`warrior_tank_party`). It checks the manifest (3.7) and then the
+The model name is the class plus the stage suffix (`warrior_tank_party`). It checks the manifest (3.7) and then the
 file (above). Both successes and failures are cached until `Reset(dir)`, so a missing model is logged once rather than
 every decision. mod-animus calls `Reset` on every config load, which makes `.reload config` pick up new files.
 

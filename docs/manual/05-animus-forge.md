@@ -225,7 +225,7 @@ from an in-game administrator's chat.
 | `forge cancel` | End the plan. The learner saves `latest.pt` first |
 | `forge skip` | End the current scenario (the learner saves) and start the next |
 | `forge run <scenario> <policy> [episodes]` | A local plan: `random`, `greedy` or `fight`, for N episodes or until cancelled. `forge run <s> remote` is refused (use `start`) |
-| `forge talents <class_role> [spec] [points] [plan]` | Print the talent build the curriculum would give that class/role (which talents, in which tree, at how many ranks). `points` defaults to a level 80 character's, `plan` is `standard`, `noisy` or `random` |
+| `forge talents <class_role> [spec] [points] [plan]` | Print the talent build the curriculum would give that class (which talents, in which tree, at how many ranks). `points` defaults to a level 80 character's, `plan` is `standard`, `noisy` or `random` |
 | `forge bench [scenario]` | Time the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then the fastest few with the learner; `forge bench apply` writes the winner into the configs |
 | `forge export [scenario] [best\|latest]` | Background `python -m animus.export` of `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) into `ModelDir`, with the layout manifests. Output in `animus-export.log`. One export at a time. Works while training |
 | `forge clean archive \| scenario <s> \| exports \| fast \| logs \| all` | Delete `runs/_archive/`, one run, exported models and manifests, the fast output, the learner and export logs, or everything (idle only). Each refuses while it would delete something in use, and lists every removal with its size |
@@ -244,9 +244,9 @@ problem so a change can be checked in minutes. `ForgeConfig::FastProfile()` copi
 | Output and models | `Fast.OutputDir` (runs, layouts, and `models/` inside it) |
 | Learner args | `--overlay <Fast.Learner.Overlay>`, then `Learner.Args`, then `Fast.Learner.Args` |
 
-**Level and class/roles are deliberately not narrowed.** A fast run plays the same content a real one does --
-every class/role, the curriculum's own random levels -- and differs only in how long each stage gets and how many
-envs run it. It used to train four class/roles at level 20, which made the sweep a rehearsal of a problem the real
+**Level and classes are deliberately not narrowed.** A fast run plays the same content a real one does --
+every class, the curriculum's own random levels -- and differs only in how long each stage gets and how many
+envs run it. It used to train four classes at level 20, which made the sweep a rehearsal of a problem the real
 build never trains: the classes it skipped were the ones whose faults a sweep exists to find. `AnimusForge.Fast.Level`
 and `AnimusForge.Fast.ClassRoles` are left over from that and are **read by nothing** -- setting either changes
 nothing (`ForgeConfig::FastProfile`).
@@ -440,7 +440,7 @@ critic:  state ─► state_norm ─► state_encoder (Linear → hidden[0]) ─
 
 - **Adapters** read only their layout's features, and **heads** write only their layout's actions. Padded columns are
   never used. What is learned about moving, threat, healing or interrupts goes through the shared trunk. Each
-  class/role keeps its exact observation and action spaces.
+  class keeps its exact observation and action spaces.
 - **Masking.** Disallowed logits are set to -1e9. A row with nothing allowed falls back to action 0.
 - **The critic sees "agent-specific global state".** The env's state encoding is added to the agent's own adapter
   output, so each agent's value accounts for the whole env and its own situation.
@@ -457,8 +457,8 @@ critic:  state ─► state_norm ─► state_encoder (Linear → hidden[0]) ─
   before it learns), are buffers that travel in the checkpoint, and carry across seeding for the blocks a stage keeps.
   The map is affine with no clipping, so export folds it into the adapter and the exported model stays a plain MLP.
 
-The curriculum uses `hidden: [256, 512, 512]`: 256-wide adapters (one per class/role) and two 512-wide shared trunk
-layers, so the capacity sits where every class/role trains it. Every stage must keep the same sizes, or seeding can't
+The curriculum uses `hidden: [256, 512, 512]`: 256-wide adapters (one per class) and two 512-wide shared trunk
+layers, so the capacity sits where every class trains it. Every stage must keep the same sizes, or seeding can't
 copy the trunk.
 
 ## 5.16 The PPO update
@@ -466,8 +466,8 @@ copy the trunk.
 `MappoTrainer.update(buffer, auxiliary)`:
 
 1. Flatten the valid samples onto the training device. Normalise advantages to zero mean and unit variance, per
-   class/role with `per_layout_advantages` (a layout with fewer than `min_layout_rows` rows uses the rollout's
-   statistics), because the class/roles share a trunk but not a return scale.
+   class with `per_layout_advantages` (a layout with fewer than `min_layout_rows` rows uses the rollout's
+   statistics), because the classes share a trunk but not a return scale.
 2. With value normalisation, update `ValueNorm` (debiased exponential moving mean and mean-square, beta
    `mappo.value_norm_beta`: 0.99 in the curriculum) with the returns, and normalise the returns and old values. With
    observation normalisation, fold the rollout's observations and states into the running statistics.
@@ -497,7 +497,7 @@ directory.
 - **Trunk** (actor and critic): copied. Hidden sizes must match.
 - **Observation normaliser statistics** move with the adapter columns: feature by feature for the blocks both stages
   have, so a kept block keeps the scale its weights were trained on.
-- **Layouts are matched by name** (the class/role). For each layout both runs have, block spans from both
+- **Layouts are matched by name** (the class). For each layout both runs have, block spans from both
   `stage.json` files are compared:
   - **Adapter weights** (actor and critic): zeroed, then each common block's input columns are copied from their old
     position to their new position. New blocks' columns stay zero, so the seeded policy initially ignores them. Dropped
@@ -557,7 +557,7 @@ reward, so it measures what training optimises and compares checkpoints within o
 Combat rolls stay random, so every score carries a standard error.
 
 **Summaries** give the score, its standard error, and the `eval.report` episode-info means overall, per level band
-(1-20, 21-40, 41-60, 61-80), per layout (class/role) and per arena. Rows with `opponent_seat` are left out when
+(1-20, 21-40, 41-60, 61-80), per layout (class) and per arena. Rows with `opponent_seat` are left out when
 `opponents` is set.
 
 **Sampled actions** (`eval.sampled_every`): every that many evaluations, the learner also plays sampled actions on the
@@ -589,7 +589,7 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
 "ratio better than baseline" whatever the sign of the reward.
 
 - `min_over_baseline`: the overall score.
-- `min_layout_over_baseline`: every class/role with at least `min_layout_episodes` rows (one per seat with a
+- `min_layout_over_baseline`: every class with at least `min_layout_episodes` rows (one per seat with a
   character per seeded episode). A looser floor so no layout hides behind the average, since the next stage seeds
   every layout.
 - `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
@@ -599,18 +599,18 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   instead of its raw mean: a minimum must hold for the lowest rate the episodes are consistent with, a maximum for the
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
   enough episodes still pass (95% of 228 bound at 0.92).
-- `layout_metrics`: the same bounds on every class/role's own episodes, which no baseline can lower.
+- `layout_metrics`: the same bounds on every class's own episodes, which no baseline can lower.
 - `role_metrics`: bounds per role (`dps`, `tank`, `heal`, from episode info `role`) on that role's episodes, for what a
-  role is for and a floor every class/role shares can't ask: `{heal: {owner_heal_share: {min: 0.3}}}`.
+  role is for and a floor every class shares can't ask: `{heal: {owner_heal_share: {min: 0.3}}}`.
 - `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
-  summary's `up_to` group, overall and per class/role), for a stage whose ladder climbs above the fights its floors
+  summary's `up_to` group, overall and per class and role), for a stage whose ladder climbs above the fights its floors
   were set for. The tiers above still count through the score and `difficulties`.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
 - `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass
   again, because a best picked out of many evaluations is partly luck.
 - `noise_z`: how much evaluation noise a score gate forgives, in standard errors of the difference between the two
-  scores. A class/role is scored on its share of the episodes only, so at `0` one that is really level with its
+  scores. A class is scored on its share of the episodes only, so at `0` one that is really level with its
   baseline fails about half the time.
 
 With no gates set, a converged stage advances.
@@ -621,8 +621,8 @@ With no gates set, a converged stage advances.
   ~69 updates). The returns drift upwards as the policy improves; statistics that average the whole run leave the
   critic fitting a scale it has outgrown, and `value_loss` -- reported in normalised space -- shrinks either way.
   `explained_variance` in `metrics.csv` is the honest read.
-- `per_layout_advantages` and `min_layout_rows`: centre and scale each class/role's advantages on its own rows,
-  falling back to the rollout's statistics for a layout with fewer rows than the minimum. The class/roles share a
+- `per_layout_advantages` and `min_layout_rows`: centre and scale each class's advantages on its own rows,
+  falling back to the rollout's statistics for a layout with fewer rows than the minimum. The classes share a
   trunk but not a return scale, so one global scale lets the widest-spread of them set the shared gradient.
 - `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
   clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
@@ -682,16 +682,16 @@ back once it recovers. It is a floor, never a ceiling: a policy converging on it
 
 ### Where the episodes go (`layout_sampling`)
 
-Training episodes draw a class/role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
-the learner sends the sim a weight per class/role after every evaluation (protocol `WEIGHTS`), from the gap between
-that class/role's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
+Training episodes draw a class and role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
+the learner sends the sim a weight per class and role after every evaluation (protocol `WEIGHTS`), from the gap between
+that class and role's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
 on the size of the scenario's rewards. `strength` scales the effect (0 = even), `max_ratio` caps the spread between
 the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
-are spent. Evaluation episodes stay evenly spread over the class/roles whatever the weights are.
+are spent. Evaluation episodes stay evenly spread over the class and role pairs whatever the weights are.
 
-The score gap alone misses a class/role that beats its baseline yet fails an absolute gate (stage1_duel's mage beat
+The score gap alone misses a class and role that beats its baseline yet fails an absolute gate (stage1_duel's mage beat
 the scripted mage while killing only 68% of the time). `metric` names a summary field where higher is better, usually
-the one the stage is gated on (`clean_kill`): a class/role's need is then the larger of its score gap and its
+the one the stage is gated on (`clean_kill`): a class and role's need is then the larger of its score gap and its
 shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
 gate it is failing.
 

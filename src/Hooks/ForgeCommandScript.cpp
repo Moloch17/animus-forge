@@ -108,8 +108,8 @@ namespace
             table.AddRow({ "forge cancel", "stop the plan; the learner saves latest.pt first" });
             table.AddRow({ "forge skip", "end the current scenario and start the next one" });
             table.AddRow({ "forge run <scenario> <policy> [episodes]", "run a scripted or random policy, no learner" });
-            table.AddRow({ "forge talents <class_role> [spec] [points] [plan]",
-                "print a build the curriculum would give that class/role (plan: standard, noisy, random)" });
+            table.AddRow({ "forge talents <class> [spec] [points] [plan]",
+                "print a build the curriculum would give that class (plan: standard, noisy, random)" });
             table.AddRow({ "forge bench [scenario]", "time the sim and the learner at every AnimusForge.Bench.* "
                 "thread and env count" });
             table.AddRow({ "forge bench apply", "write the fastest settings from the last benchmark into the "
@@ -176,12 +176,12 @@ namespace
             return sAnimusForge->CommandRun(scenario, policy, episodes.value_or(0), Reply(handler));
         }
 
-        /// `forge talents <class_role> [spec] [points] [plan]` prints a build the curriculum would give that
-        /// class/role: which talents, in which tree, at how many ranks.
-        static bool HandleTalents(ChatHandler* handler, std::string classRole, Optional<std::string> spec,
+        /// `forge talents <class> [spec] [points] [plan]` prints a build the curriculum would give that
+        /// class: which talents, in which tree, at how many ranks.
+        static bool HandleTalents(ChatHandler* handler, std::string playerClass, Optional<std::string> spec,
             Optional<uint32> points, Optional<std::string> plan)
         {
-            return sAnimusForge->CommandTalents(classRole, spec.value_or(""), points.value_or(TALENT_POINTS_AT_80),
+            return sAnimusForge->CommandTalents(playerClass, spec.value_or(""), points.value_or(TALENT_POINTS_AT_80),
                 plan.value_or(""), Reply(handler));
         }
 

@@ -14,7 +14,7 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Queue` | `""` = every default-queue stage | Scenarios `forge start` trains when given none |
 | `AnimusForge.Queue.SkipFinished` | `1` | `forge start` without names skips stages that already advanced |
 | `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per scenario of `forge start` (0 = until cancelled) |
-| `AnimusForge.ClassRoles` | `""` = all 18 | Comma-separated class/roles the stages play |
+| `AnimusForge.Classes` | `""` = all 10 | Comma-separated classes the stages play; a class brings every role it can play |
 | `AnimusForge.Envs` | `64` | Parallel envs, one instance each (capped at 12500) |
 | `AnimusForge.DecisionMs` | `250` | Game time per decision; the unit every reward scale and discount is written in |
 | `AnimusForge.TicksPerDecision` | `1` | World updates per decision. Above 1 the world moves in finer steps (smoother splines and auras) while the policy still chooses every `DecisionMs` |
@@ -46,7 +46,7 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Fast.Queue` | `""` | What `forge fast` trains without names; empty = every curriculum stage in order |
 | `AnimusForge.Fast.Envs` | `32` | Fast profile envs |
 | `AnimusForge.Fast.Level` | `20` | **Dead: read by nothing.** A fast run uses the curriculum's random levels |
-| `AnimusForge.Fast.ClassRoles` | `"warrior_tank, priest_heal, rogue_dps, hunter_dps"` | **Dead: read by nothing.** A fast run plays every class/role |
+| `AnimusForge.Fast.ClassRoles` | `"warrior_tank, priest_heal, rogue_dps, hunter_dps"` | **Dead: read by nothing**, and named for the layouts as they were before the models were per class. A fast run plays every class |
 | `AnimusForge.Fast.OutputDir` | `"fast"` | Inside `OutputDir` when relative |
 | `AnimusForge.Fast.Learner.Overlay` | `""` = `configs/fast.yaml` | Learner overlay for fast runs |
 | `AnimusForge.Fast.Learner.Args` | `""` | Extra arguments for fast learners (after `Learner.Args`) |
@@ -74,7 +74,7 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 | `Animus.Stage.Policy` | `"model"` | Default stage viewer policy |
 | `Animus.Stage.DecisionMs` | `250` | Stage viewer decision interval |
 | `Animus.Stage.EpisodeSeconds` | `60` | Episode length for arenas without their own |
-| `Animus.Stage.ClassRoles` | `""` | Characters that appear (doesn't change layouts) |
+| `Animus.Stage.Classes` | `""` | Characters that appear (doesn't change layouts) |
 | `Animus.Stage.Level` | `0` | Every character's level (0 = random) |
 | `Animus.Stage.MaxViewers` | `4` | Stages running at once |
 | `Animus.Stage.SpawnPoint.MapId/X/Y/Z/O` | `560`, `2741.9`, `1315.2`, `14.0`, `2.96` | Where stages happen |
@@ -323,7 +323,7 @@ The first STEP after SPEC, and the STEP answering a MODE, carry freshly reset en
 is a transition. Every new session starts in training mode.
 
 Evaluation episodes ignore `WEIGHTS`: seed index *i* plays candidate *(i + seat) % (candidate count)*, where the
-candidates are the layouts of the seat's role (all layouts outside a party arena), so every class/role is scored on an
+candidates are the layouts of the seat's role (all layouts outside a party arena), so every class is scored on an
 equal share of the seeds.
 
 ## 8.4 File formats
@@ -337,7 +337,7 @@ u32 recurrent_size | if it: f32 weight_ih[3R*features] | weight_hh[3R*R] | bias_
 u32 goal_count | u32 goal_every_decisions | if goals: f32 weight[G*width] | bias[G] | embedding[G*width]
 ```
 
-Input is the observation followed by a one-hot agent id (`num_agents` = 1 for exported class/role models). tanh follows
+Input is the observation followed by a one-hot agent id (`num_agents` = 1 for exported class models). tanh follows
 every layer but the last. With a memory, the last layer (the action head) reads a GRU's state instead of the trunk's
 output: the trunk feeds the GRU (torch.nn.GRUCell's weights, gates in reset, update, candidate order), whose state the
 caller carries between decisions and clears when a fight is over. With goals, one is chosen from the goal head every
@@ -415,7 +415,7 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `checkpoint_<update>.pt` | Every `checkpoint_every` | Newest `keep_checkpoints` kept |
 | `latest.pt` | Checkpoints and finish | Resume point |
 | `best.pt` | Each new best evaluation | Seed for later stages, export default |
-| `layouts.csv` | Every `log_every` updates | Per class/role, what each is doing in the training episodes of that update (sampled actions, own ladder difficulty). The dashboard's "Class and role, right now" |
+| `layouts.csv` | Every `log_every` updates | Per class and role, what each is doing in the training episodes of that update (sampled actions, own ladder difficulty). The dashboard's "Class and role, right now" |
 | `seed_from` | When chosen | One word, `best` or `latest`: which of this run's checkpoints seeds the stage after it (`animus.train.seed_preference`). Absent unless something wrote it, usually the dashboard's "Seeding the next stage" panel. See 7 |
 | `finished.json` | When the stage is decided | See 8.4 |
 
@@ -469,7 +469,7 @@ Other locations:
 | **Episode info** | Per-seat totals reported when an episode ends |
 | **Fast run** | `forge fast`: a quick, easier training run in a separate output directory |
 | **Forge core** | The `forge` branch of AzerothCore: a fixed-tick, headless simulator |
-| **Layout** | A class/role's exact observation and action layout at a stage |
+| **Layout** | A class's exact observation and action layout at a stage |
 | **Lock-step** | The sim sends observations and waits for actions every decision |
 | **Manifest** | JSON describing a layout's meaning, exported beside its model |
 | **Merge stage** | A stage that seeds blocks from further parents and distils their arenas |

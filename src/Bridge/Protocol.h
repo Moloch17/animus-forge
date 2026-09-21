@@ -54,9 +54,13 @@
  *   client -> server  MODE   ModeMsg (instead of ACT) -- switch between training and evaluation; the server
  *                            resets every env and answers with a fresh STEP (zero reward and done)
  *   client -> server  WEIGHTS { u32 count, f32 weight[count] } (instead of ACT) -- how often training episodes
- *                            draw each layout, in the SPEC's layout order; the server applies them and waits for
- *                            the ACT without answering. A weight of 1 everywhere is the uniform draw; count must
- *                            match the SPEC's layout count.
+ *                            draw each (class, role), layout-major in the SPEC's layout order and role-minor in
+ *                            Curriculum::Role order (dps, tank, heal); the server applies them and waits for the
+ *                            ACT without answering. A weight of 1 everywhere is the uniform draw; count must be
+ *                            the SPEC's layout count times three. A class that cannot play a role still has a
+ *                            slot for it, which is never drawn. Per pair and not per layout because one model is
+ *                            a whole class: a paladin that tanks well and heals badly needs more healing
+ *                            episodes, not more paladin episodes.
  *   client -> server  REPLAY { u32 seed_base, f32 fraction, u32 count, u32 seed[count] } (instead of ACT) -- that
  *                            share of training resets rebuilds one of these evaluation seed indexes of seed_base, the
  *                            same character and opponent the evaluation built (the fight rolls afresh), in place of
@@ -73,7 +77,8 @@
  * episodes and the learner's actions the rest (learner against a scripted opponent). MODE with Mode = 0 returns to
  * unseeded training episodes. Every new session (HELLO) starts in training mode, whatever mode the previous learner
  * left the sim in. Evaluation episodes always draw layouts evenly, whatever WEIGHTS asked for: seeded episode index
- * i plays layout i % (layout count), so every class/role is scored on its own equal share of the seeds.
+ * i plays (class, role) pair i % (pair count), so every one of them is scored on its own equal share of the
+ * seeds -- one model per class, but a paladin's healing is measured apart from its tanking.
  *
  * The first STEP after SPEC carries freshly reset envs: its reward and done arrays are zero and
  * must not be recorded as a transition. A truncated episode (done, not terminated) bootstraps from
@@ -89,7 +94,7 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 8;
+    constexpr uint32 PROTOCOL_VERSION = 9;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -157,7 +162,8 @@ namespace AnimusForge
         char Baseline[POLICY_NAME_SIZE];    // scripted policy to run instead of the learner's; empty = learner
     };
 
-    /// WEIGHTS payload: Count, then that many float weights (one per layout, in the SPEC's order).
+    /// WEIGHTS payload: Count, then that many float weights -- one per (class, role), layout-major in the SPEC's
+    /// order and role-minor in Curriculum::Role order, so Count is the layout count times three.
     struct WeightsHeader
     {
         uint32 Count;

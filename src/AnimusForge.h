@@ -65,9 +65,9 @@ namespace AnimusForge
         /// with the learner, and report what runs fastest. `forge bench apply` writes the winner into the configs.
         bool CommandBench(std::string const& scenario, LineSink const& out);
 
-        /// `forge talents <class_role> [spec] [points] [plan]`: print a build the curriculum would give a
-        /// character of that class/role, tree by tree. Builds nothing and trains nothing.
-        bool CommandTalents(std::string const& classRole, std::string const& spec, uint32 points,
+        /// `forge talents <class> [spec] [points] [plan]`: print a build the curriculum would give a
+        /// character of that class, tree by tree. Builds nothing and trains nothing.
+        bool CommandTalents(std::string const& playerClass, std::string const& spec, uint32 points,
             std::string const& plan, LineSink const& out);
         bool CommandBenchApply(LineSink const& out);
         bool CommandExport(std::string scenario, std::string const& checkpoint, LineSink const& out);
@@ -239,7 +239,7 @@ namespace AnimusForge
         [[nodiscard]] std::string StateName() const;
         /// The progress report at the end of the running stage (whatever AnimusForge.Progress.Interval is).
         void ReportStageEnd();
-        /// The fast profile in a few words: envs, level and class/roles.
+        /// The fast profile in a few words: envs, level and classes.
         [[nodiscard]] std::string FastSummary() const;
         [[nodiscard]] bool Enabled(LineSink const& out) const;
         [[nodiscard]] bool ValidScenario(std::string const& scenario, LineSink const& out) const;
