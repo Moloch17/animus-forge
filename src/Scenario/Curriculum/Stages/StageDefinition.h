@@ -134,6 +134,11 @@ namespace Animus::Curriculum
         /// about a third of the distance -- and what a build can do in water (a druid's Aquatic Form, a shaman's
         /// Water Walking) changes the answer.
         bool Water = false;
+        /// Where this arena's envs start, when its ground is not the stage's. An arena is drawn per episode but
+        /// StageDefinition::SpawnPoints is pinned per env, so an arena that needs particular ground -- water, most
+        /// of all -- cannot get it from the stage's list: the episode runs wherever its env happens to sit. These
+        /// are used in place of the stage's when the episode is this arena's; empty means the stage's.
+        std::vector<Position> SpawnPoints{};
         /// Levels added to the scripted enemy player's own, on top of Opponent.LevelSpread. A drill about
         /// getting away needs a fight the seat cannot win; every other arena wants an even match and leaves
         /// this at 0. Ignored unless the opposition is a scripted player.

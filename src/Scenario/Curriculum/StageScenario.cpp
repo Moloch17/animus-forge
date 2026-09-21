@@ -493,8 +493,19 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
 
 Position const& Animus::Curriculum::StageScenario::SpawnPointFor(Env const& env) const
 {
-    return _stage.MapId && !_stage.SpawnPoints.empty() ? _stage.SpawnPoints[env.Index % _stage.SpawnPoints.size()]
-        : _spawnPoint;
+    if (!_stage.MapId)
+        return _spawnPoint;
+
+    // An arena that needs its own ground stands where it says, not where the env does. Both call sites run after
+    // DrawArena, so the episode's arena is already known here.
+    uint32 const arena = Data(env).Arena;
+    if (arena < _stage.Arenas.size() && !_stage.Arenas[arena].SpawnPoints.empty())
+    {
+        std::vector<Position> const& points = _stage.Arenas[arena].SpawnPoints;
+        return points[env.Index % points.size()];
+    }
+
+    return !_stage.SpawnPoints.empty() ? _stage.SpawnPoints[env.Index % _stage.SpawnPoints.size()] : _spawnPoint;
 }
 
 uint32 Animus::Curriculum::StageScenario::EnvPhase(Env const& env)

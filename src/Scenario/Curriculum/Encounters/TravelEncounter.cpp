@@ -358,6 +358,15 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
         ++tally.Deaths;
         ledger.Add(RewardTerm::Death, -tuning.Death);
     }
+
+    // The clock ran out short of the objective. Only the combat encounters used to set this, so on a travel stage
+    // `timed_out` was 0 for every episode however it ended -- a trip that ran its full 150 s without arriving
+    // reported neither arriving nor timing out, and stage1_move's `timed_out` floor could not fail. Nothing is
+    // charged for it here: not arriving already forgoes RewardTerm::Arrive, and a second penalty would be a
+    // change to what the stage teaches rather than to what it reports.
+    bool const timeIsUp = env.EpisodeLengthMs && env.EpisodeElapsedMs >= env.EpisodeLengthMs;
+    if (!travel.Arrived && !tally.TimedOut && timeIsUp)
+        tally.TimedOut = true;
 }
 
 bool Animus::Curriculum::TravelEncounter::IsTerminal(Env const& env) const
