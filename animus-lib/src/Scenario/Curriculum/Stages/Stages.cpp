@@ -83,8 +83,20 @@ namespace
                     .OnFoot = true },
                 { .Name = "broken", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true },
+                // The banks of the Barrens oases -- Lushwater to the north, Stagnant to the south -- because the
+                // stage's own spawn points have no water within reach, and a water arena that finds no crossing
+                // quietly becomes a second open arena (the first run of this stage reported crossing 0.0 over all
+                // 415 of its water episodes). These are on the shore, not in the pool: the oasis floor is around
+                // z 65 and the seats have to stand on the bank at 82-94 and decide to get in. Taken from the land
+                // creatures the oases are ringed with (Kolkar centaurs), so the ground under each one is real.
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Water = true },
+                    .OnFoot = true, .Water = true,
+                    .SpawnPoints = {
+                        { -1128.0f, -2144.0f, 82.0f, 0.0f }, { -990.0f, -2119.0f, 83.0f, 0.0f },
+                        { -1116.0f, -2018.0f, 87.0f, 0.0f }, { -1011.0f, -2158.0f, 85.0f, 0.0f },
+                        { -1250.0f, -3090.0f, 93.0f, 0.0f }, { -1219.0f, -3082.0f, 94.0f, 0.0f },
+                        { -1352.0f, -3053.0f, 93.0f, 0.0f }, { -1351.0f, -2987.0f, 93.0f, 0.0f },
+                    } },
             },
             .MapId = MAP_KALIMDOR,
             .SpawnPoints = {
