@@ -179,6 +179,7 @@ An `ArenaDefinition` describes one situation:
 | `Seats` | `Solo` (1), `Party` (4 slots beside the owner, 1-4 filled each episode), `Mirror` (2 that fight each other), `Raid` (40: eight groups of five, a tank and a healer at the head of each) |
 | `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
+| `MaxRung` | Pin the pack ladder instead of letting it climb: `-1` leaves it to `Pulls.MaxTier`, `0` and up hold every class/role at that rung, for training and evaluation alike. Overridable with `<TuningPrefix>Arena.<stage>.<arena>.MaxRung`. A drill wants one variable |
 | `Owner` | A scripted owner the seats fight for |
 | `PartyGroup` | The owner and seats form a core group |
 | `Pvp` | Resilience gear, no self-resurrection |
@@ -1043,6 +1044,7 @@ writing. Min/max pairs are put in order on load.
 | `Travel.*` | Objective distances on the ground and in the air, travel reward weights |
 | `Flag.*` | Base distance, captures to win, respawn and dropped-flag timers, touch distance, flag match reward weights |
 | `Arena.<stage>.<arena>.Weight` | Arena weights (read by `StageScenario`, not `Visit`) |
+| `Arena.<stage>.<arena>.MaxRung` | The arena's pinned pack rung, `-1` for none (read by `StageScenario`, not `Visit`) |
 
 The effective values are written into `stage.json` under `tuning` and copied into each run directory. To watch a stage
 in mod-animus exactly as a model trained on it, copy that run's `tuning` into `Animus.Curriculum.*`.
@@ -1201,6 +1203,14 @@ score. `until_passed` is off, so a stage that converges short of it halts after 
 (`OpponentPool::RandomHazardCaster`), whatever rung the difficulty ladder is on. The pack ladder only reaches
 hazard casters at rung 3, so a class/role that stalls below it never meets one and never learns to step out of
 a hazard; this makes that lesson learnable on its own. It adds the support block for the hazard charge.
+
+**The ladder is pinned to rung 0** (`MaxRung`), so the pull is two creatures, one of them the hazard caster, for
+every class/role and every episode. A hazard arena replaces an entry rather than adding one, so the hazard
+survives the pin and the pack does not grow around it. The first run without the pin showed why: hazard seconds
+rose over 7M steps while the rung rose underneath them, and nothing in the run could say whether the policy was
+failing to step out or simply meeting more hazard. A drill is supposed to have one variable, and the pin is what
+makes the hazard the only hard thing in it. Evaluations are pinned too, so two checkpoints are read on the same
+fight rather than on whatever rungs each had climbed to.
 
 It is on the trunk: `stage4_gauntlet` seeds from it, so the lesson carries into every PvE stage after it. The
 hazard charge lands about four times harder on a tank than on a ranged seat, because a tank cannot walk out of

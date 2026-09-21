@@ -255,7 +255,8 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | | | | `Flag.Death` | 1.0 |
 | | | | `Flag.StepCost` | 0.0002 |
 
-Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
+Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight. Arena ladder pin:
+`Arena.<stage>.<arena>.MaxRung`, defaulting to the definition's (`-1`: the ladder climbs to `Pulls.MaxTier`).
 
 ## 8.3 Wire protocol (version 8)
 
