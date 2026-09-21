@@ -195,7 +195,7 @@ namespace Animus::Curriculum
 
         /// How many (class, role) pairs the run can field, which is what an evaluation spreads its seeds over.
         /// The difficulty ladder divides by the same number, so every pair meets every rung.
-        [[nodiscard]] uint32 CastingCount() const { return uint32(Castings(std::nullopt).size()); }
+        [[nodiscard]] uint32 CastingCount() const { return uint32(Castings(AptitudeDemand::Anything()).size()); }
 
         /// Play only arena `arena` (an index into the stage's arenas) from the next reset on; NO_ARENA draws by weight
         /// again. The stage viewer uses it to show one situation of a mixed stage.
