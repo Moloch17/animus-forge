@@ -627,7 +627,9 @@ counts the charged presses.
 
 The core block's 74 globals are seven durative-action clocks -- the held turn and the held pitch run
 alongside the feet rather than instead of them, so they have slots and clocks of their own -- and these 67
-features: level; race one-hot (10); role one-hot (3); health; mana; rage; energy; runic
+features: level; race one-hot (10); the aptitude vector (Aptitude::COUNT: what the build can taunt,
+mitigate, heal, control, buff, cleanse, protect, revive, summon and swim with, and where its points went);
+health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
@@ -673,7 +675,7 @@ for each phase: `RewardTerms`, `AddEpisodeInfo`, `ResetEpisode`, `BeforeRebuild`
 **`CreatureEncounter`** (`Opposition::Creature`). It spawns a random creature whose natural level range covers the
 seat's level: normal rank, attackable, default AI with no script, no NPC services, not a civilian, guard or trigger,
 walking on the ground in plain sight (no flying, hovering, swim-only or rooted movement, and no stealth or invisibility
-aura on its addon), and spawned somewhere in the world. **Difficulty adapts per class and role** (`Difficulty.*`): tier t
+aura on its addon), and spawned somewhere in the world. **Difficulty adapts per class and build** (`Difficulty.*`): tier t
 below `EliteTier` (4) is a normal creature t x `LevelsPerTier` (1) levels above the seat, and from `EliteTier` on an
 elite, (t - `EliteTier`) levels above, up to `MaxTier` (6). A class and role moves up a tier once it wins (kills without
 dying) `RaiseAbove` (90%) of `Window` (200) fights at its tier, and down below `LowerBelow` (60%);
@@ -700,7 +702,7 @@ casters and ability users) to the duel pool.
 
 - **Single pack** (stage 2): creatures at the seat's level, clustered 40-50 yd away. `Pulls.LinkedChance` (70%)
   are linked, meaning once one member is in combat the rest attack. The episode is terminal on clear, death or the
-  clock. **The pack climbs a ladder per class and role**, with the duel's `Difficulty.*` rates (up at 90% of 200 packs
+  clock. **The pack climbs a ladder per class and build**, with the duel's `Difficulty.*` rates (up at 90% of 200 packs
   cleared without dying, down below 60%, 25% reviews), up to `Pulls.MaxTier` (5). Every rung has a spellcaster: a
   creature whose SmartAI casts a spell with a cast time, one an interrupt can stop (`OpponentPool::RandomCaster`).
   The other members are any pack creature, and the slots are shuffled.
@@ -1033,7 +1035,7 @@ The centralised critic sees a class-agnostic global state of the env. `StateDim 
 | Part | Features |
 |---|---|
 | Global (21) | Episode time fraction; pull active; pulls cleared / 10; time to next pull / 20 s; elite pull; linked pull; owner present, alive, health, mana, x, y (relative to the spawn point, / 40), in combat; arena one-hot (8) |
-| Per seat (4 x 23) | Present, alive, health, mana, other power, level / 80, role one-hot (3), class one-hot (10), in combat, casting, x, y |
+| Per seat (4 x 26) | Present, alive, health, mana, other power, level / 80, the six-number aptitude brief, class one-hot (10), in combat, casting, x, y |
 | Per enemy slot (4 x 25) | Present, alive, health, x, y, casting, elite, level difference / 5, in combat, victim is the owner, victim is seat s (4), max health against seat 0's, damage multiplier, armor reduction against seat 0, run speed, creature type one-hot (7) |
 
 The episode time *fraction* (the share of the episode's own limit spent) appears only in the critic state, because live
@@ -1211,7 +1213,7 @@ is up to four of the duel's creatures, which took stage 1's policy about 17 s ea
 ones (4.6).
 
 Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is clean wins of at least 85% overall
-and 65% per class and role (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
+and 65% per class and build (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
 first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
 score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
 
@@ -1315,10 +1317,10 @@ die is never a way to escape penalties.
 
 The target (provisional, for the first run to calibrate): `clean_kill` -- the win above, with the seat never dead -- of
 50% overall and 35% per class by the Wilson bound, the owner dead in at most 35% of episodes, wipes at most 0.2 an
-episode, at least 5 pulls cleared on average, no livelocks. The role checks are reported per class and per role
+episode, at least 5 pulls cleared on average, no livelocks. The care checks are reported per class and per build
 (the summary's `roles`): `owner_heal_share`, the share of the owner's damage taken the seat healed, for healers, and
 `threat_share`, the share of the enemies' attention on the seat rather than the owner, high for tanks and low for the
-rest. `target.role_metrics` gates them once a run shows what each role reaches.
+rest. `target.spec_metrics`, in a class's own config, gates them once a run shows what each build reaches.
 
 ### Stage 10: `stage15_party`
 

@@ -600,10 +600,13 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
   enough episodes still pass (95% of 228 bound at 0.92).
 - `layout_metrics`: the same bounds on every class's own episodes, which no baseline can lower.
-- `role_metrics`: bounds per role (`dps`, `tank`, `heal`, from episode info `role`) on that role's episodes, for what a
-  role is for and a floor every class shares can't ask: `{heal: {owner_heal_share: {min: 0.3}}}`.
+- `spec_metrics`: bounds per build (episode info `spec`, named by stage.json's `spec_names`) on that build's
+  episodes: `{restoration: {owner_heal_share: {min: 0.3}}}`. What a build is for, which a floor every build shares
+  cannot ask. It replaced `role_metrics` and is finer -- a role could not separate two builds that share it, and a
+  feral cat and a balance druid are both "damage" and are not equally hard to win with. What it gives up is the
+  one-line "every tank": a build gate names builds, so per-class floors live in `configs/<class>/`.
 - `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
-  summary's `up_to` group, overall and per class and role), for a stage whose ladder climbs above the fights its floors
+  summary's `up_to` group, overall and per class and build), for a stage whose ladder climbs above the fights its floors
   were set for. The tiers above still count through the score and `difficulties`.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
@@ -682,16 +685,16 @@ back once it recovers. It is a floor, never a ceiling: a policy converging on it
 
 ### Where the episodes go (`layout_sampling`)
 
-Training episodes draw a class and role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
-the learner sends the sim a weight per class and role after every evaluation (protocol `WEIGHTS`), from the gap between
-that class and role's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
+Training episodes draw a class and build evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
+the learner sends the sim a weight per class and build after every evaluation (protocol `WEIGHTS`), from the gap between
+that class and build's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
 on the size of the scenario's rewards. `strength` scales the effect (0 = even), `max_ratio` caps the spread between
 the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
-are spent. Evaluation episodes stay evenly spread over the class and role pairs whatever the weights are.
+are spent. Evaluation episodes stay evenly spread over the class and build pairs whatever the weights are.
 
-The score gap alone misses a class and role that beats its baseline yet fails an absolute gate (stage5_duel's mage beat
+The score gap alone misses a class and build that beats its baseline yet fails an absolute gate (stage5_duel's mage beat
 the scripted mage while killing only 68% of the time). `metric` names a summary field where higher is better, usually
-the one the stage is gated on (`clean_kill`): a class and role's need is then the larger of its score gap and its
+the one the stage is gated on (`clean_kill`): a class and build's need is then the larger of its score gap and its
 shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
 gate it is failing.
 

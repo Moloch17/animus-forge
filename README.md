@@ -1,13 +1,13 @@
 # mod-animus-forge
 
-Animus Forge trains World of Warcraft 3.3.5a bots that play every class and role. It is an AzerothCore module for the
+Animus Forge trains World of Warcraft 3.3.5a bots that play every class, in every build it has. It is an AzerothCore module for the
 **forge core** (the `forge` branch of [azerothcore-wotlk](https://github.com/Moloch17/azerothcore-wotlk)), a headless
 simulator that runs faster than real time, together with a Python MAPPO learner in [`python/`](python/).
 
 The sim runs many environments in parallel, each its own dungeon instance, and turns every seat into a new character
 each episode. It trades observations for actions with the learner over a Unix socket, one decision at a time. The
-learner trains one policy for all 18 class/roles through a curriculum of stages, scores it against a scripted
-baseline, decides when a stage is good enough to move on, and exports one small `.amdl` model per class/role.
+learner trains one policy for all ten classes through a curriculum of stages, scores it against a scripted
+baseline, decides when a stage is good enough to move on, and exports one small `.amdl` model per class.
 [mod-animus](https://github.com/Moloch17/animus) plays those models on an ordinary realm.
 
 **The detail is in [the Animus manual](docs/manual/README.md).** This page is the map.
@@ -24,18 +24,26 @@ baseline, decides when a stage is good enough to move on, and exports one small 
 
 ## The curriculum
 
-Eleven stages and a pilot, each seeded from the stage it extends. Every stage trains one policy for all 18 class/roles.
+One line of stages, each seeded from the one before it. Every stage trains one policy per class, covering every
+build that class has.
 
 ```
-stage5_duel ─┬─ stage6_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
-             ├─ stage6_pvp ─ stage7_arena ─┬──────────────────────────────────────┘
-             │                             └─ stage11_flag
-             └─ stage9_travel ─┬─ stage10_flight      (stage11_flag also merges stage9_travel)
+move ─ dodge ─ travel ─ flight            the feet: ground, fire underfoot, the mount, the air
+     ─ duel ─ pack ─ gauntlet ─ endurance           alone, against things that fight back
+     ─ pvp ─ evade ─ hide ─ stealth ─ arena         against people
+     ─ companion ─ party ─ tanking ─ triage         beside others, nobody commanding yet
+     ─ flag ─ warsong ─ duo_led                     an objective, and then a director
 ```
 
-A duel against a creature grows into packs, a gauntlet of pulls, a scripted owner to protect and a real party. A PvP
-branch goes from a scripted enemy player to self-play, stage 8 joins both into one policy, and a third branch teaches
-riding, flying and Warsong Gulch's rules. See [chapter 4](docs/manual/04-curriculum.md).
+**It starts with the feet.** The first four stages have nothing to kill in them: a seat steers itself now, and
+where it puts its feet is not something only some stages are about — so everything after them inherits legs that
+already work, rather than learning to fight and to walk at the same time.
+
+Then a duel against a creature grows into packs, a gauntlet of pulls, a scripted owner to protect and a real party;
+a PvP run goes from a scripted enemy player through evading, hiding and stealth to self-play; and the last stages
+add an objective and a director. It is one line rather than a tree because a branch ends in several checkpoints and
+everything a leaf teaches is discarded unless the stage exported from is downstream of it. See
+[chapter 4](docs/manual/04-curriculum.md).
 
 ## Quick start (Docker)
 

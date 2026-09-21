@@ -41,11 +41,12 @@ namespace Animus::Curriculum
     /// One curriculum stage (see StageDefinition) for every class of StageSettings::Classes, as layouts of one
     /// policy.
     ///
-    /// Each learned agent of an env is a seat: every episode it becomes a new character of a class/role -- a race the
-    /// class allows, random gender, level (1-80, 55-80 for death knights), one of the role's specs with its standard
-    /// talent build and glyphs, the trainer spells of the level, random level-appropriate gear including trinkets,
-    /// enchants and gems, and potions, bandages and stones it must learn to use. A seat's layout is its class/role's (see Layout), padded to the
-    /// largest layout's on the wire; the learner shares one trunk between all layouts.
+    /// Each learned agent of an env is a seat: every episode it becomes a new character of a class -- a race the
+    /// class allows, random gender, level (1-80, 55-80 for death knights), one of its builds with that build's
+    /// standard talents and glyphs, the trainer spells of the level, random level-appropriate gear including
+    /// trinkets, enchants and gems, and potions, bandages and stones it must learn to use. A seat's layout is its
+    /// class's (see Layout), padded to the largest layout's on the wire; the learner shares one trunk between all
+    /// layouts.
     ///
     /// Every episode is one of the stage's arenas (see ArenaDefinition), drawn by weight after the evaluation reseed.
     /// The scenario builds the seats and drives the encounters the arena uses (see Encounter); the critic state is
