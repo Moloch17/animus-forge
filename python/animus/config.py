@@ -28,7 +28,7 @@ REPORT_COLUMNS = (
     # damage taken the seat healed (healers) and the share of the enemies' attention on the seat rather than the owner
     # (high for tanks, low for damage dealers and healers).
     "owner_died", "owner_damage_taken", "owner_heal_share", "threat_share",
-    # Pets: logged per episode in eval_episodes.jsonl with the episode's class/role, so a pet class's use of its pet
+    # Pets: logged per episode in eval_episodes.jsonl with the episode's class/build, so a pet class's use of its pet
     # can be read on its own.
     "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",
     # Fights no play could win (a creature with no path to the seat), and one action pressed over and over.
@@ -103,23 +103,28 @@ class TargetConfig:
 
     # Overall score >= baseline + this x |baseline|, on the eval.baseline scripted policy's seeds: 0.2 = 20% better.
     min_over_baseline: float | None = None
-    # Every class/role's score >= its baseline + this x |baseline|: a looser floor so no layout is left behind.
+    # Every class/build's score >= its baseline + this x |baseline|: a looser floor so no layout is left behind.
     min_layout_over_baseline: float | None = None
     # Layouts with fewer eval rows than this (one per seat with a character in each seeded episode) are too noisy to
     # gate. Named episodes for the configs' sake; in the party stage one episode gives up to four rows.
     min_layout_episodes: int = 16
     # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
     metrics: dict = field(default_factory=dict)
-    # The same bounds, checked on every class/role's own episodes. min_layout_over_baseline only asks a layout to
+    # The same bounds, checked on every class's own episodes. min_layout_over_baseline only asks a layout to
     # beat its own baseline, which says nothing where the scripted baseline is itself hopeless: stage1_duel passed
     # warlock_dps against a required score of -2.34 and priest_heal against -0.72, so a warlock that killed 65% of
     # the time and livelocked in a quarter of its episodes cleared the gate. An absolute floor cannot be lowered by
     # a bad baseline. Same shape as metrics, and derived summary fields (livelocked) can be gated too.
     layout_metrics: dict = field(default_factory=dict)
-    # Per role (dps, tank, heal: episode info "role"), the same bounds on that role's episodes, e.g.
-    # {heal: {owner_heal_share: {min: 0.3}}, tank: {threat_share: {min: 0.5}}}: what a class/role is for, which a
-    # floor every class/role shares cannot ask. Judged on the base_difficulty group when one is set.
-    role_metrics: dict = field(default_factory=dict)
+    # Per build (episode info "spec", named by stage.json's spec_names), the same bounds on that build's
+    # episodes, e.g. {restoration: {low_health_seconds: {max: 5}}, feral_bear: {threat_share: {min: 0.6}}}: what a
+    # build is for, which a floor every build shares cannot ask.
+    #
+    # This replaces role_metrics and is strictly finer. A role could not separate two builds that share it, so a
+    # feral cat and a balance druid were graded as one thing and either could carry the other; a spec is the name
+    # of a talent template, which is a real property of a build rather than a guess at what it is for. Judged on
+    # the base_difficulty group when one is set.
+    spec_metrics: dict = field(default_factory=dict)
     # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
     # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
     arenas: dict = field(default_factory=dict)
@@ -134,7 +139,7 @@ class TargetConfig:
     base_difficulty: int | None = None
     # Score gates pass when the score is within this many standard errors of what they require (of the difference
     # between the two means, the learner's and the baseline's). Each layout is scored on its share of the episodes
-    # only, so without an allowance a class/role that is truly level with its baseline fails about half the time.
+    # only, so without an allowance a class/build that is truly level with its baseline fails about half the time.
     # 0 = compare the raw means.
     noise_z: float = 1.0
     # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
@@ -150,7 +155,7 @@ class TargetConfig:
     @property
     def enabled(self) -> bool:
         return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
-                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.role_metrics) or bool(self.arenas)
+                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.spec_metrics) or bool(self.arenas)
                 or bool(self.difficulties))
 
     def arena_needs_baseline(self) -> bool:
@@ -212,7 +217,7 @@ class DistillConfig:
 
 @dataclass
 class LayoutSamplingConfig:
-    """Training episodes draw a class/role uniformly, so each layout gets its share of the data whatever it is
+    """Training episodes draw a class/build uniformly, so each layout gets its share of the data whatever it is
     worth. A stage is gated on its weakest layout, though, so the data is worth most where the score is furthest
     below the baseline. After every evaluation the learner sends the sim a weight per layout (protocol WEIGHTS) and
     training episodes draw layouts in proportion; evaluation stays uniform, whatever the weights are.

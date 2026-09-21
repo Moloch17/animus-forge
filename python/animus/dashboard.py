@@ -17,7 +17,7 @@ it always was. The commands are a fixed list mapped onto `forge <name>`: the req
 command string, so nothing the page is tricked into sending can become a different console command.
 
 TensorBoard (http://localhost:16006) plots the same scalars in more depth; this page answers the questions it cannot:
-what config is this run using, which stage of the plan is live, and how is each class and role doing in the last
+what config is this run using, which stage of the plan is live, and how is each class and build doing in the last
 evaluation.
 """
 from __future__ import annotations
@@ -67,7 +67,7 @@ PLOT_PREFERRED = [
 # Bookkeeping rather than behaviour: what class the seat rolled says nothing about what the stage taught.
 PLOT_NEVER = {
     "update", "env_steps", "env_steps_per_sec", "update_seconds", "episodes",
-    "episode_level", "episode_race", "episode_class", "episode_role", "episode_spec",
+    "episode_level", "episode_race", "episode_class", "episode_spec",
     "episode_present", "episode_talent_plan", "episode_opponent", "episode_opponent_seat",
     "episode_unspent_talent_points", "episode_equipped_items", "episode_form_at_end",
 }
@@ -78,10 +78,8 @@ MAX_SERIES = 9          # what the charts grid holds without the panel becoming 
 def series_label(column: str) -> str:
     """`episode_flag_captures` -> `flag captures`, which is what a chart has room for."""
     return column.replace("episode_", "").replace("_", " ")
-# Curriculum::Role order, for an episode log that reports the role as its index rather than its name.
-ROLE_NAMES = ("dps", "tank", "heal")
 
-# Per (class, role), from the last evaluation's episodes.
+# Per (class, build), from the last evaluation's episodes.
 LAYOUT_FIELDS = ["killed", "died", "timed_out", "options_started", "option_seconds", "preparation_seconds",
                  "in_melee_share", "repeated_presses", "health_left", "interrupts", "control_seconds"]
 
@@ -315,11 +313,11 @@ def choose_series(metrics: dict[str, list], limit: int = MAX_SERIES) -> list[str
 
 
 def parse_live_layouts(path: Path) -> dict:
-    """The newest update's per (class, role) training rows (layouts.csv). Training episodes, not an evaluation:
-    sampled actions at each class and role's own ladder difficulty, which is what makes them live -- they arrive
+    """The newest update's per (class, build) training rows (layouts.csv). Training episodes, not an evaluation:
+    sampled actions at each class and build's own ladder difficulty, which is what makes them live -- they arrive
     every update rather than every eval.every_env_steps.
 
-    One model is a whole class, so the rows are per class and role and are shown that way: a paladin appears as
+    One model is a whole class, so the rows are per class and build and are shown that way: a paladin appears as
     paladin_tank and paladin_heal, which is what the eighteen layouts used to be called and what the difficulty
     ladder and the sampling weights are still keyed on."""
     rows = list(csv.DictReader(io.StringIO(path.read_text(errors="replace"))))
@@ -331,8 +329,8 @@ def parse_live_layouts(path: Path) -> dict:
     layouts = []
     for row in latest:
         name = row.get("layout", "?")
-        role = (row.get("role") or "").strip()
-        entry = {"layout": f"{name}_{role}" if role else name, "class": name, "role": role}
+        spec = (row.get("spec") or "").strip()
+        entry = {"layout": f"{name}_{spec}" if spec else name, "class": name, "spec": spec}
         for key, value in row.items():
             if key.startswith("episode_") or key in ("episodes", "env_steps"):
                 try:
@@ -346,10 +344,11 @@ def parse_live_layouts(path: Path) -> dict:
 
 
 def parse_layouts(path: Path) -> dict:
-    """Per (class, role) means over the last evaluation in the episode log (the learner appends every one).
+    """Per (class, build) means over the last evaluation in the episode log (the learner appends every one).
 
-    Keyed on the pair rather than the model for the same reason the training rows are: a class that tanks and
-    heals is two things to be good at, and one average over both describes neither."""
+    Keyed on the pair rather than the model for the same reason the training rows are: a class with a build that
+    holds the line and one that heals is two things to be good at, and one average over both describes neither.
+    The build's name comes from the episode log, which the learner writes with it."""
     last_steps = None
     totals: dict[str, dict[str, float]] = {}
     with path.open(errors="replace") as handle:
@@ -366,10 +365,10 @@ def parse_layouts(path: Path) -> dict:
             if steps != last_steps:
                 continue
             name = row.get("layout", "?")
-            role = row.get("role")
-            if isinstance(role, (int, float)):
-                role = ROLE_NAMES[int(role)] if 0 <= int(role) < len(ROLE_NAMES) else None
-            entry = totals.setdefault(f"{name}_{role}" if role else name, {"n": 0.0})
+            spec = row.get("spec")
+            if not isinstance(spec, str):
+                spec = None
+            entry = totals.setdefault(f"{name}_{spec}" if spec else name, {"n": 0.0})
             entry["n"] += 1
             for field in LAYOUT_FIELDS:
                 entry[field] = entry.get(field, 0.0) + (row.get(field) or 0.0)
@@ -492,7 +491,7 @@ PAGE = r"""<!doctype html>
   h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .01em; }
   .muted { color: var(--dim); }
   main { padding: 20px; display: grid; gap: 16px; max-width: 1400px; }
-  /* A table of eighteen class and role pairs is wider than a phone: each scrolls sideways inside its panel, so the page
+  /* A table of class and build pairs is wider than a phone: each scrolls sideways inside its panel, so the page
      itself never does. Without this the body scrolls horizontally and the cards and charts go off-screen. */
   .panel > .scroll, .panel > div[id] { overflow-x: auto; }
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
@@ -562,9 +561,9 @@ PAGE = r"""<!doctype html>
   <div class="cards" id="cards"></div>
   <div class="panel"><h2>Training</h2><div class="charts" id="charts"></div></div>
   <div class="panel"><h2>Evaluations</h2><div id="evals"></div></div>
-  <div class="panel"><h2>Class and role, right now <span id="livesteps" class="muted"></span></h2>
+  <div class="panel"><h2>Class and build, right now <span id="livesteps" class="muted"></span></h2>
     <div class="scroll"><table id="live"></table></div></div>
-  <div class="panel"><h2>Class and role, last evaluation <span id="layoutsteps" class="muted"></span></h2>
+  <div class="panel"><h2>Class and build, last evaluation <span id="layoutsteps" class="muted"></span></h2>
     <div class="scroll"><table id="layouts"></table></div></div>
   <div class="panel"><h2>Seeding the next stage</h2><div id="seed"></div></div>
   <div class="panel"><h2>Runs</h2><div class="scroll"><table id="runs"></table></div></div>
@@ -643,7 +642,7 @@ function render() {
       <td class="muted">${fmt(e.stderr, 3)}</td><td>${e.best === null ? "-" : fmt(e.best, 3)}</td></tr>`).join("")}
     </tbody></table>` : `<span class="muted">none yet</span>`;
 
-  // What each class and role is doing in the training episodes of the newest update, not at the last evaluation.
+  // What each class and build is doing in the training episodes of the newest update, not at the last evaluation.
   const LV = state.live || {};
   document.getElementById("livesteps").textContent = LV.update !== undefined
     ? `(update ${LV.update}, ${steps(LV.env_steps || 0)} steps, sampled actions)` : "(waiting for the first update)";

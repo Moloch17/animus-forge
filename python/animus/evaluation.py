@@ -33,8 +33,9 @@ LEVEL_BANDS = ((1, 20), (21, 40), (41, 60), (61, 80))
 # How a character's talents were spent, by the episode info column "talent_plan" (SeatCharacter::TalentPlan).
 # Scored as its own group so a run shows whether the policy plays a build it was not handed the recipe for.
 TALENT_PLANS = ("standard", "noisy", "random")
-# Episode info "role" (Curriculum::Role), for the per-role summary.
-ROLES = ("dps", "tank", "heal")
+# There is no role. A seat is summarised by the build it drew (episode info "spec", named per class by
+# stage.json's spec_names), which is finer where it matters: a feral cat and a balance druid were one role and are
+# not equally hard to win with.
 
 # An episode that cancelled at least this many of its own casts did not merely waste a few: with a decision every
 # 100 ms it spent the episode in a start-cast / stop-cast loop. Deterministic actions cannot break out of one --
@@ -69,6 +70,8 @@ class EvalResult:
     # takes can be told from one it was never offered (a missing reagent, a spell the character doesn't have).
     allowed_counts: np.ndarray | None = None
     action_names: dict[str, list[str]] = field(default_factory=dict)
+    # Per layout, its class's build names in the order the "spec" episode info column indexes them.
+    spec_names: dict[str, list[str]] = field(default_factory=dict)
     # Decision by decision, for the first `eval.trace_episodes` seeded episodes: what the policy did and what it said
     # it was doing. A summary cannot show a plan -- the order of the decisions is the plan -- so this is what to read
     # when asking whether a bot saved a cooldown, rested before a pull or held an add.
@@ -186,7 +189,7 @@ class EvalResult:
             return out
 
         everything = np.ones(self.episodes, dtype=bool)
-        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "roles": {},
+        result = {"policy": self.policy, **means(everything), "bands": {}, "layouts": {}, "specs": {},
                   "castings": {}, "arenas": {}, "builds": {}, "difficulties": {}, "up_to": {}}
         levels = self.column("level")
         if levels is not None:
@@ -198,23 +201,33 @@ class EvalResult:
             names = np.array(self.layouts)
             for layout in sorted(set(self.layouts)):
                 result["layouts"][layout] = means(names == layout)
-        roles = self.column("role")
-        if roles is not None:
-            for index, role in enumerate(ROLES):
-                rows = roles == index
-                if rows.any():
-                    result["roles"][role] = means(rows)
-        # Each (class, role) on its own, which is the grain the sim draws at and the grain a class model can be
-        # good at one part of and bad at another: one model plays every role its class has, so a paladin's healing
-        # has to be scored apart from its tanking or the average hides it. Named class_role, as the layouts were
-        # before the models were joined.
-        if roles is not None and self.layouts and len(self.layouts) == self.episodes:
+        specs = self.column("spec")
+        # Each (class, build) on its own, which is the grain the sim draws at and the grain a class model can be
+        # good at one part of and bad at another: one model plays every build its class has, so a paladin's healing
+        # has to be scored apart from its tanking or the average hides it. A build is named per class, so the same
+        # index means different things across layouts and the pair is the only meaningful key.
+        if specs is not None and self.layouts and len(self.layouts) == self.episodes:
             names = np.array(self.layouts)
             for layout in sorted(set(self.layouts)):
-                for index, role in enumerate(ROLES):
-                    rows = (names == layout) & (roles == index)
+                for index, spec in enumerate(self.spec_names.get(layout, [])):
+                    rows = (names == layout) & (specs == index)
                     if rows.any():
-                        result["castings"][f"{layout}_{role}"] = means(rows)
+                        result["castings"][f"{layout}_{spec}"] = means(rows)
+                        result["specs"].setdefault(spec, {})
+        # And each build name on its own across the classes that have one, for a run of several classes where
+        # "restoration" is a thing two of them do.
+        if specs is not None and self.layouts and len(self.layouts) == self.episodes:
+            names = np.array(self.layouts)
+            for spec in list(result["specs"]):
+                rows = np.zeros(self.episodes, dtype=bool)
+                for layout in sorted(set(self.layouts)):
+                    named = self.spec_names.get(layout, [])
+                    if spec in named:
+                        rows |= (names == layout) & (specs == named.index(spec))
+                if rows.any():
+                    result["specs"][spec] = means(rows)
+                else:
+                    result["specs"].pop(spec, None)
         arenas = self.column("arena")
         if len(self.arenas) > 1 and arenas is not None:
             for index, arena in enumerate(self.arenas):
@@ -235,8 +248,13 @@ class EvalResult:
                 group = means(rows)
                 group["layouts"] = {} if names is None else {
                     layout: means(rows & (names == layout)) for layout in sorted(set(self.layouts))}
-                group["roles"] = {} if roles is None else {
-                    role: means(rows & (roles == index)) for index, role in enumerate(ROLES) if (roles == index).any()}
+                group["specs"] = {}
+                if specs is not None and names is not None:
+                    for layout in sorted(set(self.layouts)):
+                        for index, spec in enumerate(self.spec_names.get(layout, [])):
+                            picked = rows & (names == layout) & (specs == index)
+                            if picked.any():
+                                group["specs"][f"{layout}_{spec}"] = means(picked)
                 result["up_to"][str(tier)] = group
         plans = self.column("talent_plan")
         if plans is not None and len(set(plans.tolist())) > 1:

@@ -39,7 +39,7 @@ class MappoConfig:
     # on a scale it has outgrown: 0.99 halves the old stats every ~69 updates, 0.99999 every ~69,000.
     value_norm_beta: float = 0.99
     # Normalise advantages within each layout rather than over the whole rollout. One mean and one standard
-    # deviation across 18 class/roles with different reward scales lets the largest of them set the gradient of
+    # deviation across 18 class/builds with different reward scales lets the largest of them set the gradient of
     # the trunk they share. Groups smaller than this fall back to the rollout's own statistics.
     per_layout_advantages: bool = True
     min_layout_rows: int = 32

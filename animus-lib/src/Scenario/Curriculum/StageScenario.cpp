@@ -1072,6 +1072,13 @@ void Animus::Curriculum::StageScenario::WriteStageFiles(StageSettings const& set
         for (std::string const& name : layout.ActionNames())
             actionNames.push_back(boost::json::string(name));
 
+        // The class's builds, in the order the episode info column "spec" indexes them, so the learner can group
+        // and gate by build (target.spec_metrics) without having to know the classes.
+        boost::json::array& specNames = entry["spec_names"].emplace_array();
+        if (!layout.Director && layout.Profile)
+            for (SpecProfile const& spec : layout.Profile->Specs)
+                specNames.push_back(boost::json::string(spec.Name));
+
         boost::json::array& spans = entry["blocks"].emplace_array();
         for (BlockId id : layout.Blocks)
         {
