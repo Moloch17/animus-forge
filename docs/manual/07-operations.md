@@ -150,7 +150,16 @@ which is already a valid order, so the usual case needs no arguments at all.
 |---|---|
 | `forge status` | The live report: rates, ETAs, evaluation scores against baseline, warnings |
 | `forge progress 600` | The same report every 10 minutes |
-| The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class/role. Started by the worldserver container, refreshes every 5 s |
+| The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class/role. It shows `forge fast` runs as well as real ones, and picks each stage's curves out of its own metrics.csv rather than plotting a fixed list. Started by the worldserver container, refreshes every 5 s. With `SOAP.Enabled` and an `etc/animus-dashboard.auth` holding `user:password` for an account with SEC_ADMINISTRATOR, it also gets pause/resume/skip/cancel and the seeding choice below; without them it is read-only |
+**Which checkpoint the next stage starts from.** A stage seeds from its parent's `best.pt`, and `best.pt` is only
+rewritten by an evaluation that clears the convergence margin (`max(min_improvement_abs, min_improvement x |best|,
+z x the two scores' standard errors)`). On a short run that margin is wide -- 64-episode evaluations have big error
+bars -- so `best.pt` can sit millions of steps behind `latest.pt` while later evaluations score higher without ever
+clearing it. Skipping a stage then hands the next one the older network. The dashboard's "Seeding the next stage"
+panel says how far behind `best.pt` is and lets you pick `best.pt`, `latest.pt` or the learner's own default; it
+writes a one-word `seed_from` file in the run directory, which `animus.train.seed_preference` reads. `seed_from` in
+the learner config is the same choice for a whole run, and the file wins over it.
+
 | `<OutputDir>/runs/<stage>/layouts.csv` | Per class/role, **every update**: what each of them is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). metrics.csv averages all eighteen together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
 | TensorBoard at http://localhost:16006 | `episode_*`, losses, entropy, `eval/*`, `eval_<band>/*`, `eval_arena_<arena>/*` |
 | `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class/role and arena |

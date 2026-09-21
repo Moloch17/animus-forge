@@ -100,6 +100,42 @@ SOAP_ENVELOPE = (
 )
 
 
+# The one-word file beside a run's checkpoints that says which of them should seed the stage after it. The
+# learner reads the same name (animus.train.seed_preference); it is duplicated rather than imported because this
+# page runs on the image's python, without the learner's venv, and importing animus.train would pull in torch.
+SEED_MARKER = "seed_from"
+SEED_CHOICES = ("best", "latest")
+
+
+def seed_state(run_dir: Path, progress: dict) -> dict:
+    """What the next stage would seed from if this run ended now, and how far behind that leaves it.
+
+    best.pt is only rewritten by an evaluation that clears the convergence margin, so it can sit a long way behind
+    latest.pt -- on a short run, where 64-episode evaluations make the margin wide, millions of steps. That gap is
+    the whole reason for the choice, so it is what the page shows."""
+    try:
+        marked = (run_dir / SEED_MARKER).read_text().strip().lower()
+    except OSError:
+        marked = ""
+    choice = marked if marked in SEED_CHOICES else ""
+
+    has = {name: (run_dir / f"{name}.pt").exists() for name in SEED_CHOICES}
+    prefer = choice or "best"
+    other = "latest" if prefer == "best" else "best"
+    resolved = prefer if has[prefer] else (other if has[other] else "")
+
+    at = progress.get("best_env_steps") or 0
+    now = progress.get("env_steps") or 0
+    return {
+        "choice": choice,                       # "" when the run carries no marker and the default decides
+        "resolved": resolved,                   # what the next stage would actually take
+        "has": has,
+        "best_env_steps": at,
+        "env_steps": now,
+        "behind": max(0, now - at) if has["best"] else 0,
+    }
+
+
 def read_soap_auth(path: Path | None) -> tuple[str, str] | None:
     """`user:password` from a file, or None when there is none to read.
 
@@ -384,6 +420,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
     series: list = []
     layouts: dict = {}
     live_layouts: dict = {}
+    seed: dict = {}
     if current:
         run_dir = Path(current["dir"])
         metrics = CACHE.get(run_dir / "metrics.csv", parse_metrics) or {}
@@ -394,6 +431,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
         series = [{"key": name, "label": series_label(name)} for name in chosen]
         layouts = CACHE.get(run_dir / "eval_episodes.jsonl", parse_layouts) or {}
         live_layouts = CACHE.get(run_dir / "layouts.csv", parse_live_layouts) or {}
+        seed = seed_state(run_dir, current["progress"])
 
     dist = CACHE.get(DIST_CONF, parse_conf) or {}
     config = [{"key": key, "value": value, "default": dist.get(key), "changed": key in dist and dist[key] != value}
@@ -413,6 +451,7 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
         "metrics": metrics,
         "layouts": layouts,
         "live": live_layouts,
+        "seed": seed,
         "config": config,
     }
 
@@ -470,6 +509,12 @@ PAGE = r"""<!doctype html>
   .controls button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
   .said { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
   .said.bad { color: var(--bad); } .said.good { color: var(--good); }
+  .seedrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .seedrow button { background: #1b2030; color: var(--text); border: 1px solid var(--line);
+                    border-radius: 7px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+  .seedrow button:hover { border-color: var(--accent); }
+  .seedrow button.on { border-color: var(--accent); background: #22304a; }
+  .seedrow .why { font-size: 12px; }
   @media (max-width: 700px) {
     main { padding: 12px; gap: 12px; }
     header { padding: 12px; gap: 8px; }
@@ -501,6 +546,7 @@ PAGE = r"""<!doctype html>
     <div class="scroll"><table id="live"></table></div></div>
   <div class="panel"><h2>Class and role, last evaluation <span id="layoutsteps" class="muted"></span></h2>
     <div class="scroll"><table id="layouts"></table></div></div>
+  <div class="panel"><h2>Seeding the next stage</h2><div id="seed"></div></div>
   <div class="panel"><h2>Runs</h2><div class="scroll"><table id="runs"></table></div></div>
   <div class="panel"><h2>Config
       <input type="search" id="filter" placeholder="filter keys and values">
@@ -627,6 +673,7 @@ function render() {
     </tbody>`;
 
   renderControls(run, p);
+  renderSeed();
   renderConfig();
 }
 
@@ -648,6 +695,56 @@ function renderControls(run, p) {
     `<button data-cmd="${n}" class="${n === "cancel" ? "danger" : ""}" ${enabled[n] ? "" : "disabled"}
       >${label[n] || n}</button>`).join("");
   box.querySelectorAll("button").forEach(b => b.addEventListener("click", () => send(b.dataset.cmd)));
+}
+
+// Which checkpoint the stage after this one starts from. best.pt is only rewritten by an evaluation that clears
+// the convergence margin, so it can sit a long way behind latest.pt -- and the next stage takes best.pt unless
+// told otherwise, which silently throws that distance away.
+function renderSeed() {
+  const s = state.seed || {};
+  const box = document.getElementById("seed");
+  if (!s.resolved && !s.has) { box.innerHTML = `<span class="muted">no run yet</span>`; return; }
+
+  const active = s.choice || "";
+  const behind = s.behind || 0;
+  const warn = active !== "latest" && behind > 0;
+  const why = !s.has || !s.has.best
+    ? `<span class="muted why">no best.pt yet, so latest.pt is what seeds either way</span>`
+    : warn
+      ? `<span class="why warn">best.pt is ${steps(behind)} steps behind latest.pt${
+          s.best_env_steps ? ` (best at ${steps(s.best_env_steps)}, now ${steps(s.env_steps)})` : ""}</span>`
+      : `<span class="why good">best.pt is current</span>`;
+
+  box.innerHTML = `<div class="seedrow">
+      <span class="muted">next stage seeds from</span>
+      <button data-seed="best" class="${active === "best" ? "on" : ""}">best.pt</button>
+      <button data-seed="latest" class="${active === "latest" ? "on" : ""}">latest.pt</button>
+      <button data-seed="default" class="${active === "" ? "on" : ""}"
+              title="whatever the learner's own seed_from setting says">default</button>
+      <span class="muted">&rarr; ${s.resolved ? s.resolved + ".pt" : "nothing"}</span>
+      ${why}
+    </div>`;
+  box.querySelectorAll("button").forEach(b =>
+    b.addEventListener("click", () => setSeed(b.dataset.seed)));
+}
+
+async function setSeed(choice) {
+  const said = document.getElementById("said");
+  said.className = "muted said";
+  said.textContent = "setting...";
+  try {
+    const r = await fetch("api/seed", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ choice }),
+    });
+    const out = await r.json();
+    said.className = "said " + (out.ok ? "good" : "bad");
+    said.textContent = out.output || "";
+  } catch (e) {
+    said.className = "said bad";
+    said.textContent = "could not set it";
+  }
+  poll();
 }
 
 async function send(command) {
@@ -736,7 +833,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler's name
-        if self.path.split("?")[0].rstrip("/") != "/api/command":
+        route = self.path.split("?")[0].rstrip("/")
+        # Choosing the seed checkpoint writes a file rather than talking to the sim, so it works without SOAP.
+        if route == "/api/seed":
+            self._set_seed()
+            return
+        if route != "/api/command":
             self.send_error(404)
             return
         if not self.soap_auth:
@@ -752,6 +854,42 @@ class Handler(BaseHTTPRequestHandler):
 
         ok, output = run_command(str(name), self.soap_url, self.soap_auth)
         self._send(json.dumps({"ok": ok, "output": output}).encode(), "application/json")
+
+    def _set_seed(self):
+        """Write (or clear) the current run's seed_from marker.
+
+        The only thing this page ever writes, and it writes one word into one file, in the run directory it is
+        already showing. The directory comes from the server's own scan rather than from the request, so a request
+        cannot name a path; the word is checked against SEED_CHOICES before it is written."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            choice = str((json.loads(self.rfile.read(length) or b"{}") or {}).get("choice", "")).strip().lower()
+        except (ValueError, TypeError):
+            choice = ""
+        if choice not in (*SEED_CHOICES, "default"):
+            self._send(json.dumps({"ok": False, "output": f"{choice or 'that'} is not a choice"}).encode(),
+                       "application/json")
+            return
+
+        state = collect(self.runs_dir, self.conf_path)
+        if not state.get("current"):
+            self._send(json.dumps({"ok": False, "output": "no run to set it on"}).encode(), "application/json")
+            return
+
+        marker = Path(state["current"]) / SEED_MARKER
+        try:
+            if choice == "default":
+                marker.unlink(missing_ok=True)
+                said = "cleared: the learner's own setting decides"
+            else:
+                marker.write_text(choice + "\n")
+                said = f"the next stage will seed from {choice}.pt"
+        except OSError as error:
+            self._send(json.dumps({"ok": False, "output": f"could not write it ({error.strerror})"}).encode(),
+                       "application/json")
+            return
+
+        self._send(json.dumps({"ok": True, "output": said}).encode(), "application/json")
 
     def log_message(self, *_args):
         pass        # a poll every 5 s would fill the terminal it runs in

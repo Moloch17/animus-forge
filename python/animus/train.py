@@ -256,14 +256,36 @@ class EvalLog:
             }) + "\n")
 
 
-def init_from_checkpoint(path: str) -> Path | None:
-    """The configured seed checkpoint, or the latest.pt beside a best.pt that does not exist."""
+SEED_MARKER = "seed_from"
+
+
+def seed_preference(run_dir: Path, default: str = "best") -> str:
+    """Which of a finished run's checkpoints should seed the stage after it: "best" or "latest".
+
+    A run can carry the answer itself, in a one-word `seed_from` file beside its checkpoints -- which is what the
+    dashboard writes when you pick one. It is per run rather than per queue because the reason to want `latest` is
+    usually about one stage: best.pt is only rewritten by an evaluation that clears the convergence margin, so a
+    stage whose later evaluations scored better without clearing it has a best.pt that is genuinely behind its
+    latest.pt, and seeding the next stage from `best` there throws that training away."""
+    try:
+        choice = (run_dir / SEED_MARKER).read_text().strip().lower()
+    except OSError:
+        return default
+    return choice if choice in ("best", "latest") else default
+
+
+def init_from_checkpoint(path: str, default: str = "best") -> Path | None:
+    """The seed checkpoint a candidate path resolves to, honouring the run's own `seed_from` choice.
+
+    Either name falls back to the other, so a run that has only ever written one of them still seeds."""
     candidate = Path(path)
-    if candidate.exists():
-        return candidate
-    if candidate.name == "best.pt" and (candidate.parent / "latest.pt").exists():
-        return candidate.parent / "latest.pt"
-    return None
+    if candidate.name in ("best.pt", "latest.pt"):
+        prefer = seed_preference(candidate.parent, default)
+        for name in (["latest.pt", "best.pt"] if prefer == "latest" else ["best.pt", "latest.pt"]):
+            if (found := candidate.parent / name).exists():
+                return found
+        return None
+    return candidate if candidate.exists() else None
 
 
 def load_parent(path: Path) -> dict:
@@ -283,7 +305,7 @@ def make_distiller(config: TrainConfig, spec, stage: dict | None, parents: list[
     if named:
         chosen = {}
         for arena, candidate in named.items():
-            path = init_from_checkpoint(candidate)
+            path = init_from_checkpoint(candidate)   # a resume takes the file it was given
             if path is None:
                 print(f"Teacher {candidate} for arena {arena} does not exist; that arena is not distilled", flush=True)
                 continue
@@ -514,10 +536,11 @@ class TrainingRun:
         candidates = config.resolved_init_from(self.stage)
         if finetune and Path(finetune).is_file():
             candidates = [finetune, *candidates]
-        base_path = next((path for c in candidates if (path := init_from_checkpoint(c))), None)
+        prefer = config.seed_from
+        base_path = next((path for c in candidates if (path := init_from_checkpoint(c, prefer))), None)
         merge_paths = []
         for candidate in config.resolved_merge_from(self.stage):
-            if path := init_from_checkpoint(candidate):
+            if path := init_from_checkpoint(candidate, prefer):
                 merge_paths.append(path)
             else:
                 print(f"Merged stage checkpoint {candidate} does not exist: nothing is seeded or taught from it",

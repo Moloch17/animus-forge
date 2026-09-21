@@ -279,6 +279,12 @@ class TrainConfig:
     # them, with {runs_dir} and {run_name} filled in. A best.pt that does not exist falls back to the latest.pt beside
     # it. Empty = train from scratch.
     init_from: str | list[str] = AUTO
+    # Which of a parent run's checkpoints to seed from when both exist: "best" or "latest". best.pt is only
+    # rewritten by an evaluation that clears the convergence margin, so on a short run -- where 64-episode
+    # evaluations make that margin wide -- it can sit many millions of steps behind latest.pt. A parent run that
+    # carries its own `seed_from` file overrides this for itself (animus.train.seed_preference); the dashboard
+    # writes that file.
+    seed_from: str = "best"
     # A merge stage's further parents (stage.json merges), seeding the blocks only they have after init_from: "auto"
     # takes each merged stage's best.pt (else latest.pt); a list names checkpoints; empty = none.
     merge_from: str | list[str] = AUTO
