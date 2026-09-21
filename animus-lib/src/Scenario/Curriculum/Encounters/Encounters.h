@@ -553,6 +553,8 @@ namespace Animus::Curriculum
     private:
         struct EnvTravel
         {
+            bool Crossing = false;          // the objective was placed across water (a water arena that found one)
+            uint32 SwimMs = 0;              // how long the seat has been in the water this episode
             bool HasObjective = false;
             Position Objective;
             float StartDistance = 0.0f;         // yards on the ground at the start

@@ -62,6 +62,15 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
         return float(travel.Arrived ? travel.ArriveMs : env.EpisodeElapsedMs) / 1000.0f;
     });
     table.Add("start_distance", [this](Env const& env, uint32) { return _envs[env.Index].StartDistance; });
+    // Whether the episode was built as a water crossing at all, and how long the seat spent in the water. The
+    // first says what the arena offered, the second what the seat did with it -- and a water arena where
+    // swim_seconds stays at zero is either a policy that always goes round or spawn points with no water in
+    // reach, which the two columns together tell apart.
+    table.Add("crossing", [this](Env const& env, uint32) { return _envs[env.Index].Crossing ? 1.0f : 0.0f; });
+    table.Add("swim_seconds", [this](Env const& env, uint32)
+    {
+        return float(_envs[env.Index].SwimMs) / 1000.0f;
+    });
     table.Add("walk_distance", [this](Env const& env, uint32) { return _envs[env.Index].WalkDistance; });
     // Flying against not, split per episode: an update's mean mixes a handful of flights into a hundred rides, so
     // divide each conditional sum by `flew` (or 1 - flew) to read what a trip of that kind actually cost.
@@ -230,7 +239,19 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     // whether a ride is worth summoning.
     float const least = flying ? tuning.FlyingMin : arena.OnFoot ? tuning.FootMin : tuning.ObjectiveMin;
     float const most = flying ? tuning.FlyingMax : arena.OnFoot ? tuning.FootMax : tuning.ObjectiveMax;
-    if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk, arena.Water))
+    // A water arena asks for a crossing: an objective whose way round is much longer than the way through, with
+    // water in between. Where the ground offers none within reach, fall back to an ordinary trip rather than
+    // failing the env -- a scenario that cannot build an episode takes the whole run down with it, and one
+    // spawn point without a lake nearby is not a reason to stop training.
+    //
+    // Falling back silently would be worse than failing, though, because the arena would quietly become a second
+    // copy of the open one and still be reported as teaching swimming. So the episode records whether it got a
+    // crossing at all (`crossing`), and the stage gates the water arena on the seat actually swimming: a run
+    // whose spawn points have no water in reach fails that gate and says so.
+    travel.Crossing = false;
+    if (arena.Water && FindPlace(bot, map, least, most, flying, travel.Objective, &walk, true))
+        travel.Crossing = true;
+    else if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk))
         return false;
 
     travel.HasObjective = true;
@@ -269,6 +290,8 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
 
     uint32 const stepMs = env.EpisodeElapsedMs - std::min(env.EpisodeElapsedMs, travel.LastRewardMs);
     travel.LastRewardMs = env.EpisodeElapsedMs;
+    if (bot->IsInWater())
+        travel.SwimMs += stepMs;
     if (bot->IsMounted())
         travel.MountedMs += stepMs;
     if (bot->IsMounted() && bot->CanFly())

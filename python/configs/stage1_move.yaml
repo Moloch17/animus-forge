@@ -30,7 +30,8 @@ total_env_steps: 40000000
 
 eval:
   baseline: fight
-  report: [arrived, travel_seconds, start_distance, walk_distance, saved, died, timed_out]
+  report: [arrived, travel_seconds, start_distance, walk_distance, saved, died, timed_out,
+           crossing, swim_seconds]
 
 convergence:
   min_env_steps: 20000000
@@ -61,4 +62,11 @@ target:
     water:
       metrics:
         arrived: {min: 0.80, confidence: 0.95}
+        # A water arena that finds no crossing within reach of its spawn points falls back to an ordinary trip,
+        # so the env still builds -- and would otherwise be a second copy of the open arena, reported as
+        # teaching swimming and teaching nothing. These two gates are what stop that being silent: `crossing`
+        # is what the arena offered, `swim_seconds` what the seat did with it. Both at zero means the spawn
+        # points have no water in reach and the arena needs moving, not the policy.
+        crossing: {min: 0.70}
+        swim_seconds: {min: 3.0}
   until_passed: true

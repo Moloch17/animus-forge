@@ -212,9 +212,33 @@ warrior/runs/                                                   ├─ stage5_du
 Each class's directory is its own because from `stage5_duel` on every class trains the same *stage names*; one
 directory would have the second class overwrite the first's checkpoints.
 
-**This is cheaper than training the movement stages per class**, not dearer: 130M env steps once rather than ten
-times, which is 130M against 1,300M. And every class then starts from the same trunk rather than from ten
+**This is cheaper than training the movement stages per class**, not dearer: 160M env steps once rather than ten
+times, which is 160M against 1,600M. And every class then starts from the same trunk rather than from ten
 independent random initialisations, which is the thing that makes the eventual join tractable.
+
+### What the whole plan costs
+
+| | env steps |
+|---|---|
+| Shared movement root, stages 1-4, all ten classes | 160M |
+| One class, stages 5-17 | 1,520M |
+| Ten classes | **15,200M** |
+| The join and the objective stages, 18-23, once | 420M |
+| **Total** | **15,780M** |
+
+Against 2,100M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+and a half times the compute**, and that is the price of the thing it buys: a policy per class that has not had
+to share its trunk with nine others through the stages where classes have least in common.
+
+Two things take the edge off it, and the second is the one to act on:
+
+- **Budgets are ceilings, not targets.** `convergence` stops a stage when its evaluations stop improving
+  (`patience` of them without a new best), so a stage routinely finishes well short. An earlier run of the duel
+  had its best at 80M of a 300M budget.
+- **The budgets in the configs are still sized for all-class runs, and should be cut for per-class ones.** The
+  two 300M stages -- `stage5_duel` and `stage8_endurance` -- are 40% of a class's 1,520M on their own, and 300M
+  was chosen when one run covered eighteen class/roles at ~17M each. A run of one class gives that class all 128
+  envs. Re-sizing those two alone takes a class under 1,000M and the plan under 10,000M.
 
 ### How a class's first combat stage finds the shared checkpoint
 
