@@ -70,7 +70,7 @@ namespace Animus::Curriculum
         {
             Player* Bot = nullptr;
             uint8 Class = 0;
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;
         };
 
         /// Rebuild `slot` as an enemy player at `level` of a random class and role (tuning's chances), with a
@@ -127,8 +127,8 @@ namespace Animus::Curriculum
         void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
 
-        /// Class/role `layout`'s current training tier.
-        [[nodiscard]] uint32 Tier(uint16 layout, Role role) const { return _ladder.Tier(layout, role); }
+        /// Class `layout` built as `spec`'s current training tier.
+        [[nodiscard]] uint32 Tier(uint16 layout, uint8 spec) const { return _ladder.Tier(layout, spec); }
 
     private:
         struct EnvFight
@@ -136,8 +136,8 @@ namespace Animus::Curriculum
             uint8 Tier = 0;
             bool Elite = false;
             uint16 Layout = 0;
-            Role PlayRole = Role::Dps;      // ... and the role it drew, which has its own rung
-            bool Counts = false;        // a training fight at its class/role's current tier: its outcome moves it
+            uint8 Spec = 0;             // ... and the build it drew, which has its own rung
+            bool Counts = false;        // a training fight at its class/build's current tier: its outcome moves it
             bool Recorded = false;      // the outcome is in
             ObjectGuid PendingInterrupt;// a casting opponent the seat just cast an interrupt at
             uint32 Interrupts = 0;      // landed this episode: the duel paid for these but never reported them
@@ -245,8 +245,8 @@ namespace Animus::Curriculum
             bool EliteOrHigher = false;
             uint32 Rung = 0;                    // single pack: its ladder rung ...
             uint16 RungLayout = 0;              // ... for this class
-            Role RungRole = Role::Dps;          // ... playing this role, which is what the rung is kept against
-            bool RungCounts = false;            // ... a training pack at the class/role's own rung
+            uint8 RungSpec = 0;                 // ... built this way, which is what the rung is kept against
+            bool RungCounts = false;            // ... a training pack at the class/build's own rung
             bool RungRecorded = false;          // ... whose outcome is in
             uint32 Wipes = 0;                   // owner stages: pulls that killed everyone and were cleared away
             bool OwnerDied = false;             // owner stages: the owner died this episode (it stands up again)
@@ -348,7 +348,7 @@ namespace Animus::Curriculum
         {
             BotSlot Bot;
             uint8 Class = 0;
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;
             ScriptedPlayer::State Script;
             bool Died = false;
             uint32 Deaths = 0;
@@ -430,7 +430,7 @@ namespace Animus::Curriculum
         {
             BotSlot Bot;
             uint8 Class = 0;
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;
             ScriptedPlayer::State Script;
             /// Per seat: a casting opponent the seat just cast an interrupt at, how many it has landed, and how long
             /// the opponent has been held out of the fight. A scripted player casts and heals -- 3 interruptible
@@ -496,7 +496,7 @@ namespace Animus::Curriculum
         {
             BotSlot Bot;
             uint8 Class = 0;
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;
             ScriptedPlayer::State Script;
             bool KillCounted = false;
         };
@@ -674,7 +674,7 @@ namespace Animus::Curriculum
             Position LastSeen;
             uint32 LastSeenMs = 0;
             float Health = 0.0f;
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;
             bool Alive = false;
             bool Known = false;         // the side has seen it at least once
         };

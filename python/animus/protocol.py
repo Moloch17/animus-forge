@@ -11,7 +11,7 @@ from enum import IntEnum
 
 import numpy as np
 
-PROTOCOL_VERSION = 9
+PROTOCOL_VERSION = 10
 SCENARIO_NAME_SIZE = 32
 POLICY_NAME_SIZE = 32
 LAYOUT_NAME_SIZE = 48

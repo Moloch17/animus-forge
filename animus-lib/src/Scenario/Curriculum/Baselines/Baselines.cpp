@@ -17,6 +17,7 @@
  */
 
 #include "Baselines.h"
+#include "ClassAssets.h"
 #include "CoreBlock.h"
 #include "DuelBlock.h"
 #include "GauntletBlock.h"
@@ -143,24 +144,32 @@ namespace
         return std::nullopt;
     }
 
-    /// The role the seat is playing, read from the core block's role one-hot. A baseline sees only what the model
-    /// sees, so it reads the row rather than asking the layout -- which no longer knows, one model now covering
-    /// every role its class can play.
-    Role RoleOf(Row const& row)
+    /// One of the seat's aptitude features, read from the core block. A baseline sees only what the model sees,
+    /// so it reads the row rather than asking the layout -- which no longer knows, one model now covering every
+    /// build its class can have.
+    float AptitudeOf(Row const& row, uint32 feature)
     {
-        for (uint32 role = 0; role < ROLE_COUNT; ++role)
-            if (row.Obs(BlockId::Core, CoreBlock::OBS_ROLE_FIRST + role) > 0.0f)
-                return Role(role);
+        return row.Obs(BlockId::Core, CoreBlock::OBS_APTITUDE_FIRST + feature);
+    }
 
-        return Role::Dps;
+    /// Whether this seat can keep somebody up, and whether it can hold a pull. The same thresholds composition
+    /// uses, asked of the row instead of of a character.
+    bool CanHeal(Row const& row)
+    {
+        return AptitudeOf(row, Aptitude::DIRECT_HEAL) >= AptitudeDemand::KeepsThemUp().AtLeast;
+    }
+
+    bool CanHoldThePull(Row const& row)
+    {
+        return AptitudeOf(row, Aptitude::MITIGATION) >= AptitudeDemand::HoldsThePull().AtLeast;
     }
 
     /// The seat's spec, worked out from what it actually spent its talents on: the tree it put the most points
     /// into (a spec's TabPage is its tree), and where two specs share a tree -- a druid's feral cat and bear --
-    /// the role it is playing tells them apart. Null if it has spent nothing yet.
+    /// how much mitigation it reads with tells them apart. Null if it has spent nothing yet.
     ///
-    /// There is no spec in the observation to read instead, deliberately (CoreBlock::OBS_ROLE_FIRST says why), and
-    /// a baseline sees only what the model sees. So it does here what the model has to do: read the build.
+    /// There is no spec in the observation to read instead, deliberately (CoreBlock::OBS_APTITUDE_FIRST says why),
+    /// and a baseline sees only what the model sees. So it does here what the model has to do: read the build.
     SpecProfile const* SpecOf(Row const& row, Layout const& layout)
     {
         if (!row.Has(BlockId::Core))
@@ -178,17 +187,21 @@ namespace
             }
         }
 
-        // Below level 10 nothing has been spent and every tree reads 0. The role is always set, so fall back to a
-        // spec that plays it: a level 5 mage still fights from range, and the spec one-hot this replaced did not
-        // wait for talents either.
-        Role const role = RoleOf(row);
+        // Below level 10 nothing has been spent and every tree reads 0, so the tree alone cannot answer. Two specs
+        // sharing a tree are told apart by how much mitigation the seat reads with -- which is the real difference
+        // between a bear and a cat, and is true of a build that took half of each.
+        ClassAssets const& assets = ClassAssets::For(*layout.Profile);
+        bool const holds = CanHoldThePull(row);
         SpecProfile const* fallback = nullptr;
-        for (SpecProfile const& spec : layout.Profile->Specs)
+        for (uint8 index = 0; index < uint8(layout.Profile->Specs.size()); ++index)
         {
+            SpecProfile const& spec = layout.Profile->Specs[index];
             bool const tree = best != TalentBuilder::TREE_COUNT && spec.TabPage == best;
-            if (tree && spec.PlayRole == role)
+            bool const specHolds = index < assets.SpecAptitudes.size()
+                && AptitudeDemand::HoldsThePull().MetBy(assets.SpecAptitudes[index]);
+            if (tree && specHolds == holds)
                 return &spec;
-            if (!fallback && spec.PlayRole == role)
+            if (!fallback && tree)
                 fallback = &spec;
         }
 
@@ -436,17 +449,18 @@ namespace
                 return cast;
 
             // Heals cannot be cast in most forms.
-            if (RoleOf(row) == Role::Heal)
+            if (CanHeal(row))
                 if (std::optional<int32> cancel = row.Allowed(BlockId::Duel, DuelBlock::ACTION_CANCEL_FORM))
                     return cancel;
         }
 
-        if (RoleOf(row) != Role::Heal)
+        if (!CanHeal(row))
             return std::nullopt;
 
         for (uint32 slot = FRIEND_OWNER; slot < FRIEND_SLOTS; ++slot)
         {
-            bool const tank = friendObs(slot, SupportBlock::FRIEND_ROLE_FIRST + uint32(Role::Tank)) > 0.0f;
+            bool const tank = friendObs(slot, SupportBlock::FRIEND_APTITUDE_FIRST + Aptitude::BRIEF_MITIGATION)
+                >= AptitudeDemand::HoldsThePull().AtLeast;
             if (friendObs(slot, SupportBlock::FRIEND_ALIVE) == 0.0f
                 || friendObs(slot, SupportBlock::FRIEND_ATTACKERS) == 0.0f || (slot != FRIEND_OWNER && !tank)
                 || friendObs(slot, SupportBlock::FRIEND_OWN_HEAL_OVER_TIME) > 0.0f

@@ -19,6 +19,7 @@
 #ifndef ANIMUS_LIB_CURRICULUM_SEAT_VIEW_H
 #define ANIMUS_LIB_CURRICULUM_SEAT_VIEW_H
 
+#include "Aptitude.h"
 #include "Block.h"
 #include "ClassProfile.h"
 #include "CurriculumTuning.h"
@@ -180,7 +181,7 @@ namespace Animus::Curriculum
         uint8 Level = 1;
         uint8 Race = 0;
         uint8 Spec = 0;
-        Role PlayRole = Role::Dps;                  // the drawn spec's role (SeatState::PlayRole)
+        Aptitude Apt;                               // what this character can do (SeatState::Apt)
         /// The compass point the seat is walking (MoveBlock::Bearing), or BEARING_COUNT for none, and how it is
         /// holding its head while it does (MoveBlock::ACTION_FACE_*). Feet and eyes are chosen apart, which is what
         /// lets a seat strafe or back away without turning round.
@@ -235,14 +236,16 @@ namespace Animus::Curriculum
 
         // Companion: the player the bot fights for.
         Player* Owner = nullptr;
-        std::optional<Role> OwnerRole;              // what the owner plays, when the scenario knows it
+        /// What the owner can do, the same six numbers a teammate is described by. Unset when the scenario has no
+        /// owner: "there is nobody" and "there is somebody who heals nothing" are different things.
+        std::optional<Aptitude> OwnerApt;
 
         // Party: the other learned players, and the party's living tank (may be the bot).
         struct Teammate
         {
             Player* Bot = nullptr;
             int32 Goal = NO_GOAL;                   // what it is pursuing (SeatGoal), as its policy last sent
-            Role PlayRole = Role::Dps;
+            Aptitude Apt;                           // what it can do; the blocks show the six-number brief of it
             uint8 Class = 0;
         };
 
@@ -311,7 +314,7 @@ namespace Animus::Curriculum
         Player* Opponent = nullptr;
         bool OpponentHidden = false;                // the bot can neither see nor detect it
         uint8 OpponentClass = 0;
-        Role OpponentRole = Role::Dps;
+        Aptitude OpponentApt;
         bool Mirror = false;                        // the opponent is a learned agent too
     };
 

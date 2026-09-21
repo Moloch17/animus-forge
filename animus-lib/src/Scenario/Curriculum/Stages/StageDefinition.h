@@ -20,6 +20,7 @@
 #define ANIMUS_LIB_CURRICULUM_STAGE_DEFINITION_H
 
 #include "Block.h"
+#include "Aptitude.h"
 #include "ClassProfile.h"
 #include "Position.h"
 #include <string>
@@ -82,10 +83,11 @@ namespace Animus::Curriculum
         /// Most scripted enemy players that ambush the owner (1 to this many, MAX_AMBUSHERS at most): mid-episode
         /// beside pulls, or from the start against Opposition::Ambush. 0 = none.
         uint32 Ambushers = 0;
-        /// Roles the first seats must play (entry i is seat i); the rest are drawn as usual. A drill stage fixes
-        /// the seat it is about -- a tank that has to hold what it pulls, a healer that has to keep a group up --
-        /// where the ordinary party draws every role and the lesson is smeared over whoever happened to play it.
-        std::vector<Role> SeatRoles{};
+        /// What the first seats must be able to do (entry i is seat i); the rest are drawn as usual. A drill stage
+        /// fixes the seat it is about -- one that has to hold what it pulls, one that has to keep a group up --
+        /// where the ordinary party asks for nothing in particular and the lesson is smeared over whoever
+        /// happened to turn up.
+        std::vector<AptitudeDemand> SeatAptitudes{};
         /// A director commands each side: one more agent a side, choosing the team's posture, the enemy it
         /// concentrates on, the shape it takes and whose turn the next duty is. Off by default -- a solo arena
         /// would pay for an agent with nothing to say.

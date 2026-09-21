@@ -19,6 +19,7 @@
 #ifndef ANIMUS_LIB_CURRICULUM_STAGE_STATE_H
 #define ANIMUS_LIB_CURRICULUM_STAGE_STATE_H
 
+#include "Aptitude.h"
 #include "Block.h"
 #include "BotSlot.h"
 #include "ObjectGuid.h"
@@ -129,18 +130,16 @@ namespace Animus::Curriculum
         Layout const* L = nullptr;              // null for a party seat left empty this episode
         BotSlot Bot;
 
-        /// The role this seat is playing, which is the role of the spec it drew. It used to be a property of the
-        /// layout, back when a layout was a class and a role; one model per class means the layout no longer knows,
-        /// and the seat does.
-        [[nodiscard]] Role PlayRole() const;
-
         uint8 Race = 0;
         uint8 Level = 1;
         uint8 Spec = 0;
-        /// What the arena's composition asked this seat to be, recorded when the layout was drawn so the spec draw
-        /// can honour it. A layout is a class now, and a class plays several roles, so the two happen apart: the
-        /// class is chosen when the seats are laid out and the spec when the character is built.
-        Role WantRole = Role::Dps;
+        /// What this character can actually do, read off the talents and gear it was built with (Aptitude). This is
+        /// what the seat observes about itself and what everything else observes about it; there is no role.
+        Aptitude Apt;
+        /// What the arena's composition asked of this seat, recorded when the layout was drawn so the spec draw can
+        /// honour it. A layout is a class, and a class has several builds, so the two happen apart: the class is
+        /// chosen when the seats are laid out and the spec when the character is built.
+        AptitudeDemand Want;
         SeatCharacter::TalentPlan TalentPlan = SeatCharacter::TalentPlan::Standard;
         TalentBuilder::Build Build;
         uint32 UnspentTalentPoints = 0;

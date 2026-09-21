@@ -137,6 +137,40 @@ namespace Animus::Curriculum
         /// The name of a feature, for manifests and reports.
         [[nodiscard]] static char const* FeatureName(uint32 feature);
     };
+
+    /// What a seat is wanted for, when something has to decide who to spawn.
+    ///
+    /// This is the one job Role did that could not simply be deleted with it: a party with nobody who can hold a
+    /// pull is a wasted episode, not a lesson. But the thing that decides it does not have to be a label somebody
+    /// wrote down -- it can be a threshold on what a build measurably does. "Somebody who can hold this" and
+    /// "somebody who can keep the hurt one up" are demands; "a tank" and "a healer" are names for whoever usually
+    /// meets them, and names are what stop a class being drawn for a job its build could do perfectly well.
+    ///
+    /// A demand for nothing in particular is the common case and the honest one: a group's third, fourth and fifth
+    /// seats are whoever else turned up.
+    struct AptitudeDemand
+    {
+        uint32 Feature = Aptitude::COUNT;   // Aptitude::COUNT: no demand, anybody will do
+        float AtLeast = 0.0f;
+
+        [[nodiscard]] bool Any() const { return Feature < Aptitude::COUNT; }
+        [[nodiscard]] bool MetBy(Aptitude const& aptitude) const
+        {
+            return !Any() || aptitude[Feature] >= AtLeast;
+        }
+
+        /// For episode info and logs: the feature demanded, or "any".
+        [[nodiscard]] char const* Name() const
+        {
+            return Any() ? Aptitude::FeatureName(Feature) : "any";
+        }
+
+        [[nodiscard]] static AptitudeDemand Anything() { return {}; }
+        /// The two a group actually has to fill. The floors are deliberately low enough that an off-template build
+        /// which can really do the job is not turned away for not looking like the usual answer.
+        [[nodiscard]] static AptitudeDemand HoldsThePull() { return { Aptitude::MITIGATION, 0.5f }; }
+        [[nodiscard]] static AptitudeDemand KeepsThemUp() { return { Aptitude::DIRECT_HEAL, 0.34f }; }
+    };
 }
 
 #endif

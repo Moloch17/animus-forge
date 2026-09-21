@@ -211,7 +211,7 @@ namespace
 
         // Holding what the group pulls. Tanks exist in stages 5, 8, 13 and 14, but the stage is won by the clear,
         // so a tank that loses an add to the healer and takes it back is scored the same as one that never lost it.
-        // Here seat 0 is always the tank (ArenaDefinition::SeatRoles) and the pulls are a party's, so what the
+        // Here seat 0 always holds the pull (ArenaDefinition::SeatAptitudes) and the pulls are a party's, so what the
         // episode is about is the threat table -- which the seat can now read (Encoding::ThreatShare).
         //
         // Read its scores knowing that the hazard charge lands about four times harder on a tank than on a ranged
@@ -225,7 +225,7 @@ namespace
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "tanking", .Weight = 1, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
                 .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300,
-                .SeatRoles = { Role::Tank } } },
+                .SeatAptitudes = { AptitudeDemand::HoldsThePull() } } },
         });
 
         // Keeping a group up when the damage outruns one heal. Stage 5 has healers, but its win is the clear and
@@ -244,7 +244,7 @@ namespace
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "triage", .Weight = 1, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
                 .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300,
-                .SeatRoles = { Role::Heal } } },
+                .SeatAptitudes = { AptitudeDemand::KeepsThemUp() } } },
         });
 
         // The raid branch: MAX_SEATS learned seats as RAID_GROUPS groups of GROUP_SEATS, each group with its own
