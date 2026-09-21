@@ -904,6 +904,12 @@ AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
 #   which is what a held key is.
 AnimusForge.Curriculum.Options.MoveBearingMs = 3000
 
+#   ... and how long a turn or a pitch keeps being held (ms). Shorter again than a bearing: a seat that keeps turning
+#   for three seconds has spun round twice, so this is the length of a glance rather than of a journey. What it has
+#   turned to is kept when it stops, the way a mouse leaves the camera where it was left.
+AnimusForge.Curriculum.Options.MoveTurnMs = 750
+AnimusForge.Curriculum.Options.MovePitchMs = 750
+
 #   Ground effects: damage from something standing on the ground rather than aimed at the seat (a fire pool, a poison
 #   cloud, a consecration), charged per fraction of maximum health ON TOP of DamageTaken, which already charges it
 #   once as damage. This is the damage a seat could have walked out of, and the only term that pays for moving its

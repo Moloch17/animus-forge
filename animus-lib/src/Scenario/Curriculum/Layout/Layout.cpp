@@ -32,7 +32,10 @@
 namespace
 {
     /// Manifest format: 3 lists blocks generically (format 2 had one fixed field per stage block).
-    constexpr uint32 MANIFEST_FORMAT = 4;
+    // 5: the move block steers in three dimensions (a held yaw and pitch, the ground read along each bearing, and
+    // water), and the travel block gave up the point order and the two climb hops that went with it. Every layout
+    // changed shape, so a manifest of an earlier format describes a model that no longer fits.
+    constexpr uint32 MANIFEST_FORMAT = 5;
 
     /// The catalog's long buffs, grouped by what a unit can have at once: chains joined when any of their ranks share
     /// a spell group (spell_group, whose stack rules keep one of them per target) or an exclusive kind (a seal, an

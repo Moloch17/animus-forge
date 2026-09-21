@@ -1854,6 +1854,15 @@ Animus::Curriculum::SeatView Animus::Curriculum::StageScenario::ViewSeat(Env con
     view.Race = seat.Race;
     view.Spec = seat.Spec;
     view.PlayRole = seat.PlayRole();
+    // How it is steering, carried over from the last decision: without this a held bearing is forgotten before it
+    // can be walked a second time, and the facing actions have nothing to act on.
+    view.HeldBearing = seat.HeldBearing;
+    view.FacingMode = seat.FacingMode;
+    view.Turning = seat.Turning;
+    view.PitchTurning = seat.PitchTurning;
+    view.Pitch = seat.Pitch;
+    view.SubmergedTime = seat.SubmergedSinceMs && env.EpisodeElapsedMs > seat.SubmergedSinceMs
+        ? float(env.EpisodeElapsedMs - seat.SubmergedSinceMs) / 1000.0f : 0.0f;
     view.Build = &seat.Build;
     view.KnownRanks = &seat.KnownRanks;
     view.Memory = &seat.Memory;
@@ -1956,6 +1965,21 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
     SeatActionResult result;
     SeatOptionSet const started = seat.Option;
     SeatEncoder::Apply(view, action, result);
+    // Steering is state, not a one-off order: what the feet and the head were told is what the next decision
+    // continues from.
+    seat.HeldBearing = view.HeldBearing;
+    seat.FacingMode = view.FacingMode;
+    seat.Turning = view.Turning;
+    seat.PitchTurning = view.PitchTurning;
+    seat.Pitch = view.Pitch;
+    // A breath starts when the head goes under and is finished the moment it comes up again.
+    if (bot && bot->IsAlive() && bot->IsUnderWater())
+    {
+        if (!seat.SubmergedSinceMs)
+            seat.SubmergedSinceMs = std::max<uint32>(1, env.EpisodeElapsedMs);
+    }
+    else
+        seat.SubmergedSinceMs = 0;
     if (action > 0)
         Press(env, seat, bot, uint32(action), result.DidSomething());
 

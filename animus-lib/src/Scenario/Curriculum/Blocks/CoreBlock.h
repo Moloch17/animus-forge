@@ -87,9 +87,11 @@ namespace Animus::Curriculum
             /// Per durative action (SeatOptionKind without None): how much of its clock is left / 30 s, 0 when it is
             /// not running. Without them a running option is hidden state: the policy could not tell that it is
             /// already resting, holding an interrupt or keeping range -- and the seat runs two at once (a
-            /// positioning option and a standby), so one slot with one clock could not say which.
+            /// positioning option and a standby), so one slot with one clock could not say which. Seven now: the
+            /// held turn and the held pitch are durative too, and they run alongside the feet rather than instead
+            /// of them, so they have slots and clocks of their own.
             OBS_OPTION_FIRST            = 67,
-            OBS_GLOBAL_COUNT            = 72
+            OBS_GLOBAL_COUNT            = 74
 
             // Then, per catalog action: ACTION_FEATURES features (known, cooldown, aura on target, aura on self,
             // stacks, time since the seat pressed it / 10 s). Then per talent of the class: rank / max rank. Then

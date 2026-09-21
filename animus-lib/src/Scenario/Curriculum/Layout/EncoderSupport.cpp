@@ -30,6 +30,7 @@
 #include "Item.h"
 #include "Layout.h"
 #include "MotionMaster.h"
+#include "MoveSplineInit.h"
 #include "MoveSpline.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
@@ -695,6 +696,15 @@ namespace Animus::Curriculum::Encoding
     {
         bot->GetMotionMaster()->Clear();
         bot->GetMotionMaster()->MovePoint(pointId, x, y, z);
+    }
+
+    void FlyTo(Player* bot, float x, float y, float z)
+    {
+        bot->GetMotionMaster()->Clear();
+        Movement::MoveSplineInit init(bot);
+        init.MoveTo(x, y, z, false, true);
+        init.SetFly();
+        init.Launch();
     }
 
     bool PetAttack(Player* bot, Unit* target)

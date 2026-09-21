@@ -20,6 +20,7 @@
 #include "CoreBlock.h"
 #include "DuelBlock.h"
 #include "GauntletBlock.h"
+#include "MoveBlock.h"
 #include "PetBlock.h"
 #include "SupportBlock.h"
 #include "SharedDefines.h"
@@ -468,15 +469,16 @@ namespace
         // A living target's health; not the distance, which is 0 in melee range (it is measured between reaches).
         bool const hasTarget = row.Obs(BlockId::Core, CoreBlock::OBS_TARGET_HEALTH) > 0.0f;
 
-        // Travel: a flying mount for a long trip where it flies, else a ground mount; fly at a safe height, land at
-        // the objective and dismount there.
+        // Travel: a flying mount for a long trip where it flies, else a ground mount; then steer. The point order
+        // this used to issue is gone -- the scripted policy crosses ground the same way a learned one has to, by
+        // looking where it is going and holding forward, so that "beat the baseline" still means something on a
+        // stage about movement.
         if (row.Has(BlockId::Travel) && row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE) > 0.0f)
         {
             float const yards = row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE_DISTANCE) * 500.0f;
             float const height = row.Obs(BlockId::Travel, TravelBlock::OBS_HEIGHT) * 50.0f;
             bool const mounted = row.Obs(BlockId::Travel, TravelBlock::OBS_MOUNTED) > 0.0f;
             bool const flying = row.Obs(BlockId::Travel, TravelBlock::OBS_FLYING_MOUNT) > 0.0f;
-            bool const moving = row.Obs(BlockId::Travel, TravelBlock::OBS_MOVING) > 0.0f;
 
             if (row.Obs(BlockId::Travel, TravelBlock::OBS_AT_OBJECTIVE) > 0.0f)
                 return row.Allowed(BlockId::Travel, TravelBlock::ACTION_DISMOUNT);
@@ -489,17 +491,34 @@ namespace
                     return ride;
             }
 
-            if (flying && yards > MOUNT_BEYOND_YARDS * 0.5f && height < CRUISE_HEIGHT_YARDS && !moving)
-                if (std::optional<int32> climb = row.Allowed(BlockId::Travel, TravelBlock::ACTION_ASCEND))
-                    return climb;
+            // Look at it first. Once the head is held that way the action masks itself, so this falls through on
+            // every later decision without needing to be asked whether it already did.
+            if (std::optional<int32> face = row.Allowed(BlockId::Move, MoveBlock::ACTION_FACE_OBJECTIVE))
+                return face;
 
-            if (flying && yards < TravelBlock::ARRIVE_DISTANCE && height > 1.0f && !moving)
-                if (std::optional<int32> land = row.Allowed(BlockId::Travel, TravelBlock::ACTION_DESCEND))
-                    return land;
+            // In the air, climb to cruising height for the crossing and nose down for the arrival. Pitch is held,
+            // so these mask themselves once the angle is reached, the same way the facing does.
+            if (flying)
+            {
+                if (yards > MOUNT_BEYOND_YARDS * 0.5f && height < CRUISE_HEIGHT_YARDS)
+                {
+                    if (std::optional<int32> up = row.Allowed(BlockId::Move, MoveBlock::ACTION_PITCH_UP))
+                        return up;
+                }
+                else if (yards < MOUNT_BEYOND_YARDS * 0.5f && height > 1.0f)
+                {
+                    if (std::optional<int32> down = row.Allowed(BlockId::Move, MoveBlock::ACTION_PITCH_DOWN))
+                        return down;
+                }
+                else if (std::optional<int32> level = row.Allowed(BlockId::Move, MoveBlock::ACTION_PITCH_LEVEL))
+                    return level;
+            }
 
-            if (!moving)
-                if (std::optional<int32> go = row.Allowed(BlockId::Travel, TravelBlock::ACTION_MOVE_TO_OBJECTIVE))
-                    return go;
+            // And hold forward. Masked while it is already being walked, so this is pressed once a bearing rather
+            // than once a decision.
+            if (std::optional<int32> go = row.Allowed(BlockId::Move,
+                MoveBlock::ACTION_BEARING_FIRST + MoveBlock::BEARING_FORWARD))
+                return go;
 
             // On the way: wait (the no-op), rather than cast something that would take the mount away.
             return 0;

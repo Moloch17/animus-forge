@@ -54,6 +54,8 @@ namespace Animus::Curriculum
         KeepRange,          // a ranged spec: back to its range whenever the target closes in
         StayOnTarget,       // a melee spec: back into melee reach whenever the target leaves it
         MoveBearing,        // walking a compass point of its own choosing (MoveBlock), until it chooses another
+        MoveTurn,           // turning on the spot, as a held key, while the feet do whatever they are doing
+        MovePitch,          // looking further up or down, the same way; only off the ground
         Count
     };
 
@@ -101,15 +103,30 @@ namespace Animus::Curriculum
     /// Which option a kind occupies: a seat runs one positioning option and one standby option at a time. Keeping a
     /// caster at range and waiting for its cast are not alternatives, and with a single slot each press of one threw
     /// the other away -- a melee seat holding an interrupt stopped staying on its target.
+    /// Aiming is not positioning. A player runs one way and looks another, and turning shares no slot with the feet
+    /// -- if it did, choosing a direction to look would cancel the direction being walked, and a strafe could not be
+    /// expressed. Yaw and pitch are separate again for the same reason a mouse moves in two axes at once.
+    [[nodiscard]] constexpr bool IsAiming(SeatOptionKind kind)
+    {
+        return kind == SeatOptionKind::MoveTurn || kind == SeatOptionKind::MovePitch;
+    }
+
     enum class SeatOptionSlot : uint8
     {
         Positioning = 0,
         Standby,
+        Turn,
+        Pitch,
         Count
     };
 
     [[nodiscard]] constexpr SeatOptionSlot SlotOf(SeatOptionKind kind)
     {
+        if (kind == SeatOptionKind::MoveTurn)
+            return SeatOptionSlot::Turn;
+        if (kind == SeatOptionKind::MovePitch)
+            return SeatOptionSlot::Pitch;
+
         return IsPositioning(kind) ? SeatOptionSlot::Positioning : SeatOptionSlot::Standby;
     }
 
@@ -169,6 +186,15 @@ namespace Animus::Curriculum
         /// lets a seat strafe or back away without turning round.
         uint8 HeldBearing = 0xFF;
         uint8 FacingMode = 0xFF;
+        /// Which way it is turning (-1 left, +1 right, 0 not) and how far up or down it is looking, in radians.
+        /// Yaw and pitch are held like a mouse: the seat keeps turning while the key is down and stays where it got
+        /// to when the key comes up, which is what makes a heading between two compass points reachable at all.
+        int8 Turning = 0;
+        /// The pitch key being held (-1 down, +1 up, 0 none) and the angle it has reached. Two fields because a
+        /// mouse has two: how it is being moved, and where it has got to. Releasing keeps the angle.
+        int8 PitchTurning = 0;
+        float Pitch = 0.0f;
+        float SubmergedTime = 0.0f;                 // seconds its head has been under, 0 while it is up
         TalentBuilder::Build const* Build = nullptr;
         float LastStepDamage = 0.0f;                // damage done / the level's damage scale
         float LastStepPowerDelta = 0.0f;            // primary power change, as a fraction of max
