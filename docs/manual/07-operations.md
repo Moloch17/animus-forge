@@ -151,6 +151,28 @@ which is already a valid order, so the usual case needs no arguments at all.
 | `forge status` | The live report: rates, ETAs, evaluation scores against baseline, warnings |
 | `forge progress 600` | The same report every 10 minutes |
 | The dashboard at http://localhost:18800 | One page: the conf the run is using (and what differs from the dist default), steps, rate, ETA, evaluations against baseline, the training curves, and the last evaluation per class/role. It shows `forge fast` runs as well as real ones, and picks each stage's curves out of its own metrics.csv rather than plotting a fixed list. Started by the worldserver container, refreshes every 5 s. With `SOAP.Enabled` and an `etc/animus-dashboard.auth` holding `user:password` for an account with SEC_ADMINISTRATOR, it also gets pause/resume/skip/cancel and the seeding choice below; without them it is read-only |
+| `<OutputDir>/runs/<stage>/layouts.csv` | Per class/role, **every update**: what each of them is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). metrics.csv averages all eighteen together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
+| TensorBoard at http://localhost:16006 | `episode_*`, losses, entropy, `eval/*`, `eval_<band>/*`, `eval_arena_<arena>/*` |
+| `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class/role and arena |
+| `<OutputDir>/runs/<stage>/eval.csv`, `eval.jsonl` | Every evaluation, with full tables |
+
+#### Turning the dashboard's controls on
+
+The page is read-only until it has somewhere to send a command and an account to send it as. Both are off by
+default, so a rig that does not ask for them keeps the property the rest of the fork relies on -- the sim opens no
+network listener.
+
+1. `SOAP.Enabled = 1` in `env/dist/etc/worldserver.conf`. `ForgeMain.cpp` starts the thread when it is set;
+   upstream's `Main.cpp` is not compiled here, so the key did nothing at all before that.
+2. An account with `SEC_ADMINISTRATOR`, from the console: `account create <name> <password>` (16 characters at
+   most -- a client limit the console enforces) then `account set gmlevel <name> 3 -1`.
+3. `env/dist/etc/animus-dashboard.auth` holding `<name>:<password>`, mode 600. The launcher passes it as
+   `--soap-auth` when it exists and says nothing when it does not.
+
+Restart the worldserver and the page gains pause, resume, skip and cancel. They run the same handler and the same
+`SEC_ADMINISTRATOR` check a typed console command does, so they grant no authority the console does not already
+have; the page sends a command *name* from a fixed list, never a command string.
+
 **Which checkpoint the next stage starts from.** A stage seeds from its parent's `best.pt`, and `best.pt` is only
 rewritten by an evaluation that clears the convergence margin (`max(min_improvement_abs, min_improvement x |best|,
 z x the two scores' standard errors)`). On a short run that margin is wide -- 64-episode evaluations have big error
@@ -160,10 +182,6 @@ panel says how far behind `best.pt` is and lets you pick `best.pt`, `latest.pt` 
 writes a one-word `seed_from` file in the run directory, which `animus.train.seed_preference` reads. `seed_from` in
 the learner config is the same choice for a whole run, and the file wins over it.
 
-| `<OutputDir>/runs/<stage>/layouts.csv` | Per class/role, **every update**: what each of them is doing in the training episodes themselves (sampled actions, each at its own ladder difficulty). metrics.csv averages all eighteen together and the evaluation tables come only every `eval.every_env_steps`; this is the live view, and the dashboard shows it as "Class and role, right now". Read behaviour from it, not scores -- the gates stay on the evaluations |
-| TensorBoard at http://localhost:16006 | `episode_*`, losses, entropy, `eval/*`, `eval_<band>/*`, `eval_arena_<arena>/*` |
-| `env/dist/logs/animus-learner.log` | Everything the learner prints, including evaluation tables per level band, class/role and arena |
-| `<OutputDir>/runs/<stage>/eval.csv`, `eval.jsonl` | Every evaluation, with full tables |
 | `<OutputDir>/runs/<stage>/stage.jsonl` | Restart, advance and halt decisions with their gates |
 | `forge scenarios` | Every stage's run: finished and why, checkpoints, steps, best score |
 
