@@ -692,17 +692,33 @@ namespace Animus::Curriculum::Encoding
         return watcher && target && watcher->CanSeeOrDetect(target) && watcher->IsWithinLOSInMap(target);
     }
 
-    void MoveTo(Player* bot, uint32 pointId, float x, float y, float z)
+    void MoveTo(Player* bot, uint32 pointId, float x, float y, float z, float const* facing)
     {
         bot->GetMotionMaster()->Clear();
-        bot->GetMotionMaster()->MovePoint(pointId, x, y, z);
+        if (!facing)
+        {
+            bot->GetMotionMaster()->MovePoint(pointId, x, y, z);
+            return;
+        }
+
+        // MovePoint cannot carry a facing, and a facing set on a spline of its own is not a way round that: the
+        // second Launch replaces the first, so one of the two is always thrown away -- either the seat turns and
+        // stops walking, or it walks and never turns. They have to be the same spline. generatePath matches what
+        // MovePoint does, so a bearing is still a direction the seat wants to go rather than a licence to walk
+        // through a wall.
+        Movement::MoveSplineInit init(bot);
+        init.MoveTo(x, y, z, true);
+        init.SetFacing(*facing);
+        init.Launch();
     }
 
-    void FlyTo(Player* bot, float x, float y, float z)
+    void FlyTo(Player* bot, float x, float y, float z, float const* facing)
     {
         bot->GetMotionMaster()->Clear();
         Movement::MoveSplineInit init(bot);
         init.MoveTo(x, y, z, false, true);
+        if (facing)
+            init.SetFacing(*facing);
         init.SetFly();
         init.Launch();
     }

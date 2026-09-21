@@ -28,6 +28,7 @@
 #include "TravelBlock.h"
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 namespace
 {
@@ -65,32 +66,31 @@ namespace
         return bot && (bot->IsInWater() || bot->CanFly());
     }
 
-    /// Point the seat's head without touching its feet: a spline overwrites orientation as it runs, so a facing set
-    /// any other way is lost the moment the seat moves. This is what makes a strafe expressible.
-    void FaceWhile(Animus::Curriculum::SeatView const& view, float heading)
+    /// Where the seat should be looking this decision, or nothing to leave it to the spline (which points the
+    /// unit along its path).
+    ///
+    /// This used to build a spline of its own and set a facing on it without ever launching it, so it did nothing
+    /// at all -- every seat walked its bearing off whatever orientation it happened to have, and even the scripted
+    /// baseline could not reach an objective it was steering straight at. Launching it would have been no better:
+    /// a second spline replaces the movement one, so the seat would turn and stop. The facing belongs to the move.
+    std::optional<float> FacingFor(Animus::Curriculum::SeatView const& view)
     {
-        Player* bot = view.Bot;
-        Movement::MoveSplineInit init(bot);
+        Player const* bot = view.Bot;
         switch (view.FacingMode)
         {
             case MoveBlock::ACTION_FACE_TARGET:
-                if (view.Target)
-                    init.SetFacing(view.Target);
-                else
-                    init.SetFacing(bot->GetOrientation());
-                break;
+                return view.Target ? std::optional<float>(bot->GetAngle(view.Target)) : std::nullopt;
             case MoveBlock::ACTION_FACE_HEADING:
-                init.SetFacing(heading);
-                break;
+                return std::nullopt;        // along the path, which is what a spline does unasked
             case MoveBlock::ACTION_FACE_OBJECTIVE:
-                if (view.HasObjective)
-                    init.SetFacing(bot->GetAngle(view.Objective.GetPositionX(), view.Objective.GetPositionY()));
-                else
-                    init.SetFacing(bot->GetOrientation());
-                break;
+                return view.HasObjective
+                    ? std::optional<float>(bot->GetAngle(view.Objective.GetPositionX(),
+                        view.Objective.GetPositionY()))
+                    : std::nullopt;
+            case MoveBlock::ACTION_FACE_HOLD:
+                return bot->GetOrientation();
             default:
-                init.SetFacing(bot->GetOrientation());
-                break;
+                return std::nullopt;
         }
     }
 
@@ -335,26 +335,27 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
                 std::min(destination.GetPositionZ(), ceiling));
         }
 
-        Encoding::FlyTo(bot, destination.GetPositionX(), destination.GetPositionY(), destination.GetPositionZ());
-        FaceWhile(view, heading);
+        std::optional<float> const facing = FacingFor(view);
+        Encoding::FlyTo(bot, destination.GetPositionX(), destination.GetPositionY(), destination.GetPositionZ(),
+            facing ? &*facing : nullptr);
         return;
     }
 
-    // No ground within a step of where the seat stands means the bearing leads off the map or over a drop too big
-    // to walk down. Keep the facing -- it asked to look that way and that much is free -- and do not issue the
-    // move: the pathfinder would otherwise pick its own way round, which is the seat being steered by something
-    // that is not the policy.
-    if (!Encoding::SnapToGround(bot->GetMap(), bot->GetPhaseMask(), destination, bot->GetPositionZ(), STEP_YARDS))
-    {
-        FaceWhile(view, heading);
-        return;
-    }
+    // Put the destination on the ground where there is ground to put it on. Where there is not -- the bearing
+    // leads off the map, or over a drop deeper than a step -- the move is issued anyway, at the unsnapped point.
+    //
+    // Refusing to move in that case is what it looked like it should do, and it is wrong: the seat then stands
+    // still, and standing still is the one outcome this whole block exists to prevent. The direction is still the
+    // policy's; only the height of a point eight yards away is being guessed at, and the path the spline takes
+    // sorts that out. The ground probe is how the seat learns not to choose such a bearing in the first place.
+    // Deliberately discarded: see above -- a failure is a reason to move anyway, not a reason to stand still.
+    (void)Encoding::SnapToGround(bot->GetMap(), bot->GetPhaseMask(), destination, bot->GetPositionZ(), STEP_YARDS);
 
     // Pathfinding on, which is the default: a bearing is where the seat wants to go, not a licence to walk through
     // a wall to get there.
+    std::optional<float> const facing = FacingFor(view);
     Encoding::MoveTo(bot, MOVE_POINT_ID, destination.GetPositionX(), destination.GetPositionY(),
-        destination.GetPositionZ());
-    FaceWhile(view, heading);
+        destination.GetPositionZ(), facing ? &*facing : nullptr);
 }
 
 void Animus::Curriculum::MoveBlock::Apply(SeatView& view, uint32 local, SeatActionResult& result) const
@@ -383,8 +384,17 @@ void Animus::Curriculum::MoveBlock::Apply(SeatView& view, uint32 local, SeatActi
     if (local <= ACTION_FACE_OBJECTIVE)
     {
         view.FacingMode = uint8(local);
-        FaceWhile(view, HeadingOf(bot->GetOrientation(),
-            view.HeldBearing < BEARING_COUNT ? view.HeldBearing : 0u));
+        // Walking: the next BeforeApply carries the new facing on the move spline. Standing still: turn on the
+        // spot now, or choosing where to look would do nothing until the seat happened to move.
+        if (view.Option->Running(SeatOptionKind::MoveBearing, view.NowMs))
+        {
+            BeforeApply(view, result);
+        }
+        else if (std::optional<float> const facing = FacingFor(view))
+        {
+            bot->SetFacingTo(*facing);
+        }
+
         return;
     }
 
