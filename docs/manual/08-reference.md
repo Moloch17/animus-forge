@@ -411,6 +411,8 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `checkpoint_<update>.pt` | Every `checkpoint_every` | Newest `keep_checkpoints` kept |
 | `latest.pt` | Checkpoints and finish | Resume point |
 | `best.pt` | Each new best evaluation | Seed for later stages, export default |
+| `layouts.csv` | Every `log_every` updates | Per class/role, what each is doing in the training episodes of that update (sampled actions, own ladder difficulty). The dashboard's "Class and role, right now" |
+| `seed_from` | When chosen | One word, `best` or `latest`: which of this run's checkpoints seeds the stage after it (`animus.train.seed_preference`). Absent unless something wrote it, usually the dashboard's "Seeding the next stage" panel. See 7 |
 | `finished.json` | When the stage is decided | See 8.4 |
 
 Other locations:
