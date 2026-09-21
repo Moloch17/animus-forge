@@ -141,8 +141,45 @@ pilot only when named), skipping any stage whose run already advanced. Each stag
 4. trains until it advances (the next stage starts), halts below its target (the plan stops), or is cancelled.
 
 To train particular stages: `forge start stage9_pvp stage13_arena`. List each stage after the stage it extends, or it
-won't seed from it (the command warns you). With no arguments the queue is all twenty-two stages in number order,
-which is already a valid order, so the usual case needs no arguments at all.
+won't seed from it (the command warns you). With no arguments the queue is every default-queue stage in number
+order, which is already a valid order, so the usual case needs no arguments at all.
+
+### Training one class at a time
+
+The curriculum trains in two parts (see chapter 4, *Training one class at a time*): the movement stages once for
+all ten classes, then each class's fighting stages on its own. Two settings move between them.
+
+**The shared movement root** -- stages 1-4, all ten classes:
+
+```
+# env/dist/etc/modules/mod_animus_forge.conf
+AnimusForge.Classes = ""
+AnimusForge.Queue   = "stage1_move, stage2_dodge, stage3_travel, stage4_flight"
+
+# .env (compose passes AC_ANIMUS_FORGE_OUTPUT_DIR, which beats AnimusForge.OutputDir in the conf)
+ANIMUS_FORGE_OUTPUT_DIR=/azerothcore/var/animus-forge/shared
+```
+
+**Then one class** -- stages 5-17, that class alone:
+
+```
+AnimusForge.Classes = "druid"
+AnimusForge.Queue   = "stage5_duel, stage6_pack, stage7_gauntlet, stage8_endurance, stage9_pvp, stage10_evade, \
+                       stage11_hide, stage12_stealth, stage13_arena, stage14_companion, stage15_party, \
+                       stage16_tanking, stage17_triage"
+
+ANIMUS_FORGE_OUTPUT_DIR=/azerothcore/var/animus-forge/druid
+```
+
+Both need the container recreated (`./forge.sh --build`, or `docker compose up -d --force-recreate
+ac-worldserver` when nothing was compiled), because the conf and the environment are read at startup.
+
+A run of exactly one class also picks up that class's own learner configs: `configs/<class>/<stage>.yaml` where
+one exists, and the shared `configs/<stage>.yaml` otherwise. That is where per-build floors live, because a build
+gate names builds and a shared config does not know which classes a run plays.
+
+The class's `stage5_duel` config names the shared checkpoint in `init_from` -- `auto` cannot find it, since the
+seed chain looks under the run's own `runs` directory and the shared root is a sibling of it.
 
 ### Monitoring
 

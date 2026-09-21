@@ -180,6 +180,89 @@ than on a ranged seat, because a tank cannot walk out of what it is holding an e
 stage will find any fault in the resurrection path faster than anything else in the curriculum -- it found the
 farmable revive described in 4.6.
 
+## Training one class at a time
+
+A run trains the classes of `AnimusForge.Classes`; empty is all ten. Training them together shares one trunk
+between every layout, which is a bet that classes have something learnable in common. Training them apart gives
+each class a curriculum of its own -- and a trunk of its own, which is the part that has to be thought about.
+
+### The shared root, and where a class branches off it
+
+**Stages 1-4 are trained once, for all ten classes. Every class branches at `stage5_duel`.**
+
+The movement stages are class-agnostic. There is no druid-specific way to cross a field: everyone walks with the
+same eight bearings, the same held turn and pitch, the same reading of the ground ahead, and the same question
+about whether the water is worth getting into. What a class brings to it is a speed cooldown or two, and those are
+actions in a catalog the layout already has.
+
+The fighting stages are the opposite. A druid has 91 actions and four builds across three jobs; a mage has 84 and
+three builds that all do the same thing. That is where a curriculum stops being shared and starts being a class's
+own.
+
+So the shape is:
+
+```
+shared/runs/     stage1_move  stage2_dodge  stage3_travel  stage4_flight      Classes = ""     (all ten)
+                                                                │
+druid/runs/                                                     ├─ stage5_duel ... stage17_triage
+warrior/runs/                                                   ├─ stage5_duel ... stage17_triage
+...                                                             └─ ...                          Classes = "<one>"
+```
+
+Each class's directory is its own because from `stage5_duel` on every class trains the same *stage names*; one
+directory would have the second class overwrite the first's checkpoints.
+
+**This is cheaper than training the movement stages per class**, not dearer: 130M env steps once rather than ten
+times, which is 130M against 1,300M. And every class then starts from the same trunk rather than from ten
+independent random initialisations, which is the thing that makes the eventual join tractable.
+
+### How a class's first combat stage finds the shared checkpoint
+
+`init_from: auto` cannot: the seed chain looks under the run's own `runs` directory, and the shared root is a
+sibling of it. So a class's `stage5_duel` config names the checkpoint outright:
+
+```yaml
+init_from:
+  - /azerothcore/var/animus-forge/shared/runs/stage4_flight/best.pt
+```
+
+Seeding across works because **the layout check is one-directional**: every layout the *run* has must be in the
+checkpoint, not the other way round (`animus.bootstrap`). A druid-only run takes the druid's adapter and head out
+of an all-class checkpoint, takes the trunk, and leaves the other nine layouts behind. The reverse -- a run with a
+layout the checkpoint lacks -- is refused loudly, because that would start a class from random weights in the
+middle of a curriculum, which looks exactly like a class that has simply not learned anything yet.
+
+### The open question: what the trunk does at the join
+
+Ten per-class runs produce ten trunks, all descended from the shared movement root but drifted apart by their own
+fighting stages. A stage that puts the classes back together -- the crossroads, or anything with a director
+commanding a mixed team -- can seed a trunk from only one of them.
+
+Nothing *requires* a shared trunk for multi-class play. The env runs N seats each with a layout, and the trainer
+already keeps adapters and heads per layout; a shared trunk is a training-efficiency device. The shipped model is
+unaffected either way, because `animus.export` already writes adapter + trunk + GRU + head per class (~0.84M
+parameters each).
+
+Three ways to land it, and the choice is deliberately deferred until there is a measurement to make it with:
+
+| | what it is | cost |
+|---|---|---|
+| **Distil the ten** | A join stage seeds each class's adapter and head from its own run and relearns the trunk with ten warm adapters. `seed_merges` and `animus.distill` already do this shape for merge stages | A large joint run. The cost is deferred, not avoided |
+| **A trunk per class** | Make `trunk.` per-layout, so a class owns its whole network and the join is arithmetic rather than training | A learner change, and **+5.8M parameters**: the actor goes 2.58M to 8.35M. Smaller than it sounds -- the per-layout adapters and heads are already 75% of it -- but it gives up cross-class transfer entirely |
+| **Take one trunk** | Seed the join from whichever class's trunk, and let the adapters adapt | Free, and only sane *because* the ten share an ancestor in the movement root |
+
+### The measurement that decides it
+
+Whether cross-class transfer is worth anything at all is answerable in one stage, not one tree. Train
+`stage5_duel` for one class twice:
+
+1. seeded from the shared all-class `stage4_flight`, and
+2. seeded from a movement run of that class alone,
+
+and compare `eval.at_start` and the first few evaluations. If (1) starts higher or climbs faster, the shared trunk
+is carrying something and distillation is worth its cost. If the two are indistinguishable, a trunk per class is
+the simpler answer and the join stops being a problem.
+
 ## 4.1 Defining a stage
 
 A stage is one `StageDefinition` entry in `Stages/Stages.cpp`:

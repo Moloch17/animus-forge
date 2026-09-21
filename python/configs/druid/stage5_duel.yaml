@@ -13,6 +13,20 @@
 extends: ../stage5_duel.yaml
 run_name: stage5_duel
 
+# Where the class curriculum branches off the shared root.
+#
+# Stages 1-4 are trained once for all ten classes, in their own output directory, because there is no
+# druid-specific way to cross a field -- everyone walks with the same bearings, the same held turn, the same
+# reading of the ground. So this stage seeds from that shared run rather than from a druid-only stage4_flight,
+# which does not exist. `init_from: auto` cannot find it: the seed chain looks under this run's own runs
+# directory, and the shared root is a sibling of it.
+#
+# Seeding across is allowed because the check is one-directional -- every layout this run has must be in the
+# checkpoint, not the other way round -- so a druid-only run takes the druid out of an all-class checkpoint and
+# leaves the other nine behind (animus.bootstrap).
+init_from:
+  - /azerothcore/var/animus-forge/shared/runs/stage4_flight/best.pt
+
 eval:
   report: [clean_kill, killed, died, time_to_kill, health_left, livelocked, form_at_end]
 
