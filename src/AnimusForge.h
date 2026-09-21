@@ -33,8 +33,9 @@
 
 namespace AnimusForge
 {
-    /// Module root: owns the scenario, the env pool and the learner connection, and runs one decision step every world
-    /// tick while a plan runs (a tick is AnimusForge.DecisionMs of game time).
+    /// Module root: owns the scenario, the env pool and the learner connection, and runs one decision step every
+    /// AnimusForge.TicksPerDecision world ticks while a plan runs (a decision is AnimusForge.DecisionMs of game time;
+    /// at the default of one tick per decision the two are the same thing).
     ///
     /// The sim starts idle; console commands (Hooks/ForgeCommandScript.cpp) start, pause, resume, skip and cancel
     /// plans. A command only records a request: OnUpdate applies it at the start of a tick, never in the middle of
@@ -266,9 +267,10 @@ namespace AnimusForge
         Plan _plan;
         std::optional<Plan> _lastPlan;     // the last plan that ended, for `forge resume` without arguments
 
-        uint64 _ticks = 0;
+        uint64 _ticks = 0;                  // decisions since the scenario started, not world updates
+        uint32 _ticksSinceDecision = 0;     // world updates since the last decision (< TicksPerDecision)
         uint64 _decisions = 0;
-        bool _tickMismatchLogged = false;   // a world tick other than AnimusForge.DecisionMs was reported once
+        bool _tickMismatchLogged = false;   // a world tick other than ForgeConfig::TickMs was reported once
         uint32 _progressInterval = 0;
 
         std::chrono::steady_clock::time_point _scenarioStarted;

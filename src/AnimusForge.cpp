@@ -145,36 +145,54 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
         return;
     }
 
-    // The forge core ticks by the same key; a different tick means a worldserver built before the two were one, and
-    // the per-decision reward scale would be off.
-    if (diff != RunConfig().DecisionMs && !_tickMismatchLogged)
+    ForgeConfig const& run = RunConfig();
+
+    // The forge core sizes its tick from the same two keys; a different tick means a worldserver built before they
+    // were one, and every reward scaled per decision would be off.
+    if (diff != run.TickMs() && !_tickMismatchLogged)
     {
         _tickMismatchLogged = true;
-        LOG_ERROR("module.animus", "The world ticks {} ms, but AnimusForge.DecisionMs is {}: rebuild the worldserver "
-            "(./forge.sh --build) so every tick is one decision", diff, RunConfig().DecisionMs);
+        LOG_ERROR("module.animus", "The world ticks {} ms, but AnimusForge.DecisionMs {} over TicksPerDecision {} "
+            "wants {} ms: rebuild the worldserver (./forge.sh --build)", diff, run.DecisionMs, run.TicksPerDecision,
+            run.TickMs());
     }
 
-    ++_ticks;
+    // Game time accrues every tick, whether or not the policy chose on this one: an episode's clock, and everything
+    // the library measures against it, is in game milliseconds and does not care how often anyone decides.
     _pool->AdvanceClock(diff);
 
-    MaybeReport();
-
-    if (_plan.Remote())
-        RemoteDecision();
-    else
-        LocalDecision();
-
-    // What the pool spent this decision on, totalled for the report.
-    if (_pool)
+    // Above TicksPerDecision = 1 the world runs several times between decisions. The intervening ticks move splines,
+    // auras and the fight at the finer step and are otherwise silent -- no observation, no action, no learner. That is
+    // the whole point: movement wants a fast world, the policy does not want a faster decision. Counting ticks rather
+    // than accumulating milliseconds keeps a decision exactly TicksPerDecision ticks whatever the tick rounds to.
+    bool const decided = ++_ticksSinceDecision >= run.TicksPerDecision;
+    if (decided)
     {
-        Animus::EnvPool::CollectTiming const& collect = _pool->LastCollect();
-        _collect.RewardNs += collect.RewardNs;
-        _collect.ObserveNs += collect.ObserveNs;
-        _collect.FinalObserveNs += collect.FinalObserveNs;
-        _collect.ResetNs += collect.ResetNs;
-        _collect.ApplyNs += collect.ApplyNs;
-        _collect.Observes += collect.Observes;
-        _collect.Resets += collect.Resets;
+        _ticksSinceDecision = 0;
+
+        // _ticks counts decisions, not world updates: it is the denominator of every per-decision figure in the
+        // report (EnvStepsPerSecond, the ms-per-tick buckets) and of the bench's measurement window.
+        ++_ticks;
+
+        MaybeReport();
+
+        if (_plan.Remote())
+            RemoteDecision();
+        else
+            LocalDecision();
+
+        // What the pool spent this decision on, totalled for the report.
+        if (_pool)
+        {
+            Animus::EnvPool::CollectTiming const& collect = _pool->LastCollect();
+            _collect.RewardNs += collect.RewardNs;
+            _collect.ObserveNs += collect.ObserveNs;
+            _collect.FinalObserveNs += collect.FinalObserveNs;
+            _collect.ResetNs += collect.ResetNs;
+            _collect.ApplyNs += collect.ApplyNs;
+            _collect.Observes += collect.Observes;
+            _collect.Resets += collect.Resets;
+        }
     }
 
     // What is left of this module's time in the tick, once the waiting on the learner is taken out.
@@ -184,7 +202,7 @@ void AnimusForge::Forge::OnUpdate(uint32 diff)
     _simNs += inModule > _tickLearnerNs ? inModule - _tickLearnerNs : 0;
     _lastUpdateEnd = tickEnded;
 
-    if (_benching)
+    if (_benching && decided)
         BenchTick();
 }
 
@@ -346,6 +364,7 @@ bool AnimusForge::Forge::StartCurrent()
 
     auto const now = std::chrono::steady_clock::now();
     _ticks = 0;
+    _ticksSinceDecision = 0;
     _decisions = 0;
     _worldNs = 0;
     _simNs = 0;
@@ -857,6 +876,7 @@ void AnimusForge::Forge::BenchSave() const
     boost::json::object file;
     file["scenario"] = _benchScenario;
     file["decision_ms"] = _config.DecisionMs;
+    file["ticks_per_decision"] = _config.TicksPerDecision;
     file["measure_ticks"] = _config.Bench.MeasureTicks;
     file["warmup_ticks"] = _config.Bench.WarmupTicks;
     file["learner_measure_ticks"] = _config.Bench.LearnerMeasureTicks;
@@ -1286,9 +1306,10 @@ bool AnimusForge::Forge::SendSpec()
     msg.NumActions = spec.NumActions;
     msg.EpisodeInfoDim = spec.EpisodeInfoDim;
     msg.GoalCount = spec.GoalCount;
-    // Every world tick is a decision.
-    msg.TickMs = RunConfig().DecisionMs;
-    msg.DecisionTicks = 1;
+    // The learner reads a step as tick_ms * decision_ticks, which is AnimusForge.DecisionMs however the two are
+    // split; the split itself is what tells it how finely the world moved underneath a decision.
+    msg.TickMs = RunConfig().TickMs();
+    msg.DecisionTicks = RunConfig().TicksPerDecision;
     // The longest episode the scenario can have: the learner sizes evaluation windows by it.
     msg.EpisodeSeconds = std::max(RunConfig().EpisodeSeconds, spec.LongestEpisodeSeconds);
     std::strncpy(msg.Scenario, _scenario->Name(), SCENARIO_NAME_SIZE - 1);

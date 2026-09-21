@@ -22,6 +22,7 @@
 #include "Define.h"
 #include "Position.h"
 #include "StageSettings.h"
+#include <algorithm>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -47,9 +48,19 @@ namespace AnimusForge
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
-        /// AnimusForge.DecisionMs: game time per decision, which is also the forge core's world tick (ForgeUpdateLoop in
-        /// ForgeMain.cpp reads the same key): every world update is one decision.
+        /// AnimusForge.DecisionMs: game time per decision. Everything that scales a reward or measures elapsed game
+        /// time is in these units, and it is what the learner is told the step is worth.
         uint32 DecisionMs = 250;
+        /// AnimusForge.TicksPerDecision: world updates per decision. At 1 (the default) a tick is a decision, which is
+        /// what the sim has always done. Above 1 the forge core ticks at DecisionMs / TicksPerDecision -- ForgeMain's
+        /// ForgeUpdateLoop reads both keys -- so splines, auras and the fight run at the finer step while the policy
+        /// still chooses every DecisionMs. It buys smooth movement without paying for more decisions.
+        uint32 TicksPerDecision = 1;
+        /// DecisionMs / TicksPerDecision: the world tick, and what the module expects OnUpdate's diff to be.
+        [[nodiscard]] uint32 TickMs() const
+        {
+            return std::max<uint32>(1, DecisionMs / std::max<uint32>(1, TicksPerDecision));
+        }
         uint32 EpisodeSeconds = 60;
 
         std::string Policy;

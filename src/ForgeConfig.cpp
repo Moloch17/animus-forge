@@ -121,6 +121,23 @@ void AnimusForge::ForgeConfig::Load()
         Envs = Animus::BotAccounts::MAX_ENVS;
     }
     DecisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 250));
+    TicksPerDecision = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.TicksPerDecision", 1));
+    if (TicksPerDecision > DecisionMs)
+    {
+        LOG_ERROR("module.animus", "AnimusForge.TicksPerDecision = {} is more than AnimusForge.DecisionMs = {} ms, "
+            "which would need a sub-millisecond tick; using {}", TicksPerDecision, DecisionMs, DecisionMs);
+        TicksPerDecision = DecisionMs;
+    }
+    if (DecisionMs % TicksPerDecision)
+    {
+        // The core ticks at the truncated quotient, so a remainder would make a decision cover slightly less game
+        // time than DecisionMs claims -- and DecisionMs is what every reward scale is written against.
+        uint32 const rounded = DecisionMs - (DecisionMs % TicksPerDecision);
+        LOG_ERROR("module.animus", "AnimusForge.DecisionMs = {} ms does not divide into {} ticks; using {} ms so a "
+            "decision is exactly {} ticks of {} ms", DecisionMs, TicksPerDecision, rounded, TicksPerDecision,
+            rounded / TicksPerDecision);
+        DecisionMs = rounded;
+    }
     EpisodeSeconds = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.EpisodeSeconds", 60));
 
     Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Policy", "remote");

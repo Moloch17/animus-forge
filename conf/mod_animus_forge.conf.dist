@@ -118,17 +118,37 @@ AnimusForge.Envs = 64
 
 #
 #    AnimusForge.DecisionMs
-#        Description: Game time per agent decision, in milliseconds. It is also the sim's world tick: the
-#                     forge worldserver advances the world this much per update and every update is one
-#                     decision, so game time and decisions stay in step. Read once at startup (a change
-#                     needs a restart). Per-decision reward terms are scaled to stay the same per second.
-#                     Models play at this interval (mod-animus: Animus.ClassRole.DecisionMs and
-#                     Animus.Stage.DecisionMs).
+#        Description: Game time per agent decision, in milliseconds. Read once at startup (a change needs a
+#                     restart). Per-decision reward terms are scaled to stay the same per second, and the
+#                     learner's discounts are compounded to it, so this is the unit everything that costs
+#                     game time is written in. Models play at this interval (mod-animus:
+#                     Animus.ClassRole.DecisionMs and Animus.Stage.DecisionMs).
 #                     250 ms is about a player's reaction time: a decision there has to count for something,
 #                     where at 100 ms policies re-decided ten times a second and dithered.
 #        Default:     250
 
 AnimusForge.DecisionMs = 250
+
+#
+#    AnimusForge.TicksPerDecision
+#        Description: World updates per decision. At 1 the sim's world tick is the decision -- the world
+#                     advances AnimusForge.DecisionMs and the policy chooses, which is what the sim did
+#                     before the two were separable. Above 1 the worldserver ticks at DecisionMs divided by
+#                     this, and the module holds the decision back until that many ticks have passed: the
+#                     world moves in finer steps while the policy still chooses every DecisionMs.
+#                     What it buys is movement. A spline, a cast bar and a periodic aura all advance per
+#                     world update, so at one tick per decision a bot's path is a 250 ms staircase and a
+#                     dodge cannot be finer than that. Cutting the tick smooths all of it without making the
+#                     policy decide more often, which is the expensive half.
+#                     What it costs is world time: four ticks per decision runs the map update, the spline
+#                     and the aura ticks four times as often, so throughput falls roughly with it. The
+#                     learner is unaffected -- it is told the split and still sees one step per decision.
+#                     DecisionMs must divide by it; a remainder is rounded down at startup with a warning,
+#                     so a decision stays a whole number of ticks. Read once at startup, and the worldserver
+#                     reads the same key, so a change needs a restart of both (./forge.sh --build).
+#        Default:     1
+
+AnimusForge.TicksPerDecision = 1
 
 #
 #    AnimusForge.EpisodeSeconds
