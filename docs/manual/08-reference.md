@@ -456,7 +456,7 @@ Other locations:
 |---|---|
 | **Arena** | One situation a stage's episodes can be, drawn by weight each episode |
 | **Baseline** | A scripted policy (`greedy`, `fight`) scored on the evaluation seeds as a reference |
-| **Block** | A group of observation features and actions (`core`, `duel`, ...) placed into layouts |
+| **Block** | A group of observation features and actions (`core`, `move`, `duel`, ...) placed into layouts. `core` and `move` are in every layout |
 | **Class/role** | One trained model: a class in one role, over the specs that play it (`druid_tank`) |
 | **Confirmation** | Re-scoring `best.pt` on held-out seeds before a stage advances |
 | **CoreHooks** | animus-lib's function-pointer seams for forge-only core APIs |

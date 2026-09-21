@@ -898,6 +898,11 @@ AnimusForge.Curriculum.Options.HoldInterruptMs = 10000
 AnimusForge.Curriculum.Options.KeepRangeMs = 10000
 #   ... and a melee spec back into melee reach whenever the target leaves it (ms)
 AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
+#   ... and how long a bearing chosen with the move block keeps being walked before it lapses (ms). Shorter than the
+#   others on purpose: those are standing instructions about a target, which stay true while the fight does, where a
+#   direction chosen against the ground goes stale as soon as the seat has covered it. Re-pressing keeps it going,
+#   which is what a held key is.
+AnimusForge.Curriculum.Options.MoveBearingMs = 3000
 
 #   Ground effects: damage from something standing on the ground rather than aimed at the seat (a fire pool, a poison
 #   cloud, a consecration), charged per fraction of maximum health ON TOP of DamageTaken, which already charges it

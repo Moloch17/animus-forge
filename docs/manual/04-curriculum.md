@@ -62,7 +62,7 @@ one commanding each side (see 4.12).
 
 | Stage | Extends | Seats | Blocks added | What it is |
 |---|---|---|---|---|
-| `stage1_duel` | — | Solo | core, duel, pet | A same-level creature out of aggro range: close in and kill it fast, taking little damage |
+| `stage1_duel` | — | Solo | core, move, duel, pet | A same-level creature out of aggro range: close in and kill it fast, taking little damage |
 | `stage2_pack` | stage1_duel | Solo | + pack | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
 | `stage3_hazards` | stage2_pack | Solo | + support | **Drill.** Nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage4_gauntlet` | stage3_hazards | Solo | + gauntlet | Pull after pull with short breaks: heals, food and drink |
@@ -79,7 +79,7 @@ one commanding each side (see 4.12).
 | `stage15_pvp` | stage1_duel | Solo | + pvp (−pack) | One-on-one against a scripted enemy player |
 | `stage16_evade` | stage15_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage17_hide` | stage16_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
-| `stage18_stealth` | stage17_hide | Solo | same | **Drill, and a leaf.** For the four classes whose own kit carries a stealth aura (rogue and the three druids): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
+| `stage18_stealth` | stage17_hide | Solo | same | **Drill, and a leaf.** For the two classes whose own kit carries a stealth aura (rogue and druid): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement, so it cannot close on anything |
 | `stage19_arena` | stage17_hide | Mirror | same | Self-play one-on-one: two learned seats of any classes |
 | `stage20_duo_led` | stage19_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage21_flag` | stage19_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -607,7 +607,8 @@ counts the charged presses.
 
 | Block | Observation (summary) | Actions |
 |---|---|---|
-| `core` | 67 globals (see below), then 6 features per catalog action (known, cooldown, aura on target, aura on self, stacks, time since the seat pressed it), then rank / max rank per class talent, then points per tree / 71 | The catalog |
+| `core` | 67 globals plus five durative-action clocks (see below), then 6 features per catalog action (known, cooldown, aura on target, aura on self, stacks, time since the seat pressed it), then rank / max rank per class talent, then points per tree / 71 | The catalog |
+| `move` | Whether it is moving and how fast; the bearing it is walking (one-hot over the eight, or none); its own facing as sine and cosine; the bearing and distance to the target, all zero without one; the bearing, distance and width of the nearest ground effect it is not standing in | 8 egocentric bearings (forward, forward-right, ... clockwise), halt, and three facings chosen apart from the feet: face the target, face the way it is going, hold the current facing |
 | `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
@@ -624,7 +625,7 @@ counts the charged presses.
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 | `order` (13) | What the side's director asked of this seat: the posture and rally one-hots, distance and bearing to the rally place, distance, bearing, health and whether the seat is already on the called target, and whether this seat holds the duty. All zero in an arena with no director | none: an order is advice, not a lever |
 
-The core block's 71 global features are: level; race one-hot (10); role one-hot (3); health; mana; rage; energy; runic
+The core block's 72 globals are five durative-action clocks and these 67 features: level; race one-hot (10); role one-hot (3); health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
@@ -641,6 +642,18 @@ and a live companion keep the same `SeatMemory`, so a model plays with what it t
 Movement and casting constrain each other: movement actions are masked while casting, and cast-time or channelled
 spells are masked while running. The bot turns to face its target whenever it isn't running. Stop casting and cancel
 form need no target, so they stay available between pulls. Layouts with the travel block act without a target too.
+
+**The move block needs no target at all**, which is the difference between it and every other way a seat can move.
+The duel block's movement is all target-relative -- `MOVE_TO_TARGET`, `MOVE_TO_RANGE`, `BACK_OFF`, `KEEP_RANGE`,
+`STAY_ON_TARGET` and `STOP` are masked without a living one -- so a seat with nothing to fight had no legs, which is
+why the hazard drill has to summon an unkillable emitter and hand it over as a target purely to unmask them
+(4.2, stage 3). A bearing is chosen against the seat's own facing and cares about nothing else. Its facing actions
+are what make a strafe expressible: `SetFacing` on the spline, so the seat can run one way and look another, where
+a spline left to set its own orientation always turns the seat the way it is going.
+
+A bearing is held rather than stepped, so the resolution of the path comes from `AnimusForge.TicksPerDecision`
+(2.3, 8.1) rather than from deciding more often: the world walks the spline in however many ticks a decision is cut
+into, and the policy still chooses once per `DecisionMs`.
 
 Anyone in the air without flight (a dismount, a cast that took the mount away) falls to the ground with a player's fall
 damage (`MoveFall`, `Player::HandleFall`).

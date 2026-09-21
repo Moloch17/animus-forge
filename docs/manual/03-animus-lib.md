@@ -19,7 +19,7 @@ This chapter covers the machinery: scenarios, env pools, bots, core seams, layou
 | `src/Scenario/Curriculum/` | The curriculum: `StageScenario`, `CurriculumTuning`, `StageState`, and the subdirectories below |
 | `.../Stages/` | `StageDefinition`, `ArenaDefinition`, the stage list (`Stages.cpp`) and its validation |
 | `.../Layout/` | `Block` (interface), `Layout` (block placement, manifests), `SeatView`, `SeatEncoder`, `EncoderSupport` |
-| `.../Blocks/` | One class per block: `CoreBlock`, `DuelBlock`, `PetBlock`, `PackBlock`, `GauntletBlock`, `CompanionBlock`, `PartyBlock`, `PvpBlock`, `ContextBlock`, `HostilesBlock`, `TravelBlock`, `FlagBlock`; `Blocks.cpp` (`GetBlock`) |
+| `.../Blocks/` | One class per block: `CoreBlock`, `MoveBlock`, `DuelBlock`, `PetBlock`, `PackBlock`, `GauntletBlock`, `CompanionBlock`, `PartyBlock`, `PvpBlock`, `ContextBlock`, `HostilesBlock`, `TravelBlock`, `FlagBlock`; `Blocks.cpp` (`GetBlock`) |
 | `.../Encounters/` | `Encounter` (interface), creature, pulls, owner, party, opponent, ambush, travel and flag encounters, `ScriptedPlayer`, `EnemyPlayers` (building scripted enemy players), `Opponents` (creature pools and spawn points), `EpisodeInfoTable` |
 | `.../Character/` | `ClassProfile` (the 10 classes and their 31 specs), `ClassAssets`, `ClassKit`, `TalentBuilder`, `SpecBuilds` (generated), `ActionCatalog`, `GearBuilder`, `GearStats`, `GearEnhancements`, `PetTalents`, `Supplies`, `WorldCreatures`, `SeatCharacter` |
 | `.../Rewards/` | `RewardLedger`, `CombatReward` (the shared one-on-one and pull reward terms) |
