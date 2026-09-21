@@ -44,8 +44,8 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Bench.LearnerTorchThreads` | `"0, 8"` | Torch thread counts tried with the learner |
 | `AnimusForge.Fast.Queue` | `""` | What `forge fast` trains without names; empty = every curriculum stage in order |
 | `AnimusForge.Fast.Envs` | `32` | Fast profile envs |
-| `AnimusForge.Fast.Level` | `20` | Fast profile level (0 = random) |
-| `AnimusForge.Fast.ClassRoles` | `"warrior_tank, priest_heal, rogue_dps, hunter_dps"` | Fast profile class/roles |
+| `AnimusForge.Fast.Level` | `20` | **Dead: read by nothing.** A fast run uses the curriculum's random levels |
+| `AnimusForge.Fast.ClassRoles` | `"warrior_tank, priest_heal, rogue_dps, hunter_dps"` | **Dead: read by nothing.** A fast run plays every class/role |
 | `AnimusForge.Fast.OutputDir` | `"fast"` | Inside `OutputDir` when relative |
 | `AnimusForge.Fast.Learner.Overlay` | `""` = `configs/fast.yaml` | Learner overlay for fast runs |
 | `AnimusForge.Fast.Learner.Args` | `""` | Extra arguments for fast learners (after `Learner.Args`) |
@@ -153,9 +153,9 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | | | | `Pulls.Timeout` | 10.0 |
 | | | | `Pulls.Overtime` | 0.1 |
 | | | | `Pulls.OvertimeGraceMs` | 60000 |
-| | | | `Pulls.Stall` | 0.05 |
+| | | | `Pulls.Stall` | 0.08 |
 | | | | `Pulls.StallGraceMs` | 15000 |
-| | | | `Pulls.PreparationRefundMaxMs` | 30000 |
+| | | | `Pulls.PreparationRefundMaxMs` | 15000 |
 | | | | `Pulls.Spacing` | 0.03 |
 | | | | `Pulls.SoloGauntletClear` | 5.0 |
 | | | | `Pulls.SoloGauntletFastPull` | 1.0 |
@@ -184,9 +184,9 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Actions.RecastAfterStopMs` | 2000 | | | |
 | `Characters.LowLevelLast` | 20 | | | |
 | `Characters.LowLevelChance` | 15 | | | |
-| `Duel.Stall` | 0.05 | | | |
+| `Duel.Stall` | 0.08 | | | |
 | `Duel.StallGraceMs` | 15000 | | | |
-| `Duel.PreparationRefundMaxMs` | 30000 | | | |
+| `Duel.PreparationRefundMaxMs` | 15000 | | | |
 | `Duel.Spacing` | 0.03 | | | |
 | `Actions.Repeat` | 0.02 | | | |
 | `Actions.RepeatWindowMs` | 10000 | | | |
@@ -246,7 +246,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Travel.FlyingMax` | 700.0 | | `Flag.RespawnMs` | 15000 |
 | `Travel.Progress` | 1.0 | | `Flag.DroppedReturnMs` | 10000 |
 | `Travel.Arrive` | 3.0 | | `Flag.TouchDistance` | 4.0 |
-| `Travel.FastArrive` | 3.0 | | `Flag.Capture` | 5.0 |
+| `Travel.FastArrive` | 6.0 | | `Flag.Capture` | 5.0 |
 | `Travel.DamageTaken` | 1.0 | | `Flag.Pickup` | 1.0 |
 | `Travel.Death` | 3.0 | | `Flag.Return` | 1.0 |
 | `Travel.StepCost` | 0.0002 | | `Flag.CarrierKill` | 1.5 |
@@ -257,7 +257,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight.
 
-## 8.3 Wire protocol (version 7)
+## 8.3 Wire protocol (version 8)
 
 A Unix domain stream socket. The sim is the server and the learner the client. All values are little-endian with no
 padding. `src/Bridge/Protocol.h` and `python/animus/protocol.py` must change together, with `PROTOCOL_VERSION` bumped.

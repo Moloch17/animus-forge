@@ -23,7 +23,7 @@ stage1_duel
 │                    └─ stage12_triage
 │                       └─ stage13_raid_single
 │                          └─ stage14_raid_gauntlet
-│                             └─ stage23_crossroads   (+ 6 merges)
+│                             └─ stage23_crossroads   (+ 7 merges)
 ├─ stage6_run
 │  └─ stage7_travel
 │     └─ stage8_flight
@@ -81,13 +81,68 @@ one commanding each side (see 4.12).
 | `stage20_duo_led` | stage19_arena | Teams (2) | + pack, context, hostiles, support, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
 | `stage21_flag` | stage19_arena (+ stage7_travel) | Mirror | + travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
 | `stage22_warsong` | stage21_flag | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
-| `stage23_crossroads` | stage14_raid_gauntlet (+ 6 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+| `stage23_crossroads` | stage14_raid_gauntlet (+ 7 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
 
 ### Trained by name
 
 | Stage | Extends | Seats | What it is for |
 |---|---|---|---|
 | `mix_duel_pvp` | stage15_pvp | Solo | **Pilot.** Half the episodes a creature duel, half a scripted enemy player. Exists to test arena mixing, merge seeding and distillation on a small problem |
+
+### Two chains called "extends"
+
+The word means two different things, they are read by different programs, and for five stages they deliberately
+disagree. Getting them confused is easy and the consequences are invisible, so:
+
+- **The seed chain** -- which stage's *checkpoint* a run starts from -- is `.Extends` and `.Merges` in
+  `Stages.cpp`. The sim writes it into `stage.json` as `seed_chain`/`merges`, and the learner reads only that
+  (`animus.stages.seed_chain`, `TrainConfig.resolved_init_from` with `init_from: auto`). **This is the column in
+  the table above.**
+- **The config chain** -- which YAML file's *settings* are inherited -- is `extends:` at the top of
+  `python/configs/<stage>.yaml`. It never decides what a run seeds from.
+
+They diverge wherever a stage should inherit a drill's weights without inheriting its hyperparameters, which is
+the whole point of putting drills on the trunk:
+
+| Stage | Seeds from (`Stages.cpp`) | Inherits config from (YAML `extends:`) |
+|---|---|---|
+| `stage4_gauntlet` | stage3_hazards | stage2_pack |
+| `stage9_companion` | stage5_endurance | stage4_gauntlet |
+| `stage12_triage` | stage11_tanking | stage10_party |
+| `stage19_arena` | stage17_hide | stage15_pvp |
+| `stage23_crossroads` | stage14_raid_gauntlet | stage10_party |
+
+A drill sets its own `patience` and `min_env_steps` for being a drill; the stage after it wants the drill's
+weights and the trunk's schedule, so it seeds from the one and inherits from the other. If you change one chain,
+decide what the other should do rather than assuming it follows.
+
+### Budgets
+
+From `python/configs/*.yaml`; `python/tests/test_manual_budgets.py` fails if this table and the configs drift
+apart. `min` is `convergence.min_env_steps`, the floor before convergence may end a stage; `total_env_steps` is
+the ceiling regardless. A `forge fast` run replaces all of these (20M a stage, evaluations every 1M of 64
+episodes, and `patience` 0 so every stage trains its whole budget).
+
+| Stage | Budget | Eval every | Episodes | Min | Stage | Budget | Eval every | Episodes | Min |
+|---|---|---|---|---|---|---|---|---|---|
+| `stage1_duel` | 300M | 10M | 2048 | 30M | `stage13_raid_single` | 60M | 20M | 2048 | 40M |
+| `stage2_pack` | 60M | 10M | 2048 | 30M | `stage14_raid_gauntlet` | 60M | 20M | 2048 | 40M |
+| `stage3_hazards` | 60M | 10M | 2048 | 15M | `stage15_pvp` | 60M | 10M | 2048 | 30M |
+| `stage4_gauntlet` | 90M | 15M | 2048 | 20M | `stage16_evade` | 60M | 10M | 2048 | 30M |
+| `stage5_endurance` | 300M | 15M | 2048 | 40M | `stage17_hide` | 40M | 10M | 2048 | 30M |
+| `stage6_run` | 30M | 10M | 2048 | 20M | `stage18_stealth` | 40M | 10M | 2048 | 30M |
+| `stage7_travel` | 30M | 10M | 2048 | 20M | `stage19_arena` | 60M | 10M | 2048 | 30M |
+| `stage8_flight` | 30M | 10M | 2048 | 20M | `stage20_duo_led` | 30M | 10M | 512 | 20M |
+| `stage9_companion` | 90M | 15M | 2048 | 20M | `stage21_flag` | 60M | 10M | 2048 | 20M |
+| `stage10_party` | 120M | 20M | 2048 | 20M | `stage22_warsong` | 60M | 10M | 128 | 20M |
+| `stage11_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
+| `stage12_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
+
+**The queue is 2,090M env steps over 23 stages** (2,150M with the `mix_duel_pvp` pilot, which is not in the
+queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
+time. Two budgets are worth questioning before a long build: `stage1_duel` at 300M is the root every other stage
+descends from, but `stage5_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
+`stage6_run`.
 
 **A drill** fixes what one episode is about, where the curriculum otherwise teaches the same skill inside a stage
 won by something else and the credit for it is smeared over the clear. Drills are now *on* the trunk rather than
@@ -1117,9 +1172,10 @@ Learner (`configs/stage1_duel.yaml`, the root every other config extends):
 - **PPO:** gamma 0.997 and lambda 0.985 per 100 ms of game time (`reference_decision_ms`, compounded to
   `AnimusForge.DecisionMs` so horizons stay the same in seconds: a ~33 s horizon and a ~5.5 s GAE credit trace, printed
   at start), clip 0.2, entropy 0.01 with an entropy floor at 30% of `ln(legal actions)` (boosted up to 4x), learning
-  rates 3e-4, 4 epochs stopped early past approx KL 0.04, 8 minibatches, rollout 128 with overlapping updates, value
+  rates 3e-4, 4 epochs stopped early past approx KL 0.03 (`target_kl` 0.02 x the 1.5 tolerance), 8 minibatches,
+  rollout 128 with updates run serially, value
   normaliser beta 0.99, advantages normalised per class/role. Budget 300M env steps.
-- **Evaluation:** every 10M steps and at the start, 1024 seeded episodes against `fight`. Training episodes lean
+- **Evaluation:** every 10M steps and at the start, 2048 seeded episodes against `fight`. Training episodes lean
   toward the class/roles furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
 - **Convergence:** patience 3, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps.
 - **Target:** at least baseline for every class/role (16+ episodes, 1 standard error of slack) on the same spread of
@@ -1161,7 +1217,7 @@ columns: `engage_health` and `engage_mana` (means over the pulls engaged, taken 
 `drink_failed`, `meals_cut_short` (food or drink that ended early with health or mana still to restore) and
 `control_seconds` (enemy-seconds kept out of the fight, as the control reward counts them).
 Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
-stealthing in is tied to the clear it pays for), rollout 256, budget 400M, at least 40M steps, evaluations every 15M.
+stealthing in is tied to the clear it pays for), rollout 256, budget 90M, at least 20M steps, evaluations every 15M.
 Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class/role (Wilson bound),
 four pulls cleared on average, no livelocks; `until_passed: false`. The first run (300 s, pulls that waited, a win by
 merely lasting) reached 63-66% survived with 12% of its wins on at most one pull cleared, rogues and healers avoiding
@@ -1196,7 +1252,7 @@ the pack block is dropped, so the travel line trains straight off the duel.
 Getting somewhere, off the duel. A character of level 20 or more, with its level's riding and its side's mounts, starts
 in Old Hillsbrad (which allows mounts) with a place 60-320 yd away by path. A mount's cast time only pays on a long
 trip, and arriving on foot is what lets it fight at the end. Blocks: core, duel, pet, travel. 150 s episodes. Config:
-budget 150M, at least 20M steps, a travel report.
+budget 30M, at least 20M steps, a travel report.
 
 ### Stage 8: `stage8_flight`
 
@@ -1205,7 +1261,7 @@ in Outland's Nagrand, where flying mounts fly, at one of eight spawn points, eac
 350-700 yd away: flying is several times faster and passes over everything, but dismounting in the air falls with a
 player's fall damage, so the policy learns to take off, keep a height, land and dismount. Battlegrounds never allow
 flying mounts (the zone must be Outland or Northrend, `SpellInfo::CheckLocation`), so this is for the open world.
-180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 150M.
+180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 30M.
 
 ### Stage 9: `stage9_companion`
 
@@ -1225,8 +1281,8 @@ rest. `target.role_metrics` gates them once a run shows what each role reaches.
 
 Adds the party block. One to four learned seats (like a player bringing one to four companions) plus the owner form a
 sim group. Every seat plays the same policy and sees the other three. An empty seat has no character and only the
-no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450 s, as stage 4's. Config: budget 600M,
-evaluation every 20M steps, at least 60M steps, a party-focused report. It inherits stage 4's target, which says nothing
+no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450 s, as stage 4's. Config: budget 120M,
+evaluation every 20M steps, at least 20M steps, a party-focused report. It inherits stage 4's target, which says nothing
 of teammates' deaths yet: set its own before it runs.
 
 ### Stage 11: `stage11_tanking`
@@ -1415,7 +1471,7 @@ queue. `survived` is the per-layout check instead, and it only says no layout co
 Self-play. Two learned seats of random classes and roles at one level, both played by the policy, so every fight is
 training data for both sides. A policy's score against itself doesn't track progress, so evaluation uses
 `eval.opponent_baseline`: the `fight` baseline plays seat 2, the score is seat 1 against it, and the baseline score is
-`fight` against `fight` on the same seeds. Budget 200M.
+`fight` against `fight` on the same seeds. Budget 60M.
 
 ### Stage 20: `stage20_duo_led`
 
@@ -1436,7 +1492,7 @@ learned one.
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
-flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 300M, at least 30M steps.
+flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 60M, at least 20M steps.
 
 ### Stage 22: `stage22_warsong`
 
@@ -1468,7 +1524,7 @@ included). It is the last stage in the queue, and the one whose checkpoint is wh
 
 Learner: distilled with `teachers: auto` (each earlier arena is taught by the first parent that has it; the two new
 arenas learn from reward alone), coef 1.0 halving every 50M steps. 256 evaluation episodes every 25M steps, the
-arena_1v1 seat scored against `fight`. Budget 1B, at least 100M steps. Per-arena targets: +10% over baseline for the six
+arena_1v1 seat scored against `fight`. Budget 150M, at least 20M steps. Per-arena targets: +10% over baseline for the six
 inherited arenas, at least baseline for `ambush` and `escort_duel`, each with at least 16 episodes.
 
 ### Pilot: `mix_duel_pvp`

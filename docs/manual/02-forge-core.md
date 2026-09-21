@@ -42,10 +42,11 @@ can change `Main.cpp` freely without ever conflicting.
 | `realm.Id.Realm = 1` | About 22 places scope GUIDs and account state by realm id |
 | An IoContext with one thread | Only for SIGINT/SIGTERM handling (`World::StopNow`) |
 | The console (`CliThread`) | Operators control training from it |
+| SOAP, when `SOAP.Enabled` is set | The console's commands for a caller that has no terminal -- the dashboard's stage controls. Off by default, so the sim still opens no listener unless asked; it runs the same handler and the same `SEC_ADMINISTRATOR` check a typed command does |
 
 | Removed | Why |
 |---|---|
-| World socket listener, SOAP, Remote Access | Bots are in-process and there are no clients or remote operators |
+| World socket listener, Remote Access | Bots are in-process and there are no clients or remote operators |
 | Metrics, AppenderDB, PID file, banner | Operational surface the simulator doesn't use |
 | FreezeDetector | It aborts the process when a tick is slow, and a training tick may be slow |
 | ToCloud9 / sidecar cluster plumbing | One process, never clustered |

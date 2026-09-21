@@ -97,7 +97,7 @@ it in `ScenarioNames`.
 | `ReportEpisodes` | `AnimusForge.ReportEpisodes` | 1 |
 | `ClassRoles` | `AnimusForge.ClassRoles` | `Animus.Stage.ClassRoles` |
 | `SpawnMapId`, `SpawnPosition` | `AnimusForge.SpawnPoint.*` | `Animus.Stage.SpawnPoint.*` |
-| `Level` | 0, or `AnimusForge.Fast.Level` in a fast run | `Animus.Stage.Level` |
+| `Level` | 0 (the curriculum's random levels; a fast run does not narrow this) | `Animus.Stage.Level` |
 | `TuningPrefix` | `AnimusForge.Curriculum.` | `Animus.Curriculum.` |
 | `LayoutsDir` | `<OutputDir>/layouts` | empty (writes nothing) |
 

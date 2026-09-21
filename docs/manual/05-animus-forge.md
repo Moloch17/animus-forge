@@ -234,17 +234,25 @@ problem so a change can be checked in minutes. `ForgeConfig::FastProfile()` copi
 |---|---|
 | Policy | `remote` |
 | Envs | `AnimusForge.Fast.Envs` (the conf template sets 32; the code default is 16) |
-| Level | `Fast.Level` (20; 0 = random levels) |
-| Class/roles | `Fast.ClassRoles` (`warrior_tank, priest_heal, rogue_dps, hunter_dps`: a tank and a healer for the party, plus rage, energy, mana and a pet) |
 | Report episodes | min(ReportEpisodes, 64) |
 | Output and models | `Fast.OutputDir` (runs, layouts, and `models/` inside it) |
 | Learner args | `--overlay <Fast.Learner.Overlay>`, then `Learner.Args`, then `Fast.Learner.Args` |
 
+**Level and class/roles are deliberately not narrowed.** A fast run plays the same content a real one does --
+every class/role, the curriculum's own random levels -- and differs only in how long each stage gets and how many
+envs run it. It used to train four class/roles at level 20, which made the sweep a rehearsal of a problem the real
+build never trains: the classes it skipped were the ones whose faults a sweep exists to find. `AnimusForge.Fast.Level`
+and `AnimusForge.Fast.ClassRoles` are left over from that and are **read by nothing** -- setting either changes
+nothing (`ForgeConfig::FastProfile`).
+
 Decision interval, episode lengths and rewards stay the real ones. `configs/fast.yaml` is merged over each stage's
-config: 3M-step safety cap, evaluation of 64 episodes every 100k steps, convergence after 4 evaluations without a
-new best but not before 500k steps, no stage target (so a fast plan never halts), 1 restart with a 200k half-life. The
-default `Fast.Queue` is empty: every curriculum stage in order, the `mix_duel_pvp` pilot included, so a plain
-`forge fast` is a full run of the curriculum with no stage skipped. A stage's `MinLevel` raises `Fast.Level`.
+config: a 20M-step budget, evaluation of 64 episodes every 1M steps, convergence after 4 evaluations without a new
+best but not before 4M steps, no stage target (so a fast plan never halts), 1 restart with a 200k half-life. The sim
+then overrides two of those per invocation: `total_env_steps` from `AnimusForge.Fast.Budget` (or `forge fast 30M`),
+and `convergence.patience=0` -- which is what makes a budget a budget, since a stage then trains every step it was
+given instead of stopping when its score flattens. The default `Fast.Queue` is empty: every curriculum stage in
+order, the `mix_duel_pvp` pilot included, so a plain `forge fast` is a full run of the curriculum with no stage
+skipped.
 
 A fast run never archives, seeds from or overwrites a real run, because everything lives under `fast/`. `pause`,
 `cancel`, `skip`, `resume` and `export` without arguments act on the fast plan while it runs.
