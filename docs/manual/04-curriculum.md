@@ -61,7 +61,7 @@ one commanding each side (see 4.12).
 |---|---|---|---|---|
 | `stage1_duel` | — | Solo | core, duel, pet | A same-level creature out of aggro range: close in and kill it fast, taking little damage |
 | `stage2_pack` | stage1_duel | Solo | + pack | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
-| `stage3_hazards` | stage2_pack | Solo | + support | **Drill.** A pack with something on the ground in *every* pull, rather than only from ladder rung 3 up, so walking out of one is learnable on its own |
+| `stage3_hazards` | stage2_pack | Solo | + support | **Drill.** Nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage4_gauntlet` | stage3_hazards | Solo | + gauntlet | Pull after pull with short breaks: heals, food and drink |
 | `stage5_endurance` | stage4_gauntlet | Solo | same | **Drill.** A known run of eight pulls, won by finishing it: 900 s, ending on an elite pack two levels up |
 | `stage6_run` | stage1_duel | Solo | + travel (−pack) | A place 40-160 yd away **on foot**: mounting is masked, so the trip is made with the speed cooldowns the class has |
@@ -177,7 +177,7 @@ An `ArenaDefinition` describes one situation:
 | `Name` | Unique within the stage. Used in episode info, `stage.json`, tuning keys and per-arena gates |
 | `Weight` | Share of episodes, overridable with `<TuningPrefix>Arena.<stage>.<arena>.Weight` |
 | `Seats` | `Solo` (1), `Party` (4 slots beside the owner, 1-4 filled each episode), `Mirror` (2 that fight each other), `Raid` (40: eight groups of five, a tank and a healer at the head of each) |
-| `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats) |
+| `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats), `Hazards` (nothing to fight: ground to get off) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
 | `MaxRung` | Pin the pack ladder instead of letting it climb: `-1` leaves it to `Pulls.MaxTier`, `0` and up hold every class/role at that rung, for training and evaluation alike. Overridable with `<TuningPrefix>Arena.<stage>.<arena>.MaxRung`. A drill wants one variable |
 | `Owner` | A scripted owner the seats fight for |
@@ -1199,18 +1199,33 @@ score. `until_passed` is off, so a stage that converges short of it halts after 
 
 ### Stage 3: `stage3_hazards`
 
-**Drill.** Stage 2's pack, except that every pull contains a creature that puts something on the ground
-(`OpponentPool::RandomHazardCaster`), whatever rung the difficulty ladder is on. The pack ladder only reaches
-hazard casters at rung 3, so a class/role that stalls below it never meets one and never learns to step out of
-a hazard; this makes that lesson learnable on its own. It adds the support block for the hazard charge.
+**Drill, and there is nothing to fight in it.** Fire lands under each seat every 2.5 s and burns for as long as
+its spell lasts. No creature is spawned, nothing is targetable, and the episode runs its full 120 s. The lesson is
+one thing -- get off it -- and it is the only thing in the episode. It adds the support block for the hazard
+charge.
 
-**The ladder is pinned to rung 0** (`MaxRung`), so the pull is two creatures, one of them the hazard caster, for
-every class/role and every episode. A hazard arena replaces an entry rather than adding one, so the hazard
-survives the pin and the pack does not grow around it. The first run without the pin showed why: hazard seconds
-rose over 7M steps while the rung rose underneath them, and nothing in the run could say whether the policy was
-failing to step out or simply meeting more hazard. A drill is supposed to have one variable, and the pin is what
-makes the hazard the only hard thing in it. Evaluations are pinned too, so two checkpoints are read on the same
-fight rather than on whatever rungs each had climbed to.
+Why nothing to fight. The first version was stage 2's pack with a hazard caster forced into every pull, and its
+numbers could not be read: hazard seconds rose over 7M steps while the pack rung rose underneath them, and nothing
+in the run could say whether the policy was failing to step out or simply meeting more fire. Pinning the ladder
+(`MaxRung`, 4.1) fixes half of that; removing the pack fixes the rest.
+
+Why the fire comes from an invisible caster rather than from nothing. The hazard machinery reads two different
+things. `Encoding::FindNearestHazard`, which the *observation* uses, accepts a `DynamicObject` from a hostile
+caster **or** a `GAMEOBJECT_TYPE_TRAP` from nobody at all. `Encoding::StandingInHazards`, which the *charge* uses,
+counts `DYNOBJ_AURA_TYPE` auras and nothing else. A trap gameobject therefore burns a seat while
+`hazard_seconds`, `hazard_damage` and `reward_hazard` all read zero -- damage with no signal, which is worse than
+no drill. So `HazardEncounter` summons a World Invisible Trigger, hostile and immune and unselectable, and has it
+cast one of the world's own persistent area auras (`OpponentPool::RandomHazardSpell`, the same spells that make a
+creature a hazard caster). There is nothing to fight, and every sensing and reward path works untouched.
+
+Why the fire lands underfoot. Every reward in an episode with no enemy is a penalty: `RewardTerm::Hazard` is
+charged and never paid. Fire in fixed places would teach a policy to stand in a clear corner and do nothing --
+the behaviour the hazard cap exists to prevent in the stages that *do* have a fight. Fire that lands where the
+seat is standing removes that option, so the penalty alone is enough and the drill needs no objective of its own.
+
+What to read: `hazard_seconds` and `hazard_damage`, both of which should fall, and `hazard_patches` for what was
+laid. The scripted `fight` baseline, which has nothing to fight and mostly stands still, spends about 36 s an
+episode in fire and ends at 58% health; that is the number to beat.
 
 It is on the trunk: `stage4_gauntlet` seeds from it, so the lesson carries into every PvE stage after it. The
 hazard charge lands about four times harder on a tank than on a ranged seat, because a tank cannot walk out of

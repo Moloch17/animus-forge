@@ -551,11 +551,14 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
 
             if (RunSeedable(config, parent))
             {
-                // It will be seeded from. Worth saying only that the checkpoint never passed its target, which
-                // is a reason to read this stage's scores carefully and not a reason to retrain anything.
+                // It will be seeded from. Worth saying only that the run never passed its target, which is a
+                // reason to read this stage's scores carefully and not a reason to retrain anything.
+                //
+                // It does not say which checkpoint: that is the learner's to decide (TrainConfig.seed_from, and
+                // the run's own seed_from file), and it said "best" here while the learner took latest.pt.
                 if (!RunAdvanced(config, parent))
-                    out(Acore::StringFormat("  {} seeds from {}'s best checkpoint, which has not passed its "
-                        "target (the run was cancelled or fell short).", stage->Name, parent));
+                    out(Acore::StringFormat("  {} seeds from {}, which has not passed its target (the run was "
+                        "cancelled or fell short).", stage->Name, parent));
                 continue;
             }
 
