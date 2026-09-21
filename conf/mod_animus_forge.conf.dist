@@ -250,7 +250,14 @@ AnimusForge.Learner.Python = ""
 #        Description: Learner config for every scenario, relative to the directory of worldserver.conf or
 #                     absolute. The run is
 #                     always named after the scenario (--run-name).
-#        Default:     "" - configs/<scenario>.yaml
+#                     Left empty, a run of a single AnimusForge.Classes uses that class's own
+#                     configs/<class>/<scenario>.yaml where one exists, and the shared
+#                     configs/<scenario>.yaml otherwise. A curriculum trained one class at a time wants
+#                     per-class floors -- a restoration druid and a bear are not held to the same clean
+#                     kill rate -- and a single overlay file cannot express them, because an overlay
+#                     merges section by section and would hand every stage in the queue the same
+#                     `target` when stage one gates `arrived` and stage five gates `clean_kill`.
+#        Default:     "" - configs/<class>/<scenario>.yaml if it exists, else configs/<scenario>.yaml
 
 AnimusForge.Learner.Config = ""
 
