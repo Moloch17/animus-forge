@@ -105,6 +105,7 @@ SOAP_ENVELOPE = (
 # page runs on the image's python, without the learner's venv, and importing animus.train would pull in torch.
 SEED_MARKER = "seed_from"
 SEED_CHOICES = ("best", "latest")
+SEED_DEFAULT = "latest"        # TrainConfig.seed_from
 
 
 def seed_state(run_dir: Path, progress: dict) -> dict:
@@ -120,7 +121,10 @@ def seed_state(run_dir: Path, progress: dict) -> dict:
     choice = marked if marked in SEED_CHOICES else ""
 
     has = {name: (run_dir / f"{name}.pt").exists() for name in SEED_CHOICES}
-    prefer = choice or "best"
+    # Unmarked resolves to whatever the learner's own default is (TrainConfig.seed_from, "latest"). Held here
+    # rather than imported for the reason SEED_MARKER is; test_seed_from checks the two still agree, which is what
+    # caught this when the default changed under the page.
+    prefer = choice or SEED_DEFAULT
     other = "latest" if prefer == "best" else "best"
     resolved = prefer if has[prefer] else (other if has[other] else "")
 
@@ -707,7 +711,7 @@ function renderSeed() {
 
   const active = s.choice || "";
   const behind = s.behind || 0;
-  const warn = active !== "latest" && behind > 0;
+  const warn = (s.resolved === "best") && behind > 0;
   const why = !s.has || !s.has.best
     ? `<span class="muted why">no best.pt yet, so latest.pt is what seeds either way</span>`
     : warn

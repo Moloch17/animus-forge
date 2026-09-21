@@ -259,7 +259,7 @@ class EvalLog:
 SEED_MARKER = "seed_from"
 
 
-def seed_preference(run_dir: Path, default: str = "best") -> str:
+def seed_preference(run_dir: Path, default: str = "latest") -> str:
     """Which of a finished run's checkpoints should seed the stage after it: "best" or "latest".
 
     A run can carry the answer itself, in a one-word `seed_from` file beside its checkpoints -- which is what the
@@ -274,7 +274,7 @@ def seed_preference(run_dir: Path, default: str = "best") -> str:
     return choice if choice in ("best", "latest") else default
 
 
-def init_from_checkpoint(path: str, default: str = "best") -> Path | None:
+def init_from_checkpoint(path: str, default: str = "latest") -> Path | None:
     """The seed checkpoint a candidate path resolves to, honouring the run's own `seed_from` choice.
 
     Either name falls back to the other, so a run that has only ever written one of them still seeds."""
@@ -305,7 +305,7 @@ def make_distiller(config: TrainConfig, spec, stage: dict | None, parents: list[
     if named:
         chosen = {}
         for arena, candidate in named.items():
-            path = init_from_checkpoint(candidate)   # a resume takes the file it was given
+            path = init_from_checkpoint(candidate)
             if path is None:
                 print(f"Teacher {candidate} for arena {arena} does not exist; that arena is not distilled", flush=True)
                 continue

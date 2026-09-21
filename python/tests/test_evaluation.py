@@ -373,14 +373,16 @@ def test_fast_overlay_loads_over_every_stage():
         assert tuple(fast.mappo.hidden) == tuple(full.mappo.hidden)
 
 
-def test_init_from_falls_back_to_latest(tmp_path):
+def test_init_from_falls_back_between_the_two_names(tmp_path):
+    """Neither name is required: a run that wrote only one of them still seeds. Which one wins when both exist is
+    the seed_from choice, which test_seed_from covers."""
     run = tmp_path / "warrior_dps"
     run.mkdir()
     assert init_from_checkpoint(str(run / "best.pt")) is None
     (run / "latest.pt").write_text("x")
     assert init_from_checkpoint(str(run / "best.pt")) == run / "latest.pt"
     (run / "best.pt").write_text("x")
-    assert init_from_checkpoint(str(run / "best.pt")) == run / "best.pt"
+    assert init_from_checkpoint(str(run / "best.pt"), "best") == run / "best.pt"
 
 
 def result_with_layouts(returns, layouts, seeds=None):

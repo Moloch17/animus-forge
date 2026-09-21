@@ -279,12 +279,26 @@ class TrainConfig:
     # them, with {runs_dir} and {run_name} filled in. A best.pt that does not exist falls back to the latest.pt beside
     # it. Empty = train from scratch.
     init_from: str | list[str] = AUTO
-    # Which of a parent run's checkpoints to seed from when both exist: "best" or "latest". best.pt is only
-    # rewritten by an evaluation that clears the convergence margin, so on a short run -- where 64-episode
-    # evaluations make that margin wide -- it can sit many millions of steps behind latest.pt. A parent run that
-    # carries its own `seed_from` file overrides this for itself (animus.train.seed_preference); the dashboard
-    # writes that file.
-    seed_from: str = "best"
+    # Which of a parent run's checkpoints to seed from when both exist: "best" or "latest".
+    #
+    # "latest", because a queue advances on its own and has to hand the next stage what the last one actually
+    # learned. best.pt is only rewritten by an evaluation that clears the convergence margin -- the larger of 1%
+    # absolute, 2% of the best, and two standard errors of the two scores -- and that last term is the one that
+    # bites: with 64-episode evaluations the error bars are wide, so the bar is high, and best.pt can go a whole
+    # stage without moving. Measured on the sweep this default was changed for: stage2_pack reached 8.2M steps
+    # with its evaluations up from 2.6 to 6.8 and best.pt still the checkpoint it was seeded with, because the
+    # 4.16 improvement fell short of a 4.46 margin. Seeding from best there would have handed stage 3 a network
+    # that had learned nothing of stage 2.
+    #
+    # What "best" buys, and what this gives up: best.pt cannot carry a late regression. A stage that destabilises
+    # near its end -- an entropy collapse, a bad restart -- passes that on under "latest" and would not under
+    # "best". On a real run the two are close anyway, since convergence stops a stage when it stops improving, so
+    # latest is near-best by construction; it is short runs where they diverge. Set "best" here, or per run
+    # through the `seed_from` file, for a long build where the protection is worth more than the freshness.
+    #
+    # A parent run that carries its own `seed_from` file overrides this for itself
+    # (animus.train.seed_preference); the dashboard writes that file.
+    seed_from: str = "latest"
     # A merge stage's further parents (stage.json merges), seeding the blocks only they have after init_from: "auto"
     # takes each merged stage's best.pt (else latest.pt); a list names checkpoints; empty = none.
     merge_from: str | list[str] = AUTO

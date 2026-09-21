@@ -173,14 +173,25 @@ Restart the worldserver and the page gains pause, resume, skip and cancel. They 
 `SEC_ADMINISTRATOR` check a typed console command does, so they grant no authority the console does not already
 have; the page sends a command *name* from a fixed list, never a command string.
 
-**Which checkpoint the next stage starts from.** A stage seeds from its parent's `best.pt`, and `best.pt` is only
-rewritten by an evaluation that clears the convergence margin (`max(min_improvement_abs, min_improvement x |best|,
-z x the two scores' standard errors)`). On a short run that margin is wide -- 64-episode evaluations have big error
-bars -- so `best.pt` can sit millions of steps behind `latest.pt` while later evaluations score higher without ever
-clearing it. Skipping a stage then hands the next one the older network. The dashboard's "Seeding the next stage"
-panel says how far behind `best.pt` is and lets you pick `best.pt`, `latest.pt` or the learner's own default; it
-writes a one-word `seed_from` file in the run directory, which `animus.train.seed_preference` reads. `seed_from` in
-the learner config is the same choice for a whole run, and the file wins over it.
+**Which checkpoint the next stage starts from.** `latest.pt`, by default (`seed_from`).
+
+The alternative is `best.pt`, and it is a worse default than it sounds. `best.pt` is only rewritten by an
+evaluation that clears the convergence margin -- `max(min_improvement_abs, min_improvement x |best|, z x the two
+scores' standard errors)` -- and on a short run the last term dominates, because 64-episode evaluations have wide
+error bars. A stage can then improve a great deal without ever clearing the bar. Measured on a fast sweep:
+`stage2_pack` reached 8.2M steps with its evaluations up from 2.6 to 6.8 and `best.pt` still the checkpoint it had
+been seeded with, because a 4.16 improvement fell short of a 4.46 margin. A queue that advanced there would have
+handed stage 3 a network that had learned nothing of stage 2.
+
+What `best` buys is protection from a late regression: an entropy collapse or a bad restart near the end of a
+stage is carried by `latest.pt` and not by `best.pt`. On a real run the two are close, since convergence ends a
+stage when it stops improving and `latest` is then near-best by construction; it is short runs where they
+diverge. For a long build where that protection is worth more than the freshness, set `seed_from: best`.
+
+The dashboard's "Seeding the next stage" panel says which file the next stage would take and how far behind
+`best.pt` is, and lets you pick either or fall back to the default. Picking one writes a one-word `seed_from` file
+in the run directory, which `animus.train.seed_preference` reads; it applies to merge parents as well as the base,
+and a run's own file wins over the config.
 
 | `<OutputDir>/runs/<stage>/stage.jsonl` | Restart, advance and halt decisions with their gates |
 | `forge scenarios` | Every stage's run: finished and why, checkpoints, steps, best score |

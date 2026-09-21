@@ -16,6 +16,12 @@
 #
 # Look at eval.csv: the at_start evaluation against the best, and the baseline in eval_baseline.json.
 
+# A sweep advances by itself, and on 64-episode evaluations best.pt often never moves: the convergence margin is
+# dominated by two standard errors of scores that noisy, so a stage can triple its score without clearing it. Seed
+# the next stage from what the last one actually trained to. (This is also the learner's default; it is written
+# here because a fast run is where it matters and where someone will look for it.)
+seed_from: latest
+
 total_env_steps: 20000000
 rollout_length: 128
 checkpoint_every: 10
