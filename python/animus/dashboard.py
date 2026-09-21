@@ -6,9 +6,15 @@ http://localhost:18800, next to TensorBoard. To run one by hand, in the containe
     python3 modules/mod-animus-forge/python/animus/dashboard.py [--port 8800] [--host 0.0.0.0] [--runs DIR]
 
 Reads the files the sim and the learner already write (runs/<stage>/progress.json, eval.csv, metrics.csv,
-eval_episodes.jsonl, finished.json) and the worldserver's own conf. It never writes anything and never talks to the
-sim, so it is safe to start, stop and restart under a live run. Standard library only -- it runs on the host's python
-without the learner's venv, and binds to the loopback address only.
+eval_episodes.jsonl, finished.json) and the worldserver's own conf, for both the real runs and a `forge fast`
+sweep's own tree. Reading never touches the sim, so the page is safe to start, stop and restart under a live run.
+Standard library only -- it runs on the host's python without the learner's venv, and binds to the loopback address
+only.
+
+The stage controls (pause, resume, skip, cancel) are the one thing that does talk to the sim, over SOAP, and they
+exist only when `--soap-auth` names a readable `user:password` file. Without it the page is exactly as read-only as
+it always was. The commands are a fixed list mapped onto `forge <name>`: the request carries a name, never a
+command string, so nothing the page is tricked into sending can become a different console command.
 
 TensorBoard (http://localhost:16006) plots the same scalars in more depth; this page answers the questions it cannot:
 what config is this run using, which stage of the plan is live, and how is each class/role doing in the last
@@ -23,26 +29,128 @@ import json
 import os
 import re
 import time
+import base64
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from xml.etree import ElementTree
 
 ROOT = Path(__file__).resolve().parents[4]          # <repo>/modules/mod-animus-forge/python/animus/dashboard.py
 DEFAULT_RUNS = ROOT / "var" / "animus-forge" / "runs"
 DEFAULT_CONF = ROOT / "env" / "dist" / "etc" / "modules" / "mod_animus_forge.conf"
 DIST_CONF = ROOT / "modules" / "mod-animus-forge" / "conf" / "mod_animus_forge.conf.dist"
+# The sim's SOAP endpoint (worldserver.conf SOAP.IP/SOAP.Port). Loopback: the dashboard runs in the
+# same container as the worldserver.
+DEFAULT_SOAP_URL = "http://127.0.0.1:7878/"
 
-# The training-metric series the page plots, and what each is called on it.
-SERIES = [
-    ("episode_killed", "killed"),
-    ("episode_died", "died"),
-    ("episode_timed_out", "timed out"),
-    ("episode_difficulty", "difficulty"),
-    ("entropy", "entropy"),
-    ("reward_per_decision", "reward/decision"),
+# What to plot. A fixed list cannot serve 24 stages: "killed" is the whole point of a duel and says nothing in the
+# healing drill, the flag stages live and die by captures, and a travel stage is about arriving. So each run's
+# series are picked out of its own metrics.csv -- a column that never moves in this run is a flat line taking the
+# place of one the stage actually teaches.
+#
+# PLOT_ALWAYS is the run's health rather than its subject, and comes first whenever it varies.
+PLOT_ALWAYS = ["reward_per_decision", "entropy", "episode_difficulty"]
+
+# Preferred order for the rest. A column not named here can still be plotted -- a new episode_ column needs no
+# change here -- it just sorts after these, by how much it moves.
+PLOT_PREFERRED = [
+    "episode_killed", "episode_died", "episode_timed_out", "episode_health_left",
+    "episode_flag_captures", "episode_flag_pickups", "episode_flag_returns", "episode_match_won",
+    "episode_owner_deaths", "episode_teammates_died", "episode_wipes", "episode_pulls_cleared",
+    "episode_healing_done", "episode_overheal_share", "episode_healing_per_mana",
+    "episode_damage_taken", "episode_dps", "episode_arrived", "episode_hazard_seconds",
+    "episode_casts_completed", "episode_casts_cancelled", "episode_interrupts", "episode_control_seconds",
+    "episode_stealth_openers", "episode_detected", "episode_escaped",
 ]
+
+# Bookkeeping rather than behaviour: what class the seat rolled says nothing about what the stage taught.
+PLOT_NEVER = {
+    "update", "env_steps", "env_steps_per_sec", "update_seconds", "episodes",
+    "episode_level", "episode_race", "episode_class", "episode_role", "episode_spec",
+    "episode_present", "episode_talent_plan", "episode_opponent", "episode_opponent_seat",
+    "episode_unspent_talent_points", "episode_equipped_items", "episode_form_at_end",
+}
+
+MAX_SERIES = 9          # what the charts grid holds without the panel becoming a wall of flat lines
+
+
+def series_label(column: str) -> str:
+    """`episode_flag_captures` -> `flag captures`, which is what a chart has room for."""
+    return column.replace("episode_", "").replace("_", " ")
 # Per class/role, from the last evaluation's episodes.
 LAYOUT_FIELDS = ["killed", "died", "timed_out", "options_started", "option_seconds", "preparation_seconds",
                  "in_melee_share", "repeated_presses", "health_left", "interrupts", "control_seconds"]
+
+
+# What a button may do, and the console command each one becomes. The page sends the key; nothing else reaches
+# the sim, so the control surface is this dict and not "whatever string arrived".
+COMMANDS = {
+    "pause": "forge pause",
+    "resume": "forge resume",
+    "skip": "forge skip",
+    "cancel": "forge cancel",
+}
+
+SOAP_ENVELOPE = (
+    '<?xml version="1.0" encoding="utf-8"?>'
+    '<SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="urn:AC">'
+    "<SOAP-ENV:Body><ns1:executeCommand><command>{command}</command></ns1:executeCommand>"
+    "</SOAP-ENV:Body></SOAP-ENV:Envelope>"
+)
+
+
+def read_soap_auth(path: Path | None) -> tuple[str, str] | None:
+    """`user:password` from a file, or None when there is none to read.
+
+    A file rather than an argument or an environment variable: a password in argv is in every `ps` listing on the
+    box, and the sim's own console is already reachable by anyone who can read this file."""
+    if not path:
+        return None
+    try:
+        user, _, password = path.read_text().strip().partition(":")
+    except OSError:
+        return None
+    return (user, password) if user and password else None
+
+
+def run_command(name: str, url: str, auth: tuple[str, str]) -> tuple[bool, str]:
+    """Run one of COMMANDS through the sim's SOAP endpoint. Returns (ok, what the console said)."""
+    command = COMMANDS.get(name)
+    if not command:
+        return False, f"{name} is not a command this page can run"
+
+    token = base64.b64encode(f"{auth[0]}:{auth[1]}".encode()).decode()
+    request = urllib.request.Request(
+        url,
+        data=SOAP_ENVELOPE.format(command=command).encode(),
+        headers={"Content-Type": "application/xml", "Authorization": f"Basic {token}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            body = response.read().decode(errors="replace")
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode(errors="replace")
+        # A fault carries the reason the command was refused, which is more use than the status code.
+        return False, _soap_text(detail) or f"the sim refused it (HTTP {error.code})"
+    except OSError as error:
+        return False, f"the sim did not answer ({error.__class__.__name__}); is SOAP.Enabled set?"
+
+    return True, _soap_text(body) or "done"
+
+
+def _soap_text(body: str) -> str:
+    """The <result> (or fault reason) out of a SOAP body, as text."""
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError:
+        return ""
+    for tag in ("result", "faultstring", "{http://schemas.xmlsoap.org/soap/envelope/}Text"):
+        found = root.iter(tag)
+        for element in found:
+            if element.text:
+                return element.text.strip()
+    return ""
 
 
 def _read_json(path: Path):
@@ -109,27 +217,58 @@ def parse_eval(path: Path) -> list[dict]:
 
 
 def parse_metrics(path: Path, points: int = 240) -> dict[str, list]:
-    """The plotted series, thinned to `points` samples: an hour of training is thousands of updates and the page only
-    has a few hundred pixels to draw them in."""
+    """Every numeric column of metrics.csv, thinned to `points` samples: an hour of training is thousands of
+    updates and the page has a few hundred pixels to draw them in.
+
+    All of them, not a chosen few, because which columns matter is a property of the stage rather than of the
+    dashboard -- `choose_series` picks from these once they can be seen moving. The whole parse is cached against
+    the file's mtime, and only the chosen series are sent to the page."""
     rows = list(csv.DictReader(io.StringIO(path.read_text(errors="replace"))))
     if not rows:
         return {}
     step = max(1, len(rows) // points)
     kept = rows[::step] + ([rows[-1]] if len(rows) > 1 else [])
+    columns = [name for name in (rows[0].keys() or ()) if name and name not in PLOT_NEVER]
     series: dict[str, list] = {"env_steps": []}
-    for name, _ in SERIES:
+    for name in columns:
         series[name] = []
     for row in kept:
         try:
             series["env_steps"].append(float(row["env_steps"]))
         except (KeyError, TypeError, ValueError):
             continue
-        for name, _ in SERIES:
+        for name in columns:
             try:
                 series[name].append(float(row[name]))
             except (KeyError, TypeError, ValueError):
                 series[name].append(None)
     return series
+
+
+def choose_series(metrics: dict[str, list], limit: int = MAX_SERIES) -> list[str]:
+    """Which columns of this run are worth a chart, most telling first.
+
+    A column that holds one value for the whole run taught the stage nothing that can be watched -- every stage
+    carries every column, so a duel run still has `flag_captures` sitting at zero. What is left is ordered by
+    PLOT_ALWAYS, then PLOT_PREFERRED, then by how much it moves relative to its own size, so a stage nobody wrote
+    a preference for still gets its liveliest columns rather than the alphabetical ones."""
+    moved: dict[str, float] = {}
+    for name, values in metrics.items():
+        if name == "env_steps" or name in PLOT_NEVER:
+            continue
+        seen = [v for v in values if v is not None]
+        if len(seen) < 2:
+            continue
+        low, high = min(seen), max(seen)
+        if high == low:
+            continue                                   # a flat line says only that the column exists
+        scale = max(abs(high), abs(low), 1e-9)
+        moved[name] = (high - low) / scale
+
+    ordered = [name for name in PLOT_ALWAYS if name in moved]
+    ordered += [name for name in PLOT_PREFERRED if name in moved and name not in ordered]
+    ordered += sorted((name for name in moved if name not in ordered), key=lambda n: -moved[n])
+    return ordered[:limit]
 
 
 def parse_live_layouts(path: Path) -> dict:
@@ -191,7 +330,7 @@ def parse_layouts(path: Path) -> dict:
     return {"env_steps": last_steps or 0, "layouts": layouts}
 
 
-def run_state(run_dir: Path) -> dict | None:
+def run_state(run_dir: Path, fast: bool = False) -> dict | None:
     progress = CACHE.get(run_dir / "progress.json", _read_json)
     finished = CACHE.get(run_dir / "finished.json", _read_json)
     if not progress and not finished:
@@ -200,6 +339,10 @@ def run_state(run_dir: Path) -> dict | None:
     evals = CACHE.get(run_dir / "eval.csv", parse_eval) or []
     return {
         "name": run_dir.name,
+        "dir": str(run_dir),
+        # A fast sweep trains every stage again under its own budget, in its own directory, so the same stage
+        # name exists in both. Without this the page cannot say which one it is showing.
+        "fast": fast,
         "progress": progress,
         "finished": finished,
         "evals": evals,
@@ -208,13 +351,29 @@ def run_state(run_dir: Path) -> dict | None:
     }
 
 
+def fast_runs_dir(runs_dir: Path, conf: dict) -> Path:
+    """Where `forge fast` writes, beside the real runs.
+
+    A fast sweep never touches runs/: it trains every stage again from scratch under AnimusForge.Fast.OutputDir
+    (relative to AnimusForge.OutputDir, default "fast"). The dashboard was pointed at runs/ alone, so a fast run
+    -- the whole curriculum, for hours -- left the page empty. Read from the conf rather than assumed, so moving
+    the directory moves the dashboard with it."""
+    name = (conf.get("AnimusForge.Fast.OutputDir") or "fast").strip().strip('"')
+    return runs_dir.parent / name / "runs"
+
+
 def collect(runs_dir: Path, conf_path: Path) -> dict:
+    live = CACHE.get(conf_path, parse_conf) or {}
+    fast_dir = fast_runs_dir(runs_dir, live)
+
     runs = []
-    if runs_dir.is_dir():
-        for child in sorted(runs_dir.iterdir()):
+    for base, fast in ((runs_dir, False), (fast_dir, True)):
+        if not base.is_dir():
+            continue
+        for child in sorted(base.iterdir()):
             if not child.is_dir() or child.name.startswith("_"):
                 continue
-            state = run_state(child)
+            state = run_state(child, fast)
             if state:
                 runs.append(state)
 
@@ -222,15 +381,20 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
     current = next((r for r in runs if r["live"]), runs[0] if runs else None)
 
     metrics: dict = {}
+    series: list = []
     layouts: dict = {}
     live_layouts: dict = {}
     if current:
-        run_dir = runs_dir / current["name"]
+        run_dir = Path(current["dir"])
         metrics = CACHE.get(run_dir / "metrics.csv", parse_metrics) or {}
+        chosen = choose_series(metrics)
+        # Only the chosen columns cross the wire; metrics.csv is over a hundred columns wide and the page polls
+        # every few seconds.
+        metrics = {name: metrics[name] for name in ["env_steps", *chosen] if name in metrics}
+        series = [{"key": name, "label": series_label(name)} for name in chosen]
         layouts = CACHE.get(run_dir / "eval_episodes.jsonl", parse_layouts) or {}
         live_layouts = CACHE.get(run_dir / "layouts.csv", parse_live_layouts) or {}
 
-    live = CACHE.get(conf_path, parse_conf) or {}
     dist = CACHE.get(DIST_CONF, parse_conf) or {}
     config = [{"key": key, "value": value, "default": dist.get(key), "changed": key in dist and dist[key] != value}
               for key, value in sorted(live.items())]
@@ -241,10 +405,11 @@ def collect(runs_dir: Path, conf_path: Path) -> dict:
     return {
         "now": time.time(),
         "runs_dir": str(runs_dir),
+        "fast_dir": str(fast_dir),
         "conf": str(conf_path),
         "runs": [{k: v for k, v in run.items() if k != "progress"} | {"progress": run["progress"]} for run in runs],
-        "current": current["name"] if current else None,
-        "series": [{"key": key, "label": label} for key, label in SERIES],
+        "current": current["dir"] if current else None,
+        "series": series,
         "metrics": metrics,
         "layouts": layouts,
         "live": live_layouts,
@@ -294,6 +459,17 @@ PAGE = r"""<!doctype html>
   .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
   .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .changed td:first-child::after { content: " changed"; color: var(--warn); font-size: 11px; }
+  .tag { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--bg);
+         background: var(--accent); border-radius: 4px; padding: 1px 5px; vertical-align: 1px; }
+  tr.current td { background: #1a2030; }
+  .controls { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .controls button { background: #1b2030; color: var(--text); border: 1px solid var(--line);
+                     border-radius: 7px; padding: 5px 11px; font: inherit; font-size: 12px; cursor: pointer; }
+  .controls button:hover:not(:disabled) { background: #232a3a; border-color: var(--accent); }
+  .controls button:disabled { opacity: .45; cursor: default; }
+  .controls button.danger:hover:not(:disabled) { border-color: var(--bad); color: var(--bad); }
+  .said { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .said.bad { color: var(--bad); } .said.good { color: var(--good); }
   @media (max-width: 700px) {
     main { padding: 12px; gap: 12px; }
     header { padding: 12px; gap: 8px; }
@@ -313,6 +489,8 @@ PAGE = r"""<!doctype html>
   <h1>Animus Forge</h1>
   <span id="stage" class="muted"></span>
   <span style="flex:1"></span>
+  <span id="controls" class="controls"></span>
+  <span id="said" class="muted said"></span>
   <span id="clock" class="muted"></span>
 </header>
 <main>
@@ -361,10 +539,12 @@ let state = null;
 
 function render() {
   if (!state) return;
-  const run = (state.runs || []).find(r => r.name === state.current);
+  const run = (state.runs || []).find(r => r.dir === state.current);
   const p = run ? run.progress || {} : {};
-  document.getElementById("stage").textContent = run
-    ? `${run.name} - ${run.finished ? "finished: " + (run.finished.reason || "") : p.phase || "?"}` : "no runs yet";
+  const phase = run ? (run.finished ? "finished: " + (run.finished.reason || "") : p.phase || "?") : "";
+  document.getElementById("stage").innerHTML = run
+    ? `${run.name}${run.fast ? ` <span class="tag">fast</span>` : ""} <span class="muted">- ${phase}</span>`
+    : `<span class="muted">no runs yet</span>`;
   document.getElementById("clock").textContent = new Date(state.now * 1000).toLocaleTimeString();
 
   const total = p.total_env_steps || 0, done = p.env_steps || 0;
@@ -434,15 +614,69 @@ function render() {
       }).join("")}</tr>`).join("")}</tbody>`;
 
   document.getElementById("runs").innerHTML = `
-    <thead><tr><th>run</th><th>state</th><th>steps</th><th>best</th><th>baseline</th><th>updated</th></tr></thead><tbody>
-    ${(state.runs || []).map(r => { const q = r.progress || {}; return `<tr>
-      <td><span class="dot" style="background:${r.live ? "#5bd6a0" : "#3a4150"}"></span>${r.name}</td>
+    <thead><tr><th>run</th><th>state</th><th>progress</th><th>best</th><th>baseline</th><th>updated</th></tr></thead><tbody>
+    ${(state.runs || []).map(r => { const q = r.progress || {};
+      const of = q.total_env_steps || 0, at = q.env_steps || 0;
+      return `<tr class="${r.dir === state.current ? "current" : ""}">
+      <td><span class="dot" style="background:${r.live ? "#5bd6a0" : "#3a4150"}"></span>${r.name}
+          ${r.fast ? `<span class="tag">fast</span>` : ""}</td>
       <td>${r.finished ? (r.finished.reason || "finished") + (r.finished.advanced ? ", advanced" : "") : q.phase || "-"}</td>
-      <td>${steps(q.env_steps || 0)}</td><td>${fmt(q.best_score, 2)}</td><td>${fmt(q.baseline_score, 2)}</td>
+      <td>${steps(at)}${of ? ` <span class="muted">/ ${steps(of)}</span>` : ""}</td>
+      <td>${fmt(q.best_score, 2)}</td><td>${fmt(q.baseline_score, 2)}</td>
       <td class="muted">${q.updated_at ? new Date(q.updated_at * 1000).toLocaleTimeString() : "-"}</td></tr>`; }).join("")}
     </tbody>`;
 
+  renderControls(run, p);
   renderConfig();
+}
+
+// The buttons the sim will actually accept right now. `forge resume` continues a paused or cancelled plan, so it
+// is the one that makes sense while nothing is running; the rest need a live plan. Offering a button that is
+// going to be refused is worse than not offering it.
+function renderControls(run, p) {
+  const names = state.controls || [];
+  const box = document.getElementById("controls");
+  if (!names.length) {
+    box.innerHTML = `<span class="muted" title="start the dashboard with --soap-auth to enable these">read-only</span>`;
+    return;
+  }
+  const phase = (run && !run.finished && p.phase) ? p.phase : "";
+  const running = phase === "training" || phase === "evaluating";
+  const enabled = { pause: running, resume: !running, skip: running, cancel: running };
+  const label = { pause: "pause", resume: "resume", skip: "skip stage", cancel: "cancel" };
+  box.innerHTML = names.map(n =>
+    `<button data-cmd="${n}" class="${n === "cancel" ? "danger" : ""}" ${enabled[n] ? "" : "disabled"}
+      >${label[n] || n}</button>`).join("");
+  box.querySelectorAll("button").forEach(b => b.addEventListener("click", () => send(b.dataset.cmd)));
+}
+
+async function send(command) {
+  // Cancel stops the stage and the learner saves on its way out; skip abandons the rest of this stage's budget.
+  // Both are a keystroke away from being a mistake, so they ask first.
+  if ((command === "cancel" || command === "skip") &&
+      !confirm(`${command} the current stage?`)) return;
+
+  const said = document.getElementById("said");
+  said.className = "muted said";
+  said.textContent = `${command}...`;
+  document.querySelectorAll("#controls button").forEach(b => b.disabled = true);
+  try {
+    const r = await fetch("api/command", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command }),
+    });
+    const out = await r.json();
+    said.className = "said " + (out.ok ? "good" : "bad");
+    // The console answers in whole paragraphs, CRLF and all; the header has room for the first line of it and
+    // the rest goes in the tooltip.
+    const text = (out.output || "").replace(/\r/g, "");
+    said.textContent = text.split("\n")[0].slice(0, 160) || (out.ok ? "done" : "refused");
+    said.title = text;
+  } catch (e) {
+    said.className = "said bad";
+    said.textContent = "the dashboard could not reach the sim";
+  }
+  poll();
 }
 
 function renderConfig() {
@@ -477,6 +711,8 @@ setInterval(poll, 5000);
 class Handler(BaseHTTPRequestHandler):
     runs_dir = DEFAULT_RUNS
     conf_path = DEFAULT_CONF
+    soap_url = DEFAULT_SOAP_URL
+    soap_auth: tuple[str, str] | None = None
 
     def _send(self, body: bytes, content_type: str):
         self.send_response(200)
@@ -491,10 +727,31 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/", "/index.html"):
             self._send(PAGE.encode(), "text/html; charset=utf-8")
         elif path == "/api/state":
-            payload = json.dumps(collect(self.runs_dir, self.conf_path)).encode()
+            state = collect(self.runs_dir, self.conf_path)
+            # The page hides the buttons rather than offering ones that cannot work.
+            state["controls"] = sorted(COMMANDS) if self.soap_auth else []
+            payload = json.dumps(state).encode()
             self._send(payload, "application/json")
         else:
             self.send_error(404)
+
+    def do_POST(self):  # noqa: N802 - BaseHTTPRequestHandler's name
+        if self.path.split("?")[0].rstrip("/") != "/api/command":
+            self.send_error(404)
+            return
+        if not self.soap_auth:
+            self._send(json.dumps({"ok": False, "output": "no SOAP credentials: the page is read-only"}).encode(),
+                       "application/json")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            name = (json.loads(self.rfile.read(length) or b"{}") or {}).get("command", "")
+        except (ValueError, TypeError):
+            name = ""
+
+        ok, output = run_command(str(name), self.soap_url, self.soap_auth)
+        self._send(json.dumps({"ok": ok, "output": output}).encode(), "application/json")
 
     def log_message(self, *_args):
         pass        # a poll every 5 s would fill the terminal it runs in
@@ -506,12 +763,19 @@ def main() -> int:
     parser.add_argument("--host", default="127.0.0.1", help="loopback by default: the page is not authenticated")
     parser.add_argument("--runs", type=Path, default=DEFAULT_RUNS, help="AnimusForge.OutputDir's runs directory")
     parser.add_argument("--conf", type=Path, default=DEFAULT_CONF, help="the worldserver's mod_animus_forge.conf")
+    parser.add_argument("--soap-url", default=DEFAULT_SOAP_URL, help="the sim's SOAP endpoint (SOAP.IP/SOAP.Port)")
+    parser.add_argument("--soap-auth", type=Path, default=None,
+                        help="file holding `user:password` for SOAP; without it the stage controls are hidden "
+                             "and the page stays read-only")
     args = parser.parse_args()
 
     Handler.runs_dir = args.runs
     Handler.conf_path = args.conf
+    Handler.soap_url = args.soap_url
+    Handler.soap_auth = read_soap_auth(args.soap_auth)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"Animus Forge dashboard on http://{args.host}:{args.port}  (runs {args.runs})")
+    controls = "stage controls on" if Handler.soap_auth else "read-only (no --soap-auth)"
+    print(f"Animus Forge dashboard on http://{args.host}:{args.port}  (runs {args.runs}, {controls})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
