@@ -544,9 +544,11 @@ namespace Animus::Curriculum
         /// takes the length of that path -- the straight line when there is none (a flying arena).
         /// A place `nearest` to `furthest` away that the seat can get to and stand on. `across` inverts the detour
         /// test for a water arena: instead of refusing an objective whose path is much longer than the straight
-        /// line, it insists on one, and checks that what lies between is water rather than a cliff.
+        /// line, it insists on one, and checks that what lies between is water rather than a cliff. `across` also
+        /// requires a dry way round to exist at all -- water is only worth getting into when there is a choice --
+        /// and reports its length in `dry`, which is what the way round costs on foot.
         static bool FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying, Position& place,
-            float* walk = nullptr, bool across = false);
+            float* walk = nullptr, bool across = false, float* dry = nullptr);
         /// Whether the straight line from `bot` to (x, y) passes through water.
         static bool CrossesWater(Player const* bot, Map* map, Position const& place, float x, float y);
 
@@ -554,6 +556,7 @@ namespace Animus::Curriculum
         struct EnvTravel
         {
             bool Crossing = false;          // the objective was placed across water (a water arena that found one)
+            float DryDistance = 0.0f;       // yards of the way round on foot, water excluded; 0 = no dry route
             uint32 SwimMs = 0;              // how long the seat has been in the water this episode
             bool HasObjective = false;
             Position Objective;

@@ -20,6 +20,7 @@
 #include "Env.h"
 #include "EpisodeInfoTable.h"
 #include "Map.h"
+#include "MapDefines.h"
 #include "PathGenerator.h"
 #include "Player.h"
 #include "Random.h"
@@ -37,6 +38,9 @@ namespace
     // at roughly 1.5x and this leaves a margin on either side of that -- some of these trips are worth swimming
     // and some are not, which is what makes it a decision rather than a reflex.
     constexpr float MIN_DETOUR_ACROSS = 1.35f;
+    // Running is 7 yd/s and swimming about 4.7, so the way round has to be this much longer than the way through
+    // before swimming it actually saves time. Reported, never required: the arena wants trips on both sides of it.
+    constexpr float SWIM_PAYS_ABOVE = 7.0f / 4.7f;
     constexpr uint32 WATER_SAMPLES = 12;            // points along the straight line, looking for water
     constexpr float HEIGHT_SEARCH = 120.0f;
     constexpr float BODY_HEIGHT = 2.0f;             // for the water check
@@ -147,12 +151,17 @@ void Animus::Curriculum::TravelEncounter::ResetEpisode(Env& env)
 }
 
 bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying,
-    Position& place, float* walk, bool across)
+    Position& place, float* walk, bool across, float* dry)
 {
-    for (uint32 attempt = 0; attempt < OBJECTIVE_ATTEMPTS; ++attempt)
+    // A crossing is a much narrower thing to ask for than a trip -- it wants water on the straight line and a dry
+    // way round at least MIN_DETOUR_ACROSS longer -- so it gets more tries before it gives up and the arena falls
+    // back to an ordinary trip. At 32 it found one in 0.65 of its episodes; the ones it missed were not bad ground
+    // but too few throws at it.
+    uint32 const attempts = across ? OBJECTIVE_ATTEMPTS * 4 : OBJECTIVE_ATTEMPTS;
+    for (uint32 attempt = 0; attempt < attempts; ++attempt)
     {
         // Later attempts settle for shorter trips rather than failing the episode.
-        float const reach = attempt < OBJECTIVE_ATTEMPTS / 2 ? furthest : (nearest + furthest) * 0.5f;
+        float const reach = attempt < attempts / 2 ? furthest : (nearest + furthest) * 0.5f;
         float const distance = frand(nearest, std::max(nearest, reach));
         float const angle = frand(0.0f, 2.0f * float(M_PI));
         float const x = bot->GetPositionX() + distance * std::cos(angle);
@@ -170,6 +179,7 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
 
         // On the ground it has to be reachable on foot, by a path not much longer than the straight line.
         float walked = distance;
+        float dryWalk = 0.0f;
         if (!flying)
         {
             PathGenerator path(bot);
@@ -184,8 +194,27 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
             // path is what a runner would cover, so the ratio is the choice the seat is being asked to make.
             if (across)
             {
-                if (walked < distance * MIN_DETOUR_ACROSS || !CrossesWater(bot, map, place, x, y))
+                // Water is worth getting into only when there is a dry way round and swimming beats it, so the
+                // episode has to offer both and know how long each is. The path above is no use for the dry one:
+                // PathGenerator::CreateFilter hands a player NAV_GROUND | NAV_WATER | NAV_MAGMA whatever the
+                // ground, so the "walk" is allowed to swim and comes back the same length as the straight line
+                // (measured over four bodies of water: the longest way round found was 1.15x the way through,
+                // even where every straight line crossed water). NAV_GROUND alone is the way round on foot.
+                if (!CrossesWater(bot, map, place, x, y))
                     continue;
+
+                PathGenerator dry(bot);
+                dry.SetIncludeFlags(NAV_GROUND);
+                if (!dry.CalculatePath(x, y, z) || !(dry.GetPathType() & PATHFIND_NORMAL))
+                    continue;                      // no dry route: getting in is not a choice, it is the only way
+
+                dryWalk = dry.getPathLength();
+
+                // Measured at the Dustwallow banks: a dry way round of 145 yards against a 75 yard swim
+                // (1.94x, well past SWIM_PAYS_ABOVE) next to candidates at 1.02x where walking plainly wins.
+                // The floor keeps trips of both kinds, which is what makes the crossing a decision.
+                if (dryWalk < distance * MIN_DETOUR_ACROSS)
+                    continue;                      // the way round is barely longer: nothing to decide
             }
             else if (walked > distance * MAX_PATH_DETOUR)
                 continue;
@@ -194,6 +223,8 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
         place.Relocate(x, y, z);
         if (walk)
             *walk = walked;
+        if (dry)
+            *dry = dryWalk;
         return true;
     }
 
@@ -249,7 +280,8 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     // crossing at all (`crossing`), and the stage gates the water arena on the seat actually swimming: a run
     // whose spawn points have no water in reach fails that gate and says so.
     travel.Crossing = false;
-    if (arena.Water && FindPlace(bot, map, least, most, flying, travel.Objective, &walk, true))
+    travel.DryDistance = 0.0f;
+    if (arena.Water && FindPlace(bot, map, least, most, flying, travel.Objective, &walk, true, &travel.DryDistance))
         travel.Crossing = true;
     else if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk))
         return false;

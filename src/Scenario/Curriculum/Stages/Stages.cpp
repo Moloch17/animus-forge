@@ -92,10 +92,15 @@ namespace
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true, .Water = true,
                     .SpawnPoints = {
-                        { -1128.0f, -2144.0f, 82.0f, 0.0f }, { -990.0f, -2119.0f, 83.0f, 0.0f },
-                        { -1116.0f, -2018.0f, 87.0f, 0.0f }, { -1011.0f, -2158.0f, 85.0f, 0.0f },
-                        { -1250.0f, -3090.0f, 93.0f, 0.0f }, { -1219.0f, -3082.0f, 94.0f, 0.0f },
-                        { -1352.0f, -3053.0f, 93.0f, 0.0f }, { -1351.0f, -2987.0f, 93.0f, 0.0f },
+                        // All eight ring one pond in Dustwallow Marsh, rather than one bank each of four bodies
+                        // of water. Spread over four, only this pond was wide enough for the way round to be
+                        // worth avoiding, and the arena found a crossing in a tenth of its episodes because
+                        // seven envs in eight were standing somewhere it could not. Measured here: a dry way
+                        // round of 145 yards against a 75 yard swim.
+                        { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
+                        { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
+                        { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
+                        { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
                     } },
             },
             .MapId = MAP_KALIMDOR,
