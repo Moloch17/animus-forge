@@ -502,7 +502,7 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 |---|---|
 | Server exits at once in Docker | The console read end of file. Run through `forge.sh`/Compose, which gives it a TTY. A server without a TTY skips the console and keeps running |
 | Every `AnimusForge.*` (or `Animus.*`) key logs "Missing property" | The module's `.conf` doesn't exist: AzerothCore no longer reads a module's `.dist`. Installing creates it when missing (Docker copies it to the config volume on start); for an install that predates that, copy it from the `.dist` |
-| "The world ticks N ms, but AnimusForge.DecisionMs is M" | The worldserver was built before "one tick per decision". Run `./forge.sh --build` |
+| "The world ticks N ms, but AnimusForge.DecisionMs M over TicksPerDecision T wants X ms" | The worldserver and the module disagree about the split, because it was built before this, or because the conf changed without restarting both. Run `./forge.sh --build` |
 | Configure fails: "mod-animus-forge needs mod-animus-lib, which is disabled" or linkage mismatch | Build both the same way. Set the named variable to `static` or `dynamic` |
 | Configure fails: "built dynamic, which needs animus-lib as its own module" | Copy the module's `animus-lib/` bundle to `modules/mod-animus-lib` and build it dynamic too |
 | "Learner directory ... does not contain animus/train.py" | The worldserver runs from a baked image, or the module moved. Set `AnimusForge.Learner.WorkDir` |

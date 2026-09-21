@@ -66,7 +66,10 @@ the databases close, then scripts unload, then OpenSSL cleans up.
 ## 2.3 The fixed-tick loop
 
 ```cpp
-uint32 const tickMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 250));
+uint32 const decisionMs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.DecisionMs", 250));
+uint32 const ticksPerDecision =
+    std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.TicksPerDecision", 1));
+uint32 const tickMs = std::max<uint32>(1, decisionMs / ticksPerDecision);
 while (!World::IsStopped())
 {
     ++World::m_worldLoopCounter;
@@ -77,9 +80,13 @@ while (!World::IsStopped())
 - **The diff is constant.** Stock AzerothCore measures how much wall time passed and sleeps to hold a minimum tick.
   The forge never sleeps and always passes the same diff, so one iteration advances the world by exactly `tickMs` of
   game time, however long the CPU took.
-- **One tick equals one decision.** The loop reads mod-animus-forge's `AnimusForge.DecisionMs`, so every world update
-  is one agent decision. Rewards, cast timers and episode clocks line up without sub-stepping. If the module sees a
-  different diff (a worldserver built before this change), it logs an error once and asks for `./forge.sh --build`.
+- **The tick is the decision cut into `TicksPerDecision`.** The loop reads both of mod-animus-forge's keys. At the
+  default of 1 a world update is an agent decision and everything lines up without sub-stepping. Above 1 the world
+  runs several times between decisions, which is how movement gets finer than 250 ms: the module holds the decision
+  back until the count comes round, so the intervening ticks move splines, auras and the fight and nothing else.
+  Integer division truncates, and the module rounds `DecisionMs` down to a whole number of ticks at startup, so both
+  sides land on `floor(DecisionMs / TicksPerDecision)`. If the module sees a different diff (a worldserver built
+  before this change, or a conf edit without a restart) it logs an error once and asks for `./forge.sh --build`.
 - **Idle cost is the module's concern.** An idle or paused sim would spin a core at full speed. mod-animus-forge sleeps
   50 ms per tick while nothing runs.
 - **Synchronous query warnings are on** for all three databases during the loop, so an accidental sync query in a hot

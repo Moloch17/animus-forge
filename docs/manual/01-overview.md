@@ -107,9 +107,14 @@ inherits that stage's trained weights. An **arena** is one situation a stage's e
 party, an ambush, a trip or a flag match. Every stage has one arena except stage 8, which mixes eight, and the
 `mix_duel_pvp` pilot, which mixes two.
 
-**Decision.** One step of the environment. On the forge, one world tick equals one decision equals
-`AnimusForge.DecisionMs` of game time (250 ms by default). For each decision, every env scores the last transition,
-resets if the episode ended, observes, receives an action per seat and applies it.
+**Decision.** One step of the environment, and `AnimusForge.DecisionMs` of game time (250 ms by default). For each
+decision, every env scores the last transition, resets if the episode ended, observes, receives an action per seat
+and applies it.
+
+**Tick.** One world update. By default a tick is a decision, but `AnimusForge.TicksPerDecision` can cut a decision
+into several: the world then advances in finer steps -- splines, cast bars and periodic auras all move per tick --
+while the policy still chooses once per `DecisionMs`. It buys movement resolution without paying for more decisions,
+at the cost of running the world that many times more often.
 
 **Lock-step.** With a learner attached, the world thread sends every env's observations to Python and blocks until
 the actions come back. Simulation speed is therefore limited by the slower of the world tick and the learner's forward

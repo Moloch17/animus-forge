@@ -16,7 +16,8 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Queue.LocalEpisodes` | `0` | With a local policy, episodes per scenario of `forge start` (0 = until cancelled) |
 | `AnimusForge.ClassRoles` | `""` = all 18 | Comma-separated class/roles the stages play |
 | `AnimusForge.Envs` | `64` | Parallel envs, one instance each (capped at 12500) |
-| `AnimusForge.DecisionMs` | `250` | Game time per decision, and the world tick |
+| `AnimusForge.DecisionMs` | `250` | Game time per decision; the unit every reward scale and discount is written in |
+| `AnimusForge.TicksPerDecision` | `1` | World updates per decision. Above 1 the world moves in finer steps (smoother splines and auras) while the policy still chooses every `DecisionMs` |
 | `AnimusForge.EpisodeSeconds` | `60` | Episode length for arenas without their own |
 | `AnimusForge.SpawnPoint.MapId` | `560` | Instanceable map every env starts in (Old Hillsbrad Foothills) |
 | `AnimusForge.SpawnPoint.X/Y/Z/O` | `2741.9`, `1315.2`, `14.0`, `2.96` | Spawn position |
@@ -295,8 +296,10 @@ ModeMsg   { u32 Mode;          // 0 training, 1 evaluation
           }
 ```
 
-`ObsDim` and `NumActions` in `SpecMsg` are the largest layout's. The forge sends `TickMs = DecisionMs`,
-`DecisionTicks = 1`, and `EpisodeSeconds` = the longest episode of any arena.
+`ObsDim` and `NumActions` in `SpecMsg` are the largest layout's. The forge sends `TickMs` = the world tick and
+`DecisionTicks` = `AnimusForge.TicksPerDecision`; the learner reads a step as their product, so discounts, credit
+horizons and evaluation windows come out the same however the split falls. `EpisodeSeconds` is the longest episode
+of any arena.
 
 **STEP** payload, with E envs, A agents per env, O obs dim, S state dim, N actions, K episode info dim:
 
@@ -458,7 +461,7 @@ Other locations:
 | **Confirmation** | Re-scoring `best.pt` on held-out seeds before a stage advances |
 | **CoreHooks** | animus-lib's function-pointer seams for forge-only core APIs |
 | **Critic state** | The class-agnostic global env description the centralised critic sees |
-| **Decision** | One environment step: score, reset, observe, act. On the forge, one world tick |
+| **Decision** | One environment step: score, reset, observe, act. `AnimusForge.TicksPerDecision` world ticks (one by default) |
 | **Distillation** | A decaying KL term pulling a merge stage's policy towards its parents on their arenas |
 | **Encounter** | One part of an env besides the seats: creature, pulls, owner, party group, opponent, ambush |
 | **Env** | One instance holding one copy of a training situation |

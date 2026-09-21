@@ -128,9 +128,15 @@ warns that the learner exited unexpectedly, and `forge resume` restarts it from 
    learner and running console commands, until resume or a request. Nothing ticks while paused (maps, episode clocks,
    the learner), so an episode continues exactly where it stopped.
 4. If idle, sleep 50 ms and return, so an idle sim doesn't spin a core.
-5. If `diff != DecisionMs`, log an error once (the worldserver predates "one tick per decision").
-6. `EnvPool::AdvanceClock(diff)`, maybe print the periodic report.
-7. `RemoteDecision()` or `LocalDecision()`.
+5. If `diff` is not `DecisionMs / TicksPerDecision`, log an error once (the worldserver disagrees about the split).
+6. `EnvPool::AdvanceClock(diff)` -- every tick, because game time accrues whether or not anyone decided.
+7. If fewer than `TicksPerDecision` ticks have passed since the last decision, stop here. The world moved and the
+   policy did not; this is what makes movement finer than a decision. At the default of 1 it never stops here.
+8. Maybe print the periodic report, then `RemoteDecision()` or `LocalDecision()`.
+
+The tick counter that reaches the report (`_ticks`, `EnvStepsPerSecond`, every ms-per-tick bucket) counts
+**decisions**, not world updates, so the per-decision figures keep meaning what they say. A world running four ticks
+to the decision shows four ticks' worth of world time against one decision, which is the honest reading.
 
 **Local decision:** `Collect`; stop if the plan's local episode count is reached; `ChooseLocalActions(policy)`;
 `ApplyActions`.

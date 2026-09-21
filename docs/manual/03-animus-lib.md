@@ -445,8 +445,11 @@ changed. The learner reads `stage.json` for:
    another host's.
 4. `CreateScenario`, construct an `EnvPool`, optionally `PlaceEnv(index, mapId, instanceId)` to build an env in an
    existing instance, then `Setup`, `ResetAll` and `PoolRegistry::Register`.
-5. From a `WorldScript::OnUpdate` (world thread, outside map updates): `AdvanceClock` every tick. Every `DecisionMs`
-   of accumulated time, `Collect`, fill `Actions`, `ApplyActions`.
+5. From a `WorldScript::OnUpdate` (world thread, outside map updates): `AdvanceClock` every tick, because game time
+   accrues whether or not anyone decided. Every `DecisionMs` of accumulated time, `Collect`, fill `Actions`,
+   `ApplyActions`. The two clocks are separate on purpose: a host ticking faster than it decides gets smoother
+   splines and auras for free, and the library does not care which it is given as long as `AdvanceClock` is handed
+   the real diff.
 6. On stop: `Unregister` before `Teardown`, because the hooks must stop feeding a pool before it is destroyed.
 
 To play models, keep a `ModelLibrary`. For each agent row, find the layout (`StageScenario::Layouts()[pool.Layout[i]]`)
