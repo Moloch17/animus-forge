@@ -1,5 +1,5 @@
 # Stage 17: the same losing fight six levels up rather than ten, for every class and every race. Stealth is one
-# way to get out of sight and the rarest -- four of the eighteen class/roles have a stealth aura in their kit --
+# way to get out of sight and the rarest -- four of the eighteen class/builds have a stealth aura in their kit --
 # but it is not the lesson. The lesson is becoming unseen and staying unseen, which every class can do with
 # terrain, with distance, and with whatever its kit and its race give it: Blink, Disengage, Feign Death,
 # Invisibility, Sprint, Vanish, Prowl, and Shadowmeld for any night elf.
@@ -8,8 +8,8 @@
 # than the only move left. That is the difference between the two stages: stage 16 is about leaving a fight
 # that is lost, this one is about not being found once you have.
 
-extends: stage16_evade.yaml
-run_name: stage17_hide
+extends: stage10_evade.yaml
+run_name: stage11_hide
 total_env_steps: 40000000
 
 rollout_length: 256
@@ -25,7 +25,7 @@ target:
   # `escaped` is a single unbroken stretch out of sight long enough that the hunter lost the seat rather than
   # blinked (Evade.EscapeMs, 8 s), and `re_hides` is getting back out of sight after being found -- the harder
   # half, and the one every class can do. `re_stealths` and `stealth_openers` are reported, never gated:
-  # fourteen class/roles have no stealth button, and gating on one would ask them for something they cannot do.
+  # fourteen class/builds have no stealth button, and gating on one would ask them for something they cannot do.
   #
   # Measured `fight` baseline on this arena, 2048 episodes over all eighteen layouts: escaped 0.079,
   # re_hides 0.240, contact_breaks 0.541, unseen_seconds 3.17, survived 0.551, won 0.450, and re_stealths

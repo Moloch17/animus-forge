@@ -112,22 +112,27 @@ def test_base_difficulty_judges_the_floors_on_the_easier_tiers():
     assert check_gates(flat, None, target).passed
 
 
-def test_role_metrics_judge_each_role_on_its_own_episodes():
-    target = TargetConfig(role_metrics={"heal": {"owner_heal_share": {"min": 0.3}},
-                                        "tank": {"threat_share": {"min": 0.5}}})
-    learner = summary(5.0, roles={"heal": {"score": 4.0, "episodes": 40, "owner_heal_share": 0.4},
-                                  "tank": {"score": 6.0, "episodes": 40, "threat_share": 0.3},
-                                  "dps": {"score": 5.0, "episodes": 40, "threat_share": 0.1}})
-    assert check_gates(learner, None, target).failures == ["role tank threat_share (min) 0.3 (needs 0.5)"]
-    assert "role heal: no episodes" in check_gates(summary(5.0), None, target).skipped
+def test_spec_metrics_judge_each_build_on_its_own_episodes():
+    target = TargetConfig(spec_metrics={"restoration": {"owner_heal_share": {"min": 0.3}},
+                                        "feral_bear": {"threat_share": {"min": 0.5}}})
+    learner = summary(5.0, specs={"restoration": {"score": 4.0, "episodes": 40, "owner_heal_share": 0.4},
+                                  "feral_bear": {"score": 6.0, "episodes": 40, "threat_share": 0.3},
+                                  "feral_cat": {"score": 5.0, "episodes": 40, "threat_share": 0.1}})
+    assert check_gates(learner, None, target).failures == ["build feral_bear threat_share (min) 0.3 (needs 0.5)"]
+    assert "build restoration: no episodes" in check_gates(summary(5.0), None, target).skipped
 
 
-def test_validate_role_metrics():
+def test_validate_spec_metrics_checks_the_metric_not_the_build_name():
+    """A build name cannot be validated against a fixed list: the names are the classes' own, and which of them a
+    run has depends on AnimusForge.Classes. The metric still is."""
     config = TrainConfig()
     config.eval.every_env_steps = 10
-    config.target.role_metrics = {"healer": {"owner_heal_share": {"min": 0.3}}}
-    with pytest.raises(ValueError, match="a role is one of"):
+    config.target.spec_metrics = {"restoration": {"not_a_column": {"min": 0.3}}}
+    with pytest.raises(ValueError, match="not_a_column"):
         validate_target(config, ("owner_heal_share",))
+
+    config.target.spec_metrics = {"a_build_nothing_plays": {"owner_heal_share": {"min": 0.3}}}
+    validate_target(config, ("owner_heal_share",))
 
 
 def test_validate_base_difficulty():
@@ -192,7 +197,7 @@ def sim_episode_info() -> tuple[str, ...]:
     """Every episode info column the sim can emit, read from the bundled animus-lib.
 
     This used to be `tuple(config.target.metrics)` -- the config's own top-level metric names -- which made the
-    check very nearly tautological: a name was validated against itself, and any name under role_metrics,
+    check very nearly tautological: a name was validated against itself, and any name under spec_metrics,
     layout_metrics or arenas failed simply for not being repeated at the top level. At run time
     validate_target is handed the scenario's real column list, so the honest stand-in here is that list, taken
     from the source that registers it. A config that gates on something the sim never emits now fails here
@@ -240,7 +245,7 @@ def test_noise_allowance_is_validated():
 
 def test_layout_metrics_floor_is_absolute():
     """A layout that beats its own baseline can still be bad: where the scripted baseline is hopeless, beating it
-    asks for nothing (stage1_duel passed warlock_dps against a required score of -2.34)."""
+    asks for nothing (stage5_duel passed warlock_dps against a required score of -2.34)."""
     target = TargetConfig(min_layout_over_baseline=0.0, layout_metrics={"killed": {"min": 0.75}})
     learner = summary(5.0, {"warlock_dps": {**layout(4.7), "killed": 0.65},
                             "warrior_dps": {**layout(7.9), "killed": 0.89}})

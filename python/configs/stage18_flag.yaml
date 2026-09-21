@@ -1,13 +1,13 @@
 # Stage 18: Warsong Gulch's rules between two learned seats. Each has a flag at its base 100-180 yd
 # from the other's: take the other side's flag home while one's own is there, return one's own when it is dropped,
 # and stop the carrier. A carrier cannot ride, the dead stand up at their base after a 15 s wave, and the first to
-# three captures wins. Seeded from stage19_arena (the fight) and stage7_travel (mounting between bases).
+# three captures wins. Seeded from stage13_arena (the fight) and stage3_travel (mounting between bases).
 #
 # As in the arena, a score against itself says little, so evaluation plays the other seat with the fight baseline,
 # which heads for the flags on a mount.
 
-extends: stage19_arena.yaml
-run_name: stage21_flag
+extends: stage13_arena.yaml
+run_name: stage18_flag
 
 total_env_steps: 60000000
 

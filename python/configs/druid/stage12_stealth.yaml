@@ -1,0 +1,35 @@
+# Stealth, druid-shaped -- and the stage that stopped being a leaf.
+#
+# A restricted stage (NeedsStealth) used to be forced to be a leaf: its checkpoint held only the layouts that
+# could play it, and anything seeding from it would have started the rest from random weights in silence. In a
+# druid-only run that reasoning does not apply -- every layout is the druid and the druid stealths -- so the chain
+# now runs through this stage instead of reaching past it, and Prowl carries into the arena and the flag. The
+# check that still matters lives in animus.bootstrap, where the run's actual layouts are known.
+#
+# The druid's stealth is two casts, not one: Cat Form, then Prowl, a global cooldown apart. That is a real
+# difference from a rogue and it is why this is worth its own floors -- the opener has to be worth the shift, and
+# the shift has to happen before the approach rather than during it.
+#
+# The other three builds are in the stage too, because the run is the class: a restoration druid can shift to cat
+# and prowl as well as a feral one can, it is simply worse at what happens next. Their floors say so rather than
+# excusing them.
+
+extends: ../stage12_stealth.yaml
+run_name: stage12_stealth
+
+eval:
+  report: [stalked_into_range, stalk_seconds, stealth_openers, survived, won, form_at_end]
+
+target:
+  spec_metrics:
+    feral_cat:
+      # The one the stage is really about: Prowl into Pounce or Ravage, six levels down, so the opener has to
+      # decide the fight rather than decorate one that was winnable anyway.
+      stalked_into_range: {min: 0.45, confidence: 0.95}
+      stealth_openers: {min: 0.50}
+    feral_bear:
+      stalked_into_range: {min: 0.30, confidence: 0.95}
+    balance:
+      stalked_into_range: {min: 0.25, confidence: 0.95}
+    restoration:
+      stalked_into_range: {min: 0.25, confidence: 0.95}

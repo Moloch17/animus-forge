@@ -27,6 +27,7 @@
 #include <charconv>
 #include <filesystem>
 #include <sstream>
+#include <system_error>
 
 namespace
 {
@@ -226,7 +227,7 @@ void AnimusForge::ForgeConfig::Load()
     LearnerTorchThreads = sConfigMgr->GetOption<uint32>("AnimusForge.Learner.TorchThreads", 0);
 
     Bench = BenchSettings();
-    Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage1_duel");
+    Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage5_duel");
     Bench.Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Policy", "fight");
     Bench.Threads = GetNumberList("AnimusForge.Bench.Threads", "4, 8, 12, 16");
     Bench.Envs = GetNumberList("AnimusForge.Bench.Envs", "64, 128, 192");
@@ -350,7 +351,26 @@ AnimusForge::ForgeConfig AnimusForge::ForgeConfig::FastProfile(uint64 budget) co
 
 std::string AnimusForge::ForgeConfig::LearnerConfigFor(std::string const& scenario) const
 {
-    fs::path const config = LearnerConfig.empty()
-        ? fs::path("configs") / (scenario + ".yaml") : fs::path(LearnerConfig);
-    return (config.is_relative() ? fs::path(LearnerWorkDir) / config : config).string();
+    if (!LearnerConfig.empty())
+    {
+        fs::path const named(LearnerConfig);
+        return (named.is_relative() ? fs::path(LearnerWorkDir) / named : named).string();
+    }
+
+    // A run of one class gets that class's own gates where it has written them: configs/<class>/<scenario>.yaml,
+    // falling back to the shared configs/<scenario>.yaml. A curriculum trained per class needs per-class floors --
+    // a resto druid and a bear are not held to the same clean-kill rate -- and an overlay could not do it, because
+    // an overlay merges section by section and would give every stage in the queue the same `target`, when stage
+    // one gates `arrived` and stage five gates `clean_kill`.
+    fs::path const shared = fs::path("configs") / (scenario + ".yaml");
+    fs::path config = shared;
+    if (Classes.size() == 1)
+    {
+        fs::path const perClass = fs::path("configs") / Classes.front() / (scenario + ".yaml");
+        std::error_code ec;
+        if (fs::exists(fs::path(LearnerWorkDir) / perClass, ec))
+            config = perClass;
+    }
+
+    return (fs::path(LearnerWorkDir) / config).string();
 }

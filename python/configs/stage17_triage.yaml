@@ -3,12 +3,12 @@
 #
 # WARNING before trusting a score from this stage: stage 5 carries a resurrection exploit that this drill inherits.
 # Nothing clears m_resurrectGUID, so one landed Rebirth makes every later death of that ally an instant free
-# resurrect that pays the revive reward again (stage9_companion measured druid_dps at 38.4 revives an episode, 88%
+# resurrect that pays the revive reward again (stage14_companion measured druid_dps at 38.4 revives an episode, 88%
 # of its return). A forced healer seat will find that faster than anything else in the curriculum. Fix it first.
 #
-# Trained by name (`forge start stage12_triage`), after stage10_party, which it seeds from. Not in the default queue.
-extends: stage10_party.yaml
-run_name: stage12_triage
+# Trained by name (`forge start stage17_triage`), after stage15_party, which it seeds from. Not in the default queue.
+extends: stage15_party.yaml
+run_name: stage17_triage
 total_env_steps: 150000000
 convergence:
   patience: 2
@@ -24,8 +24,7 @@ target:
   metrics:
     low_health_seconds: {max: 18.0}
     pulls_cleared: {min: 3.5}
-  role_metrics:
-    heal:
-      overheal_share: {max: 0.60}
-      healing_per_mana: {min: 2.1}
+  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
+  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
+  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
   until_passed: true

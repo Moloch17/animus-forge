@@ -439,7 +439,7 @@ bool AnimusForge::Forge::CommandFast(std::vector<std::string> scenarios, LineSin
         return false;
     }
 
-    // A leading step count is this run's budget: `forge fast 30M`, `forge fast 30M stage1_duel`. Only the first
+    // A leading step count is this run's budget: `forge fast 30M`, `forge fast 30M stage5_duel`. Only the first
     // word is considered, and only if it parses as one, so a scenario name is never eaten by mistake.
     uint64 budget = _config.FastBudget;
     if (!scenarios.empty())

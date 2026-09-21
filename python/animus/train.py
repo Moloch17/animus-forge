@@ -1,6 +1,6 @@
 """Train a MAPPO policy against a running Animus Forge sim.
 
-    python -m animus.train --config configs/stage1_duel.yaml --run-name stage1_duel
+    python -m animus.train --config configs/stage5_duel.yaml --run-name stage5_duel
 
 The worldserver starts this when told to (`forge start`, `forge resume`, `forge run`) and
 AnimusForge.Learner.AutoStart = 1, and passes where runs and layouts go (AnimusForge.OutputDir). Run by hand, the client
@@ -37,12 +37,13 @@ from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
-from .evaluation import (DERIVED_METRICS, ROLES, ConvergenceTracker, EvalResult, casting_weights, format_summary,
+from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, casting_weights, format_summary,
                          run_evaluation)
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
+from .protocol import MAX_SPECS
 from .rewards import WARN_EVERY, audit, describe, reward_mix
 
 #: A run whose approx_kl stays under this for STALL_WINDOW updates is told it has stopped moving. Measured
@@ -382,6 +383,9 @@ class TrainingRun:
         # Each layout's action names, so the evaluations' per-episode logs say which actions were taken.
         self.action_names = {name: layout.get("action_names", [])
                              for name, layout in (self.stage or {}).get("layouts", {}).items()}
+        # And its class's build names, in the order the "spec" episode info column indexes them.
+        self.spec_names = {name: layout.get("spec_names", [])
+                           for name, layout in (self.stage or {}).get("layouts", {}).items()}
         validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
                         else None)
 
@@ -690,24 +694,30 @@ class TrainingRun:
               flush=True)
 
     def send_layout_weights(self, summary: dict, baseline: dict | None) -> None:
-        """Weight the training episodes toward the (class, role) pairs furthest below their baseline (WEIGHTS).
+        """Weight the training episodes toward the (class, build) pairs furthest below their baseline (WEIGHTS).
 
-        The wire vector is one weight per pair, layout-major in the spec's layout order and role-minor in the
-        sim's Role order, so a class that cannot play a role still has a slot for it -- never drawn, and left at
-        the even 1.0. Per pair and not per layout because a layout is a whole class: weighting a paladin by its
-        average would send more tanking episodes to fix its healing.
+        The wire vector is one weight per pair, layout-major in the spec's layout order and spec-minor, MAX_SPECS
+        wide, so a class with fewer builds than that still has the slots -- never drawn, and left at the even 1.0.
+        Per pair and not per layout because a layout is a whole class: weighting a paladin by its average would
+        send more tanking episodes to fix its healing. Per build and not per role because two builds of one role
+        are not equally hard to win with, which is the case a feral druid is.
         """
         sampling = self.config.layout_sampling
         if not sampling.enabled or baseline is None or not summary.get("castings"):
             return
 
         weights = casting_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
-        vector = [weights.get(f"{layout.name}_{role}", 1.0)
-                  for layout in self.spec.layouts for role in ROLES]
+        vector = []
+        for layout in self.spec.layouts:
+            named = self.spec_names.get(layout.name, [])
+            for slot in range(MAX_SPECS):
+                spec = named[slot] if slot < len(named) else ""
+                vector.append(weights.get(f"{layout.name}_{spec}", 1.0) if spec else 1.0)
+
         self.env.set_layout_weights(vector)
         heaviest = sorted(weights.items(), key=lambda item: -item[1])[:3]
         print("Layout weights: " + ", ".join(f"{name} {weight:.2f}" for name, weight in heaviest)
-              + f" (of {len(weights)} class/roles, {len(vector)} slots)", flush=True)
+              + f" (of {len(weights)} class/builds, {len(vector)} slots)", flush=True)
 
     def confirm_best(self) -> tuple[dict, dict | None]:
         """Score best.pt on the held-out confirmation seeds, then put the training networks back."""
@@ -942,7 +952,7 @@ class TrainingRun:
         Roughly half the stages measured end their run barely changing: approx_kl falls eight to eleven fold
         between the first eighth of a run and the last (stage9_party 11.2x, stage19 10.5x, stage8 9.2x,
         stage4 8.3x) with clip_frac down to ~0.01, so the final third costs wall clock and buys very little.
-        The other half do not -- stage1_duel's KL *rises* over 683 updates, travel and flight stay flat -- so
+        The other half do not -- stage5_duel's KL *rises* over 683 updates, travel and flight stay flat -- so
         this is reported and never acted on. Stopping a stalled run automatically would have cut stage4
         short, and it went on to 916 updates.
         """
@@ -978,18 +988,17 @@ class TrainingRun:
         print(f"  {describe(finding, reward_mix(row))}", flush=True)
 
     def log_layout_rows(self, spec) -> None:
-        """Per (class, role) means of this update's training episodes, one row each (RunLogger.log_layouts).
+        """Per (class, build) means of this update's training episodes, one row each (RunLogger.log_layouts).
 
-        Split by role and not only by layout, because a layout is a whole class: averaging a paladin's healing
-        episodes into its tanking ones would report a number describing neither, and episode_role itself would
-        come out as a fraction between two roles. The class is the `layout` column and the role its own, so the
-        pairs read the way the eighteen layouts used to.
+        Split by build and not only by layout, because a layout is a whole class: averaging a paladin's healing
+        episodes into its tanking ones would report a number describing neither, and episode_spec itself would
+        come out as a fraction between two builds. The class is the `layout` column and the build its own.
         """
         names = [layout.name for layout in spec.layouts]
         episodes = np.asarray(self.finished_episodes)
         layouts = np.asarray(self.finished_layouts)
         info = list(spec.episode_info_names)
-        role_at = info.index("role") if "role" in info else None
+        role_at = info.index("spec") if "spec" in info else None
         rows = []
         for index in np.unique(layouts):
             name = names[index] if index < len(names) else str(index)
@@ -1000,16 +1009,17 @@ class TrainingRun:
             if role_at is None:
                 groups = [("", mine)]
             else:
-                roles = mine[:, role_at].astype(int)
-                groups = [(ROLES[role] if 0 <= role < len(ROLES) else str(role), mine[roles == role])
-                          for role in np.unique(roles)]
+                named = self.spec_names.get(name, [])
+                drawn = mine[:, role_at].astype(int)
+                groups = [(named[spec] if 0 <= spec < len(named) else str(spec), mine[drawn == spec])
+                          for spec in np.unique(drawn)]
 
-            for role, group in groups:
+            for spec, group in groups:
                 if not len(group):
                     continue
 
                 means = np.mean(group, axis=0)
-                row = {"update": self.update, "env_steps": self.env_steps, "layout": name, "role": role,
+                row = {"update": self.update, "env_steps": self.env_steps, "layout": name, "spec": spec,
                        "episodes": len(group)}
                 row.update({f"episode_{field}": float(value) for field, value in zip(info, means)})
                 rows.append(row)

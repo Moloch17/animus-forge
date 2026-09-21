@@ -228,11 +228,17 @@ def test_summary_by_difficulty_tier():
         "difficulties"] == {}
 
 
-def test_summary_by_role():
-    infos = np.array([[0.0], [2.0], [2.0]], np.float32)
-    roles = EvalResult("learner", np.array([1.0, 3.0, 5.0]), infos, ("role",)).summary(())["roles"]
-    assert set(roles) == {"dps", "heal"}
-    assert roles["heal"]["episodes"] == 2 and roles["heal"]["score"] == pytest.approx(4.0)
+def test_summary_by_build():
+    """A build is named per class, so the summary needs the layout of each row and the class's spec names."""
+    infos = np.array([[0.0], [3.0], [3.0]], np.float32)
+    result = EvalResult("learner", np.array([1.0, 3.0, 5.0]), infos, ("spec",),
+                        layouts=("druid", "druid", "druid"),
+                        spec_names={"druid": ["balance", "feral_cat", "feral_bear", "restoration"]})
+    summary = result.summary(())
+    assert set(summary["specs"]) == {"balance", "restoration"}
+    assert summary["specs"]["restoration"]["episodes"] == 2
+    assert summary["specs"]["restoration"]["score"] == pytest.approx(4.0)
+    assert summary["castings"]["druid_restoration"]["score"] == pytest.approx(4.0)
 
 
 def test_summary_up_to_each_tier_below_the_top():
@@ -407,7 +413,7 @@ def test_episodes_log_has_one_row_per_episode():
 
 
 def test_episodes_log_writes_every_column_and_the_derived_fields_by_default():
-    """Why a class/role loses is in columns no summary reports (level, opponent, form at the end), so the log keeps
+    """Why a class/build loses is in columns no summary reports (level, opponent, form at the end), so the log keeps
     them all, next to whether each episode was a clean kill."""
     result = EvalResult(
         policy="learner",
@@ -462,8 +468,8 @@ def test_casting_weights_favour_the_layouts_below_baseline():
 
 
 def test_casting_weights_follow_the_metric_short_of_the_gate_too():
-    """stage1_duel's mage beat the scripted mage's score while killing 68% of the time: the baseline gap alone gave
-    it less data than a class and role already killing every time."""
+    """stage5_duel's mage beat the scripted mage's score while killing 68% of the time: the baseline gap alone gave
+    it less data than a class and build already killing every time."""
     summary = {"castings": {
         "mage_dps": {"score": 7.0, "clean_kill": 0.68},
         "rogue_dps": {"score": 7.8, "clean_kill": 0.95},
@@ -490,7 +496,7 @@ def test_casting_weights_are_even_without_a_spread_or_a_baseline():
 
 
 def test_livelocked_counts_episodes_not_cancels():
-    """A start-cast / stop-cast loop is a tail, not a shift: stage1_duel's warlock had a median of 4 cancels an
+    """A start-cast / stop-cast loop is a tail, not a shift: stage5_duel's warlock had a median of 4 cancels an
     episode and a maximum of 299, so a mean of casts_cancelled hides it. Counted per episode, per layout."""
     cancels = np.array([0.0, 2.0, float(LIVELOCK_CANCELS), 299.0], dtype=np.float32)
     result = EvalResult(

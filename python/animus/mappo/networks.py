@@ -1,7 +1,7 @@
 """Layout-aware actor and centralized critic for MAPPO.
 
 One set of weights serves every agent of every layout (parameter sharing). A layout is one kind of agent --
-a class/role, say -- with its own observation features and actions. Each network has:
+a class/build, say -- with its own observation features and actions. Each network has:
 
 - an input adapter per layout: Linear(layout obs dim -> width), reading only that layout's features;
 - a shared trunk: every hidden layer after the first, the same for all layouts;

@@ -14,8 +14,8 @@
 #   Pulls.SoloGauntletDeath and every pull left unfought, and standing off a pull or taking melee hits as a ranged spec
 #   is charged as in stage 2. The gauntlet arena runs 450 s whatever AnimusForge.EpisodeSeconds says.
 
-extends: stage2_pack.yaml
-run_name: stage4_gauntlet
+extends: stage6_pack.yaml
+run_name: stage7_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 90000000
@@ -26,7 +26,7 @@ total_env_steps: 90000000
 
 # An evaluation costs a wave of full episodes per env, so it scales with the episode length (the first stage 3 run's
 # 2048 five-minute episodes took about 3 minutes). Evaluate less often rather than on fewer episodes -- the score's
-# standard error sets the convergence margin and the per-class/role gates.
+# standard error sets the convergence margin and the per-class/build gates.
 eval:
   every_env_steps: 15000000
 
@@ -38,8 +38,8 @@ convergence:
 # ladder, so none of stage 2's rung or tier gates apply.
 #
 # The floors are provisional. The first stage 3 run (five minutes, pulls that waited, a win by merely lasting) reached
-# 63-66% survived overall with seven class/roles at 38-57%, and 12% of its wins cleared at most one pull. This run's
-# win is stricter, so the floors are lower: 55% overall and 40% per class/role by the Wilson bound, four pulls cleared
+# 63-66% survived overall with seven class/builds at 38-57%, and 12% of its wins cleared at most one pull. This run's
+# win is stricter, so the floors are lower: 55% overall and 40% per class/build by the Wilson bound, four pulls cleared
 # on average, no livelocks. The stage halts below them rather than training on; recalibrate from this run's
 # evaluations.
 target:
@@ -52,7 +52,7 @@ target:
     pulls_cleared: {min: 4.0}
     engage_health: {min: 0.75}
     died: {max: 0.35}
-  role_metrics:
-    heal:
-      engage_mana: {min: 0.55}
+  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
+  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
+  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
   until_passed: true

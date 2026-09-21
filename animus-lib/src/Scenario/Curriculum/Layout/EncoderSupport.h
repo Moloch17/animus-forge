@@ -221,6 +221,11 @@ namespace Animus::Curriculum::Encoding
 
     void MoveTo(Player* bot, uint32 pointId, float x, float y, float z);
 
+    /// Move along a straight spline through the air or the water, with no path and no ground under it. Steering in
+    /// three dimensions needs this: a ground move is snapped to the ground by definition, which is exactly what a
+    /// dive or a climb is trying not to be.
+    void FlyTo(Player* bot, float x, float y, float z);
+
     /// Send the bot's pets and guardians at `target`, as the pet bar's Attack does. True if any was ordered.
     bool PetAttack(Player* bot, Unit* target);
 

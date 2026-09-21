@@ -2,8 +2,8 @@
 # `--overlay configs/fast.yaml` to every stage's learner, and it is merged over that stage's whole config (extends chain
 # included), before any --set. It is not a stage config of its own: never `extends` it or train it directly.
 #
-# A fast run plays the SAME content as a real one -- every class/role, every level -- and differs only in how long each
-# stage gets and how many envs run it. It used to narrow to four class/roles at level 20, which made it a rehearsal of a
+# A fast run plays the SAME content as a real one -- every class/build, every level -- and differs only in how long each
+# stage gets and how many envs run it. It used to narrow to four class/builds at level 20, which made it a rehearsal of a
 # problem the real build never trains: the classes it skipped were the ones whose faults a sweep is for finding.
 #
 # `total_env_steps` here is a fallback. The sim passes `--set total_env_steps=<budget>` from AnimusForge.Fast.Budget, or
@@ -49,9 +49,9 @@ target:
   min_layout_over_baseline: null
   metrics: {}
   layout_metrics: {}
-  # role_metrics too, or a fast sweep halts on the per-role floors the real stages carry (a tank's threat
-  # share, a healer's overheal): the overlay merges key by key, so a section it does not name survives.
-  role_metrics: {}
+  # spec_metrics too, or a fast sweep halts on the per-build floors a class's own configs carry (holding threat,
+  # overhealing): the overlay merges key by key, so a section it does not name survives.
+  spec_metrics: {}
   arenas: {}
   difficulties: {}
   confirm_episodes: 64

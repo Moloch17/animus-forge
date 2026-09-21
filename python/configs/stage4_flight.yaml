@@ -2,10 +2,10 @@
 # fast one from 70) start in Outland's Nagrand, where flying mounts fly, with a place 350-700 yd away. Flying is several
 # times faster than riding and passes over everything, but dismounting in the air falls with a player's fall damage:
 # the policy learns to take off, keep a height, land and then dismount. Battlegrounds never allow flying mounts, so
-# this is for the open world. Seeded from stage7_travel.
+# this is for the open world. Seeded from stage3_travel.
 
-extends: stage7_travel.yaml
-run_name: stage8_flight
+extends: stage3_travel.yaml
+run_name: stage4_flight
 
 total_env_steps: 30000000
 

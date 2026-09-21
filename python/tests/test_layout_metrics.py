@@ -1,4 +1,4 @@
-"""Per class/role training metrics: what each layout is doing right now, not only at an evaluation."""
+"""Per class/build training metrics: what each layout is doing right now, not only at an evaluation."""
 
 import csv
 

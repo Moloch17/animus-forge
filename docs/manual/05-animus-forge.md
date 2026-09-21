@@ -336,7 +336,7 @@ Python 3.11 or later with numpy, pyyaml and torch 2.4 or later. Extras: `tensorb
 `TrainConfig.load(path, overrides, overlays)`:
 
 1. **`extends`.** Load the YAML and recursively merge it over the file named by `extends:` (relative to the
-   extending file). Every curriculum config extends `stage1_duel.yaml`, directly or through a chain, and lists only what
+   extending file). Every curriculum config extends `stage5_duel.yaml`, directly or through a chain, and lists only what
    it changes.
 2. **Overlays** (`--overlay`) are merged over the result in order.
 3. **`--set key=value`** overrides are applied last. Dotted keys address sections, and values are parsed as YAML.
@@ -600,10 +600,13 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
   enough episodes still pass (95% of 228 bound at 0.92).
 - `layout_metrics`: the same bounds on every class's own episodes, which no baseline can lower.
-- `role_metrics`: bounds per role (`dps`, `tank`, `heal`, from episode info `role`) on that role's episodes, for what a
-  role is for and a floor every class shares can't ask: `{heal: {owner_heal_share: {min: 0.3}}}`.
+- `spec_metrics`: bounds per build (episode info `spec`, named by stage.json's `spec_names`) on that build's
+  episodes: `{restoration: {owner_heal_share: {min: 0.3}}}`. What a build is for, which a floor every build shares
+  cannot ask. It replaced `role_metrics` and is finer -- a role could not separate two builds that share it, and a
+  feral cat and a balance druid are both "damage" and are not equally hard to win with. What it gives up is the
+  one-line "every tank": a build gate names builds, so per-class floors live in `configs/<class>/`.
 - `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
-  summary's `up_to` group, overall and per class and role), for a stage whose ladder climbs above the fights its floors
+  summary's `up_to` group, overall and per class and build), for a stage whose ladder climbs above the fights its floors
   were set for. The tiers above still count through the score and `difficulties`.
 - `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
   `min_arena_episodes`.
@@ -627,7 +630,7 @@ With no gates set, a converged stage advances.
 - `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
   clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
 - `lr_final_fraction` and `entropy_final_fraction`: where `actor_lr`/`critic_lr` and `entropy_coef` end, as a fraction
-  of their configured values, falling linearly over `total_env_steps` (1 = constant). stage1_duel ends its learning
+  of their configured values, falling linearly over `total_env_steps` (1 = constant). stage5_duel ends its learning
   rates at a tenth: at a constant rate the update kept growing all run while the late gains were small.
 - `recurrent_size`: a GRU between the actor's trunk and its action head (0 = off), carried from decision to decision
   and cleared when an episode ends -- the policy's own memory, for what no observation of the moment holds (which add
@@ -637,7 +640,7 @@ With no gates set, a converged stage advances.
   same memory (`MlpPolicy::State`). It changes the actor's shape and the exported format, so turning it on retrains
   the curriculum from stage 1 and rebuilds every model. Distillation replays a teacher's own memory through the same
   decisions (`animus.distill`), so stage 8 works with it; a plain per-minibatch auxiliary loss is refused, because it
-  cannot carry that memory. **On from stage1_duel (128).**
+  cannot carry that memory. **On from stage5_duel (128).**
 - `slow_layout`, `slow_every_decisions`, `slow_gamma`, `slow_gae_lambda`: a layout that decides on a slower
   clock than the seats and is credited on it -- the director (`""` = none, and a stage without a layout of
   that name simply has no agents of it). Its agents choose every `slow_every_decisions` and their call stands
@@ -658,7 +661,7 @@ With no gates set, a converged stage advances.
   `Goals.Match` once per goal held (on the first decision that matches it, so a goal pays for being reached rather
   than for being sat in), reports `goal_<name>_share`, `goal_match_share` and `goal_changes`, and shows a
   party its teammates' goals. Per update the learner logs `goal_<i>_share` and `goal_kept_share`, which is how a
-  collapsed head (one share at 1) is spotted. **On from stage1_duel (6 goals, chosen every 16 decisions).**
+  collapsed head (one share at 1) is spotted. **On from stage5_duel (6 goals, chosen every 16 decisions).**
 - `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
   trunk (0 = off, the default). It predicts, from the very features the actions are chosen from, the discounted return
   at each horizon and how much of the episode is left as a share of the time scale; its loss (Huber on the returns,
@@ -682,16 +685,16 @@ back once it recovers. It is a floor, never a ceiling: a policy converging on it
 
 ### Where the episodes go (`layout_sampling`)
 
-Training episodes draw a class and role evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
-the learner sends the sim a weight per class and role after every evaluation (protocol `WEIGHTS`), from the gap between
-that class and role's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
+Training episodes draw a class and build evenly, but a stage is gated on its weakest one. With `layout_sampling.enabled`
+the learner sends the sim a weight per class and build after every evaluation (protocol `WEIGHTS`), from the gap between
+that class and build's score and its baseline's, measured in standard deviations of the gaps so the weights do not depend
 on the size of the scenario's rewards. `strength` scales the effect (0 = even), `max_ratio` caps the spread between
 the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
-are spent. Evaluation episodes stay evenly spread over the class and role pairs whatever the weights are.
+are spent. Evaluation episodes stay evenly spread over the class and build pairs whatever the weights are.
 
-The score gap alone misses a class and role that beats its baseline yet fails an absolute gate (stage1_duel's mage beat
+The score gap alone misses a class and build that beats its baseline yet fails an absolute gate (stage5_duel's mage beat
 the scripted mage while killing only 68% of the time). `metric` names a summary field where higher is better, usually
-the one the stage is gated on (`clean_kill`): a class and role's need is then the larger of its score gap and its
+the one the stage is gated on (`clean_kill`): a class and build's need is then the larger of its score gap and its
 shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
 gate it is failing.
 
@@ -715,7 +718,7 @@ After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns 
 | Budget reached, target passed | advance | Exit 0, reason `total_env_steps` |
 | Budget reached, below target | halt | Exit 3, reason `budget_below_target` |
 
-With `target.until_passed` (stage1_duel sets it) converging below the target does not halt the stage;
+With `target.until_passed` (stage5_duel sets it) converging below the target does not halt the stage;
 `total_env_steps` stays the ceiling:
 
 | Situation | Action | Learner |
@@ -745,7 +748,7 @@ dim, action count or layouts changed. The env count, decision interval and episo
 - `<model name>.amdl`: the layout's adapter (with its observation normaliser folded in: `W / sd` and
   `b - W(mean / sd)`), the trunk layers and the layout's head, in the format described in
   [3.8](03-animus-lib.md#38-models), with `num_agents = 1` and a zero-weight agent column. The model name comes from
-  `stage.json` `models` (`warrior_dps` at `stage1_duel` is `warrior_dps_duel`). A scenario without `stage.json` uses
+  `stage.json` `models` (`warrior_dps` at `stage5_duel` is `warrior_dps_duel`). A scenario without `stage.json` uses
   its own name for a single layout, or appends the layout name.
 - `<model name>.json`: the layout manifest, copied from `<layouts_dir>/<stage>/`.
 

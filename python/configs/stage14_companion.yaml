@@ -8,28 +8,28 @@
 # (Pulls.GauntletSupplies). Rewards are win-first: a pull cleared pays about as much as alone, the seat's own death
 # costs 10 and every owner death 15 (Owner.Death), so guarding the owner comes before the seat's own health.
 
-extends: stage4_gauntlet.yaml
-run_name: stage9_companion
+extends: stage7_gauntlet.yaml
+run_name: stage14_companion
 total_env_steps: 90000000
 
 # A win is clean_kill: the 450 s lasted with the owner never dead, no wipe, Pulls.OwnerWinPulls (5) pulls cleared and
 # the seat itself never dead (PullsEncounter counts the first three as the kill; died covers the last). The owner fights
 # too, so pulls clear faster than alone, but one owner death loses the episode.
 #
-# Provisional, as stage 3's were: the first run calibrates them. Stage 3's floors (55% overall, 40% per class/role by
+# Provisional, as stage 3's were: the first run calibrates them. Stage 3's floors (55% overall, 40% per class/build by
 # the Wilson bound) less a little for the owner's deaths, an owner that dies in at most a third of the episodes, rare
 # wipes, and at least the win's pulls cleared on average. The role checks (owner_heal_share for healers, threat_share
-# for tanks and the rest) are reported per class/role and per role first; gate them (target.role_metrics) once a run
-# shows what the roles reach.
+# for whoever is holding the pull and the rest) are reported per class and per build first; gate them
+# (target.spec_metrics, in a class's own config) once a run shows what its builds reach.
 target:
   # The owner living through the gauntlet is the objective; clearing while it dies is a failure this stage must
-  # not pass. Healers are asked for a real share of the healing they do to go on the owner.
+  # not pass.
   min_over_baseline: 0.10
   min_layout_over_baseline: 0.0
   metrics:
     owner_deaths: {max: 0.25}
     pulls_cleared: {min: 4.0}
-  role_metrics:
-    heal:
-      owner_heal_share: {min: 0.30}
+  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
+  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
+  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
   until_passed: true

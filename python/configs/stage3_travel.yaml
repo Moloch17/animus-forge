@@ -3,10 +3,10 @@
 # and a long one on a mount; the policy learns which, and to arrive on the ground ready to fight. Paid by potential
 # shaping on the distance left, arriving (faster pays more), damage taken and death. Episodes end on arriving.
 
-extends: stage6_run.yaml
-run_name: stage7_travel
+extends: stage1_move.yaml
+run_name: stage3_travel
 
-# Trips take seconds to a minute: shorter than a fight, one policy for every class/role.
+# Trips take seconds to a minute: shorter than a fight, one policy for every class/build.
 total_env_steps: 30000000
 
 eval:

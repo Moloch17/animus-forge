@@ -25,6 +25,8 @@
 #include "MoveSplineInit.h"
 #include "Player.h"
 #include "SeatView.h"
+#include "TravelBlock.h"
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -33,6 +35,7 @@ namespace
 
     constexpr uint32 MOVE_POINT_ID = 0x4D56;    // "MV": this block's spline, distinct from the duel block's
     constexpr float YARD_SCALE = 40.0f;         // distances are reported as a fraction of this
+    constexpr float OBJECTIVE_SCALE = 500.0f;   // an objective is further off than anything else it looks at
     constexpr float RUN_SPEED = 7.0f;           // yards a second, unmounted and unhasted (TravelBlock's)
 
     /// The world angle a bearing points at, given where the seat is looking. Bearings run clockwise from straight
@@ -50,17 +53,76 @@ namespace
         return std::atan2(std::sin(relative), std::cos(relative));
     }
 
+    float RelativeBearing(Position const& from, float facing, Position const& to)
+    {
+        float const relative = from.GetAngle(to.GetPositionX(), to.GetPositionY()) - facing;
+        return std::atan2(std::sin(relative), std::cos(relative));
+    }
+
+    /// Off the ground, where the third dimension is real and pitch steers: swimming, or flying.
+    bool Airborne(Player const* bot)
+    {
+        return bot && (bot->IsInWater() || bot->CanFly());
+    }
+
     /// Point the seat's head without touching its feet: a spline overwrites orientation as it runs, so a facing set
     /// any other way is lost the moment the seat moves. This is what makes a strafe expressible.
-    void FaceWhile(Player* bot, Unit const* target, uint32 mode, float heading)
+    void FaceWhile(Animus::Curriculum::SeatView const& view, float heading)
     {
+        Player* bot = view.Bot;
         Movement::MoveSplineInit init(bot);
-        if (mode == MoveBlock::ACTION_FACE_TARGET && target)
-            init.SetFacing(target);
-        else if (mode == MoveBlock::ACTION_FACE_HEADING)
-            init.SetFacing(heading);
-        else
-            init.SetFacing(bot->GetOrientation());
+        switch (view.FacingMode)
+        {
+            case MoveBlock::ACTION_FACE_TARGET:
+                if (view.Target)
+                    init.SetFacing(view.Target);
+                else
+                    init.SetFacing(bot->GetOrientation());
+                break;
+            case MoveBlock::ACTION_FACE_HEADING:
+                init.SetFacing(heading);
+                break;
+            case MoveBlock::ACTION_FACE_OBJECTIVE:
+                if (view.HasObjective)
+                    init.SetFacing(bot->GetAngle(view.Objective.GetPositionX(), view.Objective.GetPositionY()));
+                else
+                    init.SetFacing(bot->GetOrientation());
+                break;
+            default:
+                init.SetFacing(bot->GetOrientation());
+                break;
+        }
+    }
+
+    /// How far the seat could walk along `heading` before the ground stops cooperating: 1 for ground it could step
+    /// onto at PROBE_YARDS, falling to 0 for a wall or a drop. One height sample a bearing -- the same call
+    /// SnapToGround already makes every decision, eight times over rather than once.
+    float GroundReach(Player const* bot, float heading, float* stepOut = nullptr)
+    {
+        Map const* map = bot ? bot->GetMap() : nullptr;
+        if (!map)
+            return 1.0f;
+
+        float const x = bot->GetPositionX() + MoveBlock::PROBE_YARDS * std::cos(heading);
+        float const y = bot->GetPositionY() + MoveBlock::PROBE_YARDS * std::sin(heading);
+        float const from = bot->GetPositionZ();
+        float const z = map->GetHeight(bot->GetPhaseMask(), x, y, from + MoveBlock::MAX_STEP, true,
+            MoveBlock::MAX_STEP * 2.0f);
+
+        if (z <= INVALID_HEIGHT)
+        {
+            if (stepOut)
+                *stepOut = 0.0f;
+            return 0.0f;
+        }
+
+        float const step = z - from;
+        if (stepOut)
+            *stepOut = std::clamp(step / MoveBlock::MAX_STEP, -1.0f, 1.0f);
+
+        // A wall and a cliff are both "not that way" for something on legs, so the size of the change is what is
+        // reported rather than its sign; the sign is reported separately, straight ahead only.
+        return std::max(0.0f, 1.0f - std::fabs(step) / MoveBlock::MAX_STEP);
     }
 }
 
@@ -73,6 +135,10 @@ void Animus::Curriculum::MoveBlock::DescribeManifest(Layout const& /*layout*/, b
 {
     block["bearings"] = uint32(BEARING_COUNT);
     block["step_yards"] = double(STEP_YARDS);
+    block["turn_step"] = double(TURN_STEP);
+    block["pitch_step"] = double(PITCH_STEP);
+    block["pitch_max"] = double(PITCH_MAX);
+    block["probe_yards"] = double(PROBE_YARDS);
 }
 
 std::string Animus::Curriculum::MoveBlock::ActionName(Layout const& /*layout*/, uint32 local) const
@@ -81,7 +147,8 @@ std::string Animus::Curriculum::MoveBlock::ActionName(Layout const& /*layout*/, 
     {
         "move_forward", "move_forward_right", "move_right", "move_back_right",
         "move_back", "move_back_left", "move_left", "move_forward_left",
-        "halt", "face_target", "face_heading", "face_hold",
+        "halt", "face_target", "face_heading", "face_hold", "face_objective",
+        "turn_left", "turn_right", "pitch_up", "pitch_down", "pitch_level",
     };
 
     return local < NAMES.size() ? NAMES[local] : std::string();
@@ -97,6 +164,7 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
     // Everything a seat needs to place its feet, and nothing about whether it has an enemy: this block is the one
     // that still works when there is nothing to fight.
     bool const canMove = bot && bot->IsAlive() && !bot->HasUnitState(Encoding::IMMOBILE_STATES);
+    bool const airborne = Airborne(bot);
 
     if (bot)
     {
@@ -110,6 +178,11 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
             out[OBS_BEARING_HELD + view.HeldBearing] = 1.0f;
         else
             out[OBS_BEARING_NONE] = 1.0f;
+
+        out[OBS_TURNING_LEFT] = view.Turning < 0 ? 1.0f : 0.0f;
+        out[OBS_TURNING_RIGHT] = view.Turning > 0 ? 1.0f : 0.0f;
+        out[OBS_PITCH_SIN] = std::sin(view.Pitch);
+        out[OBS_PITCH_COS] = std::cos(view.Pitch);
 
         if (Unit const* target = view.Target)
         {
@@ -128,6 +201,38 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
             out[OBS_HAZARD_DISTANCE] = std::min(1.0f, view.NearestHazard.Distance / YARD_SCALE);
             out[OBS_HAZARD_RADIUS] = std::min(1.0f, view.NearestHazard.Radius / YARD_SCALE);
         }
+
+        if (view.HasObjective)
+        {
+            float const relative = RelativeBearing(*bot, facing, view.Objective);
+            out[OBS_OBJECTIVE] = 1.0f;
+            out[OBS_OBJECTIVE_BEARING_SIN] = std::sin(relative);
+            out[OBS_OBJECTIVE_BEARING_COS] = std::cos(relative);
+            out[OBS_OBJECTIVE_DISTANCE] = std::min(1.0f, bot->GetExactDist2d(&view.Objective) / OBJECTIVE_SCALE);
+        }
+
+        // What the ground is like each way it could go. Skipped in the air and in the water, where the ground is
+        // not what the seat is steering against and the samples would only report the bottom.
+        if (!airborne)
+        {
+            for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
+            {
+                float step = 0.0f;
+                float const reach = GroundReach(bot, HeadingOf(facing, bearing), &step);
+                out[OBS_GROUND_FIRST + bearing] = reach;
+                if (bearing == BEARING_FORWARD)
+                    out[OBS_STEP_AHEAD] = step;
+            }
+        }
+        else
+            for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
+                out[OBS_GROUND_FIRST + bearing] = 1.0f;
+
+        out[OBS_IN_WATER] = bot->IsInWater() ? 1.0f : 0.0f;
+        out[OBS_SUBMERGED] = bot->IsUnderWater() ? 1.0f : 0.0f;
+        out[OBS_SUBMERGED_TIME] = std::min(1.0f, view.SubmergedTime / BREATH_SECONDS);
+        out[OBS_SWIM_SPEED] = bot->GetSpeed(MOVE_SWIM) / RUN_SPEED;
+        out[OBS_AIRBORNE] = airborne ? 1.0f : 0.0f;
     }
 
     if (!mask)
@@ -146,14 +251,28 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
     // Halting is only worth offering while something is being walked.
     allowed[ACTION_HALT] = canMove && view.HeldBearing < BEARING_COUNT ? 1 : 0;
 
-    // Where it looks is a choice it can always make, alive and able to turn. Facing the target needs one.
+    // Where it looks is a choice it can always make, alive and able to turn. Facing the target needs one, and
+    // facing the objective needs somewhere to be going.
     bool const canTurn = bot && bot->IsAlive() && !bot->HasUnitState(Encoding::STUN_STATES);
     allowed[ACTION_FACE_TARGET] = canTurn && view.Target && view.Target->IsAlive() ? 1 : 0;
     allowed[ACTION_FACE_HEADING] = canTurn ? 1 : 0;
     allowed[ACTION_FACE_HOLD] = canTurn ? 1 : 0;
-    for (uint32 face = ACTION_FACE_TARGET; face <= ACTION_FACE_HOLD; ++face)
+    allowed[ACTION_FACE_OBJECTIVE] = canTurn && view.HasObjective ? 1 : 0;
+    for (uint32 face = ACTION_FACE_TARGET; face <= ACTION_FACE_OBJECTIVE; ++face)
         if (view.FacingMode == face)
             allowed[face] = 0;              // already holding its head that way
+
+    // Turning is the mouse-look and is always available to something that can turn at all; the one being held is
+    // masked for the same reason a held bearing is.
+    allowed[ACTION_TURN_LEFT] = canTurn && view.Turning >= 0 ? 1 : 0;
+    allowed[ACTION_TURN_RIGHT] = canTurn && view.Turning <= 0 ? 1 : 0;
+
+    // Pitch only means something off the ground. On foot the ground decides the seat's height, so the three
+    // actions are masked rather than merely useless -- a masked action cannot be explored into.
+    bool const canPitch = canTurn && airborne;
+    allowed[ACTION_PITCH_UP] = canPitch && view.Pitch < PITCH_MAX ? 1 : 0;
+    allowed[ACTION_PITCH_DOWN] = canPitch && view.Pitch > -PITCH_MAX ? 1 : 0;
+    allowed[ACTION_PITCH_LEVEL] = canPitch && std::fabs(view.Pitch) > 0.01f ? 1 : 0;
 }
 
 void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult& /*result*/) const
@@ -162,28 +281,72 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
     if (!bot || !view.Option)
         return;
 
+    bool const alive = bot->IsAlive() && !bot->HasUnitState(Encoding::IMMOBILE_STATES);
+
+    // The held keys come up on their own when their clocks run out, and what they turned to is kept.
+    if (!view.Option->Running(SeatOptionKind::MoveTurn, view.NowMs))
+        view.Turning = 0;
+    if (!view.Option->Running(SeatOptionKind::MovePitch, view.NowMs))
+        view.PitchTurning = 0;
+
+    // A held turn swings the seat a little further every decision it stays down, which is what makes every heading
+    // between two compass points reachable. It happens before the feet are re-aimed, so a bearing walked under a
+    // turn curves rather than stepping.
+    if (alive && view.Turning != 0)
+    {
+        float const turned = Position::NormalizeOrientation(
+            bot->GetOrientation() + float(view.Turning) * TURN_STEP);
+        bot->SetFacingTo(turned);
+    }
+
+    if (view.PitchTurning != 0 && Airborne(bot))
+        view.Pitch = std::clamp(view.Pitch + float(view.PitchTurning) * PITCH_STEP, -PITCH_MAX, PITCH_MAX);
+
     if (!view.Option->Running(SeatOptionKind::MoveBearing, view.NowMs) || view.HeldBearing >= BEARING_COUNT)
     {
         view.HeldBearing = 0xFF;
         return;
     }
 
-    if (!bot->IsAlive() || bot->HasUnitState(Encoding::IMMOBILE_STATES))
+    if (!alive)
         return;
 
     // Re-aimed from where the seat is now, every decision it keeps walking. Aiming once at a point chosen when the
     // key went down would walk it into the first wall the ground put in the way; recomputing lets the path bend.
     float const heading = HeadingOf(bot->GetOrientation(), view.HeldBearing);
+    bool const airborne = Airborne(bot);
+    float const pitch = airborne ? view.Pitch : 0.0f;
+    float const reach = STEP_YARDS * std::cos(pitch);
+
     Position destination = *bot;
-    destination.Relocate(bot->GetPositionX() + STEP_YARDS * std::cos(heading),
-        bot->GetPositionY() + STEP_YARDS * std::sin(heading), bot->GetPositionZ());
+    destination.Relocate(bot->GetPositionX() + reach * std::cos(heading),
+        bot->GetPositionY() + reach * std::sin(heading),
+        bot->GetPositionZ() + STEP_YARDS * std::sin(pitch));
+
+    if (airborne)
+    {
+        // Swimming and flying are steered in three dimensions and must not be snapped to the ground: the whole
+        // point of a pitch is to leave it. A climb still stops at the ceiling the air has.
+        if (bot->CanFly())
+        {
+            float const ceiling = bot->GetPositionZ()
+                + (TravelBlock::MAX_ALTITUDE - TravelBlock::HeightAboveGround(bot));
+            destination.Relocate(destination.GetPositionX(), destination.GetPositionY(),
+                std::min(destination.GetPositionZ(), ceiling));
+        }
+
+        Encoding::FlyTo(bot, destination.GetPositionX(), destination.GetPositionY(), destination.GetPositionZ());
+        FaceWhile(view, heading);
+        return;
+    }
+
     Encoding::SnapToGround(bot->GetMap(), bot->GetPhaseMask(), destination, bot->GetPositionZ(), STEP_YARDS);
 
     // Pathfinding on, which is the default: a bearing is where the seat wants to go, not a licence to walk through
     // a wall to get there.
     Encoding::MoveTo(bot, MOVE_POINT_ID, destination.GetPositionX(), destination.GetPositionY(),
         destination.GetPositionZ());
-    FaceWhile(bot, view.Target, view.FacingMode, heading);
+    FaceWhile(view, heading);
 }
 
 void Animus::Curriculum::MoveBlock::Apply(SeatView& view, uint32 local, SeatActionResult& result) const
@@ -209,10 +372,35 @@ void Animus::Curriculum::MoveBlock::Apply(SeatView& view, uint32 local, SeatActi
         return;
     }
 
-    if (local > ACTION_FACE_HOLD)
+    if (local <= ACTION_FACE_OBJECTIVE)
+    {
+        view.FacingMode = uint8(local);
+        FaceWhile(view, HeadingOf(bot->GetOrientation(),
+            view.HeldBearing < BEARING_COUNT ? view.HeldBearing : 0u));
         return;
+    }
 
-    view.FacingMode = uint8(local);
-    FaceWhile(bot, view.Target, local, HeadingOf(bot->GetOrientation(),
-        view.HeldBearing < BEARING_COUNT ? view.HeldBearing : 0u));
+    if (local == ACTION_TURN_LEFT || local == ACTION_TURN_RIGHT)
+    {
+        view.Turning = local == ACTION_TURN_LEFT ? -1 : 1;
+        view.Option->Start(SeatOptionKind::MoveTurn, view.NowMs + view.Options.MoveTurnMs);
+        // Turn now rather than a decision from now, so the first press of a key does something.
+        BeforeApply(view, result);
+        return;
+    }
+
+    if (local == ACTION_PITCH_UP || local == ACTION_PITCH_DOWN)
+    {
+        view.PitchTurning = local == ACTION_PITCH_UP ? 1 : -1;
+        view.Option->Start(SeatOptionKind::MovePitch, view.NowMs + view.Options.MovePitchMs);
+        BeforeApply(view, result);
+        return;
+    }
+
+    if (local == ACTION_PITCH_LEVEL)
+    {
+        view.Pitch = 0.0f;
+        view.PitchTurning = 0;
+        view.Option->Stop(SeatOptionKind::MovePitch);
+    }
 }

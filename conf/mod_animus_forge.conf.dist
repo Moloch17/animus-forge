@@ -51,11 +51,11 @@ AnimusForge.OutputDir = ""
 #                     every role it can play: what the model is told is its role and its talents, never
 #                     its spec, so it learns to play the character it was handed. Each stage's layouts
 #                     extend the stage it builds on, which seeds it:
-#                       "stage1_duel"      - a same-level creature out of aggro range: close in and kill
+#                       "stage5_duel"      - a same-level creature out of aggro range: close in and kill
 #                                            it fast, taking little damage (the first stage, from scratch)
-#                       "stage2_pack"      - a pack of 2-4 (casters, usually linked): targets,
+#                       "stage6_pack"      - a pack of 2-4 (casters, usually linked): targets,
 #                                            interrupts, crowd control
-#                       "stage4_gauntlet"  - pull after pull with short breaks: heals, food, drink
+#                       "stage7_gauntlet"  - pull after pull with short breaks: heals, food, drink
 #                       "stage8_companion" - the gauntlet beside a scripted owner: follow, assist,
 #                                            guard and heal it
 #                       "stage9_party"     - up to four learned seats and the scripted owner against
@@ -69,7 +69,7 @@ AnimusForge.OutputDir = ""
 #                     Only when named (not in an empty queue):
 #                       "mix_duel_pvp"     - pilot arena mix: each episode a creature duel or a scripted
 #                                            enemy player (seeds from stage14_pvp)
-#        Example:     "stage1_duel" - (train a single scenario)
+#        Example:     "stage5_duel" - (train a single scenario)
 #        Default:     "" - (the whole curriculum, first stage to last)
 
 AnimusForge.Queue = ""
@@ -250,7 +250,14 @@ AnimusForge.Learner.Python = ""
 #        Description: Learner config for every scenario, relative to the directory of worldserver.conf or
 #                     absolute. The run is
 #                     always named after the scenario (--run-name).
-#        Default:     "" - configs/<scenario>.yaml
+#                     Left empty, a run of a single AnimusForge.Classes uses that class's own
+#                     configs/<class>/<scenario>.yaml where one exists, and the shared
+#                     configs/<scenario>.yaml otherwise. A curriculum trained one class at a time wants
+#                     per-class floors -- a restoration druid and a bear are not held to the same clean
+#                     kill rate -- and a single overlay file cannot express them, because an overlay
+#                     merges section by section and would hand every stage in the queue the same
+#                     `target` when stage one gates `arrived` and stage five gates `clean_kill`.
+#        Default:     "" - configs/<class>/<scenario>.yaml if it exists, else configs/<scenario>.yaml
 
 AnimusForge.Learner.Config = ""
 
@@ -299,9 +306,9 @@ AnimusForge.Learner.LogFile = ""
 #    AnimusForge.Bench.Scenario
 #        Description: Scenario the trials run, when `forge bench` is given none. A party stage (four seats
 #                     per env) costs more per env than a solo one.
-#        Default:     "stage1_duel"
+#        Default:     "stage5_duel"
 
-AnimusForge.Bench.Scenario = "stage1_duel"
+AnimusForge.Bench.Scenario = "stage5_duel"
 
 #
 #    AnimusForge.Bench.Policy
@@ -412,7 +419,7 @@ AnimusForge.Bench.LearnerTorchThreads = "0, 8"
 #        Description: Comma-separated scenarios `forge fast` trains when given none, in order, each again
 #                     from scratch (nothing is skipped because an earlier fast run of it finished).
 #        Default:     ""  - (every curriculum stage in order, the mix_duel_pvp pilot included: a full run)
-#                     "stage1_duel, stage14_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
+#                     "stage5_duel, stage14_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
 #                     scripted enemy player, and a stage that mixes arenas, merges parents and distills)
 
 AnimusForge.Fast.Queue = ""
@@ -429,7 +436,7 @@ AnimusForge.Fast.Queue = ""
 #                     smaller. Convergence is off for these runs, so a stage trains every step it was given
 #                     rather than stopping as soon as its score flattens.
 #
-#                     Override per invocation: `forge fast 30M`, `forge fast 30M stage1_duel`. A suffix of K
+#                     Override per invocation: `forge fast 30M`, `forge fast 30M stage5_duel`. A suffix of K
 #                     or M is understood, and a bare number under 1000 is read as a scenario name rather
 #                     than a budget.
 #
@@ -509,10 +516,10 @@ AnimusForge.Progress.Interval = 0
 #
 #    AnimusForge.Curriculum.Arena.<stage>.<arena>.MaxRung
 #        Description: Hold one arena's pack ladder at a rung instead of letting it climb, e.g.
-#                     AnimusForge.Curriculum.Arena.stage3_hazards.hazards.MaxRung = 0 for the bottom rung.
+#                     AnimusForge.Curriculum.Arena.stage2_dodge.hazards.MaxRung = 0 for the bottom rung.
 #                     Binds training and evaluation alike. A drill uses it so the thing being drilled is
 #                     the only thing that varies; -1 lets the ladder climb to Pulls.MaxTier as usual.
-#        Default:     the stage definition's (0 for stage3_hazards, -1 for every other arena)
+#        Default:     the stage definition's (0 for stage2_dodge, -1 for every other arena)
 
 #
 #    AnimusForge.Curriculum.Characters.*
@@ -665,7 +672,7 @@ AnimusForge.Curriculum.Casting.Cancel = 0.05
 AnimusForge.Curriculum.Goals.Match = 0.02
 #   every arena with a director, per decision a seat spends fighting the enemy its director called, while one is
 #   called and alive. Compliance shaping: an order is meant to be followed because following it wins fights, but a
-#   channel that correlates with nothing cannot bootstrap into that. stage20_duo_led ran 30M steps with the order
+#   channel that correlates with nothing cannot bootstrap into that. stage22_duo_led ran 30M steps with the order
 #   paying nothing and order_focus_kept sat at chance the whole way, so the director's calls changed nothing in the
 #   world and it never left exploration. The same job Goals.Match does for the goal head; anneal towards 0 once
 #   order_focus_kept holds up without it. The director itself never earns this -- it is taken back out of its own
@@ -787,7 +794,7 @@ AnimusForge.Curriculum.Pulls.Clear = 2.5
 AnimusForge.Curriculum.Pulls.FastPull = 0.5
 AnimusForge.Curriculum.Pulls.HealthKept = 0.5
 AnimusForge.Curriculum.Pulls.GauntletDeath = 10.0
-#   A single pack (stage2_pack) is won or lost, as the duel is: the clear outweighs finishing it untouched,
+#   A single pack (stage6_pack) is won or lost, as the duel is: the clear outweighs finishing it untouched,
 #   and dying or running out of time costs as much as the clear pays. With the gauntlet's Clear and HealthKept
 #   the pack was worth 2 + 2, so keeping health paid as much as winning, and a death cost only 3.
 AnimusForge.Curriculum.Pulls.PackClear = 10.0
@@ -814,7 +821,7 @@ AnimusForge.Curriculum.Pulls.OvertimeGraceMs = 60000
 #   charged in, which is why the two weights are comparable and control no longer loses to the overtime clock.
 #   Half DamageTaken: what a held add would have dealt is estimated, not observed, and the health floor can multiply
 #   it fivefold, so control is paid less than the damage it is credited with preventing. Measured at 0 until
-#   2026-09-18 (stage2_pack at 30M: control_prevented 0.03 healths a fight, reward_control 0.00 -- nothing was
+#   2026-09-18 (stage6_pack at 30M: control_prevented 0.03 healths a fight, reward_control 0.00 -- nothing was
 #   controlled because nothing paid for it).
 AnimusForge.Curriculum.Pulls.SinglePackControl = 0.5
 #   ... at most this much a pull, a guard against a sim quirk rather than a shaping knob
@@ -904,6 +911,12 @@ AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
 #   which is what a held key is.
 AnimusForge.Curriculum.Options.MoveBearingMs = 3000
 
+#   ... and how long a turn or a pitch keeps being held (ms). Shorter again than a bearing: a seat that keeps turning
+#   for three seconds has spun round twice, so this is the length of a glance rather than of a journey. What it has
+#   turned to is kept when it stops, the way a mouse leaves the camera where it was left.
+AnimusForge.Curriculum.Options.MoveTurnMs = 750
+AnimusForge.Curriculum.Options.MovePitchMs = 750
+
 #   Ground effects: damage from something standing on the ground rather than aimed at the seat (a fire pool, a poison
 #   cloud, a consecration), charged per fraction of maximum health ON TOP of DamageTaken, which already charges it
 #   once as damage. This is the damage a seat could have walked out of, and the only term that pays for moving its
@@ -978,7 +991,7 @@ AnimusForge.Curriculum.Opponent.TankChance = 20
 
 #
 #    AnimusForge.Curriculum.Evade.*
-#        Getting away from a fight that cannot be won (stage16_evade, stage17_hide). Time spent unseen is
+#        Getting away from a fight that cannot be won (stage10_evade, stage11_hide). Time spent unseen is
 #        counted and never paid -- paid seconds out of sight are earned by standing in the far corner. What is
 #        paid is the transition out of contact, once a break, with a cooldown.
 
@@ -991,7 +1004,7 @@ AnimusForge.Curriculum.Evade.EscapeMs = 8000
 
 #
 #    AnimusForge.Curriculum.Stealth.*
-#        Stalking (stage18_stealth): closing on someone while stealthed and unseen, and holding there. The one
+#        Stalking (stage12_stealth): closing on someone while stealthed and unseen, and holding there. The one
 #        reward in the curriculum paid per decision rather than on a transition, and capped for it. Time unseen
 #        is still never paid -- the distance condition is what makes this a skill, since detection is a check
 #        the seat is losing the whole time it stands inside the band.
@@ -1057,7 +1070,7 @@ AnimusForge.Curriculum.ScriptedPlayers.BreakBelow = 0.6
 #   Travel arenas. Ground: a place this many yards away by path
 AnimusForge.Curriculum.Travel.ObjectiveMin = 60.0
 AnimusForge.Curriculum.Travel.ObjectiveMax = 320.0
-#   travel arenas made on foot (stage6_run): yards from the start, by path. Shorter than the mounted range because
+#   travel arenas made on foot (stage1_move): yards from the start, by path. Shorter than the mounted range because
 #   the lesson is how well the seat covers ground with what it has -- Sprint, Dash, Travel Form, Aspect of the
 #   Cheetah, and not stopping -- rather than whether a ride is worth summoning. Long enough that a speed cooldown
 #   pays for itself, short enough that the trip is not simply a wait

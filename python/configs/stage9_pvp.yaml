@@ -1,9 +1,9 @@
-# Stage 15: one-on-one against a scripted enemy player of a random class and role near
+# Stage 15: one-on-one against a scripted enemy player of a random class and build near
 # the bot's level. Episodes end when either dies; the reward is the duel's (damage, a fast kill, little damage taken,
 # casts).
 
-extends: stage1_duel.yaml
-run_name: stage15_pvp
+extends: stage5_duel.yaml
+run_name: stage9_pvp
 total_env_steps: 60000000
 
 # gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the

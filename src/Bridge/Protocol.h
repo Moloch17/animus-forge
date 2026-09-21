@@ -54,13 +54,15 @@
  *   client -> server  MODE   ModeMsg (instead of ACT) -- switch between training and evaluation; the server
  *                            resets every env and answers with a fresh STEP (zero reward and done)
  *   client -> server  WEIGHTS { u32 count, f32 weight[count] } (instead of ACT) -- how often training episodes
- *                            draw each (class, role), layout-major in the SPEC's layout order and role-minor in
- *                            Curriculum::Role order (dps, tank, heal); the server applies them and waits for the
- *                            ACT without answering. A weight of 1 everywhere is the uniform draw; count must be
- *                            the SPEC's layout count times three. A class that cannot play a role still has a
- *                            slot for it, which is never drawn. Per pair and not per layout because one model is
- *                            a whole class: a paladin that tanks well and heals badly needs more healing
- *                            episodes, not more paladin episodes.
+ *                            draw each (class, spec), layout-major in the SPEC's layout order and spec-minor in
+ *                            the class's own spec order; the server applies them and waits for the ACT without
+ *                            answering. A weight of 1 everywhere is the uniform draw; count must be the SPEC's
+ *                            layout count times Curriculum::MAX_SPECS. A class with fewer specs than that still
+ *                            has the slots, which are never drawn. Per pair and not per layout because one model
+ *                            is a whole class: a paladin whose protection build wins and whose holy build does
+ *                            not needs more holy episodes, not more paladin episodes -- and unlike the roles this
+ *                            replaced, it also separates two builds that share a role, which is the case a
+ *                            feral druid is.
  *   client -> server  REPLAY { u32 seed_base, f32 fraction, u32 count, u32 seed[count] } (instead of ACT) -- that
  *                            share of training resets rebuilds one of these evaluation seed indexes of seed_base, the
  *                            same character and opponent the evaluation built (the fight rolls afresh), in place of
@@ -94,7 +96,9 @@
 
 namespace AnimusForge
 {
-    constexpr uint32 PROTOCOL_VERSION = 9;
+    // 10: the WEIGHTS payload is per (class, spec) rather than per (class, role), which is a different length and
+    // a different meaning for the same bytes -- a mismatched pair would silently misweight rather than fail.
+    constexpr uint32 PROTOCOL_VERSION = 10;
     constexpr uint32 SCENARIO_NAME_SIZE = 32;
     constexpr uint32 POLICY_NAME_SIZE = 32;
     constexpr uint32 LAYOUT_NAME_SIZE = 48;
@@ -162,8 +166,8 @@ namespace AnimusForge
         char Baseline[POLICY_NAME_SIZE];    // scripted policy to run instead of the learner's; empty = learner
     };
 
-    /// WEIGHTS payload: Count, then that many float weights -- one per (class, role), layout-major in the SPEC's
-    /// order and role-minor in Curriculum::Role order, so Count is the layout count times three.
+    /// WEIGHTS payload: Count, then that many float weights -- one per (class, spec), layout-major in the SPEC's
+    /// order and spec-minor, so Count is the layout count times Curriculum::MAX_SPECS.
     struct WeightsHeader
     {
         uint32 Count;
