@@ -245,7 +245,7 @@ def test_noise_allowance_is_validated():
 
 def test_layout_metrics_floor_is_absolute():
     """A layout that beats its own baseline can still be bad: where the scripted baseline is hopeless, beating it
-    asks for nothing (stage1_duel passed warlock_dps against a required score of -2.34)."""
+    asks for nothing (stage5_duel passed warlock_dps against a required score of -2.34)."""
     target = TargetConfig(min_layout_over_baseline=0.0, layout_metrics={"killed": {"min": 0.75}})
     learner = summary(5.0, {"warlock_dps": {**layout(4.7), "killed": 0.65},
                             "warrior_dps": {**layout(7.9), "killed": 0.89}})

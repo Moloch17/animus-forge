@@ -109,7 +109,7 @@ Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The classe
 You can summon in the open world, in a dungeon or raid instance, and on a boat, zeppelin or elevator. Otherwise:
 
 1. **Layout.** `LayoutFor(profile)` builds and caches the class's layout at `Animus.Curriculum.Stage` (default
-   `stage1_duel`, the stage whose models the module ships). The first build of a class's assets takes a few
+   `stage5_duel`, the stage whose models the module ships). The first build of a class's assets takes a few
    seconds and stalls the world thread.
 2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of the race you named
    and a random gender, at your level or the class's first level if that is higher (a death knight is at least 55),

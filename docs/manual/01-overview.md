@@ -111,7 +111,7 @@ observation vector and action list it gets. The layout is built by placing the s
 `pack`, ...) one after another. The layout's **manifest** records everything the layout's meaning depends on. A
 model only works on a server that builds the same manifest.
 
-**Stage and arena.** A **stage** is a scenario the learner trains (`stage2_pack`). It extends an earlier stage and
+**Stage and arena.** A **stage** is a scenario the learner trains (`stage6_pack`). It extends an earlier stage and
 inherits that stage's trained weights. An **arena** is one situation a stage's episodes can be: a duel, a gauntlet, a
 party, an ambush, a trip or a flag match. Every stage has one arena except stage 8, which mixes eight, and the
 `mix_duel_pvp` pilot, which mixes two.

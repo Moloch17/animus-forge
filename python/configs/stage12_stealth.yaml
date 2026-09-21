@@ -3,16 +3,16 @@
 # Hiding is not being found. Every class does it, with terrain and distance and whatever its kit gives it, and
 # Shadowmeld counts there. Stealth is being *close* and not found: crossing the ground to someone who is
 # looking for you, arriving inside strike range with the opener still in hand, and holding there. Shadowmeld
-# cannot do that -- it breaks the moment you move -- so this stage is played only by the class/roles whose own
+# cannot do that -- it breaks the moment you move -- so this stage is played only by the class/builds whose own
 # kit carries a stealth aura: rogue_dps (Stealth) and the three druids (Prowl).
 #
 # It is a leaf. Its checkpoint holds four of the eighteen layouts, and init_from: auto takes the first
 # checkpoint in the chain that exists, so a stage seeding from it would start the other fourteen from random
-# weights without saying so. stage19_arena extends stage17_hide, reaching past this stage rather than through
+# weights without saying so. stage13_arena extends stage11_hide, reaching past this stage rather than through
 # it, and Problem() in Stages.cpp refuses anything that tries to extend or merge it.
 
-extends: stage17_hide.yaml
-run_name: stage18_stealth
+extends: stage11_hide.yaml
+run_name: stage12_stealth
 total_env_steps: 40000000
 
 rollout_length: 256

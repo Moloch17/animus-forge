@@ -31,7 +31,7 @@ Every key can also be set from the environment: `AC_` plus the key in upper snak
 | `AnimusForge.Learner.Args` | `""` | Extra arguments for every learner (`--set key=value ...`) |
 | `AnimusForge.Learner.TorchThreads` | `0` | CPU threads for the learner's torch (`--set torch_threads`); 0 = torch's default |
 | `AnimusForge.Learner.LogFile` | `""` = `<LogsDir>/animus-learner.log` | Learner output |
-| `AnimusForge.Bench.Scenario` | `"stage1_duel"` | What `forge bench` times without a name |
+| `AnimusForge.Bench.Scenario` | `"stage5_duel"` | What `forge bench` times without a name |
 | `AnimusForge.Bench.Policy` | `"fight"` | Local policy the sim-only trials play |
 | `AnimusForge.Bench.Threads` | `"4, 8, 12, 16"` | `MapUpdate.Threads` values tried |
 | `AnimusForge.Bench.Envs` | `"64, 128, 192"` | `AnimusForge.Envs` values tried |
@@ -69,7 +69,7 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 |---|---|---|
 | `Animus.Enable` | `1` | `0`: no summons or stages, existing ones removed, no models loaded |
 | `Animus.ModelDir` | `"animus"` | Model directory, relative to `DataDir` |
-| `Animus.Curriculum.Stage` | `"stage10_party"` | The stage whose models companions play |
+| `Animus.Curriculum.Stage` | `"stage15_party"` | The stage whose models companions play |
 | `Animus.Curriculum.DecisionMs` | `250` | Companion decision interval |
 | `Animus.Stage.Policy` | `"model"` | Default stage viewer policy |
 | `Animus.Stage.DecisionMs` | `250` | Stage viewer decision interval |
@@ -359,11 +359,11 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 
 ```json
 {
-  "format": 2, "stage": "stage9_companion", "suffix": "_companion", "extends": "stage4_gauntlet",
+  "format": 2, "stage": "stage14_companion", "suffix": "_companion", "extends": "stage7_gauntlet",
   "summary": "...", "seats": 1,
   "blocks": ["core", "duel", "pet", "pack", "gauntlet", "companion"],
   "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0}],
-  "seed_chain": ["stage4_gauntlet", "stage2_pack", "stage1_duel"],
+  "seed_chain": ["stage7_gauntlet", "stage6_pack", "stage5_duel"],
   "merges": [],
   "state": {"arena_first": 13, "arena_count": 8},
   "models": {"warrior_tank": "warrior_tank_companion", "...": "..."},

@@ -1,6 +1,6 @@
 """Train a MAPPO policy against a running Animus Forge sim.
 
-    python -m animus.train --config configs/stage1_duel.yaml --run-name stage1_duel
+    python -m animus.train --config configs/stage5_duel.yaml --run-name stage5_duel
 
 The worldserver starts this when told to (`forge start`, `forge resume`, `forge run`) and
 AnimusForge.Learner.AutoStart = 1, and passes where runs and layouts go (AnimusForge.OutputDir). Run by hand, the client
@@ -952,7 +952,7 @@ class TrainingRun:
         Roughly half the stages measured end their run barely changing: approx_kl falls eight to eleven fold
         between the first eighth of a run and the last (stage9_party 11.2x, stage19 10.5x, stage8 9.2x,
         stage4 8.3x) with clip_frac down to ~0.01, so the final third costs wall clock and buys very little.
-        The other half do not -- stage1_duel's KL *rises* over 683 updates, travel and flight stay flat -- so
+        The other half do not -- stage5_duel's KL *rises* over 683 updates, travel and flight stay flat -- so
         this is reported and never acted on. Stopping a stalled run automatically would have cut stage4
         short, and it went on to 916 updates.
         """

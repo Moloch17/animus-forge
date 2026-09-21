@@ -32,6 +32,12 @@ namespace
 {
     constexpr uint32 OBJECTIVE_ATTEMPTS = 32;
     constexpr float MAX_PATH_DETOUR = 1.8f;         // a path at most this many times the straight distance
+    // A water arena wants the detour the others refuse: the way round has to be far enough longer than the way
+    // through that swimming is a real choice. Swimming is about 4.7 yd/s against 7 running, so the crossing pays
+    // at roughly 1.5x and this leaves a margin on either side of that -- some of these trips are worth swimming
+    // and some are not, which is what makes it a decision rather than a reflex.
+    constexpr float MIN_DETOUR_ACROSS = 1.35f;
+    constexpr uint32 WATER_SAMPLES = 12;            // points along the straight line, looking for water
     constexpr float HEIGHT_SEARCH = 120.0f;
     constexpr float BODY_HEIGHT = 2.0f;             // for the water check
 }
@@ -132,7 +138,7 @@ void Animus::Curriculum::TravelEncounter::ResetEpisode(Env& env)
 }
 
 bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying,
-    Position& place, float* walk)
+    Position& place, float* walk, bool across)
 {
     for (uint32 attempt = 0; attempt < OBJECTIVE_ATTEMPTS; ++attempt)
     {
@@ -146,7 +152,11 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
         map->LoadGrid(x, y);
         float const z = map->GetHeight(bot->GetPhaseMask(), x, y, bot->GetPositionZ() + HEIGHT_SEARCH * 0.5f, true,
             HEIGHT_SEARCH);
-        if (z <= INVALID_HEIGHT || map->IsInWater(bot->GetPhaseMask(), x, y, z, BODY_HEIGHT))
+        if (z <= INVALID_HEIGHT)
+            continue;
+
+        // The objective itself always stands on dry land -- arriving is standing somewhere, not treading water.
+        if (map->IsInWater(bot->GetPhaseMask(), x, y, z, BODY_HEIGHT))
             continue;
 
         // On the ground it has to be reachable on foot, by a path not much longer than the straight line.
@@ -154,17 +164,51 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
         if (!flying)
         {
             PathGenerator path(bot);
-            if (!path.CalculatePath(x, y, z) || !(path.GetPathType() & PATHFIND_NORMAL)
-                || path.getPathLength() > distance * MAX_PATH_DETOUR)
+            if (!path.CalculatePath(x, y, z) || !(path.GetPathType() & PATHFIND_NORMAL))
                 continue;
 
             walked = path.getPathLength();
+
+            // A water arena wants the opposite of what every other one wants. Elsewhere a long detour means the
+            // straight line was a lie and the objective is rejected; here it is the whole point -- the way round
+            // is longer than the way through, and whether the difference is worth swimming for is the lesson. The
+            // path is what a runner would cover, so the ratio is the choice the seat is being asked to make.
+            if (across)
+            {
+                if (walked < distance * MIN_DETOUR_ACROSS || !CrossesWater(bot, map, place, x, y))
+                    continue;
+            }
+            else if (walked > distance * MAX_PATH_DETOUR)
+                continue;
         }
 
         place.Relocate(x, y, z);
         if (walk)
             *walk = walked;
         return true;
+    }
+
+    return false;
+}
+
+bool Animus::Curriculum::TravelEncounter::CrossesWater(Player const* bot, Map* map, Position const& /*place*/,
+    float x, float y)
+{
+    // Sample the straight line: a detour long enough to be interesting could be a cliff or a canyon as easily as a
+    // lake, and only one of those can be swum. Cheap, and only ever asked while an episode is being built.
+    float const fromX = bot->GetPositionX();
+    float const fromY = bot->GetPositionY();
+    float const fromZ = bot->GetPositionZ();
+    for (uint32 step = 1; step < WATER_SAMPLES; ++step)
+    {
+        float const along = float(step) / float(WATER_SAMPLES);
+        float const sampleX = fromX + (x - fromX) * along;
+        float const sampleY = fromY + (y - fromY) * along;
+        map->LoadGrid(sampleX, sampleY);
+        float const sampleZ = map->GetHeight(bot->GetPhaseMask(), sampleX, sampleY, fromZ + HEIGHT_SEARCH * 0.5f,
+            true, HEIGHT_SEARCH);
+        if (sampleZ > INVALID_HEIGHT && map->IsInWater(bot->GetPhaseMask(), sampleX, sampleY, sampleZ, BODY_HEIGHT))
+            return true;
     }
 
     return false;
@@ -186,7 +230,7 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     // whether a ride is worth summoning.
     float const least = flying ? tuning.FlyingMin : arena.OnFoot ? tuning.FootMin : tuning.ObjectiveMin;
     float const most = flying ? tuning.FlyingMax : arena.OnFoot ? tuning.FootMax : tuning.ObjectiveMax;
-    if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk))
+    if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk, arena.Water))
         return false;
 
     travel.HasObjective = true;

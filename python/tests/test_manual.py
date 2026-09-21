@@ -1,6 +1,6 @@
 """The manual's tables against the files they describe.
 
-Every stage budget in the manual was between 1x and 7x the configured value before this existed -- stage10_party
+Every stage budget in the manual was between 1x and 7x the configured value before this existed -- stage15_party
 was documented at 600M against a configured 120M, stage23_crossroads at 1B against 150M. Numbers copied by hand
 into prose drift silently and nobody notices until someone plans a run from them, so the table is checked instead
 of trusted.
@@ -16,7 +16,7 @@ from animus.config import TrainConfig
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 MANUAL = Path(__file__).resolve().parents[2] / "docs" / "manual" / "04-curriculum.md"
 
-# `| `stage1_duel` | 300M | 10M | 2048 | 30M |` -- the table pairs two stages per row, so each line yields two.
+# `| `stage5_duel` | 300M | 10M | 2048 | 30M |` -- the table pairs two stages per row, so each line yields two.
 ROW = re.compile(
     r"\|\s*`(?P<name>\w+)`\s*\|\s*(?P<budget>[\d.]+)M\s*\|\s*(?P<every>[\d.]+)M\s*\|"
     r"\s*(?P<episodes>\d+)\s*\|\s*(?P<min>[\d.]+)M\s*(?=\|)")

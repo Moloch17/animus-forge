@@ -40,7 +40,7 @@ TALENT_PLANS = ("standard", "noisy", "random")
 # An episode that cancelled at least this many of its own casts did not merely waste a few: with a decision every
 # 100 ms it spent the episode in a start-cast / stop-cast loop. Deterministic actions cannot break out of one --
 # the state that chose to stop recurs unchanged -- so a policy can carry it into evaluation and into the exported
-# model while its sampled training rollouts look healthy. stage1_duel: a quarter of warlock episodes, up to 299
+# model while its sampled training rollouts look healthy. stage5_duel: a quarter of warlock episodes, up to 299
 # cancels in a 60 s episode, scoring 3.30 where the rest scored 7.52.
 LIVELOCK_CANCELS = 20
 
@@ -157,7 +157,7 @@ class EvalResult:
         """Per episode, the DERIVED_METRICS the episode info can give: 1.0 where it holds, else 0.0."""
         out = {}
         # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a tail,
-        # not a shift (stage1_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
+        # not a shift (stage5_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
         cancels = self.column("casts_cancelled")
         if cancels is not None:
             out["livelocked"] = (cancels >= LIVELOCK_CANCELS).astype(np.float64)
@@ -273,7 +273,7 @@ def casting_weights(summary: dict, baseline: dict | None, strength: float, max_r
     A stage is gated on its weakest class and role, so an episode of a pair that trails its baseline is worth more
     than one of a pair that is already clear of it. Per pair and not per model: one model is a whole class now, and
     weighting a paladin that heals badly by its average would send it more tanking episodes it did not need. The
-    baseline gap alone misses a pair that beats a weak baseline yet fails an absolute gate -- stage1_duel's mage
+    baseline gap alone misses a pair that beats a weak baseline yet fails an absolute gate -- stage5_duel's mage
     beat the scripted mage while killing 68% of the time -- so the shortfall on the gated metric counts as well,
     whichever of the two is larger. Each is measured in its own standard deviations, so the weights do not depend
     on the size of the scenario's rewards, and the spread is capped: the heaviest pair draws at most `max_ratio`

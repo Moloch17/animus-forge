@@ -227,7 +227,7 @@ void AnimusForge::ForgeConfig::Load()
     LearnerTorchThreads = sConfigMgr->GetOption<uint32>("AnimusForge.Learner.TorchThreads", 0);
 
     Bench = BenchSettings();
-    Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage1_duel");
+    Bench.Scenario = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Scenario", "stage5_duel");
     Bench.Policy = sConfigMgr->GetOption<std::string>("AnimusForge.Bench.Policy", "fight");
     Bench.Threads = GetNumberList("AnimusForge.Bench.Threads", "4, 8, 12, 16");
     Bench.Envs = GetNumberList("AnimusForge.Bench.Envs", "64, 128, 192");

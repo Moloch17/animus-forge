@@ -1,0 +1,31 @@
+# The druid's duel: the root of the fighting half, and the stage that carries its whole action catalog.
+#
+# This is where the build gates earn their keep. Under a role, `feral_cat` and `balance` were both "damage" and
+# were graded as one number, so a strong cat could carry a weak boomkin through the gate and nothing would ask
+# for more boomkin episodes. They are separate now, and the floors say so.
+#
+# The four are not equally easy and the floors are not equal:
+#   balance     a ranged caster with a full kit: the highest floor
+#   feral_cat   melee burst, and it can open from Prowl where the level allows
+#   feral_bear  holds up well and kills slowly, so its risk is the clock rather than dying
+#   restoration the weakest solo by some way, and it still has to be able to kill a same-level creature
+
+extends: ../stage5_duel.yaml
+run_name: stage5_duel
+
+eval:
+  report: [clean_kill, killed, died, time_to_kill, health_left, livelocked, form_at_end]
+
+target:
+  spec_metrics:
+    balance:
+      clean_kill: {min: 0.90, confidence: 0.95}
+    feral_cat:
+      clean_kill: {min: 0.90, confidence: 0.95}
+    feral_bear:
+      # Slower, so the clock is the thing that beats it: the kill floor is lower and the timeout floor is what
+      # actually holds it to account.
+      clean_kill: {min: 0.86, confidence: 0.95}
+      timed_out: {max: 0.10}
+    restoration:
+      clean_kill: {min: 0.80, confidence: 0.95}

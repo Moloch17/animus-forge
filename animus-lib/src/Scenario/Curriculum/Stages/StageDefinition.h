@@ -125,6 +125,15 @@ namespace Animus::Curriculum
         /// the Cheetah), not stopping, and not wandering off the path. Mounting is masked, not merely unpaid,
         /// because a masked action cannot be explored into and the lesson stays clean.
         bool OnFoot = false;
+        /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
+        /// through. Every other travel arena refuses an objective anywhere near water, which is why nothing in the
+        /// curriculum had ever had to swim.
+        ///
+        /// Water is the one piece of ground that asks a question before it asks for a skill: swimming is about
+        /// 4.7 yards a second against 7 running, so crossing pays only when the straight line saves more than
+        /// about a third of the distance -- and what a build can do in water (a druid's Aquatic Form, a shaman's
+        /// Water Walking) changes the answer.
+        bool Water = false;
         /// Levels added to the scripted enemy player's own, on top of Opponent.LevelSpread. A drill about
         /// getting away needs a fight the seat cannot win; every other arena wants an even match and leaves
         /// this at 0. Ignored unless the opposition is a scripted player.
@@ -147,12 +156,16 @@ namespace Animus::Curriculum
         std::string Extends;            // the stage it builds on and seeds from (the trunk); empty for the first
         std::vector<std::string> Merges{}; // further stages it seeds the blocks only they have from
         std::string Summary;
-        /// Played only by the class/roles whose own kit can make them stealthed (StageScenario's CanStealth,
-        /// asked of ClassKit so the answer is true of every member of the class rather than of one race of
-        /// it). A stage that sets this is restricted, and a restricted stage must be a leaf: its checkpoint
-        /// holds only the layouts it played, and init_from: auto takes the first checkpoint in the chain that
-        /// exists, so anything seeding from it would start the rest from random weights in silence. Problem()
-        /// refuses any stage that extends or merges one.
+        /// Played only by the classes whose own kit can make them stealthed (StageScenario's CanStealth, asked of
+        /// ClassKit so the answer is true of every member of the class rather than of one race of it).
+        ///
+        /// A restricted stage's checkpoint holds only the layouts it played, so seeding from it can leave the rest
+        /// of a run starting from random weights. That used to be prevented here, by refusing to let anything
+        /// extend or merge a restricted stage at all -- which also made the rule wrong in the case it matters
+        /// most: in a run of one class that can stealth, every layout plays the stage and there is nothing
+        /// partial about the checkpoint. The rule now lives where the actual layouts are known
+        /// (animus.bootstrap), which refuses loudly rather than fresh-initialising in silence, so a stage like
+        /// this can sit in the middle of a chain when the run it is in allows it.
         bool NeedsStealth = false;
         std::vector<BlockId> Blocks;    // in layout order: every block any of its arenas needs
         std::vector<ArenaDefinition> Arenas;

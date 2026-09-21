@@ -1,0 +1,64 @@
+# Stage 1 of the curriculum, and the root: covering ground on the seat's own legs, with nothing to fight.
+#
+# This is first on purpose. A seat steers itself now -- eight egocentric bearings under a held yaw and pitch, with
+# the ground read along each of them -- and where a seat puts its feet is not something only some stages are about.
+# Putting it first means everything after it inherits legs that already work, instead of learning to fight and to
+# walk at the same time and doing both badly.
+#
+# A character starts in the Barrens with a place 40-160 yd away and no mount available: the mount actions are
+# masked out, not merely unpaid, so the policy cannot explore into riding and the lesson stays clean. What is left
+# is everything a player does before it can ride -- Sprint, Dash, Travel Form, Aspect of the Cheetah, and simply
+# not stopping or wandering off the path -- which is worth its own stage because a mount is barred in combat,
+# indoors and below level 20, which is most of the times a bot actually has to get somewhere.
+#
+# Three arenas, because "cross it" is a different problem on each and a policy taught only on the flats learns to
+# hold forward:
+#   open    flat ground, the lesson at its simplest
+#   broken  terrain with things in the way, where the ground probe earns its place -- a seat that cannot see the
+#           cliff it is walking into is only being steered by the pathfinder, which is the point order coming back
+#           one layer down
+#   water   an objective whose way round is longer than the way through. Swimming is about 4.7 yd/s against 7
+#           running, so the crossing pays only when the straight line saves more than about a third of the
+#           distance -- and what a build can do in water changes the answer, which is why this is not a reflex
+
+extends: stage5_duel.yaml
+run_name: stage1_move
+
+# The root of the tree starts from nothing, but it is a far smaller problem than the duel: few actions are live,
+# there is one objective and the episodes are short.
+total_env_steps: 40000000
+
+eval:
+  baseline: fight
+  report: [arrived, travel_seconds, start_distance, walk_distance, saved, died, timed_out]
+
+convergence:
+  min_env_steps: 20000000
+
+target:
+  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
+  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
+  #
+  # Arriving is the objective and `saved` is how well: it is the share of the plain-running time the trip saved,
+  # so on foot it measures the speed cooldowns and not stopping. mounted_fraction is deliberately not gated -- it
+  # is 0 by construction here, and gating it would only restate the mask.
+  min_over_baseline: 0.0
+  metrics:
+    arrived: {min: 0.90, confidence: 0.95}
+    saved: {min: 0.05}
+    timed_out: {max: 0.10}
+  layout_metrics:
+    arrived: {min: 0.75}
+  # Per arena, because an average over three kinds of ground hides the one the seat cannot handle: a policy that
+  # crosses open ground perfectly and drowns in the water arena would pass a single `arrived` floor comfortably.
+  arenas:
+    open:
+      metrics:
+        arrived: {min: 0.95, confidence: 0.95}
+    broken:
+      metrics:
+        arrived: {min: 0.85, confidence: 0.95}
+    water:
+      metrics:
+        arrived: {min: 0.80, confidence: 0.95}
+  until_passed: true

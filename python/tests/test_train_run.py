@@ -133,7 +133,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     server.start()
 
     steps_per_update = 4 * SPEC.num_envs * SPEC.agents_per_env
-    config = TrainConfig.load(Path(__file__).parent.parent / "configs" / "stage1_duel.yaml", [
+    config = TrainConfig.load(Path(__file__).parent.parent / "configs" / "stage5_duel.yaml", [
         f"socket={path}", f"runs_dir={tmp_path / 'runs'}", f"layouts_dir={tmp_path / 'layouts'}", "run_name=fake",
         "rollout_length=4", f"total_env_steps={2 * steps_per_update}", "checkpoint_every=1", "init_from=''",
         "train_device=cpu", "mappo.hidden=[8, 8]", "mappo.epochs=1", "mappo.minibatches=1",
@@ -165,11 +165,11 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
 
     with (run_dir / "eval.csv").open() as f:
         evals = list(csv.DictReader(f))
-    # The third evaluation also plays sampled actions on the same seeds (stage1_duel: eval.sampled_every 3).
+    # The third evaluation also plays sampled actions on the same seeds (stage5_duel: eval.sampled_every 3).
     assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update, 2 * steps_per_update]
     assert [row["policy"] for row in evals] == ["learner", "learner", "learner", "learner_sampled"]
     assert modes.count((True, 2, "")) == 4
-    # After each training evaluation the lost seeds go to the sim (stage1_duel replays clean_kill losses). The fake
+    # After each training evaluation the lost seeds go to the sim (stage5_duel replays clean_kill losses). The fake
     # episodes have no killed or died columns, so none can be told lost: an empty replay each time.
     assert len(replays) == 3 and all(len(seeds) == 0 for _, _, seeds in replays)
 

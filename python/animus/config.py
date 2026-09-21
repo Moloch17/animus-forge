@@ -111,7 +111,7 @@ class TargetConfig:
     # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
     metrics: dict = field(default_factory=dict)
     # The same bounds, checked on every class's own episodes. min_layout_over_baseline only asks a layout to
-    # beat its own baseline, which says nothing where the scripted baseline is itself hopeless: stage1_duel passed
+    # beat its own baseline, which says nothing where the scripted baseline is itself hopeless: stage5_duel passed
     # warlock_dps against a required score of -2.34 and priest_heal against -0.72, so a warlock that killed 65% of
     # the time and livelocked in a quarter of its episodes cleared the gate. An absolute floor cannot be lowered by
     # a bad baseline. Same shape as metrics, and derived summary fields (livelocked) can be gated too.
@@ -259,12 +259,12 @@ class TrainConfig:
     # joined, one rollout later), which is data one update staler than the strictly serial loop; its log_probs come
     # from the same weights, so the PPO ratio stays consistent. Update stats are logged one update late as well.
     #
-    # Off, and stage1_duel sets it off explicitly for the whole curriculum that extends it. The arithmetic argues
+    # Off, and stage5_duel sets it off explicitly for the whole curriculum that extends it. The arithmetic argues
     # the other way -- the sim blocks in ReceiveAny for the whole update, which is 1.82 s against a 3.2 s rollout
-    # on stage6_run and 3.08 s against 4.26 s on stage18_stealth, so 36-42% of wall clock with the sim idle, and
+    # on stage1_move and 3.08 s against 4.26 s on stage12_stealth, so 36-42% of wall clock with the sim idle, and
     # the rollout being the longer of the two is the case overlap should hide completely. It was measured on this
     # machine anyway and the arithmetic lost: 5,365 against 5,323 env steps/s, inside the noise (see the note in
-    # configs/stage1_duel.yaml). The rollout's forward pass and the update evidently contend for something the
+    # configs/stage5_duel.yaml). The rollout's forward pass and the update evidently contend for something the
     # per-decision accounting does not show, so the idle time does not convert into throughput.
     #
     # Not settled: that measurement was taken at a 1.1 s update against a 2 s rollout. The ratio is the same today
@@ -290,7 +290,7 @@ class TrainConfig:
     # learned. best.pt is only rewritten by an evaluation that clears the convergence margin -- the larger of 1%
     # absolute, 2% of the best, and two standard errors of the two scores -- and that last term is the one that
     # bites: with 64-episode evaluations the error bars are wide, so the bar is high, and best.pt can go a whole
-    # stage without moving. Measured on the sweep this default was changed for: stage2_pack reached 8.2M steps
+    # stage without moving. Measured on the sweep this default was changed for: stage6_pack reached 8.2M steps
     # with its evaluations up from 2.6 to 6.8 and best.pt still the checkpoint it was seeded with, because the
     # 4.16 improvement fell short of a 4.46 margin. Seeding from best there would have handed stage 3 a network
     # that had learned nothing of stage 2.

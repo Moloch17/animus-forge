@@ -27,7 +27,7 @@ baseline, decides when a stage is good enough to move on, and exports one small 
 Eleven stages and a pilot, each seeded from the stage it extends. Every stage trains one policy for all 18 class/roles.
 
 ```
-stage1_duel ─┬─ stage2_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
+stage5_duel ─┬─ stage6_pack ─ stage3_gauntlet ─ stage4_companion ─ stage5_party ─┬─ stage8_crossroads
              ├─ stage6_pvp ─ stage7_arena ─┬──────────────────────────────────────┘
              │                             └─ stage11_flag
              └─ stage9_travel ─┬─ stage10_flight      (stage11_flag also merges stage9_travel)
@@ -55,7 +55,7 @@ Then, on the worldserver console:
 
 | Command | What it does |
 |---|---|
-| `forge run stage1_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
+| `forge run stage5_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
 | `forge fast` | The whole pipeline on an easy profile, minutes per stage, into `<OutputDir>/fast/` |
 | `forge start` | Train the curriculum stage by stage, until every stage has advanced or one halts below its target |
 | `forge status` | Rates, ETAs, evaluation scores against the baseline, warnings |

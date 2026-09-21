@@ -542,8 +542,13 @@ namespace Animus::Curriculum
         /// A place `nearest`-`furthest` yd from `bot` on ground that is not water; on foot (`flying` false) one it can
         /// walk to by a path not much longer than the straight line. False if none was found. `walk`, when given,
         /// takes the length of that path -- the straight line when there is none (a flying arena).
+        /// A place `nearest` to `furthest` away that the seat can get to and stand on. `across` inverts the detour
+        /// test for a water arena: instead of refusing an objective whose path is much longer than the straight
+        /// line, it insists on one, and checks that what lies between is water rather than a cliff.
         static bool FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying, Position& place,
-            float* walk = nullptr);
+            float* walk = nullptr, bool across = false);
+        /// Whether the straight line from `bot` to (x, y) passes through water.
+        static bool CrossesWater(Player const* bot, Map* map, Position const& place, float x, float y);
 
     private:
         struct EnvTravel

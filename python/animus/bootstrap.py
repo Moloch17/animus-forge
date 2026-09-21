@@ -8,7 +8,13 @@ drop others and adds its own (the curriculum is a tree), so a layout is seeded b
   columns start at zero, so the seeded policy initially ignores them; dropped blocks' columns are left behind.
 - Actor heads: each kept block's action rows move the same way; new actions keep their small initial weights.
 - Trunk: copied (the hidden sizes must match).
-- A layout the checkpoint does not have keeps its fresh adapter and head, and still gets the copied trunk.
+- A layout the checkpoint does not have is refused, loudly. It used to keep its fresh adapter and head and take the
+  copied trunk, which is silent and almost always wrong: a stage only some classes play (a stealth drill) leaves a
+  partial checkpoint, and init_from: auto takes the first checkpoint in the chain that exists -- so the classes that
+  did not play it would start from random weights with nothing said. The sim used to prevent this by refusing to let
+  anything extend such a stage at all, which was too blunt: in a run of one class that plays it, the checkpoint
+  covers every layout and there is nothing partial about it. Only here are the run's actual layouts known, so this is
+  where the question can be asked properly.
 - Critic state encoder and value head: kept freshly initialised, and the value normaliser is not copied, because
   the later stage's global state and reward differ.
 
@@ -26,6 +32,9 @@ from __future__ import annotations
 import torch
 
 from .stages import Span, block_spans
+
+#: The director layout's name (Curriculum::DirectorLayout::Name).
+DIRECTOR_LAYOUT = "director"
 
 
 def _seed_adapter(new: dict, old: dict, prefix: str) -> None:
@@ -214,6 +223,21 @@ def seed_trainer(trainer, checkpoint: dict, spec, stage: dict | None = None) -> 
 
     _seed_shared(actor, old["actor"])
     _seed_shared(critic, old["critic"])
+
+    # Every layout this run has must be in the checkpoint it is seeding from. A missing one is not a thing to work
+    # around quietly: the alternative is starting that class from scratch in the middle of a curriculum, which looks
+    # exactly like a class that has simply not learned anything yet.
+    # The director is the exception, and the only one: it is an agent the stage adds rather than a class the run
+    # plays, so the first directed stage in a chain necessarily seeds from one without it.
+    missing = [layout.name for layout in spec.layouts
+               if layout.name not in old_names and layout.name != DIRECTOR_LAYOUT]
+    if missing:
+        raise ValueError(
+            f"the checkpoint has no {', '.join(missing)}: it was trained on "
+            f"{', '.join(old_names) or 'nothing'}. Seeding would start "
+            f"{'them' if len(missing) > 1 else 'it'} from random weights in the middle of the curriculum. Train "
+            f"this stage with the classes the checkpoint has, or seed from one that covers the classes this run "
+            f"plays (init_from).")
 
     seeded = []
     for index, layout in enumerate(spec.layouts):

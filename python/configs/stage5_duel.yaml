@@ -1,7 +1,10 @@
-# Learner config for stage1_duel, stage 1 of the curriculum, and the root every later stage extends: one
-# policy for every class/role of AnimusForge.ClassRoles (all 18 by default). Each class/role is a layout: its own input
-# adapter and action head around a shared trunk. The run trains in <runs_dir>/stage1_duel/; export writes one model
-# per class/role (warrior_dps_duel.amdl, ...).
+# Learner config for stage5_duel, where the curriculum starts fighting, and the file every other stage's config
+# inherits its hyperparameters from: one policy for every class of AnimusForge.Classes (all ten by default). Each
+# class is a layout -- its own input adapter and action head around a shared trunk -- and covers every build it
+# has. The run trains in <runs_dir>/stage5_duel/; export writes one model per class (warrior_duel.amdl, ...).
+#
+# It is stage 5, not stage 1. The first four stages teach a seat to move, and this one seeds from them: a policy
+# that arrives at the fight already knowing how to place its feet can spend this stage learning the fight.
 #
 # Every episode is a new character: race, gender, level 1-80, spec, talents and gear are all random, and the policy
 # sees them in its observation. It faces a same-level creature that fights back, spawned out of aggro range: the bot
@@ -9,9 +12,9 @@
 # Episodes end on the kill or the bot's death.
 #
 # The sim decides the env count, decision interval and episode length (mod_animus_forge.conf), where runs go and what
-# a stage seeds from (its stage.json); everything here is learner-side. Later stages list only what they change.
+# a stage seeds from (its stage.json); everything here is learner-side. Other stages list only what they change.
 
-run_name: stage1_duel
+run_name: stage5_duel
 socket: /tmp/animus-forge.sock
 seed: 1
 
@@ -46,10 +49,10 @@ rollout_device: cpu
 
 mappo:
   # Wide enough to condition a rotation on level, spec, talents, gear stats and a large action space.
-  # The first width is the per-class/role adapter, the rest are the shared trunk (_Trunk pairs the widths), so
+  # The first width is the per-class/build adapter, the rest are the shared trunk (_Trunk pairs the widths), so
   # [512, 512] gave 18 adapters of 512 and one shared layer: 94% of the parameters were private to a layout,
   # each trained on its own share of a rollout. [256, 512, 512] halves the adapters and gives the trunk two
-  # layers, so the capacity sits where every class/role trains it. Every stage must use the same widths, or
+  # layers, so the capacity sits where every class/build trains it. Every stage must use the same widths, or
   # seeding cannot copy the trunk.
   hidden: [256, 512, 512]
   # gamma and gae_lambda are per 100 ms of game time (reference_decision_ms), compounded to AnimusForge.DecisionMs, so
@@ -101,9 +104,9 @@ mappo:
   # averaged the whole run would leave the critic fitting a scale it had outgrown, and value_loss (reported in
   # normalised space) would shrink whether or not the fit improved. Watch explained_variance instead.
   value_norm_beta: 0.99
-  # Each class/role's advantages are centred and scaled on its own rows. They share a trunk, and their returns
+  # Each class/build's advantages are centred and scaled on its own rows. They share a trunk, and their returns
   # are not on one scale -- a healer keeping an owner alive and a rogue killing a creature are different numbers
-  # -- so one global scale would let the widest-spread class/role speak for weights all of them use.
+  # -- so one global scale would let the widest-spread class/build speak for weights all of them use.
   per_layout_advantages: true
   min_layout_rows: 32
   # Stop an update once its epochs have moved the policy about this far in KL. Clipping bounds one step, not
@@ -113,11 +116,11 @@ mappo:
 
 # Seeded evaluation (animus.evaluation): every every_env_steps the networks play the same 2048 characters and
 # opponents with argmax actions; eval.csv / eval.jsonl hold the score (mean episode return) and per-level-band and
-# per-class/role stats next to the baseline, scored once per run on the same seeds, and eval_episodes.jsonl every
+# per-class/build stats next to the baseline, scored once per run on the same seeds, and eval_episodes.jsonl every
 # episode behind them. The best networks go to best.pt and are the ones the next stage seeds from.
 #
-# 2048 episodes spread over the 18 class/roles leave ~114 each. At 1024 (~57 each) one lost fight moved a
-# class/role's win rate by 1.75 points, too coarse for its own gates, its training weight and the fights it
+# 2048 episodes spread over the 18 class/builds leave ~114 each. At 1024 (~57 each) one lost fight moved a
+# class/build's win rate by 1.75 points, too coarse for its own gates, its training weight and the fights it
 # replays. The whole evaluation is ~80 s against ~20 min of training between two of them.
 #
 # sampled_every: every third evaluation also plays sampled actions on the same seeds (policy learner_sampled), to
@@ -146,8 +149,8 @@ convergence:
   min_improvement_abs: 0.01
   min_env_steps: 30000000
 
-# Good enough to move on: every class/role wins nearly every base-tier fight (difficulties.0; the harder tiers weigh in
-# through the score and the per-class/role baseline gate), measured with enough episodes to believe it, on
+# Good enough to move on: every class/build wins nearly every base-tier fight (difficulties.0; the harder tiers weigh in
+# through the score and the per-class/build baseline gate), measured with enough episodes to believe it, on
 # the evaluation that set the best and again on 4096 held-out episodes (a best picked from many evaluations is partly
 # luck).
 #
@@ -155,12 +158,12 @@ convergence:
 # share gated with `confidence` is judged by its one-sided Wilson bound over the group's episodes, not its raw mean:
 # the lowest win rate those episodes are still consistent with has to clear the minimum. So thin evidence fails rather
 # than passing on luck, and a few lost fights are allowed where there are enough episodes to show they are rare. With
-# 2048 evaluation episodes a class/role has ~114: all won gives a bound of 0.977, three lost 0.936, six lost 0.901,
+# 2048 evaluation episodes a class/build has ~114: all won gives a bound of 0.977, three lost 0.936, six lost 0.901,
 # seven lost 0.89 (a fail). The 4096 confirming episodes give ~228 each, where 95% observed bounds at ~0.92.
 # Overall, 0.95 needs 1962 of the 2048 won (95.8%), and 95.6% of the 4096.
 #
 # Metric gates are absolute, which no baseline can lower: the first run of this stage passed warlock_dps against a
-# required score of -2.34 while it killed 65% of the time. The score gate that remains keeps every class/role at least
+# required score of -2.34 while it killed 65% of the time. The score gate that remains keeps every class/build at least
 # level with the scripted fight baseline (within noise_z standard errors); an overall "10% over baseline" gate is gone,
 # because it judged the size of the rewards rather than the fights.
 #
@@ -176,9 +179,9 @@ target:
     livelocked: {max: 0.01}
   layout_metrics:
     livelocked: {max: 0.02}
-  # Opponents get harder per class/role as it wins (AnimusForge.Curriculum.Difficulty.*), and an evaluation spreads
+  # Opponents get harder per class/build as it wins (AnimusForge.Curriculum.Difficulty.*), and an evaluation spreads
   # its seeds over every tier: the win-rate floors hold on the base tier, where every fight is winnable, and the
-  # harder tiers count through the score (and each class/role against its baseline on the same tiers).
+  # harder tiers count through the score (and each class/build against its baseline on the same tiers).
   difficulties:
     0:
       metrics:
@@ -197,8 +200,8 @@ entropy_floor:
   max_boost: 4.0
   rate: 0.05
 
-# Where the data goes: after every evaluation the sim is told how often to build each class/role, so the ones
-# furthest below their baseline, and the ones furthest short of clean kills -- the gate every class/role must pass --
+# Where the data goes: after every evaluation the sim is told how often to build each class/build, so the ones
+# furthest below their baseline, and the ones furthest short of clean kills -- the gate every class/build must pass --
 # get more episodes than the ones already clear of both. Without the metric, mage_dps drew no extra data at 0.68
 # clean kills because it beat the scripted mage's score. Evaluation stays evenly spread whatever the weights are.
 #

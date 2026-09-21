@@ -11,7 +11,7 @@ means directly (killed, died, ...), which reward shaping cannot game. A stage th
 on its own episodes (target.arenas), so one situation cannot hide behind the others either.
 
 A gate relative to the baseline is only as demanding as the baseline is good, and where the scripted policy is
-hopeless it demands nothing: stage1_duel passed warlock_dps against a required score of -2.34 while it killed 65%
+hopeless it demands nothing: stage5_duel passed warlock_dps against a required score of -2.34 while it killed 65%
 of the time and spent a quarter of its episodes in a cast/stop loop. target.metrics and target.layout_metrics are
 the absolute floors that no baseline can lower, and they read derived summary fields (livelocked) as well as
 episode info.
