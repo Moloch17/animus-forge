@@ -71,6 +71,10 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
     // getting somewhere -- which left no way to tell a seat wedged against geometry forty yards out from one
     // orbiting the objective at eight, never inside the six ARRIVE_YARDS wants. Those are different bugs with
     // different fixes, and this is the column that separates them. 0 on an episode that arrived.
+    // What the legs did, against WalkDistance's what-they-were-asked-for. A timeout with distance_travelled near
+    // zero is a seat that never moved; one with distance_travelled far above walk_distance is a seat that moved
+    // plenty and in the wrong directions. Stuck and lost want opposite fixes.
+    table.Add("distance_travelled", [this](Env const& env, uint32) { return _envs[env.Index].Travelled; });
     table.Add("objective_distance_at_end", [this](Env const& env, uint32)
     {
         EnvTravel const& travel = _envs[env.Index];
@@ -295,6 +299,8 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     // whose spawn points have no water in reach fails that gate and says so.
     travel.Crossing = false;
     travel.DryDistance = 0.0f;
+    travel.Travelled = 0.0f;
+    travel.HasLastPos = false;
     if (arena.Water && FindPlace(bot, map, least, most, flying, travel.Objective, &walk, true, &travel.DryDistance))
         travel.Crossing = true;
     else if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk))
@@ -338,6 +344,19 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
     travel.LastRewardMs = env.EpisodeElapsedMs;
     if (bot->IsInWater())
         travel.SwimMs += stepMs;
+
+    // Ground actually covered. The first decision of an episode only records where the seat is; a jump from
+    // wherever the last episode ended is not travel.
+    if (travel.HasLastPos)
+    {
+        float const dx = bot->GetPositionX() - travel.LastX;
+        float const dy = bot->GetPositionY() - travel.LastY;
+        travel.Travelled += std::sqrt(dx * dx + dy * dy);
+    }
+
+    travel.LastX = bot->GetPositionX();
+    travel.LastY = bot->GetPositionY();
+    travel.HasLastPos = true;
     if (bot->IsMounted())
         travel.MountedMs += stepMs;
     if (bot->IsMounted() && bot->CanFly())
