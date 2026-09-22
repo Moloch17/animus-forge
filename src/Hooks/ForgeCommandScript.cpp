@@ -22,6 +22,7 @@
 #include "Map.h"
 #include "MapMgr.h"
 #include "MoveBlock.h"
+#include "RoutePlanner.h"
 #include "Optional.h"
 #include "StringConvert.h"
 #include "TextTable.h"
@@ -81,6 +82,7 @@ namespace
                 { "skip",      HandleSkip,      SEC_ADMINISTRATOR, Console::Yes },
                 { "run",       HandleRun,       SEC_ADMINISTRATOR, Console::Yes },
                 { "rays",      HandleRays,      SEC_ADMINISTRATOR, Console::Yes },
+                { "route",     HandleRoute,     SEC_ADMINISTRATOR, Console::Yes },
                 { "bench",     HandleBench,     SEC_ADMINISTRATOR, Console::Yes },
                 { "talents",   HandleTalents,   SEC_ADMINISTRATOR, Console::Yes },
                 { "export",    HandleExport,    SEC_ADMINISTRATOR, Console::Yes },
@@ -114,6 +116,8 @@ namespace
             table.AddRow({ "forge run <scenario> <policy> [episodes]", "run a scripted or random policy, no learner" });
             table.AddRow({ "forge rays <map> <x> <y> <z> [facing]", "what the navmesh senses read standing there: "
                 "reach, shore, water width, burning edge and clearance" });
+            table.AddRow({ "forge route <map> <x> <y> <z> <x> <y> <z>", "plan a way between two points and print "
+                "it: corners, length against the straight line, and whether it arrives" });
             table.AddRow({ "forge talents <class> [spec] [points] [plan]",
                 "print a build the curriculum would give that class (plan: standard, noisy, random)" });
             table.AddRow({ "forge bench [scenario]", "time the sim and the learner at every AnimusForge.Bench.* "
@@ -180,6 +184,51 @@ namespace
         static bool HandleRun(ChatHandler* handler, std::string scenario, std::string policy, Optional<uint32> episodes)
         {
             return sAnimusForge->CommandRun(scenario, policy, episodes.value_or(0), Reply(handler));
+        }
+
+        /// Plan a route between two points, with no seat, policy or run.
+        ///
+        /// The bench for the route planner, and the answer to a question an evaluation cannot ask: when an
+        /// episode fails, was there ever a way? PathGenerator says PATHFIND_NORMAL when it has not pathfound at
+        /// all, so "reachable" has meant less than it reads. This plans with the planner's own query -- a large
+        /// node pool, no 74-point cap -- and says plainly whether the way arrives or stops short.
+        static bool HandleRoute(ChatHandler* handler, uint32 mapId, float fromX, float fromY, float fromZ,
+            float toX, float toY, float toZ)
+        {
+            Map* map = sMapMgr->CreateBaseMap(mapId);
+            if (!map)
+            {
+                handler->PSendSysMessage("No such map: {}", mapId);
+                return true;
+            }
+
+            // Both ends want their tiles in, and they are rarely the same tile.
+            map->LoadGrid(fromX, fromY);
+            map->LoadGrid(toX, toY);
+
+            handler->PSendSysMessage("Route on map {} from ({:.2f}, {:.2f}, {:.2f}) to ({:.2f}, {:.2f}, {:.2f}):",
+                mapId, fromX, fromY, fromZ, toX, toY, toZ);
+
+            Position const from(fromX, fromY, fromZ, 0.0f);
+            Position const to(toX, toY, toZ, 0.0f);
+            std::string const report = Animus::Curriculum::RoutePlanner::Instance().Report(map, from, to);
+
+            std::string line;
+            for (char c : report)
+            {
+                if (c == '\n')
+                {
+                    handler->SendSysMessage(line);
+                    line.clear();
+                }
+                else
+                    line += c;
+            }
+
+            if (!line.empty())
+                handler->SendSysMessage(line);
+
+            return true;
         }
 
         /// Read the movement block's navmesh senses at one point, without a seat, a policy or a run.
