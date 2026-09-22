@@ -829,6 +829,18 @@ class TrainingRun:
             step = self.step
             memory = self.acting.memory.copy() if self.acting.memory is not None else None
             critic_memory = self.acting.critic_memory.copy() if self.acting.critic_memory is not None else None
+            # A non-finite observation reaches the networks as a non-finite logit and comes back out of
+            # torch.multinomial as "probability tensor contains either `inf`, `nan` or element < 0" -- an error
+            # that names neither the observation nor the seat it came from, several layers away from whichever
+            # block wrote it. Caught here it names both, which is the difference between a fix and a hunt.
+            if not np.isfinite(step.obs).all():
+                bad = np.argwhere(~np.isfinite(step.obs))
+                where = ", ".join(f"env {int(e)} agent {int(a)} obs[{int(i)}]={step.obs[e, a, i]}"
+                                  for e, a, i in bad[:8])
+                raise RuntimeError(
+                    f"{len(bad)} non-finite observation(s) from the sim at step {self.env_steps}: {where}"
+                    + ("" if len(bad) <= 8 else f" (and {len(bad) - 8} more)"))
+
             actions, log_probs, values, foresight, goals, chosen = trainer.act_and_value(
                 step.obs, step.mask, step.layout, step.state, state=self.acting)
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
