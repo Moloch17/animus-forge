@@ -16,6 +16,7 @@ the stage it seeds from.
 
 ```
 stage1_move          open ground, broken ground, water   ── the feet
+├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── trained by name, not queued
 └─ stage2_dodge      fire underfoot, nothing to fight
    └─ stage3_travel  the mount
       └─ stage4_flight
@@ -78,6 +79,7 @@ one commanding each side (see 4.12).
 | Stage | Extends | Seats | Blocks added | What it is |
 |---|---|---|---|---|
 | `stage1_move` | — | Solo | core, move, travel, duel | **The root, and nothing to fight.** A place 40-160 yd away on foot -- mounting is masked, so the trip is made with the speed cooldowns the class has. Three arenas: open ground, genuinely broken ground (ridges, canyon and shore, chosen by measured local relief), and water whose way round is longer than the way through. Every arrival gate is 1.0 -- the bot always arrives -- which is fair only because the generator refuses to place an objective the character cannot reach in the time it has |
+| `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the bearings' navmesh raycast, the 15-degree turn, the clearance term and the jump are all worth something. Trained by name, not in the default queue, until its rooms are known to be rooms |
 | `stage2_dodge` | stage1_move | Solo | same | **Drill.** Still nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage3_travel` | stage2_dodge | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
 | `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+ |
@@ -157,6 +159,7 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage7_gauntlet` | 90M | 15M | 2048 | 20M | `stage10_evade` | 60M | 10M | 2048 | 30M |
 | `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage11_hide` | 40M | 10M | 2048 | 30M |
 | `stage1_move` | 40M | 2M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
+| `stage1b_indoor` | 30M | 2M | 2048 | 8M | | | | | |
 | `stage3_travel` | 30M | 2M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
 | `stage4_flight` | 30M | 2M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
 | `stage14_companion` | 90M | 15M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
@@ -164,8 +167,8 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
 | `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
 
-**The queue is 2,100M env steps over 23 stages** (2,160M with the `mix_duel_pvp` pilot, which is not in the
-queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
+**The queue is 2,100M env steps over 23 stages** (2,190M with the `mix_duel_pvp` pilot and the
+`stage1b_indoor` drill, neither of which is in the queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage
 descends from, but `stage8_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
 `stage1_move`.
