@@ -133,9 +133,10 @@ float Animus::Curriculum::TravelBlock::HeightAboveGround(Player const* bot)
     return ground > INVALID_HEIGHT ? std::max(0.0f, bot->GetPositionZ() - ground) : 0.0f;
 }
 
-bool Animus::Curriculum::TravelBlock::AtObjective(Player const* bot, Position const& objective)
+bool Animus::Curriculum::TravelBlock::AtObjective(Player const* bot, Position const& objective, float maxRise)
 {
-    return bot->GetExactDist2d(&objective) <= ARRIVE_DISTANCE && HeightAboveGround(bot) <= AIRBORNE_ABOVE;
+    return bot->GetExactDist2d(&objective) <= ARRIVE_DISTANCE && HeightAboveGround(bot) <= AIRBORNE_ABOVE
+        && std::fabs(bot->GetPositionZ() - objective.GetPositionZ()) <= maxRise;
 }
 
 void Animus::Curriculum::TravelBlock::FallIfAirborne(Player* bot)

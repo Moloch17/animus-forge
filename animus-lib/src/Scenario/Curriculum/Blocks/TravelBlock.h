@@ -70,6 +70,10 @@ namespace Animus::Curriculum
         };
 
         static constexpr float ARRIVE_DISTANCE = 6.0f;
+        /// No vertical limit worth the name: what outdoor arrival has always meant.
+        static constexpr float ARRIVE_ANY_RISE = 1000.0f;
+        /// What an interior arena uses instead -- under a storey, so a floor above or below is not "arrived".
+        static constexpr float ARRIVE_SAME_FLOOR = 4.0f;
         static constexpr float BASE_RUN_SPEED = 7.0f;   // yards a second, unmounted and unhasted
         /// How high a seat may climb above the ground. MoveBlock's pitch reads it: the ceiling is a fact about the
         /// air, which is this block's subject, not about steering.
@@ -93,7 +97,14 @@ namespace Animus::Curriculum
         /// Yards between `bot` and the ground below it (0 when the ground cannot be found).
         [[nodiscard]] static float HeightAboveGround(Player const* bot);
         /// Whether `bot` stands within ARRIVE_DISTANCE of `objective`, on the ground.
-        [[nodiscard]] static bool AtObjective(Player const* bot, Position const& objective);
+        /// `maxRise` bounds how far above or below the objective the seat may stand and still have arrived.
+        ///
+        /// Arrival is two-dimensional by design -- on a slope the seat stands several yards off the objective's
+        /// own z and has plainly got there -- and indoors that is exactly wrong: a seat on the ground floor of
+        /// an inn is six yards from an objective on the floor above and has arrived at nothing. The default is
+        /// wide enough to change nothing outdoors; an interior arena passes a storey's worth instead.
+        [[nodiscard]] static bool AtObjective(Player const* bot, Position const& objective,
+            float maxRise = ARRIVE_ANY_RISE);
         /// Without flight in the air (a dismount, a cast that took the mount away): fall to the ground and take a
         /// player's fall damage.
         static void FallIfAirborne(Player* bot);

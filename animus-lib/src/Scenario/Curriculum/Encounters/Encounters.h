@@ -547,14 +547,21 @@ namespace Animus::Curriculum
         /// line, it insists on one, and checks that what lies between is water rather than a cliff. `across` also
         /// requires a dry way round to exist at all -- water is only worth getting into when there is a choice --
         /// and reports its length in `dry`, which is what the way round costs on foot.
+        ///
+        /// `budgetSeconds` is what makes the whole thing honest: a place is only accepted if the path to it can
+        /// be covered in that long at the speed this character actually has. Reachable and reachable-in-time are
+        /// different claims, and only the first was ever checked. 0 means no budget, for a placement that is a
+        /// feature of the arena rather than a trip against a clock.
         static bool FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying, Position& place,
-            float* walk = nullptr, bool across = false, float* dry = nullptr);
+            float budgetSeconds, float* walk = nullptr, bool across = false, float* dry = nullptr,
+            bool indoors = false);
         /// Whether the straight line from `bot` to (x, y) passes through water.
         static bool CrossesWater(Player const* bot, Map* map, Position const& place, float x, float y);
 
     private:
         struct EnvTravel
         {
+            bool Indoors = false;           // the arena is inside a building: placement and arrival both change
             bool Crossing = false;          // the objective was placed across water (a water arena that found one)
             float DryDistance = 0.0f;       // yards of the way round on foot, water excluded; 0 = no dry route
             uint32 SwimMs = 0;              // how long the seat has been in the water this episode
@@ -562,6 +569,10 @@ namespace Animus::Curriculum
             Position Objective;
             float StartDistance = 0.0f;         // yards on the ground at the start
             float WalkDistance = 0.0f;          // yards of path to the objective: what covering it on foot costs
+            /// How much of the episode's clock the trip needs at this character's own speed -- path length over
+            /// speed over episode length. The feasibility cap in FindPlace is a ceiling on this, and reporting it
+            /// is how the distribution under that ceiling stays visible rather than assumed.
+            float TripShare = 0.0f;
             float LastDistance = -1.0f;         // shaping: yards at the last reward; < 0 = none yet
             /// Yards the seat has actually covered, summed decision by decision -- as against WalkDistance, which
             /// is the length of the path it was *given* and says nothing about whether the legs turned. A seat

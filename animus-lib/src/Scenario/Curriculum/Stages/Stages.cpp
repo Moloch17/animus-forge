@@ -131,7 +131,10 @@ namespace
             { -1261.0f, 2951.0f, 78.0f, 0.0f },   { -441.0f, 1814.0f, 128.0f, 0.0f },
             { -561.0f, 2069.0f, 90.0f, 0.0f },
             // Eastern high ground
-            { 4012.0f, -788.0f, 286.0f, 0.0f },   { 3871.0f, -1025.0f, 242.0f, 0.0f },
+            // (3871, -1025, 242) was here and is not: it failed to build an encounter often enough to be a
+            // recurring error in the log, and a control list is the last place to keep a point that sometimes
+            // cannot produce an episode.
+            { 4012.0f, -788.0f, 286.0f, 0.0f },
             // Mid-east plains
             { 2059.0f, -2405.0f, 90.0f, 0.0f },   { 1813.0f, -2424.0f, 93.0f, 0.0f },
             { 1965.0f, -2559.0f, 86.0f, 0.0f },
@@ -161,10 +164,46 @@ namespace
             // being steered by the pathfinder; and water is where the seat has to decide whether to get in at all,
             // and then swim in three dimensions once it has.
             .Arenas = {
-                { .Name = "open", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 120,
+                // Both clocks are the same. They were 120 and 150 over identical ground, which made `open` the
+                // harder arena of the two while being the one described as the simpler lesson -- and if both must
+                // reach every objective, a shorter clock is a handicap with nothing to teach in it. The
+                // difference between these two arenas is the terrain, which is what it was always meant to be.
+                { .Name = "open", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true },
+                // Ground that is actually broken. Until now neither arena declared spawn points, so both fell
+                // through to the stage list and ran on *the same terrain*: "broken ground is where the terrain
+                // probe earns its place" described an arena identical to the open one, and the measured detour
+                // said so -- 1.25 against 1.21, which is the same trip.
+                //
+                // These cells were chosen by local relief, the standard deviation of creature-spawn z within a
+                // 250-unit cell, rather than by eye -- which is how the water banks should have been picked and
+                // were not. The ridges carry a relief of 78 and 64 against ground whose z barely moves, and the
+                // Durotar canyons and the Dustwallow shore are what this file already calls "canyon and rock" and
+                // "marsh and broken shore".
                 { .Name = "broken", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true },
+                    .OnFoot = true,
+                    .SpawnPoints = {
+                        // Mulgore/Barrens ridge, relief 78 over a 179 yard span
+                        { -1401.0f, -85.0f, 159.0f, 0.0f },   { -1449.0f, -25.0f, 124.0f, 0.0f },
+                        { -1295.0f, 44.0f, 129.0f, 0.0f },
+                        // Barrens ridge, relief 64 over 200
+                        { -428.0f, -2203.0f, 158.0f, 0.0f },  { -454.0f, -2419.0f, 93.0f, 0.0f },
+                        { -373.0f, -2323.0f, 94.0f, 0.0f },
+                        // Durotar: canyon and rock
+                        { -120.0f, -4284.0f, 63.0f, 0.0f },   { -5.0f, -4286.0f, 68.0f, 0.0f },
+                        { -99.0f, -4212.0f, 53.0f, 0.0f },    { 642.0f, -4185.0f, 15.0f, 0.0f },
+                        { 633.0f, -4298.0f, 18.0f, 0.0f },
+                        // Dustwallow Marsh: broken shore
+                        { -2631.0f, -3607.0f, 42.0f, 0.0f },  { -2751.0f, -3660.0f, 39.0f, 0.0f },
+                        { -2851.0f, -3650.0f, 33.0f, 0.0f },  { -2987.0f, -3940.0f, 39.0f, 0.0f },
+                    },
+                    // The southern Barrens escarpment, relief 47, in no training list. Rougher ground held back
+                    // for scoring, on the same argument as the stage's own control: if `arrived` here tracks
+                    // `arrived` on the ridges, the seat is reading terrain rather than remembering places.
+                    .HeldOutSpawnPoints = {
+                        { -535.0f, -2988.0f, 93.0f, 0.0f },   { -634.0f, -3183.0f, 93.0f, 0.0f },
+                        { -536.0f, -3160.0f, 107.0f, 0.0f },
+                    } },
                 // The banks of the Barrens oases -- Lushwater to the north, Stagnant to the south -- because the
                 // stage's own spawn points have no water within reach, and a water arena that finds no crossing
                 // quietly becomes a second open arena (the first run of this stage reported crossing 0.0 over all
@@ -191,6 +230,67 @@ namespace
             .MapId = MAP_KALIMDOR,
             .SpawnPoints = KalimdorGround(),
             .HeldOutSpawnPoints = KalimdorControl(),
+        });
+
+        // Inside, where the walls are close enough to matter.
+        //
+        // Named 1b rather than renumbering twenty-two scenarios behind it: stage numbers are cosmetic here --
+        // nothing parses them and training order comes from AnimusForge.Queue -- and the name says where it
+        // belongs without the churn.
+        //
+        // NOT in the default queue. The spawn points below are areatrigger centres straight out of
+        // areatrigger_tavern, which is the table that names and bounds every inn in the world; they have not yet
+        // been stood on. Some will be doorways or yards rather than rooms. Train it by name
+        // (`forge start stage1b_indoor`) and read the build failures before trusting it with a queue slot.
+        stages.push_back({
+            .Name = "stage1b_indoor",
+            .Suffix = "_indoor",
+            .Extends = "stage1_move",
+            .Summary = "a place 8-40 yd away inside a building: read the walls, keep off them, and find the door",
+            .Blocks = { Core, Move, Travel, Duel },
+            .Arenas = {
+                // Short trips and a short clock: an inn is twenty to thirty yards across, so an outdoor arena's
+                // first step would already be through an outside wall.
+                { .Name = "rooms", .Against = Opposition::Travel, .EpisodeSeconds = 90,
+                    .OnFoot = true, .Indoors = true },
+            },
+            .InDefaultQueue = false,
+            .MapId = MAP_KALIMDOR,
+            // Every inn on Kalimdor that areatrigger_tavern names, spread across regions for the same reason the
+            // ground list is: a policy that sees four rooms learns four rooms.
+            // Every one of these was stood on before it was written down, with `forge rays`, and the ones that
+            // are not here are why the command exists.
+            //
+            // The first draft of this list was the centre of each row of areatrigger_tavern, on the reasoning
+            // that the table names and bounds every inn in the world. It does -- but an areatrigger's centre is
+            // a point in a volume, not a place on a floor, and of the twelve taken that way three were on no
+            // navmesh at all and four were in buildings whose WMO group is flagged outdoors. Astranaar's centre
+            // sits in the gap between two storeys; the Barrens and Durotar ones landed on isolated discs of mesh
+            // about thirty yards across, open ground rather than rooms. The four flagged outdoors are the night
+            // elf inns -- Auberdine, Dolanaar, Astranaar -- which really are open-sided, and FindPlace refuses to
+            // put an objective in one, so a seat spawned there would have had nowhere to be sent.
+            //
+            // What is left is every tavern on Kalimdor that is on the mesh and whose group says it is inside,
+            // with z corrected from the trigger's centre to the floor Map::GetHeight finds under it -- as much
+            // as ten yards down in one case. Clearance at each is 0.71 to 6.63 yards, which is the point: these
+            // are rooms a seat can touch two walls in.
+            .SpawnPoints = {
+                { -3182.4f, -2920.8f, 33.56f, 0.0f },  // Brackenwall Village, clearance 1.70
+                { -4461.9f, 242.6f, 39.11f, 0.0f },    // Feralas, 2.85
+                { -4622.3f, -3172.1f, 34.81f, 0.0f },  // Mudsprocket, 2.84
+                { -2366.7f, -346.0f, -8.96f, 0.0f },   // Mulgore, 2.29
+                { -1051.4f, -3653.8f, 23.88f, 0.0f },  // The Barrens, 2.71
+                { -5477.9f, -2460.3f, 89.28f, 0.0f },  // Thousand Needles, 5.36
+                { 6688.0f, -4670.1f, 721.69f, 0.0f },  // Winterspring, 6.63
+            },
+            // Rooms no training episode stands in, for the same reason every other stage holds ground back.
+            // Desolace is the tightest room found anywhere on the map at 0.71 yards of clearance, which makes it
+            // the one worth scoring on.
+            .HeldOutSpawnPoints = {
+                { -1596.2f, 3145.3f, 62.53f, 0.0f },   // Desolace, clearance 0.71
+                { -3615.5f, -4467.3f, 21.10f, 0.0f },  // Theramore Isle, 3.43
+                { -7162.1f, -3845.9f, 9.51f, 0.0f },   // Tanaris, 5.91
+            },
         });
 
         // Something on the ground, in every pull. Hazards exist already -- the pack ladder draws a hazard caster
@@ -692,7 +792,7 @@ namespace
             return "a director needs the order block: its seats have to read what it asks";
         if (arena.OnFoot && arena.Against != Opposition::Travel)
             return "only a travel arena can be made on foot: there is nothing else a mount would be barred from";
-        if (arena.OnFoot && arena.Flying)
+    if (arena.OnFoot && arena.Flying)
             return "an arena is on foot or it flies, not both";
         if (arena.Places && !arena.Directed)
             return "only a director names a place: the arena has to be directed";
@@ -723,6 +823,13 @@ namespace
             return "only a scripted enemy player takes a level bonus";
         if (arena.Flying && !travel)
             return "only a travel arena flies";
+        if (arena.Indoors && !travel)
+            return "only a travel arena can be indoors: being inside changes where an objective may be put and "
+                "what reaching it means, and nothing else asks either question";
+        if (arena.Indoors && arena.Flying)
+            return "an arena is indoors or it flies, not both";
+        if (arena.Indoors && arena.Water)
+            return "an interior arena has no crossing to offer: water wants an objective across a lake";
         if (flag && (!stage.Has(BlockId::Travel) || !stage.Has(BlockId::Flag)))
             return "a flag match needs the travel and flag blocks";
 
