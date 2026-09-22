@@ -581,6 +581,14 @@ namespace Animus::Curriculum
             /// capped per episode at ClearanceMax so it can never approach what arriving is worth (Arrive 3.0).
             /// The margin is deliberately wider than a doorway: the seat should prefer the middle of a corridor,
             /// not refuse a door.
+            /// Routing. A route is re-planned when the seat has wandered RouteStray yards from the corner it
+            /// was walking to, or when RouteRefresh seconds have passed -- movement first, for the same reason
+            /// the ground probe refreshes on movement first. RouteCorner is how near counts as having reached
+            /// one, and wants to be wider than a decision's travel (1.75 yd at run speed) so a corner cannot be
+            /// stepped over and walked back to.
+            float RouteStray = 25.0f;
+            float RouteRefresh = 5.0f;
+            float RouteCorner = 5.0f;
             float Clearance = 0.08f;            // per second hard against the wall
             float ClearanceMargin = 1.5f;       // yards; closer than this is charged
             float ClearanceMax = 0.6f;          // most an episode may lose to it
@@ -853,6 +861,9 @@ namespace Animus::Curriculum
             f("Travel.DamageTaken", tuning.Travel.DamageTaken);
             f("Travel.Death", tuning.Travel.Death);
             f("Travel.StepCost", tuning.Travel.StepCost);
+            f("Travel.RouteStray", tuning.Travel.RouteStray);
+            f("Travel.RouteRefresh", tuning.Travel.RouteRefresh);
+            f("Travel.RouteCorner", tuning.Travel.RouteCorner);
             f("Travel.Clearance", tuning.Travel.Clearance);
             f("Travel.ClearanceMargin", tuning.Travel.ClearanceMargin);
             f("Travel.ClearanceMax", tuning.Travel.ClearanceMax);
