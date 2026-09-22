@@ -141,16 +141,27 @@ namespace Animus::Curriculum
             OBS_GROUND_FIRST        = 20 + BEARING_COUNT,
             /// The height the ground changes by straight ahead, / MAX_STEP, clamped: a step up, a drop, or flat.
             OBS_STEP_AHEAD          = 20 + 2 * BEARING_COUNT,
-            /// Water. Whether it is in it, whether its head is under it, and how long its head has been under --
-            /// against the breath a character has, and zero for one that does not need to breathe. Without the
-            /// last of these, going in is free and "is this crossing worth it" has no downside to weigh.
-            OBS_IN_WATER            = 21 + 2 * BEARING_COUNT,
-            OBS_SUBMERGED           = 22 + 2 * BEARING_COUNT,
-            OBS_SUBMERGED_TIME      = 23 + 2 * BEARING_COUNT,
-            OBS_SWIM_SPEED          = 24 + 2 * BEARING_COUNT,   // / 7 yards a second, so under 1 means water is slower
+            /// **Whether what lies along each bearing is water**, in the same frame as the ground probe.
+            ///
+            /// Water is not ground and it is not a wall, and the ground probe alone cannot say which it is
+            /// looking at: mmaps drops the terrain under real liquid and a lake bed is metres below the band a
+            /// step is judged in, so the probe reported every body of water as reach 0 -- a cliff. The seat was
+            /// being taught that the one route it might swim was impassable, and in 326 sampled decisions across
+            /// a whole run no seat ever once entered water: they walked to the line where the ground stops and
+            /// along it. This is what lets a crossing be seen before it is stood in, and OBS_SWIM_SPEED is what
+            /// prices it.
+            OBS_WATER_FIRST         = 21 + 2 * BEARING_COUNT,
+            /// Water it is already in. Whether it is in it, whether its head is under it, and how long its head
+            /// has been under -- against the breath a character has, and zero for one that does not need to
+            /// breathe. Without the last of these, going in is free and "is this crossing worth it" has no
+            /// downside to weigh.
+            OBS_IN_WATER            = 21 + 3 * BEARING_COUNT,
+            OBS_SUBMERGED           = 22 + 3 * BEARING_COUNT,
+            OBS_SUBMERGED_TIME      = 23 + 3 * BEARING_COUNT,
+            OBS_SWIM_SPEED          = 24 + 3 * BEARING_COUNT,   // / 7 yards a second, so under 1 means water is slower
             /// It is off the ground -- swimming or flying -- so pitch steers and the third dimension is real.
-            OBS_AIRBORNE            = 25 + 2 * BEARING_COUNT,
-            OBS_COUNT               = 26 + 2 * BEARING_COUNT
+            OBS_AIRBORNE            = 25 + 3 * BEARING_COUNT,
+            OBS_COUNT               = 26 + 3 * BEARING_COUNT
         };
 
         /// How far ahead a held bearing aims each decision. Far enough that the seat is still walking when the next

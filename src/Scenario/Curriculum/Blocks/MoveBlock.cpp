@@ -97,15 +97,35 @@ namespace
     /// How far the seat could walk along `heading` before the ground stops cooperating: 1 for ground it could step
     /// onto at PROBE_YARDS, falling to 0 for a wall or a drop. One height sample a bearing -- the same call
     /// SnapToGround already makes every decision, eight times over rather than once.
-    float GroundReach(Player const* bot, float heading, float* stepOut = nullptr)
+    float GroundReach(Player* bot, float heading, float* stepOut = nullptr, float* waterOut = nullptr)
     {
-        Map const* map = bot ? bot->GetMap() : nullptr;
+        Map* map = bot ? bot->GetMap() : nullptr;   // non-const: Map::GetLiquidData is not a const member
         if (!map)
             return 1.0f;
 
         float const x = bot->GetPositionX() + MoveBlock::PROBE_YARDS * std::cos(heading);
         float const y = bot->GetPositionY() + MoveBlock::PROBE_YARDS * std::sin(heading);
         float const from = bot->GetPositionZ();
+
+        // Water before ground, because the ground test cannot tell a lake from a cliff and would call it the
+        // latter. mmaps drops the terrain under real liquid and the bed is metres below the band a step is
+        // judged in, so GetHeight comes back INVALID_HEIGHT over any water worth swimming -- the same answer it
+        // gives for the edge of the map. Reported as its own feature and as walkable reach, because water is
+        // somewhere the seat can go; what it costs to go there is OBS_SWIM_SPEED's to say.
+        LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), x, y, from,
+            bot->GetCollisionHeight(), {});
+        bool const water = liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > INVALID_HEIGHT
+            && liquid.Level >= from - MoveBlock::MAX_STEP;
+        if (waterOut)
+            *waterOut = water ? 1.0f : 0.0f;
+
+        if (water)
+        {
+            if (stepOut)
+                *stepOut = 0.0f;
+            return 1.0f;
+        }
+
         float const z = map->GetHeight(bot->GetPhaseMask(), x, y, from + MoveBlock::MAX_STEP, true,
             MoveBlock::MAX_STEP * 2.0f);
 
@@ -219,15 +239,22 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
             for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
             {
                 float step = 0.0f;
-                float const reach = GroundReach(bot, HeadingOf(facing, bearing), &step);
+                float wet = 0.0f;
+                float const reach = GroundReach(bot, HeadingOf(facing, bearing), &step, &wet);
                 out[OBS_GROUND_FIRST + bearing] = reach;
+                out[OBS_WATER_FIRST + bearing] = wet;
                 if (bearing == BEARING_FORWARD)
                     out[OBS_STEP_AHEAD] = step;
             }
         }
         else
             for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
+            {
+                // Off the ground there is nothing underfoot to walk onto or refuse: every way is open, and a
+                // seat that is swimming is surrounded by the water it is in.
                 out[OBS_GROUND_FIRST + bearing] = 1.0f;
+                out[OBS_WATER_FIRST + bearing] = bot->IsInWater() ? 1.0f : 0.0f;
+            }
 
         out[OBS_IN_WATER] = bot->IsInWater() ? 1.0f : 0.0f;
         out[OBS_SUBMERGED] = bot->IsUnderWater() ? 1.0f : 0.0f;
@@ -328,18 +355,44 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
     {
         // Swimming and flying are steered in three dimensions and must not be snapped to the ground: the whole
         // point of a pitch is to leave it. A climb still stops at the ceiling the air has.
-        if (bot->CanFly())
+        std::optional<float> const facing = FacingFor(view);
+        if (!bot->CanFly())
         {
-            float const ceiling = bot->GetPositionZ()
-                + (TravelBlock::MAX_ALTITUDE - TravelBlock::HeightAboveGround(bot));
-            destination.Relocate(destination.GetPositionX(), destination.GetPositionY(),
-                std::min(destination.GetPositionZ(), ceiling));
+            // In the water. Keep the seat under the surface rather than skimming along the top of it, and swim
+            // rather than fly: a spline with the fly flag on a swimmer is a different animal.
+            Encoding::SwimTo(bot, destination.GetPositionX(), destination.GetPositionY(),
+                destination.GetPositionZ(), facing ? &*facing : nullptr);
+            return;
         }
 
-        std::optional<float> const facing = FacingFor(view);
+        float const ceiling = bot->GetPositionZ()
+            + (TravelBlock::MAX_ALTITUDE - TravelBlock::HeightAboveGround(bot));
+        destination.Relocate(destination.GetPositionX(), destination.GetPositionY(),
+            std::min(destination.GetPositionZ(), ceiling));
+
         Encoding::FlyTo(bot, destination.GetPositionX(), destination.GetPositionY(), destination.GetPositionZ(),
             facing ? &*facing : nullptr);
         return;
+    }
+
+    // On land, but the step leads into water. This is the one move the seat could never make: the walkable mesh
+    // ends at the waterline, so a pathfound ground step into a lake has nowhere to land and the seat stops on
+    // the shore -- and it could not start swimming, because swimming was only ever reached by already being in
+    // the water. Over 200 sampled decisions across a whole run, no seat ever got its feet below the surface;
+    // every sample near water sat 0.1 to 0.4 yards above it. Entering is therefore its own case: go straight in,
+    // to just under the surface, and from the next decision `airborne` is true and the seat is swimming.
+    if (Map* map = bot->GetMap())
+    {
+        LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), destination.GetPositionX(),
+            destination.GetPositionY(), bot->GetPositionZ(), bot->GetCollisionHeight(), {});
+        if (liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > INVALID_HEIGHT
+            && liquid.Level >= bot->GetPositionZ() - MAX_STEP)
+        {
+            std::optional<float> const entering = FacingFor(view);
+            Encoding::SwimTo(bot, destination.GetPositionX(), destination.GetPositionY(),
+                liquid.Level - bot->GetCollisionHeight() * 0.5f, entering ? &*entering : nullptr);
+            return;
+        }
     }
 
     // Put the destination on the ground where there is ground to put it on. Where there is not -- the bearing

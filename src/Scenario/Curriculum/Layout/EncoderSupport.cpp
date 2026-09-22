@@ -712,6 +712,22 @@ namespace Animus::Curriculum::Encoding
         init.Launch();
     }
 
+    void SwimTo(Player* bot, float x, float y, float z, float const* facing)
+    {
+        // Straight there, no pathfinding: the walkable mesh stops at the waterline -- mmaps drops the terrain
+        // under real liquid -- so a pathfound step into a lake has nowhere to land and the seat stands on the
+        // shore instead. That was the whole of why no seat ever swam: swimming needed the seat to be in water
+        // already, and getting in was a ground move the mesh would not take.
+        //
+        // No SetFly: a swimming unit is not a flying one, and telling the client otherwise is a different bug.
+        bot->GetMotionMaster()->Clear();
+        Movement::MoveSplineInit init(bot);
+        init.MoveTo(x, y, z, false, true);
+        if (facing)
+            init.SetFacing(*facing);
+        init.Launch();
+    }
+
     void FlyTo(Player* bot, float x, float y, float z, float const* facing)
     {
         bot->GetMotionMaster()->Clear();

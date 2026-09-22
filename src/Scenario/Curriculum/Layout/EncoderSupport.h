@@ -227,6 +227,10 @@ namespace Animus::Curriculum::Encoding
     /// Move along a straight spline through the air or the water, with no path and no ground under it. Steering in
     /// three dimensions needs this: a ground move is snapped to the ground by definition, which is exactly what a
     /// dive or a climb is trying not to be. `facing` as above.
+    /// Straight to a point with no pathfinding and no fly flag: how a seat enters and crosses water,
+    /// where the walkable mesh stops at the surface.
+    void SwimTo(Player* bot, float x, float y, float z, float const* facing = nullptr);
+
     void FlyTo(Player* bot, float x, float y, float z, float const* facing = nullptr);
 
     /// Send the bot's pets and guardians at `target`, as the pet bar's Attack does. True if any was ordered.

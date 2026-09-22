@@ -35,6 +35,7 @@
 #include "EnvPool.h"
 #include "Log.h"
 #include "Map.h"
+#include "MapDefines.h"
 #include "Opponents.h"
 #include "PetBlock.h"
 #include "Player.h"
@@ -2217,6 +2218,19 @@ void Animus::Curriculum::StageScenario::ObserveSeat(Env& env, uint32 seatIndex, 
     if (inCombat && !seat.InCombat)
         seat.CombatStartMs = env.EpisodeElapsedMs;
     seat.InCombat = inCombat;
+
+    // Whether the seat is in water is a thing the client normally tells the server: Player::SetInWater is called
+    // from exactly one place in the core, the movement opcode handler, and a sessionless bot sends no opcodes.
+    // So Player::IsInWater -- which returns the cached m_isInWater, unlike Unit::IsInWater which reads the map --
+    // was false for the whole life of every bot this sim has ever run. Nothing above it could work: the seat
+    // never counted as swimming, the three-dimensional steering never engaged, OBS_IN_WATER was always 0 and
+    // swim_seconds was 0 in every episode of every run. The sim has to keep the state the client would.
+    if (bot && bot->IsAlive())
+    {
+        LiquidData const liquid = bot->GetMap()->GetLiquidData(bot->GetPhaseMask(), bot->GetPositionX(),
+            bot->GetPositionY(), bot->GetPositionZ(), bot->GetCollisionHeight(), {});
+        bot->SetInWater((liquid.Status & MAP_LIQUID_STATUS_SWIMMING) != 0);
+    }
 
     TrackTarget(env, seat, bot, target);
     if (seat.Memory.Actions() != seat.L->NumActions)
