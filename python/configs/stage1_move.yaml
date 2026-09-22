@@ -64,9 +64,11 @@ target:
         arrived: {min: 0.80, confidence: 0.95}
         # A water arena that finds no crossing within reach of its spawn points falls back to an ordinary trip,
         # so the env still builds -- and would otherwise be a second copy of the open arena, reported as
-        # teaching swimming and teaching nothing. These two gates are what stop that being silent: `crossing`
-        # is what the arena offered, `swim_seconds` what the seat did with it. Both at zero means the spawn
-        # points have no water in reach and the arena needs moving, not the policy.
+        # teaching swimming and teaching nothing. `crossing` is what stops that being silent: it is what the
+        # arena offered, a property of the ground rather than of the policy, so it is the scenario's to meet.
         crossing: {min: 0.70}
-        swim_seconds: {min: 3.0}
+        # swim_seconds is reported, never gated -- for the same reason as mounted_fraction above. The lesson is
+        # the fastest way to the objective, not swimming: every crossing here has a dry way round by
+        # construction, and where that way round is quicker, walking it is the right answer and a floor on
+        # swimming would punish it. Whether the seat judged the two correctly is what `saved` measures.
   until_passed: true
