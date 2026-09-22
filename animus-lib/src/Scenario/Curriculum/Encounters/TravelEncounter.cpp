@@ -301,10 +301,28 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     travel.DryDistance = 0.0f;
     travel.Travelled = 0.0f;
     travel.HasLastPos = false;
+    travel.MarkMs = 0;
+    travel.MarkTravelled = 0.0f;
+    travel.MarkDistance = -1.0f;
+    travel.MoveRate = 0.0f;
+    travel.CloseRate = 0.0f;
     if (arena.Water && FindPlace(bot, map, least, most, flying, travel.Objective, &walk, true, &travel.DryDistance))
         travel.Crossing = true;
     else if (!FindPlace(bot, map, least, most, flying, travel.Objective, &walk))
         return false;
+
+    // What the way round costs on foot, for every arena rather than only the ones built around a crossing:
+    // OBS_DETOUR is how a seat learns that the barrier in front of it runs for two hundred yards, and that is
+    // as much use on broken ground as it is at a lake. One path at the build, against a reset that already
+    // takes several; nothing per decision. Water and magma are excluded, so it is the ground's answer.
+    if (travel.DryDistance <= 0.0f && !flying)
+    {
+        PathGenerator dry(bot);
+        dry.SetIncludeFlags(NAV_GROUND);
+        if (dry.CalculatePath(travel.Objective.GetPositionX(), travel.Objective.GetPositionY(),
+            travel.Objective.GetPositionZ()) && (dry.GetPathType() & PATHFIND_NORMAL))
+            travel.DryDistance = dry.getPathLength();
+    }
 
     travel.HasObjective = true;
     travel.StartDistance = bot->GetExactDist2d(&travel.Objective);
@@ -327,6 +345,10 @@ void Animus::Curriculum::TravelEncounter::View(Env const& env, uint32 /*seat*/, 
     EnvTravel const& travel = _envs[env.Index];
     view.HasObjective = travel.HasObjective;
     view.Objective = travel.Objective;
+    view.Detour = travel.HasObjective && travel.StartDistance > 0.0f && travel.DryDistance > 0.0f
+        ? travel.DryDistance / travel.StartDistance : 0.0f;
+    view.MoveRate = travel.MoveRate;
+    view.CloseRate = travel.CloseRate;
     view.MountsAllowed = !_scenario.Arena(env).OnFoot;
 }
 
@@ -357,6 +379,25 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
     travel.LastX = bot->GetPositionX();
     travel.LastY = bot->GetPositionY();
     travel.HasLastPos = true;
+
+    // Refreshed about once a second rather than every decision: a quarter of a second of walking is 1.75 yards,
+    // which is mostly noise, and the question these answer is whether the seat has been getting anywhere.
+    if (!travel.MarkMs || env.EpisodeElapsedMs < travel.MarkMs)
+    {
+        travel.MarkMs = env.EpisodeElapsedMs;
+        travel.MarkTravelled = travel.Travelled;
+        travel.MarkDistance = travel.LastDistance;
+    }
+    else if (env.EpisodeElapsedMs - travel.MarkMs >= 1000)
+    {
+        float const seconds = float(env.EpisodeElapsedMs - travel.MarkMs) / 1000.0f;
+        travel.MoveRate = (travel.Travelled - travel.MarkTravelled) / (seconds * TravelBlock::BASE_RUN_SPEED);
+        travel.CloseRate = travel.MarkDistance > 0.0f && travel.LastDistance >= 0.0f
+            ? (travel.MarkDistance - travel.LastDistance) / (seconds * TravelBlock::BASE_RUN_SPEED) : 0.0f;
+        travel.MarkMs = env.EpisodeElapsedMs;
+        travel.MarkTravelled = travel.Travelled;
+        travel.MarkDistance = travel.LastDistance;
+    }
     if (bot->IsMounted())
         travel.MountedMs += stepMs;
     if (bot->IsMounted() && bot->CanFly())

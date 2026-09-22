@@ -571,6 +571,13 @@ namespace Animus::Curriculum
             float LastX = 0.0f;                 // where it was at the last reward, for the sum above
             float LastY = 0.0f;
             bool HasLastPos = false;            // ... or nothing yet, so the first decision adds no jump
+            /// The last second, for OBS_MOVE_RATE and OBS_CLOSE_RATE: where the marks were set, how far the seat
+            /// had travelled then and how far from the objective it was, and the two rates computed from them.
+            uint32 MarkMs = 0;
+            float MarkTravelled = 0.0f;
+            float MarkDistance = -1.0f;
+            float MoveRate = 0.0f;
+            float CloseRate = 0.0f;
             bool Arrived = false;
             uint32 ArriveMs = 0;
             uint32 MountedMs = 0;               // episode time spent mounted

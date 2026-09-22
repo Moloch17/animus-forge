@@ -97,7 +97,8 @@ namespace
     /// How far the seat could walk along `heading` before the ground stops cooperating: 1 for ground it could step
     /// onto at PROBE_YARDS, falling to 0 for a wall or a drop. One height sample a bearing -- the same call
     /// SnapToGround already makes every decision, eight times over rather than once.
-    float GroundReach(Player* bot, float heading, float* stepOut = nullptr, float* waterOut = nullptr)
+    float GroundReach(Player* bot, float heading, float* stepOut = nullptr, float* waterOut = nullptr,
+        float* burnsOut = nullptr)
     {
         Map* map = bot ? bot->GetMap() : nullptr;   // non-const: Map::GetLiquidData is not a const member
         if (!map)
@@ -128,6 +129,8 @@ namespace
 
         if (waterOut)
             *waterOut = swimmable ? 1.0f : 0.0f;
+        if (burnsOut)
+            *burnsOut = burns ? 1.0f : 0.0f;
 
         if (burns)
         {
@@ -257,18 +260,18 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
             {
                 float step = 0.0f;
                 float wet = 0.0f;
-                float const reach = GroundReach(bot, HeadingOf(facing, bearing), &step, &wet);
-                out[OBS_GROUND_FIRST + bearing] = reach;
+                float hot = 0.0f;
+                out[OBS_GROUND_FIRST + bearing] = GroundReach(bot, HeadingOf(facing, bearing), &step, &wet, &hot);
+                out[OBS_STEP_FIRST + bearing] = step;
                 out[OBS_WATER_FIRST + bearing] = wet;
-                if (bearing == BEARING_FORWARD)
-                    out[OBS_STEP_AHEAD] = step;
+                out[OBS_BURNS_FIRST + bearing] = hot;
             }
         }
         else
             for (uint32 bearing = 0; bearing < BEARING_COUNT; ++bearing)
             {
-                // Off the ground there is nothing underfoot to walk onto or refuse: every way is open, and a
-                // seat that is swimming is surrounded by the water it is in.
+                // Off the ground there is nothing underfoot to walk onto or refuse: every way is open, the ground
+                // changes by nothing, and a seat that is swimming is surrounded by the water it is in.
                 out[OBS_GROUND_FIRST + bearing] = 1.0f;
                 out[OBS_WATER_FIRST + bearing] = bot->IsInWater() ? 1.0f : 0.0f;
             }
@@ -279,6 +282,13 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
         out[OBS_SWIM_SPEED] = bot->GetSpeed(MOVE_SWIM) / RUN_SPEED;
         out[OBS_AIRBORNE] = airborne ? 1.0f : 0.0f;
     }
+
+    // The way round against the way through, and whether the legs are getting anywhere. All three are the
+    // scenario's to measure -- one at the episode's build, two over the last second -- because none of them can
+    // be seen from a probe of any length.
+    out[OBS_DETOUR] = std::clamp(view.Detour / 4.0f, 0.0f, 1.0f);
+    out[OBS_MOVE_RATE] = std::clamp(view.MoveRate, 0.0f, 1.0f);
+    out[OBS_CLOSE_RATE] = std::clamp(view.CloseRate, -1.0f, 1.0f);
 
     if (!mask)
         return;
