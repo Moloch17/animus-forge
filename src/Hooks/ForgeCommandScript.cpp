@@ -19,6 +19,9 @@
 #include "AnimusForge.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "Map.h"
+#include "MapMgr.h"
+#include "MoveBlock.h"
 #include "Optional.h"
 #include "StringConvert.h"
 #include "TextTable.h"
@@ -77,6 +80,7 @@ namespace
                 { "cancel",    HandleCancel,    SEC_ADMINISTRATOR, Console::Yes },
                 { "skip",      HandleSkip,      SEC_ADMINISTRATOR, Console::Yes },
                 { "run",       HandleRun,       SEC_ADMINISTRATOR, Console::Yes },
+                { "rays",      HandleRays,      SEC_ADMINISTRATOR, Console::Yes },
                 { "bench",     HandleBench,     SEC_ADMINISTRATOR, Console::Yes },
                 { "talents",   HandleTalents,   SEC_ADMINISTRATOR, Console::Yes },
                 { "export",    HandleExport,    SEC_ADMINISTRATOR, Console::Yes },
@@ -108,6 +112,8 @@ namespace
             table.AddRow({ "forge cancel", "stop the plan; the learner saves latest.pt first" });
             table.AddRow({ "forge skip", "end the current scenario and start the next one" });
             table.AddRow({ "forge run <scenario> <policy> [episodes]", "run a scripted or random policy, no learner" });
+            table.AddRow({ "forge rays <map> <x> <y> <z> [facing]", "what the navmesh senses read standing there: "
+                "reach, shore, water width, burning edge and clearance" });
             table.AddRow({ "forge talents <class> [spec] [points] [plan]",
                 "print a build the curriculum would give that class (plan: standard, noisy, random)" });
             table.AddRow({ "forge bench [scenario]", "time the sim and the learner at every AnimusForge.Bench.* "
@@ -174,6 +180,51 @@ namespace
         static bool HandleRun(ChatHandler* handler, std::string scenario, std::string policy, Optional<uint32> episodes)
         {
             return sAnimusForge->CommandRun(scenario, policy, episodes.value_or(0), Reply(handler));
+        }
+
+        /// Read the movement block's navmesh senses at one point, without a seat, a policy or a run.
+        ///
+        /// Every one of those senses is a Detour query, and Detour's axes are {y, z, x} rather than the world's.
+        /// A swizzle that is wrong is silent: the rays go somewhere else and return entirely plausible numbers
+        /// about the wrong place. Training cannot catch it -- it shows up only as a policy that learns worse
+        /// than it should, hours later, with nothing to point at. This puts the numbers next to geometry whose
+        /// answer is already known: a wall at a measured distance, a corridor, a lake that has been swum.
+        static bool HandleRays(ChatHandler* handler, uint32 mapId, float x, float y, float z,
+            Optional<float> facing)
+        {
+            Map* map = sMapMgr->CreateBaseMap(mapId);
+            if (!map)
+            {
+                handler->PSendSysMessage("No such map: {}", mapId);
+                return true;
+            }
+
+            // The navmesh tile comes in with the grid, so an unvisited corner of the world answers nothing until
+            // it is asked for.
+            map->LoadGrid(x, y);
+
+            handler->PSendSysMessage("Rays at map {} ({:.2f}, {:.2f}, {:.2f}) facing {:.2f}:",
+                mapId, x, y, z, facing.value_or(0.0f));
+
+            std::string const report =
+                Animus::Curriculum::MoveBlock::RayReport(map, x, y, z, facing.value_or(0.0f));
+
+            std::string line;
+            for (char c : report)
+            {
+                if (c == '\n')
+                {
+                    handler->SendSysMessage(line);
+                    line.clear();
+                }
+                else
+                    line += c;
+            }
+
+            if (!line.empty())
+                handler->SendSysMessage(line);
+
+            return true;
         }
 
         /// `forge talents <class> [spec] [points] [plan]` prints a build the curriculum would give that
