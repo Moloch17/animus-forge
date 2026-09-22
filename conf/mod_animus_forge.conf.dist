@@ -1079,6 +1079,10 @@ AnimusForge.Curriculum.Travel.FootMax = 160
 #   flying arenas: yards from the start
 AnimusForge.Curriculum.Travel.FlyingMin = 350.0
 AnimusForge.Curriculum.Travel.FlyingMax = 700.0
+#   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
+#   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
+AnimusForge.Curriculum.Travel.IndoorMin = 8.0
+AnimusForge.Curriculum.Travel.IndoorMax = 40.0
 #   potential shaping: per 100 yd closed (taken back for leaving)
 AnimusForge.Curriculum.Travel.Progress = 1.0
 AnimusForge.Curriculum.Travel.Arrive = 3.0
@@ -1091,6 +1095,19 @@ AnimusForge.Curriculum.Travel.DamageTaken = 1.0
 AnimusForge.Curriculum.Travel.Death = 3.0
 #   per decision
 AnimusForge.Curriculum.Travel.StepCost = 0.0002
+#   room to move, charged by the second while the seat is inside ClearanceMargin yards of the nearest edge of
+#   walkable space, and capped per episode by ClearanceMax. Never a mask: a doorway is narrower than any margin
+#   worth keeping in the open, so forbidding closeness would forbid doorways
+AnimusForge.Curriculum.Travel.Clearance = 0.08
+AnimusForge.Curriculum.Travel.ClearanceMargin = 1.5
+AnimusForge.Curriculum.Travel.ClearanceMax = 0.6
+#   routing. The way to the objective is re-planned when the seat has strayed RouteStray yards from the corner it
+#   was walking to, or after RouteRefresh seconds -- movement first, because at seven yards a second a clock alone
+#   goes stale inside the first corner. RouteCorner is how near counts as having reached one, and wants to be
+#   wider than a decision's travel (1.75 yd at run speed) so a corner cannot be stepped over and walked back to
+AnimusForge.Curriculum.Travel.RouteStray = 25.0
+AnimusForge.Curriculum.Travel.RouteRefresh = 5.0
+AnimusForge.Curriculum.Travel.RouteCorner = 5.0
 
 #   Flag match (Warsong Gulch's rules). Yards between the bases, by path
 AnimusForge.Curriculum.Flag.BaseMin = 100.0
