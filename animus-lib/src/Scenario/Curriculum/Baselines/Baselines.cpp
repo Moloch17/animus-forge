@@ -45,6 +45,11 @@ namespace
     constexpr float HOLD_RANGE_BEYOND_YARDS = 28.0f;    // ranged specs close to DuelBlock::MOVE_TO_RANGE_DISTANCE
     constexpr float MOUNT_BEYOND_YARDS = 80.0f;
     constexpr float CRUISE_HEIGHT_YARDS = 20.0f;
+    /// How much walkable ground is worth against pointing the right way, when choosing a bearing. At 1.0 a
+    /// bearing onto ground the seat can cross beats one aimed straight at the objective and into a cliff, and a
+    /// 45-degree detour onto good ground beats a blocked straight line -- which is the whole difference between
+    /// steering and holding forward.
+    constexpr float GROUND_OVER_AIM = 1.0f;
 
     /// A seat's row, read by block: features and actions by their block-relative index.
     class Row
@@ -478,6 +483,48 @@ namespace
         return std::nullopt;
     }
 
+    /// The bearing that takes the seat towards its objective over ground it can actually cross, or nothing to
+    /// carry on with the one it is already walking.
+    ///
+    /// Holding BEARING_FORWARD was what this did before, and it is why the scripted baseline arrived in 8% of its
+    /// episodes against a trained policy's 99%: forward is the right way only until something is in front of it,
+    /// and a baseline that cannot steer makes `min_over_baseline` a floor anything clears. Bearing b points at
+    /// -b*45 degrees in the seat's own frame (MoveBlock::HeadingOf), so its alignment with an objective lying at
+    /// `heading` is cos(heading + b*45). Weighed against OBS_GROUND_FIRST, that is a seat that walks round a
+    /// cliff instead of into it -- and, now that the probe reports water as ground it can cross, one that swims a
+    /// crossing rather than stopping at the shore.
+    std::optional<int32> Steer(Row const& row, float headingSin, float headingCos)
+    {
+        if (!row.Has(BlockId::Move))
+            return std::nullopt;
+
+        float const heading = std::atan2(headingSin, headingCos);
+
+        uint32 best = MoveBlock::BEARING_COUNT;
+        float bestScore = 0.0f;
+        for (uint32 bearing = 0; bearing < MoveBlock::BEARING_COUNT; ++bearing)
+        {
+            float const aim = std::cos(heading + float(bearing) * float(M_PI) / 4.0f);
+            float const reach = row.Obs(BlockId::Move, MoveBlock::OBS_GROUND_FIRST + bearing);
+            float const score = aim + GROUND_OVER_AIM * reach;
+            if (best == MoveBlock::BEARING_COUNT || score > bestScore)
+            {
+                bestScore = score;
+                best = bearing;
+            }
+        }
+
+        if (best == MoveBlock::BEARING_COUNT)
+            return std::nullopt;
+
+        // Already walking the best one: it is masked for that reason, and pressing the second best instead would
+        // set the seat zig-zagging between two bearings for as long as the objective sat between them.
+        if (row.Obs(BlockId::Move, MoveBlock::OBS_BEARING_HELD + best) > 0.0f)
+            return std::nullopt;
+
+        return row.Allowed(BlockId::Move, MoveBlock::ACTION_BEARING_FIRST + best);
+    }
+
     std::optional<int32> Fight(Row const& row, Layout const& layout)
     {
         // A living target's health; not the distance, which is 0 in melee range (it is measured between reaches).
@@ -528,10 +575,10 @@ namespace
                     return level;
             }
 
-            // And hold forward. Masked while it is already being walked, so this is pressed once a bearing rather
-            // than once a decision.
-            if (std::optional<int32> go = row.Allowed(BlockId::Move,
-                MoveBlock::ACTION_BEARING_FIRST + MoveBlock::BEARING_FORWARD))
+            // And steer. The objective's direction in the seat's own frame comes from the move block's own pair,
+            // because this is the block that owns getting there.
+            if (std::optional<int32> go = Steer(row, row.Obs(BlockId::Move, MoveBlock::OBS_OBJECTIVE_BEARING_SIN),
+                row.Obs(BlockId::Move, MoveBlock::OBS_OBJECTIVE_BEARING_COS)))
                 return go;
 
             // On the way: wait (the no-op), rather than cast something that would take the mount away.
