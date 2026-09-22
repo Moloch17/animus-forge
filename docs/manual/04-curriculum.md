@@ -156,9 +156,9 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage2_dodge` | 60M | 10M | 2048 | 15M | `stage9_pvp` | 60M | 10M | 2048 | 30M |
 | `stage7_gauntlet` | 90M | 15M | 2048 | 20M | `stage10_evade` | 60M | 10M | 2048 | 30M |
 | `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage11_hide` | 40M | 10M | 2048 | 30M |
-| `stage1_move` | 40M | 10M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
-| `stage3_travel` | 30M | 10M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
-| `stage4_flight` | 30M | 10M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
+| `stage1_move` | 40M | 2M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
+| `stage3_travel` | 30M | 2M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
+| `stage4_flight` | 30M | 2M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
 | `stage14_companion` | 90M | 15M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
 | `stage15_party` | 120M | 20M | 2048 | 20M | `stage19_warsong` | 60M | 10M | 128 | 20M |
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
