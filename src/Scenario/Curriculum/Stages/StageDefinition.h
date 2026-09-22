@@ -135,10 +135,13 @@ namespace Animus::Curriculum
         /// Water Walking) changes the answer.
         bool Water = false;
         /// Where this arena's envs start, when its ground is not the stage's. An arena is drawn per episode but
-        /// StageDefinition::SpawnPoints is pinned per env, so an arena that needs particular ground -- water, most
-        /// of all -- cannot get it from the stage's list: the episode runs wherever its env happens to sit. These
-        /// are used in place of the stage's when the episode is this arena's; empty means the stage's.
+        /// the stage's list cannot give an arena that needs particular ground -- water, most of all -- what it
+        /// needs. These are used in place of the stage's when the episode is this arena's; empty means the stage's.
         std::vector<Position> SpawnPoints{};
+        /// Ground kept back for evaluation: training never stands here. Empty means the arena has no control of
+        /// its own, and evaluation runs on the same ground training does -- which measures nothing about whether
+        /// the policy learned to read terrain or merely learned these particular banks.
+        std::vector<Position> HeldOutSpawnPoints{};
         /// Levels added to the scripted enemy player's own, on top of Opponent.LevelSpread. A drill about
         /// getting away needs a fight the seat cannot win; every other arena wants an even match and leaves
         /// this at 0. Ignored unless the opposition is a scripted player.
@@ -176,9 +179,17 @@ namespace Animus::Curriculum
         std::vector<ArenaDefinition> Arenas;
         bool InDefaultQueue = true;     // trained by an empty AnimusForge.Queue (false: only when named)
         /// Where its envs are: 0 = the host's StageSettings::SpawnMapId and SpawnPosition. A continent (not
-        /// instanceable) is shared by every env, so each env gets its own phase and one of SpawnPoints by env index.
+        /// instanceable) is shared by every env, so each env gets its own phase; one of SpawnPoints is drawn for
+        /// each episode, so a seat sees all of this ground rather than the one patch its env index picked out.
         uint32 MapId = 0;
         std::vector<Position> SpawnPoints{};
+        /// The control ground: where evaluation episodes stand, and where training never does.
+        ///
+        /// A seeded evaluation on the ground training uses cannot tell a policy that reads terrain from one that
+        /// has learned these particular places -- it randomises the episode, not the world. Scoring the gates
+        /// here instead, on ground no weight has ever been updated against, is what makes `arrived` and `saved`
+        /// claims about the policy rather than about the map.
+        std::vector<Position> HeldOutSpawnPoints{};
         /// Where a flag arena's bases are, one per side. Empty: the second base is searched for, BaseMin-BaseMax
         /// from the first, which is what a stage with no map of its own has to do. Warsong Gulch has real ones.
         std::vector<Position> FlagBases{};

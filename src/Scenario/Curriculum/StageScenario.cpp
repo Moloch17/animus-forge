@@ -492,21 +492,39 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
                 _arenaWeights[arena], _arenaEpisodeMs[arena] / IN_MILLISECONDS);
 }
 
-Position const& Animus::Curriculum::StageScenario::SpawnPointFor(Env const& env) const
+std::vector<Position> const& Animus::Curriculum::StageScenario::SpawnGroundFor(Env const& env) const
 {
+    static std::vector<Position> const none;
     if (!_stage.MapId)
-        return _spawnPoint;
+        return none;
 
-    // An arena that needs its own ground stands where it says, not where the env does. Both call sites run after
-    // DrawArena, so the episode's arena is already known here.
+    // An arena that needs its own ground stands where it says, not where the env does; and a scored episode
+    // stands on the control ground, which training never touches, so what the gates measure is whether the seat
+    // can read terrain at all rather than whether it has seen this terrain before. An arena or a stage with no
+    // control of its own falls back to the ground it trains on, and says so by being unable to tell the two apart.
     uint32 const arena = Data(env).Arena;
     if (arena < _stage.Arenas.size() && !_stage.Arenas[arena].SpawnPoints.empty())
     {
-        std::vector<Position> const& points = _stage.Arenas[arena].SpawnPoints;
-        return points[env.Index % points.size()];
+        ArenaDefinition const& definition = _stage.Arenas[arena];
+        if (env.Evaluating && !definition.HeldOutSpawnPoints.empty())
+            return definition.HeldOutSpawnPoints;
+
+        return definition.SpawnPoints;
     }
 
-    return !_stage.SpawnPoints.empty() ? _stage.SpawnPoints[env.Index % _stage.SpawnPoints.size()] : _spawnPoint;
+    if (env.Evaluating && !_stage.HeldOutSpawnPoints.empty())
+        return _stage.HeldOutSpawnPoints;
+
+    return _stage.SpawnPoints;
+}
+
+Position const& Animus::Curriculum::StageScenario::SpawnPointFor(Env const& env) const
+{
+    std::vector<Position> const& ground = SpawnGroundFor(env);
+    if (ground.empty())
+        return _spawnPoint;
+
+    return ground[std::min<std::size_t>(Data(env).Spawn, ground.size() - 1)];
 }
 
 uint32 Animus::Curriculum::StageScenario::EnvPhase(Env const& env)
@@ -1332,6 +1350,15 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     // The episode's arena, drawn first: an evaluation episode's random numbers decide it like everything else.
     std::vector<Encounter*> const previousEncounters = ActiveEncounters(env);
     data.Arena = DrawArena();
+
+    // A spawn point per episode, not per env. Keyed on env.Index, an env stood on the same patch of ground for
+    // its whole life: 128 envs saw 8 places between them, every episode, and a policy can fit that rather than
+    // learn to read what is in front of it. Drawn here, so an evaluation episode's draw comes from its seed like
+    // everything else the reset rolls.
+    {
+        std::vector<Position> const& ground = SpawnGroundFor(env);
+        data.Spawn = ground.empty() ? 0 : urand(0, uint32(ground.size()) - 1);
+    }
     ArenaDefinition const& arena = Arena(env);
     env.EpisodeLengthMs = _arenaEpisodeMs[data.Arena];
 
@@ -1532,12 +1559,42 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
         env.Bots.push_back(ObjectGuid::Empty);
     env.Targets.clear();
 
-    for (Encounter* encounter : ActiveEncounters(env))
-        if (!encounter->Build(env, map, level))
-        {
-            LOG_ERROR("module.animus", "{}: env {} could not build an encounter", Name(), env.Index);
-            return false;
-        }
+    // A spawn point no objective can be found from used to take the whole run down with it: the plan stops when
+    // its first scenario fails to start, so one bad patch in a list of twenty-six was a dead run. The ground is
+    // drawn per episode now, so the answer is to draw again -- move the seats to another point and build there.
+    // Only a stage whose every spawn point is bad fails now, which is a stage that deserves to.
+    constexpr uint32 SPAWN_ATTEMPTS = 4;
+    std::vector<Position> const& ground = SpawnGroundFor(env);
+    bool built = false;
+    for (uint32 attempt = 0; attempt < SPAWN_ATTEMPTS && !built; ++attempt)
+    {
+        built = true;
+        for (Encounter* encounter : ActiveEncounters(env))
+            if (!encounter->Build(env, map, level))
+            {
+                built = false;
+                break;
+            }
+
+        if (built || ground.size() < 2 || attempt + 1 >= SPAWN_ATTEMPTS)
+            break;
+
+        // Somewhere else in the list, never the point that just failed.
+        data.Spawn = (data.Spawn + 1 + urand(0, uint32(ground.size()) - 2)) % uint32(ground.size());
+        Position const& retry = SpawnPointFor(env);
+        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+            if (Player* bot = SeatBot(env, seat))
+                BotFactory::TeleportWithinMap(bot, retry);
+    }
+
+    if (!built)
+    {
+        Position const& where = SpawnPointFor(env);
+        LOG_ERROR("module.animus", "{}: env {} could not build an encounter, last tried from ({:.0f} {:.0f} "
+            "{:.0f}) on map {}", Name(), env.Index, where.GetPositionX(), where.GetPositionY(),
+            where.GetPositionZ(), map->GetId());
+        return false;
+    }
 
     StockSeats(env);
     GivePets(env);

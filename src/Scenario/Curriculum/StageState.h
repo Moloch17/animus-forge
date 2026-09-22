@@ -352,6 +352,9 @@ namespace Animus::Curriculum
     struct EnvState
     {
         uint32 Arena = NO_ARENA;                // index into the stage's arenas: what this episode is
+        /// Which spawn point this episode drew, into whichever list it drew from. Drawn once at the reset and
+        /// held, because the seat is placed from it and the state's origin is read off it every decision.
+        uint32 Spawn = 0;
         std::array<SeatState, MAX_SEATS> Seats;
         uint32 ActiveSeats = 1;                 // seats with a character this episode (the first ones)
         bool Fresh = false;                     // built by Setup, not yet reset

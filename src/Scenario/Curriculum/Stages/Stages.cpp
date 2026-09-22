@@ -56,6 +56,88 @@ namespace
 {
     using namespace Animus::Curriculum;
 
+    /// Kalimdor's training ground, shared by every stage that walks it.
+    ///
+    /// Five regions rather than one, because a spawn point is drawn per episode and what a policy never stands on
+    /// it cannot learn to read. Until 2026-09-21 this was eight points in the Barrens, picked by env index, so an
+    /// env stood on the same patch of scrub for its whole life and 128 of them saw eight places between them --
+    /// which a network can fit instead of learning to read what is in front of it. The Barrens is flat scrub,
+    /// Durotar canyon and rock, Mulgore open rolling grass, Dustwallow marsh and broken shore.
+    std::vector<Position> KalimdorGround()
+    {
+        return {
+            // The Barrens
+            { -872.0f, -2642.0f, 92.0f, 0.0f },   { -2298.0f, -1948.0f, 96.0f, 0.0f },
+            { -1967.0f, -2544.0f, 94.0f, 0.0f },  { -2605.0f, -2286.0f, 92.0f, 0.0f },
+            { -609.0f, -1614.0f, 94.0f, 0.0f },   { -881.0f, -3221.0f, 92.0f, 0.0f },
+            { -3077.0f, -1786.0f, 92.0f, 0.0f },  { -3115.0f, -2352.0f, 94.0f, 0.0f },
+            // Northern Barrens
+            { -652.0f, -2060.0f, 87.0f, 0.0f },   { -767.0f, -2062.0f, 81.0f, 0.0f },
+            { -672.0f, -2005.0f, 63.0f, 0.0f },   { -2068.0f, -2106.0f, 93.0f, 0.0f },
+            { -1942.0f, -1985.0f, 92.0f, 0.0f },  { -1991.0f, -2090.0f, 92.0f, 0.0f },
+            // Durotar
+            { -120.0f, -4284.0f, 63.0f, 0.0f },   { -5.0f, -4286.0f, 68.0f, 0.0f },
+            { -99.0f, -4212.0f, 53.0f, 0.0f },    { 642.0f, -4185.0f, 15.0f, 0.0f },
+            { 633.0f, -4298.0f, 18.0f, 0.0f },
+            // Mulgore
+            { -1207.0f, 105.0f, 135.0f, 0.0f },   { -1285.0f, 118.0f, 120.0f, 0.0f },
+            { -1210.0f, -93.0f, 163.0f, 0.0f },
+            // Dustwallow Marsh
+            { -2631.0f, -3607.0f, 42.0f, 0.0f },  { -2751.0f, -3660.0f, 39.0f, 0.0f },
+            { -2851.0f, -3650.0f, 33.0f, 0.0f },  { -2987.0f, -3940.0f, 39.0f, 0.0f },
+        };
+    }
+
+    /// Map 560's training ground, shared by the drills that fight people on it (evade, hide, stealth).
+    ///
+    /// One instance is a small world, so the split is by district rather than by region: the southern approaches
+    /// train, the northern farmland is kept back. Weaker separation than Kalimdor's -- a seat could carry
+    /// something across a thousand yards that it could not carry across a continent -- and it is what the map
+    /// allows. What it still tests is ground the weights were never updated against.
+    std::vector<Position> HillsbradGround()
+    {
+        return {
+            { 2161.0f, 232.0f, 57.0f, 0.0f },   { 2168.0f, 129.0f, 78.0f, 0.0f },
+            { 2067.0f, 109.0f, 55.0f, 0.0f },   { 2161.0f, 36.0f, 62.0f, 0.0f },
+            { 2637.0f, 717.0f, 57.0f, 0.0f },   { 2528.0f, 708.0f, 56.0f, 0.0f },
+        };
+    }
+
+    /// THE CONTROL GROUND on map 560: the northern farmland, which no training episode of these stages stands on.
+    std::vector<Position> HillsbradControl()
+    {
+        return {
+            { 1803.0f, 1071.0f, 12.0f, 0.0f },  { 1907.0f, 1093.0f, 23.0f, 0.0f },
+            { 1822.0f, 983.0f, 14.0f, 0.0f },   { 1884.0f, 968.0f, 14.0f, 0.0f },
+        };
+    }
+
+    /// THE CONTROL GROUND on Kalimdor: where scored episodes stand, and where training never does.
+    ///
+    /// Three regions in no training list, chosen for being as far from water as the map allows -- 1,500 to 5,000
+    /// yards from the nearest water-dwelling creature, which is the best proxy for "dry" the world data offers.
+    /// The first attempt used Teldrassil and the Azshara coast and the seats swam: 21 seconds an episode in the
+    /// open arena and 33 in the broken one, against 0.03 on the ground they train on. A control that is wet where
+    /// training is dry measures the coastline, not the policy.
+    ///
+    /// No weight is ever updated against this ground, so `arrived` and `saved` at a gate are claims about the seat
+    /// rather than about how many times it has seen the Barrens. If these track the training numbers the seat is
+    /// reading terrain; if they fall away, it had learned the places.
+    std::vector<Position> KalimdorControl()
+    {
+        return {
+            // Northern highlands, the far side of the map from every training region
+            { -1626.0f, 3062.0f, 43.0f, 0.0f },   { -1348.0f, 2962.0f, 104.0f, 0.0f },
+            { -1261.0f, 2951.0f, 78.0f, 0.0f },   { -441.0f, 1814.0f, 128.0f, 0.0f },
+            { -561.0f, 2069.0f, 90.0f, 0.0f },
+            // Eastern high ground
+            { 4012.0f, -788.0f, 286.0f, 0.0f },   { 3871.0f, -1025.0f, 242.0f, 0.0f },
+            // Mid-east plains
+            { 2059.0f, -2405.0f, 90.0f, 0.0f },   { 1813.0f, -2424.0f, 93.0f, 0.0f },
+            { 1965.0f, -2559.0f, 86.0f, 0.0f },
+        };
+    }
+
     std::vector<StageDefinition> Definitions()
     {
         using enum BlockId;
@@ -92,24 +174,23 @@ namespace
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true, .Water = true,
                     .SpawnPoints = {
-                        // All eight ring one pond in Dustwallow Marsh, rather than one bank each of four bodies
-                        // of water. Spread over four, only this pond was wide enough for the way round to be
-                        // worth avoiding, and the arena found a crossing in a tenth of its episodes because
-                        // seven envs in eight were standing somewhere it could not. Measured here: a dry way
-                        // round of 145 yards against a 75 yard swim.
                         { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
                         { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
                         { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
+                    },
+                    // The far side of the same pond, kept back for scoring. Weaker control than the stage's own:
+                    // Azshara and Teldrassil are ground this policy has never seen, while these are banks of the
+                    // water it trains on, approached from the other side. It is what the ground allows -- of four
+                    // bodies of water measured, only this one was wide enough for the way round to be worth
+                    // avoiding, so a second pond to hold out does not exist yet. What it does test is whether the
+                    // seat crosses water it has not launched from before; what it cannot test is a different lake.
+                    .HeldOutSpawnPoints = {
                         { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
                     } },
             },
             .MapId = MAP_KALIMDOR,
-            .SpawnPoints = {
-                { -872.0f, -2642.0f, 92.0f, 0.0f }, { -2298.0f, -1948.0f, 96.0f, 0.0f },
-                { -1967.0f, -2544.0f, 94.0f, 0.0f }, { -2605.0f, -2286.0f, 92.0f, 0.0f },
-                { -609.0f, -1614.0f, 94.0f, 0.0f }, { -881.0f, -3221.0f, 92.0f, 0.0f },
-                { -3077.0f, -1786.0f, 92.0f, 0.0f }, { -3115.0f, -2352.0f, 94.0f, 0.0f },
-            },
+            .SpawnPoints = KalimdorGround(),
+            .HeldOutSpawnPoints = KalimdorControl(),
         });
 
         // Something on the ground, in every pull. Hazards exist already -- the pack ladder draws a hazard caster
@@ -150,12 +231,8 @@ namespace
             .Blocks = { Core, Move, Travel, Duel },
             .Arenas = { { .Name = "travel", .Against = Opposition::Travel, .EpisodeSeconds = 150 } },
             .MapId = MAP_KALIMDOR,
-            .SpawnPoints = {
-                { -872.0f, -2642.0f, 92.0f, 0.0f }, { -2298.0f, -1948.0f, 96.0f, 0.0f },
-                { -1967.0f, -2544.0f, 94.0f, 0.0f }, { -2605.0f, -2286.0f, 92.0f, 0.0f },
-                { -609.0f, -1614.0f, 94.0f, 0.0f }, { -881.0f, -3221.0f, 92.0f, 0.0f },
-                { -3077.0f, -1786.0f, 92.0f, 0.0f }, { -3115.0f, -2352.0f, 94.0f, 0.0f },
-            },
+            .SpawnPoints = KalimdorGround(),
+            .HeldOutSpawnPoints = KalimdorControl(),
             .MinLevel = 20,
         });
 
@@ -169,11 +246,29 @@ namespace
             .Blocks = { Core, Move, Travel, Duel },
             .Arenas = { { .Name = "flight", .Against = Opposition::Travel, .EpisodeSeconds = 180, .Flying = true } },
             .MapId = MAP_OUTLAND,
+            // Four Outland regions to take off from, rather than one: Hellfire's broken flats, Zangarmarsh's
+            // mushroom basins, Shadowmoon's ridges at nearly 300 yards of altitude, and Terokkar's low forest.
+            // A flight starts and ends on the ground, so where it does is part of the lesson.
             .SpawnPoints = {
-                { -1684.0f, 7167.0f, 2.0f, 0.0f }, { -1060.0f, 7618.0f, 28.0f, 0.0f },
-                { -1820.0f, 8828.0f, 28.0f, 0.0f }, { -1226.0f, 8834.0f, 46.0f, 0.0f },
-                { -2581.0f, 6582.0f, 11.0f, 0.0f }, { -1308.0f, 6816.0f, 36.0f, 0.0f },
-                { -1092.0f, 7304.0f, 33.0f, 0.0f }, { -2533.0f, 7693.0f, -23.0f, 0.0f },
+                // Hellfire Peninsula
+                { 170.0f, 2589.0f, 93.0f, 0.0f },     { 169.0f, 2708.0f, 101.0f, 0.0f },
+                // Zangarmarsh
+                { -3260.0f, 2690.0f, 85.0f, 0.0f },   { -3293.0f, 2832.0f, 125.0f, 0.0f },
+                // Shadowmoon Valley
+                { -3631.0f, 3741.0f, 298.0f, 0.0f },  { -3721.0f, 3746.0f, 284.0f, 0.0f },
+                // Terokkar Forest
+                { -1750.0f, 5154.0f, -37.0f, 0.0f },  { -1730.0f, 5282.0f, -32.0f, 0.0f },
+            },
+            // THE CONTROL GROUND for flight. Map 530 carries Eversong and the Draenei isles as well as Outland,
+            // so the control here is a different continent rather than a different corner -- ground no training
+            // episode of this stage can reach, tens of thousands of yards away.
+            .HeldOutSpawnPoints = {
+                // Eversong Woods
+                { 9806.0f, -7284.0f, 23.0f, 0.0f },   { 9547.0f, -7159.0f, 16.0f, 0.0f },
+                // Azuremyst Isle
+                { -3613.0f, -11888.0f, 9.0f, 0.0f },  { -3737.0f, -11905.0f, 8.0f, 0.0f },
+                // Bloodmyst Isle
+                { -3577.0f, -12420.0f, 7.0f, 0.0f },  { -3757.0f, -12447.0f, 3.0f, 0.0f },
             },
             .MinLevel = 60,
         });
@@ -190,6 +285,19 @@ namespace
             // 90 s: running out of time is a lost fight (Duel.Timeout), and a healer or tank against a creature with
             // twice the usual health needs half a minute to kill it after a few seconds of closing in.
             .Arenas = { { .Name = "duel", .Against = Opposition::Creature, .EpisodeSeconds = 90 } },
+            // Ground, because until now every fight in the curriculum happened on the same square yard: the
+            // combat stages take the host's single spawn point inside a per-env instance, so a duel's terrain was
+            // one place, every episode, for the whole run. The same five regions the feet were taught on, and the
+            // same control ground, so `clean_kill` at the gate is a claim about the fight rather than about a spot
+            // the seat has stood on a million times.
+            //
+            // This is the combat root and the first of its kind: it moves a fight off an instance and onto a
+            // shared continent, where envs are separated by phase rather than by instance. Proven at 128 envs by
+            // the travel stages, but not yet by anything that spawns an opponent -- so it wants a standalone run
+            // before stages 6 to 17 follow it.
+            .MapId = MAP_KALIMDOR,
+            .SpawnPoints = KalimdorGround(),
+            .HeldOutSpawnPoints = KalimdorControl(),
         });
 
         stages.push_back({
@@ -271,12 +379,8 @@ namespace
             // (walls, towers, two levels) and among the Southshore farms (buildings, fences, trees), on the
             // same instance map the PvP line already fights on.
             .MapId = 560,
-            .SpawnPoints = {
-                { 2141.5f, 174.7f, 66.2f, 0.0f }, { 2124.1f, 183.3f, 52.8f, 0.0f },
-                { 2256.8f, 264.1f, 64.9f, 0.0f }, { 2186.1f, 272.1f, 52.8f, 0.0f },
-                { 1816.0f, 1128.5f, 14.7f, 0.0f }, { 1777.7f, 1058.6f, 7.1f, 0.0f },
-                { 1808.7f, 1108.3f, 13.4f, 0.0f }, { 1803.0f, 1041.4f, 11.7f, 0.0f },
-            },
+            .SpawnPoints = HillsbradGround(),
+            .HeldOutSpawnPoints = HillsbradControl(),
         });
 
         // Hiding, for every class and every race. Stealth is one way to do it and the rarest -- four of the
@@ -303,12 +407,8 @@ namespace
             // (walls, towers, two levels) and among the Southshore farms (buildings, fences, trees), on the
             // same instance map the PvP line already fights on.
             .MapId = 560,
-            .SpawnPoints = {
-                { 2141.5f, 174.7f, 66.2f, 0.0f }, { 2124.1f, 183.3f, 52.8f, 0.0f },
-                { 2256.8f, 264.1f, 64.9f, 0.0f }, { 2186.1f, 272.1f, 52.8f, 0.0f },
-                { 1816.0f, 1128.5f, 14.7f, 0.0f }, { 1777.7f, 1058.6f, 7.1f, 0.0f },
-                { 1808.7f, 1108.3f, 13.4f, 0.0f }, { 1803.0f, 1041.4f, 11.7f, 0.0f },
-            },
+            .SpawnPoints = HillsbradGround(),
+            .HeldOutSpawnPoints = HillsbradControl(),
         });
 
         // Stealth, which is not the same lesson as hiding and is why it is a stage of its own. Hiding is not
@@ -337,12 +437,8 @@ namespace
                 .EpisodeSeconds = 120, .OpponentLevelBonus = 6 } },
             // The same cover the other two drills use: an approach needs something to come round.
             .MapId = 560,
-            .SpawnPoints = {
-                { 2141.5f, 174.7f, 66.2f, 0.0f }, { 2124.1f, 183.3f, 52.8f, 0.0f },
-                { 2256.8f, 264.1f, 64.9f, 0.0f }, { 2186.1f, 272.1f, 52.8f, 0.0f },
-                { 1816.0f, 1128.5f, 14.7f, 0.0f }, { 1777.7f, 1058.6f, 7.1f, 0.0f },
-                { 1808.7f, 1108.3f, 13.4f, 0.0f }, { 1803.0f, 1041.4f, 11.7f, 0.0f },
-            },
+            .SpawnPoints = HillsbradGround(),
+            .HeldOutSpawnPoints = HillsbradControl(),
         });
 
         stages.push_back({
@@ -431,12 +527,8 @@ namespace
             .Arenas = { { .Name = "flag", .Seats = SeatPlan::Mirror, .Against = Opposition::Flag, .Pvp = true,
                 .EpisodeSeconds = 300 } },
             .MapId = MAP_KALIMDOR,
-            .SpawnPoints = {
-                { -872.0f, -2642.0f, 92.0f, 0.0f }, { -2298.0f, -1948.0f, 96.0f, 0.0f },
-                { -1967.0f, -2544.0f, 94.0f, 0.0f }, { -2605.0f, -2286.0f, 92.0f, 0.0f },
-                { -609.0f, -1614.0f, 94.0f, 0.0f }, { -881.0f, -3221.0f, 92.0f, 0.0f },
-                { -3077.0f, -1786.0f, 92.0f, 0.0f }, { -3115.0f, -2352.0f, 94.0f, 0.0f },
-            },
+            .SpawnPoints = KalimdorGround(),
+            .HeldOutSpawnPoints = KalimdorControl(),
             .MinLevel = 20,
         });
 
