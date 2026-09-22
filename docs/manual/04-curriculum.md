@@ -320,10 +320,49 @@ An `ArenaDefinition` describes one situation:
 | `Ambushers` | 0-2 scripted enemy players who attack the owner |
 | `Flying` | Travel: the objective is far enough that flying beats riding |
 
-A `StageDefinition` may also name its own `MapId` and `SpawnPoints` (0 = the host's `SpawnMapId` and `SpawnPosition`)
-and a `MinLevel` that raises every character's level, a fixed host level included. On a continent (a map that isn't
-instanceable, like Outland for `stage4_flight`) every env shares the map: each env's seats take one of the spawn
-points by env index and live in their own phase (`StageScenario::EnvPhase`), so no env sees another's.
+A `StageDefinition` may also name its own `MapId`, `SpawnPoints` and `HeldOutSpawnPoints` (0 = the host's
+`SpawnMapId` and `SpawnPosition`) and a `MinLevel` that raises every character's level, a fixed host level included.
+On a continent (a map that isn't instanceable, like Outland for `stage4_flight`) every env shares the map: each
+env's seats live in their own phase (`StageScenario::EnvPhase`), so no env sees another's. An arena may carry
+`SpawnPoints` of its own, which it needs when its ground is particular -- the water arena's banks, say -- because
+the arena is drawn per episode and the stage's list is not keyed to it.
+
+**A spawn point is drawn per episode, not per env.** It used to be `SpawnPoints[env.Index % size]`, which meant an
+env stood on the same patch of ground for its whole life: 128 envs saw eight places between them, every episode,
+for a whole run. That is a thing a network can fit instead of learning to read what is in front of it.
+`EnvState::Spawn` is now rolled at the reset, so it is stable within an episode, reproducible from an evaluation
+seed, and every seat sees all of the stage's ground. A spawn point that no objective can be found from no longer
+takes the run down with it either: the reset draws again and moves the seats, up to four points, and only names a
+failure when all of them fail.
+
+### The control ground
+
+**`HeldOutSpawnPoints` is where scored episodes stand, and where training never does.** A seeded evaluation
+randomises the episode, not the world, so an evaluation on the ground training uses cannot tell a policy that
+reads terrain from one that has learned those particular places -- and until this existed, nothing in the
+curriculum could answer that question, a passing gate included. The split is keyed on `Env::Evaluating` rather than
+on the presence of a seed, because a replayed evaluation is a *training* episode that has one.
+
+| Map | Training ground | Control ground -- scoring only |
+|---|---|---|
+| Kalimdor (`stage1_move`, `stage3_travel`, `stage5_duel`, `stage18_flag`) | The Barrens, Northern Barrens, Durotar, Mulgore, Dustwallow Marsh (26 points) | Northern highlands, Eastern high ground, Mid-east plains (10 points) |
+| Outland (`stage4_flight`) | Hellfire Peninsula, Zangarmarsh, Shadowmoon Valley, Terokkar Forest (8 points) | Eversong Woods, Azuremyst Isle, Bloodmyst Isle (6 points) -- other continents on the same map |
+| Map 560 (`stage10_evade`, `stage11_hide`, `stage12_stealth`) | The southern approaches (6 points) | The northern farmland (4 points) |
+| `stage1_move`'s water arena | Six banks of the Dustwallow pond | Its two far banks |
+
+Kalimdor's control ground was chosen by measured distance from water -- 1,500 to 5,000 yards from the nearest
+water-dwelling creature -- after a first attempt on Teldrassil and the Azshara coast had the seats swimming for 21
+seconds an episode in the open arena and 33 in the broken one, against 0.03 on the ground they train on. A control
+that is wet where training is dry measures the coastline, not the policy.
+
+Two of the sets are deliberately weaker than the rest and say so: map 560 is one small instance, so its split is by
+district rather than by region, and the water arena's control is the far side of the same pond, because of four
+bodies of water measured only that one had a detour worth avoiding. `stage19_warsong` has no control ground at all
+-- its three points are a battleground's own spawn rooms -- and neither do the combat stages after `stage5_duel`,
+which still run at the host's single spawn inside a per-env instance.
+
+**What to read from it.** If `arrived` and `saved` at the gate track the same metrics in training, the seat is
+reading terrain. If the gate numbers fall away, it had learned the places.
 
 **Validation.** `CurriculumStages()` checks each definition in order and leaves out (with an error log) any stage
 that:
@@ -785,6 +824,32 @@ why the hazard drill has to summon an unkillable emitter and hand it over as a t
 are what make a strafe expressible: `SetFacing` on the spline, so the seat can run one way and look another, where
 a spline left to set its own orientation always turns the seat the way it is going.
 
+**Water.** The move block reports water twice: `OBS_WATER_FIRST`, eight bearings beside the ground probe, saying
+what lies that way before the seat is standing in it; and `OBS_IN_WATER`, `OBS_SUBMERGED`, `OBS_SUBMERGED_TIME` and
+`OBS_SWIM_SPEED` for water it is already in. Three things had to be fixed before any of that meant anything, and
+each was hiding the one under it (animus-lib `eb1f91c`):
+
+- **`GroundReach` called water a wall.** It looks for ground within `MAX_STEP` either side of the seat's own
+  height, and a lake bed is well below that band, so `GetHeight` returned `INVALID_HEIGHT` and the probe reported
+  reach 0 -- the same answer it gives for a cliff or the edge of the map. The seat was being taught that the one
+  route it might swim was impassable.
+- **A seat could not get in.** The three-dimensional steering is reached through `Airborne()`, which is
+  `IsInWater() || CanFly()`, so a seat could swim only once it was already swimming; entering was a pathfound
+  ground step, and mmaps drops the terrain under real liquid, so the walkable mesh stops at the waterline and the
+  step had nowhere to land. Sampled across a whole run, every seat near water sat 0.1 to 0.4 yards above the
+  surface. Entering is its own case now (`Encoding::SwimTo`: straight in, no pathfinding, no fly flag -- and what a
+  seat already in the water uses, since the old path called `FlyTo` and a swimmer is not a flier).
+- **`Player::IsInWater()` could never be true for a bot.** `Unit::IsInWater` reads the map; `Player` overrides it
+  to return the cached `m_isInWater`, and the only caller of `SetInWater` in the core is the movement opcode
+  handler. A sessionless bot sends no opcodes, so the flag was false for the entire life of every bot the sim has
+  ever run, and those four water observations were inputs that never changed. `ObserveSeat` keeps that state from
+  the map now, once a decision per seat -- the client's job, on a server that has no client.
+
+`swim_seconds` was 0 in every episode of every run before this, which is not a choice a near-random policy makes a
+quarter of a million times. It is reported and never gated: every crossing the water arena places has a dry way
+round by construction, so where that way round is quicker, walking it is the right answer and a floor on swimming
+would punish it. `crossing` keeps its floor, because what the arena offers is the ground's business.
+
 A bearing is held rather than stepped, so the resolution of the path comes from `AnimusForge.TicksPerDecision`
 (2.3, 8.1) rather than from deciding more often: the world walks the spline in however many ticks a decision is cut
 into, and the policy still chooses once per `DecisionMs`.
@@ -1120,8 +1185,14 @@ objective changes, so a flag changing hands pays nothing by itself.
 - **`greedy`**: the first allowed spell or trinket in catalog order. Every layout supports it.
 - **`fight`** (layouts with the duel block), first match wins:
   1. with the travel block and an objective: dismount at it; far from it and not mounted, a flying mount where one
-     flies, else a ground mount; on a flying mount climb to 20 yd, land at the objective; otherwise head for it (and
-     wait while moving, rather than cast something that would dismount),
+     flies, else a ground mount; on a flying mount climb to 20 yd, land at the objective; otherwise **steer** for it
+     (and wait while moving, rather than cast something that would dismount). Steering weighs each bearing's aim at
+     the objective against what the ground probe says lies that way (`Baselines::Steer`, `GROUND_OVER_AIM`), so a
+     bearing onto ground the seat can cross beats one pointed straight into a cliff. It used to hold
+     `BEARING_FORWARD`, which is why it arrived in 8% of its episodes against a trained policy's 99% -- and why
+     `min_over_baseline` was a floor anything cleared on the four movement stages. The bearing already being walked
+     is left alone rather than swapped for the second best, which would set the seat zig-zagging whenever the
+     objective sat between two bearings,
   2. with the gauntlet block and no target: eat when health is low, drink when mana is low,
   3. support: below 30% health, the first allowed defensive; the most hurt living friend below 60% (the bot itself
      without the support block) selected, then its first allowed heal (a healer cancels a form first if needed); a
