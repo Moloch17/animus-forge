@@ -30,6 +30,10 @@ total_env_steps: 40000000
 
 eval:
   baseline: fight
+  # Scored with the argmax, which is the default and is deliberate: a shipped bot decides greedily, so that is
+  # the honest measure of one. Turned off for one experiment on 2026-09-22 -- sampling cut timeouts from 9.5% to
+  # 6.4%, all of it on open and broken ground, which is what a deterministic livelock looks like. Left on would
+  # have hidden that behind the sampling rather than fixing it.
   # TEMPORARY, for testing generalisation early: 2M instead of the 10M inherited from stage5_duel. Scored episodes
   # stand on the control ground (StageDefinition::HeldOutSpawnPoints), so this is the only number that says whether
   # the policy reads terrain or has learned the training regions -- and waiting 10M steps to see it first is a long
