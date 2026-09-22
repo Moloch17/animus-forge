@@ -137,6 +137,19 @@ namespace Animus::Curriculum
         /// Where this arena's envs start, when its ground is not the stage's. An arena is drawn per episode but
         /// the stage's list cannot give an arena that needs particular ground -- water, most of all -- what it
         /// needs. These are used in place of the stage's when the episode is this arena's; empty means the stage's.
+        /// **The episode happens inside a building.** Everything that has to change about placing an objective
+        /// and calling it reached, in one flag.
+        ///
+        /// Outdoors, an objective is found by probing sixty yards above the seat and searching a hundred and
+        /// twenty down, because ground a long way up or down is still ground and the broken arena's ridges span
+        /// seventy yards of relief. Inside a two-storey inn the same probe returns the roof. And arrival is
+        /// two-dimensional, which is right on a slope and wrong under a staircase: a seat on the ground floor
+        /// stands six yards from an objective on the floor above and has arrived at nothing.
+        ///
+        /// So an interior arena probes from the seat's own height, keeps the objective on a floor it could stand
+        /// on, and adds a storey's worth of vertical tolerance to arriving. None of it touches an arena that
+        /// leaves this false.
+        bool Indoors = false;
         std::vector<Position> SpawnPoints{};
         /// Ground kept back for evaluation: training never stands here. Empty means the arena has no control of
         /// its own, and evaluation runs on the same ground training does -- which measures nothing about whether
