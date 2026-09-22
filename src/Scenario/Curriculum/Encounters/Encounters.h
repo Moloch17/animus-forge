@@ -563,6 +563,14 @@ namespace Animus::Curriculum
             float StartDistance = 0.0f;         // yards on the ground at the start
             float WalkDistance = 0.0f;          // yards of path to the objective: what covering it on foot costs
             float LastDistance = -1.0f;         // shaping: yards at the last reward; < 0 = none yet
+            /// Yards the seat has actually covered, summed decision by decision -- as against WalkDistance, which
+            /// is the length of the path it was *given* and says nothing about whether the legs turned. A seat
+            /// that times out 96 yards short of a 106 yard trip either never moved or moved in circles, and only
+            /// these two numbers together tell those apart.
+            float Travelled = 0.0f;
+            float LastX = 0.0f;                 // where it was at the last reward, for the sum above
+            float LastY = 0.0f;
+            bool HasLastPos = false;            // ... or nothing yet, so the first decision adds no jump
             bool Arrived = false;
             uint32 ArriveMs = 0;
             uint32 MountedMs = 0;               // episode time spent mounted
