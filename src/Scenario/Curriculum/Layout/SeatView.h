@@ -270,6 +270,15 @@ namespace Animus::Curriculum
         // Travel: where the seat is going, and whether it may ride there.
         bool HasObjective = false;
         Position Objective;
+        /// How much longer the walking way round to the objective is than the straight line to it, as a ratio;
+        /// 0 without an objective and 1 when the straight line is the route. Measured on foot at the episode's
+        /// build, water and magma excluded, so it is what the ground costs rather than what the pathfinder would
+        /// permit -- a player's filter admits both and would call a lake a straight shot.
+        float Detour = 0.0f;
+        /// Whether the legs are getting anywhere, over about the last second: how far the seat moved against how
+        /// far running would have carried it, and the share of the distance to the objective that closed.
+        float MoveRate = 0.0f;
+        float CloseRate = 0.0f;
         /// False in an on-foot arena (ArenaDefinition::OnFoot): the mount actions are masked out.
         bool MountsAllowed = true;
 

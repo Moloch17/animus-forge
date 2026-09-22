@@ -139,8 +139,16 @@ namespace Animus::Curriculum
             /// cannot see -- which is the point order coming back one layer down, having just been taken out of
             /// the action space. A seat that holds a bearing into a cliff should be able to tell that it did.
             OBS_GROUND_FIRST        = 20 + BEARING_COUNT,
-            /// The height the ground changes by straight ahead, / MAX_STEP, clamped: a step up, a drop, or flat.
-            OBS_STEP_AHEAD          = 20 + 2 * BEARING_COUNT,
+            /// **How the ground changes along each bearing**, signed, / MAX_STEP and clamped: positive is a step
+            /// up, negative a drop, zero flat.
+            ///
+            /// The reach above collapses a wall, a cliff, a lava lake and the edge of the map into one number,
+            /// and this is what tells the first two apart -- which matters because they are opposite things to a
+            /// pair of legs. A step up is a wall to walk round; a drop is a shortcut worth taking when it is
+            /// shallow and a death when it is not, and a seat that cannot see which is which can only treat every
+            /// descent as forbidden. It used to be reported straight ahead only, so seven of the eight bearings
+            /// had no sign at all.
+            OBS_STEP_FIRST          = 20 + 2 * BEARING_COUNT,
             /// **Whether what lies along each bearing is water**, in the same frame as the ground probe.
             ///
             /// Water is not ground and it is not a wall, and the ground probe alone cannot say which it is
@@ -150,18 +158,43 @@ namespace Animus::Curriculum
             /// a whole run no seat ever once entered water: they walked to the line where the ground stops and
             /// along it. This is what lets a crossing be seen before it is stood in, and OBS_SWIM_SPEED is what
             /// prices it.
-            OBS_WATER_FIRST         = 21 + 2 * BEARING_COUNT,
+            OBS_WATER_FIRST         = 20 + 3 * BEARING_COUNT,
+            /// **Whether what lies along each bearing is liquid that burns** -- magma or slime.
+            ///
+            /// Reported apart from water because they are not the same lesson: water is somewhere to go and be
+            /// slowed, and magma is somewhere to die. Both come back as no reach, so without this the seat cannot
+            /// tell a lava lake from a cliff, and the arena that teaches crossing one at its narrow point has
+            /// nothing to teach with.
+            OBS_BURNS_FIRST         = 20 + 4 * BEARING_COUNT,
             /// Water it is already in. Whether it is in it, whether its head is under it, and how long its head
             /// has been under -- against the breath a character has, and zero for one that does not need to
             /// breathe. Without the last of these, going in is free and "is this crossing worth it" has no
             /// downside to weigh.
-            OBS_IN_WATER            = 21 + 3 * BEARING_COUNT,
-            OBS_SUBMERGED           = 22 + 3 * BEARING_COUNT,
-            OBS_SUBMERGED_TIME      = 23 + 3 * BEARING_COUNT,
-            OBS_SWIM_SPEED          = 24 + 3 * BEARING_COUNT,   // / 7 yards a second, so under 1 means water is slower
+            OBS_IN_WATER            = 20 + 5 * BEARING_COUNT,
+            OBS_SUBMERGED           = 21 + 5 * BEARING_COUNT,
+            OBS_SUBMERGED_TIME      = 22 + 5 * BEARING_COUNT,
+            OBS_SWIM_SPEED          = 23 + 5 * BEARING_COUNT,   // / 7 yards a second, so under 1 means water is slower
             /// It is off the ground -- swimming or flying -- so pitch steers and the third dimension is real.
-            OBS_AIRBORNE            = 25 + 3 * BEARING_COUNT,
-            OBS_COUNT               = 26 + 3 * BEARING_COUNT
+            OBS_AIRBORNE            = 24 + 5 * BEARING_COUNT,
+            /// **How much longer the way round is than the way through**: the walking route to the objective over
+            /// the straight line to it, / 4 and clamped. 0 without an objective, and about 0.25 (a ratio of 1)
+            /// when the straight line is the route.
+            ///
+            /// This is the one thing a seat cannot see for itself at any probe length: that the barrier in front
+            /// of it runs for two hundred yards and the way past is backwards. Measured on foot, with water and
+            /// magma excluded, so it is the ground's answer and not the pathfinder's -- a player's path filter
+            /// admits both, which would have this read "straight shot" across a lake or a lava field.
+            OBS_DETOUR              = 25 + 5 * BEARING_COUNT,
+            /// **Whether the legs are getting anywhere.** How far the seat moved over the last second against
+            /// how far running would have carried it, and how much of the distance to the objective that closed.
+            ///
+            /// A policy has memory, but it had nothing to remember: neither of these was observable, so a seat
+            /// wedged against a rock and a seat walking freely looked identical from the inside. Roughly an
+            /// eighth of the episodes a trained policy loses are spent covering five times the length of the
+            /// trip and ending as far away as it started.
+            OBS_MOVE_RATE           = 26 + 5 * BEARING_COUNT,
+            OBS_CLOSE_RATE          = 27 + 5 * BEARING_COUNT,
+            OBS_COUNT               = 28 + 5 * BEARING_COUNT
         };
 
         /// How far ahead a held bearing aims each decision. Far enough that the seat is still walking when the next
