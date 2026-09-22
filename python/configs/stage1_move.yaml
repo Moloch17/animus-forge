@@ -36,8 +36,8 @@ eval:
   # time to be guessing. Each evaluation is 2048 seeded episodes, about 90 s, so at this rate it costs roughly a
   # tenth of the run: put it back to 10000000 once the question is answered.
   every_env_steps: 2000000
-  report: [arrived, travel_seconds, start_distance, walk_distance, saved, died, timed_out,
-           crossing, swim_seconds]
+  report: [arrived, travel_seconds, start_distance, walk_distance, objective_distance_at_end, saved, died,
+           timed_out, crossing, swim_seconds]
 
 convergence:
   min_env_steps: 20000000
