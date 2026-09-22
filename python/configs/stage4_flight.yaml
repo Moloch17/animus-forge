@@ -34,8 +34,13 @@ target:
   # rate stayed flat, so arrival alone would have called that a pass. saved_if_flew is what flying was worth on
   # the episodes it was used, which is the honest measure of whether it is being used well.
   min_over_baseline: 0.10
+  #
+  # Arriving is 1.0, as everywhere in the movement phase. This is the stage where that claim is least tested: a
+  # 700 yard flying trip has failure modes the ground stages do not, and no run of this stage has yet been scored
+  # against a 1.0 floor. `flew` and `saved_if_flew` stay proportions, because adopting flight and using it well
+  # are matters of degree in a way that arriving is not.
   metrics:
-    arrived: {min: 0.85}
+    arrived: {min: 1.0}
     flew: {min: 0.35}
     saved_if_flew: {min: 0.30}
   until_passed: true

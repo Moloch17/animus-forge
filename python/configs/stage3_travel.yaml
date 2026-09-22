@@ -23,10 +23,16 @@ target:
   # see. `saved` is the share of the walking time the trip saved, which is the whole point of mounting, and
   # mounted_fraction says the mount was actually used rather than the objective happening to be close.
   min_over_baseline: 0.10
+  #
+  # Arriving is 1.0 here for the same reason it is in stage 1: the standard is that the bot always arrives, and
+  # this stage is the same trip with a mount under it. It inherits the feasibility cap that makes such a gate
+  # fair -- FindPlace measures the budget against the character's own speed, so a mounted trip is judged at
+  # mounted speed -- and it inherits timed_out: 0.0 from stage 1 rather than contradicting it, which a floor of
+  # 0.90 on arrival would have done.
   metrics:
-    arrived: {min: 0.90}
+    arrived: {min: 1.0}
     saved: {min: 0.20}
     mounted_fraction: {min: 0.45}
   layout_metrics:
-    arrived: {min: 0.75}
+    arrived: {min: 1.0}
   until_passed: true

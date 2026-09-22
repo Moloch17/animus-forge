@@ -47,37 +47,59 @@ eval:
   # tenth of the run: put it back to 10000000 once the question is answered.
   every_env_steps: 2000000
   report: [arrived, travel_seconds, start_distance, walk_distance, distance_travelled,
-           objective_distance_at_end, dry_distance, dry_detour, saved, died, timed_out, crossing, swim_seconds]
+           objective_distance_at_end, dry_distance, dry_detour, trip_share, saved, died, timed_out, crossing,
+           swim_seconds]
 
 convergence:
   min_env_steps: 20000000
 
 target:
-  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
-  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
+  # **The standard is that the bot always arrives.** Every arrival floor is 1.0 and timing out is not allowed at
+  # all, on every arena.
+  #
+  # The old floors (0.90 overall, 0.95/0.85/0.80 per arena) were not merely lenient, they were the wrong shape:
+  # they encode an acceptable loss rate, and `broken` passed at 0.85 while losing one trip in eleven. A bot that
+  # does not arrive has not moved, it has wandered, and there is no number of yards covered that makes up for
+  # ending somewhere else. The bar is one an arena already clears: water read 1.0000 over all 415 of its scored
+  # episodes, including the 3.86% that can only be done by swimming.
+  #
+  # This is only a fair gate because the episode generator now refuses to set a trip that cannot be finished in
+  # the time allowed at the character's own speed (TravelEncounter FEASIBLE_SHARE). Without that, one pathological
+  # draw in 2048 halts the queue over something no policy could have done. The two belong together, and if the
+  # feasibility cap is ever removed these floors have to come down with it.
+  #
+  # `confidence` is gone from the arrival floors and stays on `crossing`. A Wilson lower bound can never reach
+  # 1.0, so a confidence interval and a floor of 1.0 are mutually exclusive; at 1.0 the test is simply whether
+  # every one of the 2048 seeded episodes arrived. It still belongs on `crossing`, which is a genuine proportion
+  # below 1.
   #
   # Arriving is the objective and `saved` is how well: it is the share of the plain-running time the trip saved,
   # so on foot it measures the speed cooldowns and not stopping. mounted_fraction is deliberately not gated -- it
   # is 0 by construction here, and gating it would only restate the mask.
   min_over_baseline: 0.0
   metrics:
-    arrived: {min: 0.90, confidence: 0.95}
+    arrived: {min: 1.0}
     saved: {min: 0.05}
-    timed_out: {max: 0.10}
+    timed_out: {max: 0.0}
+  # Redundant against the floor above rather than weaker than it: if every layout arrives every time, so does the
+  # average. Kept because it is the line that says the standard is per character and not per cohort -- a build
+  # that cannot cross ground is not excused by the ones that can.
   layout_metrics:
-    arrived: {min: 0.75}
+    arrived: {min: 1.0}
   # Per arena, because an average over three kinds of ground hides the one the seat cannot handle: a policy that
   # crosses open ground perfectly and drowns in the water arena would pass a single `arrived` floor comfortably.
+  # At 1.0 the per-arena floors cannot be looser than the overall one, but they are what names the arena that
+  # failed, which is the difference between a halted queue you can act on and one you cannot.
   arenas:
     open:
       metrics:
-        arrived: {min: 0.95, confidence: 0.95}
+        arrived: {min: 1.0}
     broken:
       metrics:
-        arrived: {min: 0.85, confidence: 0.95}
+        arrived: {min: 1.0}
     water:
       metrics:
-        arrived: {min: 0.80, confidence: 0.95}
+        arrived: {min: 1.0}
         # A water arena that finds no crossing within reach of its spawn points falls back to an ordinary trip,
         # so the env still builds -- and would otherwise be a second copy of the open arena, reported as
         # teaching swimming and teaching nothing. `crossing` is what stops that being silent: it is what the
