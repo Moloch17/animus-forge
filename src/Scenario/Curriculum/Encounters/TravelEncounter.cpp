@@ -75,6 +75,22 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
     // zero is a seat that never moved; one with distance_travelled far above walk_distance is a seat that moved
     // plenty and in the wrong directions. Stuck and lost want opposite fixes.
     table.Add("distance_travelled", [this](Env const& env, uint32) { return _envs[env.Index].Travelled; });
+    // What the trip costs on dry land against what it costs straight, and whether there is a dry way at all.
+    //
+    // FindPlace calls a destination reachable when PathGenerator says PATHFIND_NORMAL, and a player's filter is
+    // NAV_GROUND | NAV_WATER | NAV_MAGMA -- so "reachable on foot" has always included swimming. An open or
+    // broken arena can therefore place an objective whose only route crosses a river: both ends dry, the water
+    // in the middle, and nothing naming it. That would look exactly like the failures these stages have -- a
+    // seat pacing a bank, covering seven hundred yards, finishing forty short, on the two arenas where the water
+    // is incidental and never on the one where it is the lesson. These two columns are what tell that apart:
+    // dry_distance 0 means no dry route exists, and a detour far above 1 means the dry way is much the longer.
+    table.Add("dry_distance", [this](Env const& env, uint32) { return _envs[env.Index].DryDistance; });
+    table.Add("dry_detour", [this](Env const& env, uint32)
+    {
+        EnvTravel const& travel = _envs[env.Index];
+        return travel.StartDistance > 0.0f && travel.DryDistance > 0.0f
+            ? travel.DryDistance / travel.StartDistance : 0.0f;
+    });
     table.Add("objective_distance_at_end", [this](Env const& env, uint32)
     {
         EnvTravel const& travel = _envs[env.Index];
