@@ -66,6 +66,20 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
         return float(travel.Arrived ? travel.ArriveMs : env.EpisodeElapsedMs) / 1000.0f;
     });
     table.Add("start_distance", [this](Env const& env, uint32) { return _envs[env.Index].StartDistance; });
+    // How far short the seat finished, in yards. `distance_at_end` is the distance to the *target*, and a
+    // movement stage has none by design, so it reads 0 for every episode of the four stages that are only about
+    // getting somewhere -- which left no way to tell a seat wedged against geometry forty yards out from one
+    // orbiting the objective at eight, never inside the six ARRIVE_YARDS wants. Those are different bugs with
+    // different fixes, and this is the column that separates them. 0 on an episode that arrived.
+    table.Add("objective_distance_at_end", [this](Env const& env, uint32)
+    {
+        EnvTravel const& travel = _envs[env.Index];
+        if (!travel.HasObjective || travel.Arrived)
+            return 0.0f;
+
+        Player* bot = _scenario.SeatBot(env, 0);
+        return bot ? bot->GetExactDist2d(&travel.Objective) : 0.0f;
+    });
     // Whether the episode was built as a water crossing at all, and how long the seat spent in the water. The
     // first says what the arena offered, the second what the seat did with it -- and a water arena where
     // swim_seconds stays at zero is either a policy that always goes round or spawn points with no water in
