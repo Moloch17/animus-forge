@@ -30,6 +30,12 @@ total_env_steps: 40000000
 
 eval:
   baseline: fight
+  # TEMPORARY, to see the shape of a failure rather than its average: every decision of the first 64 seeded
+  # episodes, written to eval_trace.jsonl. Around 6% of scored episodes end by covering seven hundred yards of a
+  # hundred-yard trip and finishing forty short, and no column says which motion that is -- orbiting the
+  # objective, pacing a barrier, or alternating two neighbouring bearings on the 45-degree lattice. They want
+  # different fixes and look identical in every average. Join it to eval_episodes.jsonl on `seed`.
+  trace_episodes: 64
   # Scored with the argmax, which is the default and is deliberate: a shipped bot decides greedily, so that is
   # the honest measure of one. Turned off for one experiment on 2026-09-22 -- sampling cut timeouts from 9.5% to
   # 6.4%, all of it on open and broken ground, which is what a deterministic livelock looks like. Left on would
@@ -41,7 +47,7 @@ eval:
   # tenth of the run: put it back to 10000000 once the question is answered.
   every_env_steps: 2000000
   report: [arrived, travel_seconds, start_distance, walk_distance, distance_travelled,
-           objective_distance_at_end, saved, died, timed_out, crossing, swim_seconds]
+           objective_distance_at_end, dry_distance, dry_detour, saved, died, timed_out, crossing, swim_seconds]
 
 convergence:
   min_env_steps: 20000000
