@@ -112,14 +112,31 @@ namespace
         // judged in, so GetHeight comes back INVALID_HEIGHT over any water worth swimming -- the same answer it
         // gives for the edge of the map. Reported as its own feature and as walkable reach, because water is
         // somewhere the seat can go; what it costs to go there is OBS_SWIM_SPEED's to say.
+        //
+        // Which liquid it is decides all of that, and LiquidData::Flags is what carries it: Status only says how
+        // deep the stuff is, so a test on Status alone called magma and slime "water" and handed the seat a lava
+        // lake as ground it could cross. Swimmable is water and ocean. Magma and slime are neither ground nor
+        // water but a way to die, so they read as no reach at all -- the same as a wall, which is the honest
+        // answer until a stage teaches crossing them at the narrow point.
         LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), x, y, from,
             bot->GetCollisionHeight(), {});
-        bool const water = liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > INVALID_HEIGHT
+        bool const liquidHere = liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > INVALID_HEIGHT
             && liquid.Level >= from - MoveBlock::MAX_STEP;
-        if (waterOut)
-            *waterOut = water ? 1.0f : 0.0f;
+        bool const swimmable = liquidHere
+            && (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) != 0;
+        bool const burns = liquidHere && (liquid.Flags & (MAP_LIQUID_TYPE_MAGMA | MAP_LIQUID_TYPE_SLIME)) != 0;
 
-        if (water)
+        if (waterOut)
+            *waterOut = swimmable ? 1.0f : 0.0f;
+
+        if (burns)
+        {
+            if (stepOut)
+                *stepOut = 0.0f;
+            return 0.0f;
+        }
+
+        if (swimmable)
         {
             if (stepOut)
                 *stepOut = 0.0f;
@@ -385,7 +402,10 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
     {
         LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), destination.GetPositionX(),
             destination.GetPositionY(), bot->GetPositionZ(), bot->GetCollisionHeight(), {});
+        // Water and ocean only: stepping into magma or slime is not a crossing, it is a death, and the probe
+        // reports it as no reach for that reason.
         if (liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > INVALID_HEIGHT
+            && (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) != 0
             && liquid.Level >= bot->GetPositionZ() - MAX_STEP)
         {
             std::optional<float> const entering = FacingFor(view);
