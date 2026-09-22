@@ -149,6 +149,14 @@ namespace Animus::Curriculum
         /// So an interior arena probes from the seat's own height, keeps the objective on a floor it could stand
         /// on, and adds a storey's worth of vertical tolerance to arriving. None of it touches an arena that
         /// leaves this false.
+        /// The seats may ask the pathfinder to walk the next leg of their route (TravelBlock's
+        /// ACTION_FOLLOW_ROUTE). Off everywhere by default, and deliberately.
+        ///
+        /// This is the action MOVE_TO_OBJECTIVE was retired as: an order the policy issues and then watches.
+        /// It earns its place on a trip measured in thousands of yards, where steering every eight yards for
+        /// ten minutes teaches nothing that the first hundred yards did not. It does not earn it on an arena
+        /// whose lesson is the steering itself, so stage1_move leaves it off and keeps what it has learned.
+        bool Routes = false;
         bool Indoors = false;
         std::vector<Position> SpawnPoints{};
         /// Ground kept back for evaluation: training never stands here. Empty means the arena has no control of

@@ -106,6 +106,18 @@ namespace Animus::Curriculum
         bool Valid = false;
     };
 
+    /// The way to the objective, as much of it as a seat needs: whether there is one, how far along it is
+    /// left, and the corner being walked to. The route itself is the encounter's -- this is the borrowed view
+    /// of it, copied per decision like everything else here.
+    struct SeatRoute
+    {
+        bool Allowed = false;       // the arena offers ACTION_FOLLOW_ROUTE at all
+        bool Valid = false;         // and there is a way to follow
+        bool Complete = false;      // which reaches the objective rather than stopping short
+        float Remaining = 0.0f;     // yards left along it
+        Position Next;              // the corner being walked to
+    };
+
     struct Hazard
     {
         float Distance = 0.0f;      // yards from the unit to its centre
@@ -318,6 +330,7 @@ namespace Animus::Curriculum
         float CloseRate = 0.0f;
         /// False in an on-foot arena (ArenaDefinition::OnFoot): the mount actions are masked out.
         bool MountsAllowed = true;
+        SeatRoute Route;
 
         // Flag match: the seat's flag and the other side's, from the seat's side.
         enum class FlagState : uint8 { AtBase, Carried, Dropped };

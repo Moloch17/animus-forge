@@ -63,6 +63,13 @@ namespace
     /// env stood on the same patch of scrub for its whole life and 128 of them saw eight places between them --
     /// which a network can fit instead of learning to read what is in front of it. The Barrens is flat scrub,
     /// Durotar canyon and rock, Mulgore open rolling grass, Dustwallow marsh and broken shore.
+    /// Ground the stage's own arenas spawn on.
+    ///
+    /// Five points that used to be in these lists are not any more, all of them off the navmesh and all found
+    /// by standing on them with `forge rays`. They were survivable while a placement that could not be routed
+    /// fell back to a straight line: the episode was built, it was measured against the crow's flight, and it
+    /// arrived about half the time. Now that the fallback is refused, no objective can be found from them at
+    /// all, and four spawn attempts in a row from one is a dead plan -- which is how they were noticed.
     std::vector<Position> KalimdorGround()
     {
         return {
@@ -76,11 +83,11 @@ namespace
             { -672.0f, -2005.0f, 63.0f, 0.0f },   { -2068.0f, -2106.0f, 93.0f, 0.0f },
             { -1942.0f, -1985.0f, 92.0f, 0.0f },  { -1991.0f, -2090.0f, 92.0f, 0.0f },
             // Durotar
-            { -120.0f, -4284.0f, 63.0f, 0.0f },   { -5.0f, -4286.0f, 68.0f, 0.0f },
+            { -120.0f, -4284.0f, 63.0f, 0.0f },
             { -99.0f, -4212.0f, 53.0f, 0.0f },    { 642.0f, -4185.0f, 15.0f, 0.0f },
             { 633.0f, -4298.0f, 18.0f, 0.0f },
             // Mulgore
-            { -1207.0f, 105.0f, 135.0f, 0.0f },   { -1285.0f, 118.0f, 120.0f, 0.0f },
+            { -1207.0f, 105.0f, 135.0f, 0.0f },
             { -1210.0f, -93.0f, 163.0f, 0.0f },
             // Dustwallow Marsh
             { -2631.0f, -3607.0f, 42.0f, 0.0f },  { -2751.0f, -3660.0f, 39.0f, 0.0f },
@@ -184,13 +191,13 @@ namespace
                     .OnFoot = true,
                     .SpawnPoints = {
                         // Mulgore/Barrens ridge, relief 78 over a 179 yard span
-                        { -1401.0f, -85.0f, 159.0f, 0.0f },   { -1449.0f, -25.0f, 124.0f, 0.0f },
+                        { -1401.0f, -85.0f, 159.0f, 0.0f },
                         { -1295.0f, 44.0f, 129.0f, 0.0f },
                         // Barrens ridge, relief 64 over 200
-                        { -428.0f, -2203.0f, 158.0f, 0.0f },  { -454.0f, -2419.0f, 93.0f, 0.0f },
+                        { -454.0f, -2419.0f, 93.0f, 0.0f },
                         { -373.0f, -2323.0f, 94.0f, 0.0f },
                         // Durotar: canyon and rock
-                        { -120.0f, -4284.0f, 63.0f, 0.0f },   { -5.0f, -4286.0f, 68.0f, 0.0f },
+                        { -120.0f, -4284.0f, 63.0f, 0.0f },
                         { -99.0f, -4212.0f, 53.0f, 0.0f },    { 642.0f, -4185.0f, 15.0f, 0.0f },
                         { 633.0f, -4298.0f, 18.0f, 0.0f },
                         // Dustwallow Marsh: broken shore
@@ -202,7 +209,7 @@ namespace
                     // `arrived` on the ridges, the seat is reading terrain rather than remembering places.
                     .HeldOutSpawnPoints = {
                         { -535.0f, -2988.0f, 93.0f, 0.0f },   { -634.0f, -3183.0f, 93.0f, 0.0f },
-                        { -536.0f, -3160.0f, 107.0f, 0.0f },
+
                     } },
                 // The banks of the Barrens oases -- Lushwater to the north, Stagnant to the south -- because the
                 // stage's own spawn points have no water within reach, and a water arena that finds no crossing
@@ -329,7 +336,11 @@ namespace
             .Extends = "stage2_dodge",
             .Summary = "a place 60-320 yd away by path: mount when it pays, get there, arrive on foot",
             .Blocks = { Core, Move, Travel, Duel },
-            .Arenas = { { .Name = "travel", .Against = Opposition::Travel, .EpisodeSeconds = 150 } },
+            // The one arena that offers ACTION_FOLLOW_ROUTE. Stage 1 teaches the feet and keeps the action
+            // masked; here the lesson is the trip -- whether to mount, when a ride pays for its cast -- and
+            // steering the same eight yards three hundred times is not part of it.
+            .Arenas = { { .Name = "travel", .Against = Opposition::Travel, .EpisodeSeconds = 150,
+                .Routes = true } },
             .MapId = MAP_KALIMDOR,
             .SpawnPoints = KalimdorGround(),
             .HeldOutSpawnPoints = KalimdorControl(),

@@ -589,6 +589,16 @@ void Animus::Curriculum::TravelEncounter::View(Env const& env, uint32 /*seat*/, 
     view.MoveRate = travel.MoveRate;
     view.CloseRate = travel.CloseRate;
     view.MountsAllowed = !_scenario.Arena(env).OnFoot;
+
+    view.Route.Allowed = _scenario.Arena(env).Routes;
+    view.Route.Valid = travel.Way.Valid;
+    view.Route.Complete = travel.Way.Complete;
+    view.Route.Remaining = travel.Way.Valid ? travel.Way.Length : 0.0f;
+    if (travel.Way.Valid && travel.Way.Count > 0)
+    {
+        uint32 const corner = std::min(travel.Way.Next, travel.Way.Count - 1);
+        view.Route.Next.Relocate(travel.Way.X[corner], travel.Way.Y[corner], travel.Way.Z[corner]);
+    }
 }
 
 void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Player* bot, RewardLedger& ledger)

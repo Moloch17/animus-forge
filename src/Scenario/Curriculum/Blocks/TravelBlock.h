@@ -58,7 +58,14 @@ namespace Animus::Curriculum
             OBS_IN_COMBAT               = 13,
             OBS_SPEED                   = 14,   // current movement speed / 7 yd/s / 4
             OBS_MOVING                  = 15,
-            OBS_COUNT                   = 16
+            /// The route, in the least a policy needs to time ACTION_FOLLOW_ROUTE: that there is one, how much
+            /// of it is left, and which way it goes next. The same argument as OBS_CAN_JUMP -- an action whose
+            /// mask the policy cannot see is one it cannot learn to press.
+            OBS_ROUTE_OK                = 16,
+            OBS_ROUTE_REMAIN            = 17,   // yards left along the way / 500, as OBS_OBJECTIVE_DISTANCE
+            OBS_ROUTE_SIN               = 18,   // the next corner's direction, in the seat's own frame
+            OBS_ROUTE_COS               = 19,
+            OBS_COUNT                   = 20
         };
 
         enum Action : uint32
@@ -66,7 +73,15 @@ namespace Animus::Curriculum
             ACTION_MOUNT_GROUND         = 0,    // the fastest ground mount it has
             ACTION_MOUNT_FLYING         = 1,    // the fastest flying mount it has
             ACTION_DISMOUNT             = 2,
-            ACTION_COUNT                = 3
+            /// Walk the next leg of the planned route, and keep walking it.
+            ///
+            /// The one action in this block that is a journey rather than a state change, and the one the
+            /// curriculum retired once already as MOVE_TO_OBJECTIVE. It is back because a trip of thousands of
+            /// yards is not the same problem as a trip of a hundred: steering every eight yards for ten minutes
+            /// rehearses nothing the first hundred yards did not teach. Masked unless the arena says Routes,
+            /// which no arena does by default -- so the stages whose lesson is the steering keep it.
+            ACTION_FOLLOW_ROUTE         = 3,
+            ACTION_COUNT                = 4
         };
 
         static constexpr float ARRIVE_DISTANCE = 6.0f;
@@ -81,6 +96,8 @@ namespace Animus::Curriculum
 
         [[nodiscard]] BlockId Id() const override { return BlockId::Travel; }
         [[nodiscard]] BlockSize Size(Layout const& layout) const override;
+        [[nodiscard]] std::string ActionName(Layout const& layout, uint32 local) const override;
+
         void Observe(SeatView const& view, float* obs, uint8* mask) const override;
         void BeforeApply(SeatView& view, SeatActionResult& result) const override;
         void Apply(SeatView& view, uint32 local, SeatActionResult& result) const override;
