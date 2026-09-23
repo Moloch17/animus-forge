@@ -188,7 +188,7 @@ namespace
                 // reach every objective, a shorter clock is a handicap with nothing to teach in it. The
                 // difference between these two arenas is the terrain, which is what it was always meant to be.
                 { .Name = "open", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Routes = true },
+                    .OnFoot = true },
                 // Ground that is actually broken. Until now neither arena declared spawn points, so both fell
                 // through to the stage list and ran on *the same terrain*: "broken ground is where the terrain
                 // probe earns its place" described an arena identical to the open one, and the measured detour
@@ -213,7 +213,7 @@ namespace
                 // barely moves, and the Durotar canyons and the Dustwallow shore are what this file already
                 // calls "canyon and rock" and "marsh and broken shore".
                 { .Name = "broken", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Routes = true,
+                    .OnFoot = true,
                     .SpawnPoints = {
                         // Mulgore/Barrens ridge, relief 78 over a 179 yard span
                         { -1401.0f, -85.0f, 159.0f, 0.0f },
@@ -243,7 +243,7 @@ namespace
                 // z 65 and the seats have to stand on the bank at 82-94 and decide to get in. Taken from the land
                 // creatures the oases are ringed with (Kolkar centaurs), so the ground under each one is real.
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Water = true, .Routes = true,
+                    .OnFoot = true, .Water = true,
                     .SpawnPoints = {
                         { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
                         { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
@@ -270,10 +270,11 @@ namespace
         // nothing parses them and training order comes from AnimusForge.Queue -- and the name says where it
         // belongs without the churn.
         //
-        // NOT in the default queue. The spawn points below are areatrigger centres straight out of
-        // areatrigger_tavern, which is the table that names and bounds every inn in the world; they have not yet
-        // been stood on. Some will be doorways or yards rather than rooms. Train it by name
-        // (`forge start stage1b_indoor`) and read the build failures before trusting it with a queue slot.
+        // In the default queue, straight after stage1_move. It stayed out while its spawn points were guesses;
+        // every one below has since been stood on with `forge rays`, and it is the stage that tests what the
+        // sixteen rays, the fifteen-degree turn, the clearance term and the jump were built for -- a doorway off
+        // the objective's axis, which open country never asks for. stage2_dodge still extends stage1_move
+        // directly: the seed chain is the definition's, not the queue's.
         stages.push_back({
             .Name = "stage1b_indoor",
             .Suffix = "_indoor",
@@ -286,7 +287,6 @@ namespace
                 { .Name = "rooms", .Against = Opposition::Travel, .EpisodeSeconds = 90,
                     .OnFoot = true, .Indoors = true },
             },
-            .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
             // Every inn on Kalimdor that areatrigger_tavern names, spread across regions for the same reason the
             // ground list is: a policy that sees four rooms learns four rooms.
@@ -361,11 +361,12 @@ namespace
             .Extends = "stage2_dodge",
             .Summary = "a place 60-320 yd away by path: mount when it pays, get there, arrive on foot",
             .Blocks = { Core, Move, Travel, Duel },
-            // The one arena that offers ACTION_FOLLOW_ROUTE. Stage 1 teaches the feet and keeps the action
-            // masked; here the lesson is the trip -- whether to mount, when a ride pays for its cast -- and
-            // steering the same eight yards three hundred times is not part of it.
-            .Arenas = { { .Name = "travel", .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                .Routes = true } },
+            // The lesson is the trip -- whether to mount, when a ride pays for its cast -- on top of the steering
+            // stage 1 taught. It used to offer ACTION_FOLLOW_ROUTE here, a pathfound leg at a time, on the
+            // argument that steering the same eight yards three hundred times teaches nothing new; but a route
+            // walked by the engine is the engine navigating, and the policy pressed it in most of its episodes.
+            // The seat walks the whole trip itself now.
+            .Arenas = { { .Name = "travel", .Against = Opposition::Travel, .EpisodeSeconds = 150 } },
             .MapId = MAP_KALIMDOR,
             .SpawnPoints = KalimdorGround(),
             .HeldOutSpawnPoints = KalimdorControl(),
@@ -380,7 +381,18 @@ namespace
             .Extends = "stage3_travel",
             .Summary = "a place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount",
             .Blocks = { Core, Move, Travel, Duel },
-            .Arenas = { { .Name = "flight", .Against = Opposition::Travel, .EpisodeSeconds = 180, .Flying = true } },
+            // Two arenas. `flight` places its objective anywhere the height probe finds dry ground, which in
+            // Nagrand is nearly always walkable, and 700 yards at run speed is 100 s of a 180 s clock: a ground
+            // ride arrives often enough that flying stays optional, and nine of ten class heads never found the
+            // flying mount. `flight_air` is where the wings are the way: an objective the ground route does not
+            // reach (a plateau, a floating island), the ground mount masked, and arrival measured at the
+            // objective's own height so the cliff foot under it does not count.
+            .Arenas = {
+                { .Name = "flight", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 180,
+                    .Flying = true },
+                { .Name = "flight_air", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 180,
+                    .Flying = true, .AirOnly = true },
+            },
             .MapId = MAP_OUTLAND,
             // Four Outland regions to take off from, rather than one: Hellfire's broken flats, Zangarmarsh's
             // mushroom basins, Shadowmoon's ridges at nearly 300 yards of altitude, and Terokkar's low forest.
@@ -850,8 +862,10 @@ namespace
             return "a director needs the order block: its seats have to read what it asks";
         if (arena.OnFoot && arena.Against != Opposition::Travel)
             return "only a travel arena can be made on foot: there is nothing else a mount would be barred from";
-    if (arena.OnFoot && arena.Flying)
+        if (arena.OnFoot && arena.Flying)
             return "an arena is on foot or it flies, not both";
+        if (arena.AirOnly && !arena.Flying)
+            return "an air-only arena flies: AirOnly needs Flying";
         if (arena.Places && !arena.Directed)
             return "only a director names a place: the arena has to be directed";
         if (arena.DirectorLearned && !arena.Directed)
