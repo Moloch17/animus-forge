@@ -23,8 +23,8 @@ mappo:
   gae_lambda: 0.995
 
 eval:
-  report: [arrived, travel_seconds, mounted_fraction, flying_fraction, flying_mount_fraction,
-    knows_flying_mount, could_mount_flying, flew, saved_if_flew, saved_if_ground,
+  report: [arrived, spl, lost, wedged, stall_seconds, air_only, travel_seconds, mounted_fraction, flying_fraction,
+    flying_mount_fraction, knows_flying_mount, could_mount_flying, flew, saved_if_flew, saved_if_ground,
     flight_speed, flight_yps, flight_yps_peak, flying_flag_share, flight_height, saved, died]
 
 target:
@@ -43,6 +43,12 @@ target:
     arrived: {min: 1.0}
     flew: {min: 0.35}
     saved_if_flew: {min: 0.30}
+  # Per class as well: nine of ten class heads had never found the flying mount while the mage flew 0.96 of its
+  # trips, and an average over the ten hid it. A third of the episodes (the flight_air arena) can only be finished
+  # in the air, so a class that arrives there flew.
+  layout_metrics:
+    arrived: {min: 1.0}
+    flew: {min: 0.35}
   # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena and it
   # is not any of them, so those inherited entries name arenas that do not exist here and the learner refuses to
   # start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with a single

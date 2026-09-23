@@ -23,6 +23,8 @@ rollout_length: 256
 mappo:
   gamma: 0.999
   gae_lambda: 0.995
+  # As stage1_move: the argmax policy is the one that is gated, so the exploration bonus anneals towards it.
+  entropy_final_fraction: 0.3
 # A drill, not a stage of the curriculum: it is there to move one behaviour, and the behaviour shows early.
 total_env_steps: 60000000
 convergence:
@@ -45,4 +47,14 @@ target:
   metrics:
     hazard_seconds: {max: 4.0}
     died: {max: 0.0}
+  # The tier-0 clean_kill gate inherited from stage5_duel could never pass here: nothing is killed, so clean_kill is
+  # 0 by construction, and a stage with no tiers is judged for tier 0 on its whole summary. An empty map is the only
+  # way to drop an inherited key (see stage1_move.yaml).
+  difficulties: {}
   until_passed: true
+
+# No sampling metric: the sampler reads one as higher-is-better and replays the episodes below 1.0 on it, and this
+# drill emits no such 0/1 column of its own -- hazard_seconds is a maximum and died is a loss. The classes are still
+# weighted by their gap to the baseline.
+layout_sampling:
+  metric: ""

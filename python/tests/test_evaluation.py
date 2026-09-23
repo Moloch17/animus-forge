@@ -11,8 +11,8 @@ import pytest
 from animus import protocol as p
 from animus.config import TrainConfig
 from animus.env import ForgeEnv
-from animus.evaluation import (LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, casting_weights,
-                               run_evaluation, standard_error)
+from animus.evaluation import (LIVELOCK_CANCELS, ConvergenceTracker, EvalResult, action_mask_table,
+                               casting_weights, run_evaluation, standard_error)
 from animus.train import init_from_checkpoint
 
 SPEC = p.Spec(
@@ -59,6 +59,40 @@ def blank_step(decision: int) -> p.Step:
         episode_info=np.zeros((e, a, SPEC.episode_info_dim), np.float32),
         episode_seed=np.full(e, p.NO_EPISODE_SEED, np.uint32),
     )
+
+
+def test_travel_failures_are_named_by_how_far_they_wandered():
+    """lost, wedged and spl derive from arrived, distance_travelled and walk_distance: a trip that did not arrive and
+    covered three times its path wandered, one that covered half of it never got going, and spl is success weighted
+    by how much further than the path the seat walked."""
+    result = EvalResult(
+        policy="learner",
+        returns=np.zeros(4),
+        infos=np.array([[1.0, 100.0, 100.0], [0.0, 400.0, 100.0], [0.0, 30.0, 100.0], [1.0, 200.0, 100.0]],
+                       dtype=np.float32),
+        info_names=("arrived", "distance_travelled", "walk_distance"),
+        layouts=("warrior_dps",) * 4,
+        seeds=(0, 1, 2, 3),
+    )
+    derived = result.derived()
+    assert derived["lost"].tolist() == [0.0, 1.0, 0.0, 0.0]
+    assert derived["wedged"].tolist() == [0.0, 0.0, 1.0, 0.0]
+    assert derived["spl"].tolist() == pytest.approx([1.0, 0.0, 0.0, 0.5])
+    summary = result.summary(("arrived",))
+    assert summary["lost"] == 0.25 and summary["wedged"] == 0.25
+    assert summary["spl"] == pytest.approx(0.375)
+    assert result.failed_seeds("arrived") == [1, 2]
+
+
+def test_eval_action_mask_resolves_names_per_layout():
+    """The same action is a different index in every class's catalog, so the mask is resolved by name per layout;
+    a name no layout has is a mistake and raises rather than masking nothing."""
+    names = {"warrior_dps": ["noop", "a", "follow_route"], "mage_dps": ["noop", "follow_route"]}
+    table = action_mask_table(["follow_route"], ["warrior_dps", "mage_dps"], names, 3)
+    assert table.tolist() == [[False, False, True], [False, True, False]]
+    assert action_mask_table((), ["warrior_dps"], names, 3) is None
+    with pytest.raises(ValueError, match="no layout has"):
+        action_mask_table(["face_objective"], ["warrior_dps"], names, 3)
 
 
 def test_run_evaluation_collects_each_seed_once(tmp_path):

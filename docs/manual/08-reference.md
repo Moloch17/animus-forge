@@ -192,7 +192,6 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Actions.Repeat` | 0.02 | | | |
 | `Actions.RepeatWindowMs` | 10000 | | | |
 | `Actions.RepeatFree` | 3 | | | |
-| `Actions.ReverseMoveMs` | 1000 | | | |
 | `Actions.ModeLockMs` | 5000 | | | |
 | `Difficulty.MaxTier` | 6 | | | |
 | `Difficulty.EliteTier` | 4 | | | |
@@ -206,8 +205,9 @@ for every key with a default and no warning, so an undocumented one quietly keep
 |---|---|---|---|---|
 | `Options.RestMaxMs` | 30000 | | | |
 | `Options.HoldInterruptMs` | 10000 | | | |
-| `Options.KeepRangeMs` | 10000 | | | |
-| `Options.StayOnTargetMs` | 10000 | | | |
+| `Options.MoveBearingMs` | 3000 | | | |
+| `Options.MoveTurnMs` | 750 | | | |
+| `Options.MovePitchMs` | 750 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
@@ -251,10 +251,12 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Travel.DamageTaken` | 1.0 | | `Flag.Pickup` | 1.0 |
 | `Travel.Death` | 3.0 | | `Flag.Return` | 1.0 |
 | `Travel.StepCost` | 0.0002 | | `Flag.CarrierKill` | 1.5 |
-| | | | `Flag.Lost` | 3.0 |
-| | | | `Flag.Progress` | 0.5 |
-| | | | `Flag.Death` | 1.0 |
-| | | | `Flag.StepCost` | 0.0002 |
+| `Travel.DetourEasy` | 1.15 | | `Flag.Lost` | 3.0 |
+| `Travel.DetourHard` | 1.4 | | `Flag.Progress` | 0.5 |
+| `Travel.DetourEasyShare` | 0.4 | | `Flag.Death` | 1.0 |
+| `Travel.DetourMidShare` | 0.35 | | `Flag.StepCost` | 0.0002 |
+| `Travel.AirDetour` | 2.5 | | | |
+| `Travel.AirArriveRise` | 10.0 | | | |
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight. Arena ladder pin:
 `Arena.<stage>.<arena>.MaxRung`, defaulting to the definition's (`-1`: the ladder climbs to `Pulls.MaxTier`).

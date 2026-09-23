@@ -19,8 +19,10 @@
 #   - a jump, which is the one move no pathfinder can propose: a route is polygons that touch, and a gap has
 #     none.
 #
-# NOT in the default queue, and deliberately so -- it is a side branch off stage1_move, not a rung of the
-# ladder. Train it by name:
+# In the default queue, straight after stage1_move, and still a side branch: nothing extends it, so stage2_dodge
+# seeds from stage1_move as before. It joined the queue once its rooms were known to be rooms (below), because it is
+# the stage that tests what the sixteen rays, the fifteen-degree turn, the clearance term and the jump were built
+# for -- a doorway off the objective's axis, which open country never asks for. It still trains by name too:
 #
 #   forge start stage1b_indoor
 #
@@ -43,8 +45,8 @@ eval:
   # Until the rooms are known to be rooms, look often and trace what happens.
   every_env_steps: 2000000
   trace_episodes: 64
-  report: [arrived, travel_seconds, start_distance, walk_distance, distance_travelled,
-           objective_distance_at_end, trip_share, saved, died, timed_out, reward_clearance]
+  report: [arrived, spl, lost, wedged, stall_seconds, stalls, travel_seconds, start_distance, walk_distance,
+           distance_travelled, objective_distance_at_end, trip_share, saved, died, timed_out, reward_clearance]
 
 target:
   # The movement phase's standard, unchanged: the bot always arrives. It is fair here for the same reason it is

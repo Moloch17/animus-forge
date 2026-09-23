@@ -37,7 +37,8 @@ from .bootstrap import seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
-from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, casting_weights, format_summary,
+from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, action_mask_table, casting_weights,
+                         format_summary,
                          run_evaluation)
 from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
@@ -388,6 +389,12 @@ class TrainingRun:
                            for name, layout in (self.stage or {}).get("layouts", {}).items()}
         validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
                         else None)
+        # An evaluation-only action mask (eval.mask_actions), resolved by name per layout here so that a name no
+        # layout has is refused before anything trains.
+        self.eval_action_mask = action_mask_table(config.eval.mask_actions, [layout.name for layout in spec.layouts],
+                                                  self.action_names, spec.num_actions)
+        if self.eval_action_mask is not None:
+            print(f"Evaluation masks {list(config.eval.mask_actions)} in every layout that has them", flush=True)
 
         # The layout that decides on a slow clock, by name: its index moves with the stage, and a stage without
         # one simply has no agents of it.
@@ -598,10 +605,13 @@ class TrainingRun:
         """A chooser for run_evaluation that carries a recurrent actor's memory between decisions and clears it where
         an episode has just ended (the step it is given is the new one's first)."""
         acting = self.trainer.acting_state(self.spec.num_envs, self.spec.agents_per_env)
+        forbidden = self.eval_action_mask
 
         def choose(step):
             acting.clear(step.done)
-            actions = self.trainer.act(step.obs, step.mask, step.layout, deterministic, acting)[0]
+            # The sim's mask less the actions the evaluation may not take (eval.mask_actions), per layout.
+            mask = step.mask if forbidden is None else np.logical_and(step.mask, ~forbidden[step.layout])
+            actions = self.trainer.act(step.obs, mask, step.layout, deterministic, acting)[0]
             return (actions, acting.goal) if acting.goal is not None else actions
 
         return choose
@@ -683,8 +693,13 @@ class TrainingRun:
             action_names=self.action_names)
         result.policy = "learner_sampled"
         summary = result.summary(self.report)
+        fields = [name for name in ("score", "clean_kill", "killed", "died", "timed_out", "arrived")
+                  if name in summary]
+        # The gap, sampled minus argmax, kept with the sampled row of eval.jsonl: a wide one says the gated policy is
+        # not the one that trained, which is what mappo.entropy_final_fraction is there to close.
+        summary["argmax_gap"] = {name: float(summary[name]) - float(argmax[name])
+                                 for name in fields if isinstance(argmax.get(name), (int, float))}
         self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
-        fields = [name for name in ("score", "clean_kill", "killed", "died", "timed_out") if name in summary]
         print("Sampled vs argmax actions on the evaluation seeds: " + ", ".join(
             f"{name} {summary[name]:.4g} / {argmax.get(name, float('nan')):.4g}" for name in fields), flush=True)
 

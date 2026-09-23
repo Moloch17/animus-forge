@@ -48,7 +48,14 @@ LIVELOCK_CANCELS = 20
 # (target.metrics, target.layout_metrics); they are not episode info names, so validation allows them by name.
 # clean_kill: the fight was won outright -- the opponent killed and the seat never dead. killed and died are gated
 # apart, and their means cannot say whether the episodes that killed are the ones that did not die.
-DERIVED_METRICS = ("livelocked", "clean_kill")
+# lost / wedged / spl, on a travel stage: how a trip failed. A seat that did not arrive and covered more than
+# LOST_ABOVE times the path it was given wandered (38 of 42 stage1_move failures and 57 of 61 stage3_travel's); one
+# that covered less than WEDGED_BELOW of it never got going. They want opposite fixes and look identical in `arrived`.
+# spl is success weighted by path length -- arrived x path / max(path, covered), the navigation literature's SPL --
+# 1 for a seat that walked exactly the path and 0 for one that did not arrive.
+DERIVED_METRICS = ("livelocked", "clean_kill", "lost", "wedged", "spl")
+LOST_ABOVE = 3.0
+WEDGED_BELOW = 0.5
 
 
 @dataclass
@@ -154,7 +161,8 @@ class EvalResult:
         return sorted({int(seed) for seed, value in zip(self.seeds, values) if value < 1.0})
 
     def derived(self) -> dict[str, np.ndarray]:
-        """Per episode, the DERIVED_METRICS the episode info can give: 1.0 where it holds, else 0.0."""
+        """Per episode, the DERIVED_METRICS the episode info can give: 1.0 where it holds, else 0.0 (spl, a
+        weighted success, is a fraction)."""
         out = {}
         # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a tail,
         # not a shift (stage5_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
@@ -164,6 +172,14 @@ class EvalResult:
         killed, died = self.column("killed"), self.column("died")
         if killed is not None and died is not None:
             out["clean_kill"] = ((killed > 0.0) & (died <= 0.0)).astype(np.float64)
+        arrived, covered, path = (self.column("arrived"), self.column("distance_travelled"),
+                                  self.column("walk_distance"))
+        if arrived is not None and covered is not None and path is not None:
+            length = np.maximum(path.astype(np.float64), 1e-6)
+            failed = arrived <= 0.0
+            out["lost"] = (failed & (covered > LOST_ABOVE * length)).astype(np.float64)
+            out["wedged"] = (failed & (covered < WEDGED_BELOW * length)).astype(np.float64)
+            out["spl"] = np.where(arrived > 0.0, length / np.maximum(length, covered), 0.0).astype(np.float64)
         return out
 
     def summary(self, columns: tuple[str, ...]) -> dict:
@@ -263,6 +279,30 @@ class EvalResult:
                 if rows.any():
                     result["builds"][plan] = means(rows)
         return result
+
+
+def action_mask_table(names, layout_names, action_names: dict[str, list[str]], num_actions: int):
+    """An evaluation-only action mask (eval.mask_actions): per layout, which action indexes `names` resolve to, as a
+    [layouts, num_actions] table of what to forbid; None when there is nothing to forbid.
+
+    Resolved per layout, because the same action sits at a different index in every class's catalog -- follow_route
+    was index 90 for the warrior alone. A name no layout has is a mistake in the config, and raises rather than
+    silently masking nothing.
+    """
+    names = tuple(names or ())
+    if not names:
+        return None
+    table = np.zeros((len(layout_names), num_actions), dtype=bool)
+    found = set()
+    for index, layout in enumerate(layout_names):
+        for action, name in enumerate(action_names.get(layout, [])):
+            if name in names and action < num_actions:
+                table[index, action] = True
+                found.add(name)
+    missing = sorted(set(names) - found)
+    if missing:
+        raise ValueError(f"eval.mask_actions names actions no layout has: {missing}")
+    return table
 
 
 def casting_weights(summary: dict, baseline: dict | None, strength: float, max_ratio: float,

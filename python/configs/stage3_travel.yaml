@@ -11,7 +11,8 @@ total_env_steps: 30000000
 
 eval:
   baseline: fight
-  report: [arrived, travel_seconds, start_distance, mounted_fraction, saved, died,
+  report: [arrived, spl, lost, wedged, stall_seconds, stalls, travel_seconds, start_distance, walk_distance,
+           distance_travelled, dry_detour, detour_band, mounted_fraction, saved, died,
            route_complete, route_failed, route_shortcut]
 
 convergence:

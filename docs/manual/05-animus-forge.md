@@ -225,7 +225,7 @@ from an in-game administrator's chat.
 | `forge cancel` | End the plan. The learner saves `latest.pt` first |
 | `forge skip` | End the current scenario (the learner saves) and start the next |
 | `forge run <scenario> <policy> [episodes]` | A local plan: `random`, `greedy` or `fight`, for N episodes or until cancelled. `forge run <s> remote` is refused (use `start`) |
-| `forge rays <map> <x> <y> <z> [facing]` | What the movement block's navmesh senses read standing there, with no seat, policy or run: reach and shore along each bearing, the burning edge, clearance and the way out, whether the point is inside a building, and the floor under it. Every one of those is a Detour query on `{y, z, x}` axes, where a wrong swizzle returns plausible numbers about the wrong place and nothing downstream can catch it — so the report measures one wall three independent ways and prints whether they agree. Also the way to vet a spawn point before a stage trains on it |
+| `forge rays <map> <x> <y> <z> [facing]` | What the movement block's navmesh senses read standing there, with no seat, policy or run: reach and shore along each of the sixteen rays (the eight bearings and the rays half way between them), the burning edge, clearance and the way out, whether the point is inside a building, and the floor under it. Every one of those is a Detour query on `{y, z, x}` axes, where a wrong swizzle returns plausible numbers about the wrong place and nothing downstream can catch it — so the report measures one wall three independent ways and prints whether they agree. Also the way to vet a spawn point before a stage trains on it |
 | `forge talents <class_role> [spec] [points] [plan]` | Print the talent build the curriculum would give that class (which talents, in which tree, at how many ranks). `points` defaults to a level 80 character's, `plan` is `standard`, `noisy` or `random` |
 | `forge bench [scenario]` | Time the sim at every `AnimusForge.Bench.Threads` x `Envs` pair, then the fastest few with the learner; `forge bench apply` writes the winner into the configs |
 | `forge export [scenario] [best\|latest]` | Background `python -m animus.export` of `best.pt` (else `latest.pt`) of the scenario (default: the current or last one) into `ModelDir`, with the layout manifests. Output in `animus-export.log`. One export at a time. Works while training |
@@ -563,8 +563,11 @@ Combat rolls stay random, so every score carries a standard error.
 
 **Sampled actions** (`eval.sampled_every`): every that many evaluations, the learner also plays sampled actions on the
 same seeds and logs them as policy `learner_sampled` beside the argmax evaluation, printing score, `clean_kill`,
-`killed`, `died` and `timed_out` for both. Training samples; evaluation and exported models take the argmax, so a wide
-gap means the gated policy is not the one that trained (lower `mappo.entropy_final_fraction` then).
+`killed`, `died`, `timed_out` and `arrived` for both, and writing the differences into that row of `eval.jsonl` as
+`argmax_gap` (sampled minus argmax, per field). Training samples; evaluation and exported models take the argmax, so
+a wide gap means the gated policy is not the one that trained (lower `mappo.entropy_final_fraction` then -- the
+movement stages run it at 0.3 for exactly this reason: stage1_move's sampled policy arrived 0.996 against the
+argmax's 0.979).
 
 **The baseline** (`eval.baseline`, `fight` for the curriculum) is scored once per run on the same seeds. It is cached in
 `eval_baseline.json` under a key of policy, seed, episodes, opponents, arenas and the stage tuning, and in
@@ -594,8 +597,10 @@ Score gates are relative to the baseline on the same seeds: `score >= baseline +
   character per seeded episode). A looser floor so no layout hides behind the average, since the next stage seeds
   every layout.
 - `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
-  these. Two derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying, and
-  `livelocked`, the share stuck in a cast/stop loop. A bound with `confidence` (for example
+  these. Five derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying,
+  `livelocked`, the share stuck in a cast/stop loop, and on a travel stage `lost` (did not arrive and covered more
+  than three times the path), `wedged` (did not arrive and covered less than half of it) and `spl` (arrived, times
+  the path over the distance actually covered: success weighted by path length). A bound with `confidence` (for example
   `{clean_kill: {min: 0.9, confidence: 0.95}}`) judges a share by its one-sided Wilson bound over the group's episodes
   instead of its raw mean: a minimum must hold for the lowest rate the episodes are consistent with, a maximum for the
   highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among

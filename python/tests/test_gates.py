@@ -295,7 +295,25 @@ def gated_names(target) -> dict[str, str]:
     for arena, gates in (target.arenas or {}).items():
         for name in (gates or {}).get("metrics") or {}:
             found.setdefault(name, f"target.arenas.{arena}")
+    for tier, gates in (target.difficulties or {}).items():
+        for name in (gates or {}).get("metrics") or {}:
+            found.setdefault(name, f"target.difficulties.{tier}")
     return found
+
+
+MOVEMENT_STAGES = ("stage1_move", "stage1b_indoor", "stage2_dodge", "stage3_travel", "stage4_flight")
+
+
+@pytest.mark.parametrize("name", MOVEMENT_STAGES)
+def test_movement_stages_gate_on_no_difficulty_tier(name):
+    """The movement stages extend stage5_duel's config and inherited its tier-0 gate, clean_kill >= 0.95. Nothing
+    is killed on a trip, so clean_kill is 0 there by construction; a stage with no difficulty tiers is judged for
+    tier 0 on its whole summary (gates.py); and every movement stage failed its gate at every evaluation --
+    stage1_move/stage.jsonl: "tier 0 clean_kill (min, 95% lower bound) 0 (needs 0.95)". The emission check above
+    cannot catch it, because killed and died are columns every stage emits. An empty map is the only way to drop an
+    inherited key, so each of these has to say `difficulties: {}` itself."""
+    config = TrainConfig.load(Path(__file__).parent.parent / "configs" / f"{name}.yaml")
+    assert config.target.difficulties == {}, f"{name} inherits a difficulty-tier gate it can never pass"
 
 
 @pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "configs").glob("*.yaml")), ids=str)

@@ -59,11 +59,11 @@ def test_the_manual_matches_the_config(name):
 def test_the_queue_total_is_what_the_manual_says():
     """The manual states the whole queue in one number, which is the one a person plans a run from."""
     rows = documented()
-    # Neither the mix_duel_pvp pilot nor the stage1b_indoor drill is in the default queue
-    # (StageDefinition::InDefaultQueue is false for both): they are trained by name.
-    outside = {"mix_duel_pvp", "stage1b_indoor"}
+    # The mix_duel_pvp pilot is not in the default queue (StageDefinition::InDefaultQueue is false): it is trained
+    # by name. stage1b_indoor joined the queue after stage1_move on 2026-09-23.
+    outside = {"mix_duel_pvp"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
-    assert queue == 2_100_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,100M"
+    assert queue == 2_130_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,130M"
     assert sum(v["total_env_steps"] for v in rows.values()) == 2_190_000_000
 
 

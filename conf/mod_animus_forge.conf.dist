@@ -732,9 +732,6 @@ AnimusForge.Curriculum.Actions.Repeat = 0.02
 AnimusForge.Curriculum.Actions.RepeatWindowMs = 10000
 #   presses of one action within the window that cost nothing
 AnimusForge.Curriculum.Actions.RepeatFree = 3
-#   a movement order back the way the last one went (in toward the target, then away, or the reverse) waits this
-#   long (ms); movement is still free, only the reversal waits
-AnimusForge.Curriculum.Actions.ReverseMoveMs = 1000
 #   a stance, form, presence, aspect, aura, seal, armor or pet stance holds this long before another change of its
 #   kind (ms)
 AnimusForge.Curriculum.Actions.ModeLockMs = 5000
@@ -896,19 +893,17 @@ AnimusForge.Curriculum.Pulls.OwnerWinPulls = 5
 #    AnimusForge.Curriculum.Options.*
 #        Description: How long a durative action may run before the seat has to choose again (ms). One press of
 #                     one stands for many decisions: resting until health and mana are back, holding an interrupt
-#                     for the target's next cast, or keeping a caster's distance. They also end on their own
-#                     conditions, and any other action the policy takes cancels them.
-#        Default:     30000 / 10000 / 10000
+#                     for the target's next cast, or walking a bearing. They also end on their own conditions,
+#                     and any other action the policy takes cancels them -- except that only the feet end a held
+#                     bearing, and only its own opposite ends a held turn or pitch.
+#        Default:     30000 / 10000 / 3000 / 750 / 750
 #
 AnimusForge.Curriculum.Options.RestMaxMs = 30000
 AnimusForge.Curriculum.Options.HoldInterruptMs = 10000
-AnimusForge.Curriculum.Options.KeepRangeMs = 10000
-#   ... and a melee spec back into melee reach whenever the target leaves it (ms)
-AnimusForge.Curriculum.Options.StayOnTargetMs = 10000
 #   ... and how long a bearing chosen with the move block keeps being walked before it lapses (ms). Shorter than the
-#   others on purpose: those are standing instructions about a target, which stay true while the fight does, where a
-#   direction chosen against the ground goes stale as soon as the seat has covered it. Re-pressing keeps it going,
-#   which is what a held key is.
+#   two above on purpose: those are standing instructions that stay true while the fight does, where a direction
+#   chosen against the ground goes stale as soon as the seat has covered it. Re-pressing keeps it going, which is
+#   what a held key is.
 AnimusForge.Curriculum.Options.MoveBearingMs = 3000
 
 #   ... and how long a turn or a pitch keeps being held (ms). Shorter again than a bearing: a seat that keeps turning
@@ -1079,11 +1074,29 @@ AnimusForge.Curriculum.Travel.FootMax = 160
 #   flying arenas: yards from the start
 AnimusForge.Curriculum.Travel.FlyingMin = 350.0
 AnimusForge.Curriculum.Travel.FlyingMax = 700.0
+#   which trips the ground arenas ask for, by how much longer the walking way round is than the straight line:
+#   each episode draws a band first -- DetourEasyShare of them under DetourEasy, DetourMidShare between DetourEasy
+#   and DetourHard, the rest from DetourHard up to the generator's ceiling of 1.8 -- and looks for an objective in
+#   it. Drawn uniformly, real detours were the tail (51% of stage1_move's trips and 82% of stage3_travel's had a
+#   dry detour under 1.15), and a policy taught on straight lines learns to hold forward. Water, indoor and flying
+#   arenas draw no band
+AnimusForge.Curriculum.Travel.DetourEasy = 1.15
+AnimusForge.Curriculum.Travel.DetourHard = 1.4
+AnimusForge.Curriculum.Travel.DetourEasyShare = 0.4
+AnimusForge.Curriculum.Travel.DetourMidShare = 0.35
+#   air-only arenas (stage4_flight's flight_air): a place is accepted only when the ground route to it is missing
+#   or longer than AirDetour times the straight line, so the wings are the way and not a slower option; and
+#   arriving there means standing within AirArriveRise yards of the objective's own height, or the foot of the
+#   cliff six yards under a plateau's edge would count
+AnimusForge.Curriculum.Travel.AirDetour = 2.5
+AnimusForge.Curriculum.Travel.AirArriveRise = 10.0
 #   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
 #   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
 AnimusForge.Curriculum.Travel.IndoorMin = 8.0
 AnimusForge.Curriculum.Travel.IndoorMax = 40.0
-#   potential shaping: per 100 yd closed (taken back for leaving)
+#   potential shaping: what closing the whole trip pays, spread over its length -- per 100 yd on a trip shorter
+#   than that -- and taken back for leaving. Per 100 yd whatever the trip, a 700 yd flight paid more for progress
+#   than for arriving
 AnimusForge.Curriculum.Travel.Progress = 1.0
 AnimusForge.Curriculum.Travel.Arrive = 3.0
 #   times the fraction of the walk the trip saved: 0 on foot, ~0.3 mounted over
@@ -1105,10 +1118,6 @@ AnimusForge.Curriculum.Travel.ClearanceMax = 0.6
 #   was walking to, or after RouteRefresh seconds -- movement first, because at seven yards a second a clock alone
 #   goes stale inside the first corner. RouteCorner is how near counts as having reached one, and wants to be
 #   wider than a decision's travel (1.75 yd at run speed) so a corner cannot be stepped over and walked back to
-#   where the pathfinder hands the trip back: follow-route is offered while more than this many yards of route
-#   remain and masked inside it, so the long haul can be delegated and the approach cannot. The last forty yards
-#   are where arriving on the mark, keeping off the walls and stepping round what is underfoot live
-AnimusForge.Curriculum.Travel.RouteHandoff = 40.0
 AnimusForge.Curriculum.Travel.RouteStray = 25.0
 AnimusForge.Curriculum.Travel.RouteRefresh = 5.0
 AnimusForge.Curriculum.Travel.RouteCorner = 5.0

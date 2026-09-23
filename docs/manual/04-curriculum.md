@@ -1,9 +1,8 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. Twenty-five scenarios are defined; **twenty-three are the default queue**, in the
-order they are trained, and two are trained only by name: the `stage1b_indoor` drill and the `mix_duel_pvp`
-pilot.
+`src/Scenario/Curriculum/`. Twenty-five scenarios are defined; **twenty-four are the default queue**, in the
+order they are trained, and one is trained only by name: the `mix_duel_pvp` pilot.
 
 Every stage trains the same ten class policies over a shared trunk, so what one class learns about moving,
 threat or interrupts helps the others. A class policy plays every role its class has specs for, and is measured
@@ -17,7 +16,7 @@ the stage it seeds from.
 
 ```
 stage1_move          open ground, broken ground, water   ── the feet
-├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── trained by name, not queued
+├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── queued after stage1_move; nothing extends it
 └─ stage2_dodge      fire underfoot, nothing to fight
    └─ stage3_travel  the mount
       └─ stage4_flight
@@ -80,10 +79,10 @@ one commanding each side (see 4.12).
 | Stage | Extends | Seats | Blocks added | What it is |
 |---|---|---|---|---|
 | `stage1_move` | — | Solo | core, move, travel, duel | **The root, and nothing to fight.** A place 40-160 yd away on foot -- mounting is masked, so the trip is made with the speed cooldowns the class has. Three arenas: open ground, genuinely broken ground (ridges, canyon and shore, chosen by measured local relief), and water whose way round is longer than the way through. Every arrival gate is 1.0 -- the bot always arrives -- which is fair only because the generator refuses to place an objective the character cannot reach in the time it has |
-| `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the bearings' navmesh raycast, the 15-degree turn, the clearance term and the jump are all worth something. Trained by name, not in the default queue, until its rooms are known to be rooms |
+| `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the sixteen navmesh rays, the 15-degree turn, the clearance term and the jump are all worth something. In the default queue after `stage1_move`; nothing extends it, so `stage2_dodge` still seeds from `stage1_move` |
 | `stage2_dodge` | stage1_move | Solo | same | **Drill.** Still nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage3_travel` | stage2_dodge | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
-| `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+ |
+| `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+. A third of its episodes (`flight_air`) put the place on a plateau or island the ground route does not reach, with the ground mount masked |
 | `stage5_duel` | stage4_flight | Solo | + pet | **Where the fighting starts.** A same-level creature out of aggro range: close in and kill it fast, taking little damage. It arrives already knowing how to place its feet |
 | `stage6_pack` | stage5_duel | Solo | + pack (−travel) | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
 | `stage7_gauntlet` | stage6_pack | Solo | + gauntlet, support | Pull after pull with short breaks: heals, food and drink |
@@ -168,8 +167,8 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
 | `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
 
-**The queue is 2,100M env steps over 23 stages** (2,190M with the `mix_duel_pvp` pilot and the
-`stage1b_indoor` drill, neither of which is in the queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
+**The queue is 2,130M env steps over 24 stages** (2,190M with the `mix_duel_pvp` pilot, which is not in the
+queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage
 descends from, but `stage8_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
 `stage1_move`.
@@ -230,7 +229,7 @@ independent random initialisations, which is the thing that makes the eventual j
 | The join and the objective stages, 18-23, once | 420M |
 | **Total** | **15,780M** |
 
-Against 2,100M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+Against 2,130M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
 and a half times the compute**, and that is the price of the thing it buys: a policy per class that has not had
 to share its trunk with nine others through the stages where classes have least in common.
 
@@ -662,26 +661,29 @@ one cast and one pool of fire in a stage 1 duel is the cheapest place any of thi
 ### Durative actions
 
 Most actions are one press of one button, and a 450 s episode is 1800 of them -- far more than credit reaches back
-over. Four actions instead stand for a stretch of decisions (`SeatOption`, `Options.*`), so a plan can be expressed in
-one choice:
+over. Two actions and the move block's held keys instead stand for a stretch of decisions (`SeatOption`,
+`Options.*`), so a plan can be expressed in one choice:
 
 | Action | Block | What it does until it stops |
 |---|---|---|
 | `rest_until_ready` | gauntlet | Eats and drinks, whichever is missing, until health and mana are back to 90% |
 | `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has -- its own spell, or its pet's (a felhunter's Spell Lock) when it has none. Offered only to a seat that has one |
-| `keep_range` | duel | A ranged spec: runs back to casting range whenever the target reaches melee |
-| `stay_on_target` | duel | A melee spec: runs back into melee reach whenever the target leaves it |
+| the eight bearings | move | Walks that compass point, re-aimed from where the seat stands every decision, for `Options.MoveBearingMs` (3 s) or until the feet are told something else |
+| `turn_left`, `turn_right`, `pitch_up`, `pitch_down` | move | Turns or pitches 15 degrees a decision for `Options.MoveTurnMs` / `MovePitchMs` (750 ms), or until the opposite key |
 
-A seat runs **two at a time**: one positioning option and one standby (`SeatOptionSet`), since keeping a caster at
-range and waiting for its cast are not alternatives. Each runs in its block's `BeforeApply`, every decision, and stops
-on its own condition (the fight starts, the target dies, nothing is left to eat, the interrupt fires) or when its
-`Options.*` clock runs out. What any other action does to it depends on what it is:
+A seat runs **four at a time**: one positioning option (the bearing), one standby, a turn and a pitch
+(`SeatOptionSet`), since walking, waiting for the target's cast and looking round are not alternatives. Each runs in
+its block's `BeforeApply`, every decision, and stops on its own condition (the fight starts, nothing is left to eat,
+the interrupt fires, the seat halts or jumps) or when its `Options.*` clock runs out. What any other action does to
+it depends on what it is:
 
-- **positioning** (`keep_range`, `stay_on_target`): only a movement order the other way takes over -- backing off ends
-  staying on the target, closing in ends keeping range, and steps that do neither (to casting range, stop, follow)
-  leave it alone. A fight is spells and swings between steps, and cancelling on those is what left a melee seat
-  re-issuing its own movement every decision (the rogue pressed one every 0.39 s while it stood in melee reach 96% of
-  the time).
+- **positioning** (the held bearing): only the feet take over -- another bearing, the halt, a jump. A turn or a
+  pitch does not, so the walk curves rather than stopping; casting and swinging do not either, since a fight is
+  spells and swings between steps. Nothing but the feet may end it: the duel block's per-decision hook used to
+  clear the slot whenever there was no living target, which in a travel arena is always, and every bearing
+  ended one decision after it was pressed (2026-09-21 to 09-23; the three-second hold was a one-decision hold).
+- **aiming** (the held turn and pitch): only its own opposite, or levelling off, takes over. Ending it on any
+  press meant a seat could not turn while it did anything else.
 - **standby** (`hold_interrupt`): nothing the seat does takes over from it, because waiting for the target's cast is
   not something it stops fighting to do. Cancelled by any press, a hold lasted 0.6 s against casts of 1.5-2.5 s and
   interrupted next to nothing.
@@ -716,7 +718,7 @@ much a class uses them.
   bot itself. Until they were core actions a duel healer had no heal and a duel mage no Polymorph or Ice Barrier.
   Each catalog entry in the manifest names its `group` (`combat`, `tactical`, `sustain`). Every layout's manifest,
   and its entry in `stage.json`, lists `action_names`: every action of the layout by name (`frostbolt_116`,
-  `use_off_hand`, `move_to_range`, `pet_stay`), which evaluations use to count the actions each episode took.
+  `use_off_hand`, `start_attack`, `pet_stay`), which evaluations use to count the actions each episode took.
 
 The catalog also keeps the lists apart for the blocks that cast them elsewhere:
 
@@ -761,11 +763,10 @@ over and over while never engaging. So the scenario masks, on top of every block
 recently: the same action again within `Actions.RepeatMs` (1000 ms; `Actions.MoveRepeatMs`, 300 ms, for movement
 orders, so steering stays responsive), stopping a cast before it has run `Actions.StopCastMinMs` (500 ms), and
 starting a spell the bot stopped itself within `Actions.RecastAfterStopMs` (2000 ms). Spells keep their GCD and
-cooldowns as well. Two locks keep a plan from dissolving into dithering: a movement order back the way the last one
-went (in toward the target after one away, or the reverse) waits `Actions.ReverseMoveMs` (1000 ms), and a stance,
-form, presence, aspect, aura, seal, armor or pet stance holds `Actions.ModeLockMs` (5000 ms) before another change of
-its kind (stage5_duel's seats gave 60-140 movement orders a fight; warrior tanks changed stance 22 times, hunters their
-aspect 12). A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows how busy a
+cooldowns as well. One lock keeps a plan from dissolving into dithering: a stance, form, presence, aspect, aura,
+seal, armor or pet stance holds `Actions.ModeLockMs` (5000 ms) before another change of its kind (warrior tanks
+changed stance 22 times a fight, hunters their aspect 12). The reverse-move lock went with the target-relative moves
+it paced: a bearing has no toward or away. A paced action a policy sends anyway does nothing. `actions_per_minute` in the episode info shows how busy a
 seat was.
 
 **Repeats** (`Actions.Repeat`, every stage). Pacing caps how soon an action can be pressed again, not how often: a
@@ -780,9 +781,9 @@ counts the charged presses.
 
 | Block | Observation (summary) | Actions |
 |---|---|---|
-| `core` | 67 globals plus seven durative-action clocks (see below), then 6 features per catalog action (known, cooldown, aura on target, aura on self, stacks, time since the seat pressed it), then rank / max rank per class talent, then points per tree / 71 | The catalog |
-| `move` | Whether it is moving and how fast; the bearing it is walking (one-hot over the eight, or none); its own facing as sine and cosine, which way it is turning, how far up or down it is looking, and which facing mode it is holding; the bearing and distance to the target, all zero without one; the bearing, distance and width of the nearest ground effect it is not standing in; the objective's bearing and its distance twice, over 500 yd and again over 40 so the last few yards are resolvable; **how far the ground runs along each of the eight bearings** -- a ray marched at 6, 12, 20, 30 and 40 yd, reporting the distance to the first thing that stops it, what stopped it, and whether it was water or something that burns; and water -- in it, under it, how long under it, and how fast it swims | 8 egocentric bearings (forward, forward-right, ... clockwise) and halt; four facings chosen apart from the feet (the target, the way it is going, hold, the objective); a held turn either way, which is the mouse-look and the only way to reach a heading between two bearings; and a held pitch up, down or level, which is how it swims and flies |
-| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Move to target (to where a hidden target was last seen), move behind, move to casting range (25 yd), back off 10 yd, stop, start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, break line of sight (the nearest walkable place 8-26 yd away the target cannot see), 4 call-beast actions (hunter) |
+| `core` | globals plus five durative-action clocks (see below), then 6 features per catalog action (known, cooldown, aura on target, aura on self, stacks, time since the seat pressed it), then rank / max rank per class talent, then points per tree / 71 | The catalog |
+| `move` | Whether it is moving and how fast; the bearing it is walking (one-hot over the eight, or none); its own facing as sine and cosine, which way it is turning, how far up or down it is looking, and which facing mode it is holding; the bearing and distance to the target, all zero without one; the bearing, distance and width of the nearest ground effect it is not standing in; the objective's bearing and its distance twice, over 500 yd and again over 40 so the last few yards are resolvable; **how far the ground runs along each of sixteen rays** -- the eight bearings and the rays half way between them, each marched at 6, 12, 20, 30 and 40 yd, reporting the distance to the first thing that stops it, what stopped it, and whether it was water or something that burns; water -- in it, under it, how long under it, and how fast it swims; the detour the ground costs, whether its legs are getting anywhere, its clearance and the way out; and **a trail of where it has been** -- its last eight positions, one a second, each as an offset in its own frame, and how many of them it is still standing on | 8 egocentric bearings (forward, forward-right, ... clockwise) and halt; three facings chosen apart from the feet (the target, the way it is going, hold); a held turn either way, which is the mouse-look and the only way to reach a heading between two bearings; a held pitch up, down or level, which is how it swims and flies; and a jump. It is the only way a seat moves: the duel block's target-relative orders were the pathfinder choosing a position on the policy's behalf, and they are gone |
+| `duel` | Distance and bearing to the target, behind it, it faces the bot, its combat, target and casting state; the bot's movement, combat, stealth and auto-attack; damage taken last step; pet out, health, attacking; combat time; current cast progress and time left; a cancellable form; potions, healthstones and bandages carried and their cooldowns; Recently Bandaged; can resurrect itself; a hidden target, time since it was seen, and distance and bearing to where it was last seen; the target in line of sight; what the target is (creature type one-hot, max health against the bot's, damage multiplier, the share of the bot's hits its armor takes off, run speed, level difference, immunity to six magic schools and to fear, stun, root, snare, silence and polymorph); the bot stunned, feared or confused, rooted, silenced, snared; hunters' stable families and pet types | Start attack, pet attack, stop casting, cancel form, healing potion, mana potion, healthstone, bandage self, soulstone self (warlock), resurrect self, 4 call-beast actions (hunter). No movement: where to stand in a fight is a bearing, chosen against the target's bearing and distance reported here |
 | `pet` (hunters, warlocks, death knights, mages; empty for others) | The pet's presence, health, power, distance to the target, attacking it, casting, stance, following or staying; what it is (a ferocity, tenacity or cunning beast, an Imp, Voidwalker, Succubus, Felhunter or Felguard, a ghoul, a Water Elemental); whether it leaves on its own and how soon; its four most useful abilities (interrupts, then crowd control, dispels, threat, help, damage): present, on cooldown and what each does | Cast each ability (at the target, or on itself when helpful) as the pet bar does; passive, defensive, aggressive; follow; stay |
 | `pack` | Living and in-combat enemy counts; 4 enemy slots (present, alive, health, distance, bearing, behind, attacking the bot or its pet, casting, in combat, crowd-controlled, current target, elite, level difference, in line of sight); (the tactical spells are core actions, cast at the selected enemy) | Select target slot 1-4 |
 | `gauntlet` | Pulls cleared, pull active, time since the last fight, time into the pull, elite or higher-level pull, eating, drinking, food and drink left, time until an unengaged pull comes to the bot, time until the next pull spawns (the sustain spells are core actions) | Eat, drink (offered only where the item's cast check passes) |
@@ -794,21 +795,21 @@ counts the charged presses.
 | `pvp` | The opponent's class, role, level difference, mana, rage/energy/runic power, crowd-controlled, stealthed, pet out, casting a heal; the bot stunned/feared, rooted or silenced; whether the opponent is a learned agent; what a player tracks from what it saw used: the opponent's trinket cooldown, racial control break cooldown and number of spells of a minute or more cooling down; diminishing returns (controlled and opening stuns, fear, disorient, root, silence, horror, cyclone) on the opponent and on the bot, and the crowd control each has left; the opponent hidden (then only class, role, level, the cooldowns and diminishing returns are written) | none |
 | `context` (12) | Owner present and alive, living teammates, living enemy players and creatures in the slots, nearest enemy player's distance, a player attacks the bot or the owner, PvP flag, battleground/arena map, dungeon/raid map, self-resurrection allowed, group size | none |
 | `hostiles` (14 per slot) | Per enemy slot: player or creature, class, casting a heal, stealthed, pet out | none |
-| `travel` (20) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing and height; at the objective; in combat; speed; moving; and the route — that there is one, how much of it is left, and the bearing of its next corner | Mount the fastest ground mount, mount the fastest flying mount, dismount, follow the route. The last of those is off unless the arena asks for it (`ArenaDefinition::Routes`): `stage1_move` keeps it masked because its lesson is the steering, and `stage3_travel` turns it on because its lesson is whether a mount pays for its cast. The two fifteen-yard climb hops are still gone, and `move` steers on the ground and in the air alike |
+| `travel` (16) | Mounted, on a flying mount, can summon a ground or flying mount now, riding skill, indoors, height above the ground; the objective's presence, distance, bearing (in the seat's own heading, the frame `move` uses) and height; at the objective; in combat; speed; moving | Mount the fastest ground mount (masked in an air-only arena), mount the fastest flying mount, dismount. Follow-route is gone with the route features: a pathfound leg walked by the engine was the engine navigating, and the policy pressed it in most of its episodes. The route still exists for the reward's progress shaping and the episode's measurements; the actor never sees it. `move` steers on the ground and in the air alike |
 | `flag` (17) | Carrying the other side's flag; the seat's flag at base, carried or dropped; the other's at base or dropped; distance and bearing to both bases and to the nearest dropped flag; both scores | none |
 | `order` (13) | What the side's director asked of this seat: the posture and rally one-hots, distance and bearing to the rally place, distance, bearing, health and whether the seat is already on the called target, and whether this seat holds the duty. All zero in an arena with no director | none: an order is advice, not a lever |
 
-The core block's 74 globals are seven durative-action clocks -- the held turn and the held pitch run
-alongside the feet rather than instead of them, so they have slots and clocks of their own -- and these 67
-features: level; race one-hot (10); the aptitude vector (Aptitude::COUNT: what the build can taunt,
+The core block's globals are five durative-action clocks -- resting, the held interrupt, the held bearing, the
+held turn and the held pitch; the last two run alongside the feet rather than instead of them, so they have slots
+and clocks of their own -- and these features: level; race one-hot (10); the aptitude vector (Aptitude::COUNT: what the build can taunt,
 mitigate, heal, control, buff, cleanse, protect, revive, summon and swim with, and where its points went);
 health; mana; rage; energy; runic
 power; six runes; combo points; form one-hot (13); GCD; casting; queued next-swing; main-hand, off-hand and ranged
 swing timers; main-hand speed; target health; target distance; in melee range in front; attack power; spell power;
 melee and spell crit; melee and spell haste; melee and spell hit; expertise; armor penetration; last-step damage;
 last-step power change; time into the episode (/ 5 min, `EPISODE_TIME_SCALE_MS`); and what the seat has been doing
-(`SeatMemory`): time since its last movement order, which way that order went (in toward the target, away, neither),
-time since its last stance, form, aspect, aura, seal, armor or pet stance change, and its own and its target's health
+(`SeatMemory`): time since its last movement order, time since its last stance, form, aspect, aura, seal, armor or
+pet stance change, and its own and its target's health
 against their average over the last few seconds. All are normalised (see
 `Blocks/CoreBlock.h` for the scale of each). The episode time is elapsed time, not the share of the limit left: a
 companion has no limit, and without a clock a bot standing still out of combat sees the same row every decision, so a
@@ -820,11 +821,11 @@ Movement and casting constrain each other: movement actions are masked while cas
 spells are masked while running. The bot turns to face its target whenever it isn't running. Stop casting and cancel
 form need no target, so they stay available between pulls. Layouts with the travel block act without a target too.
 
-**The move block needs no target at all**, which is the difference between it and every other way a seat can move.
-The duel block's movement is all target-relative -- `MOVE_TO_TARGET`, `MOVE_TO_RANGE`, `BACK_OFF`, `KEEP_RANGE`,
-`STAY_ON_TARGET` and `STOP` are masked without a living one -- so a seat with nothing to fight had no legs, which is
-why the hazard drill has to summon an unkillable emitter and hand it over as a target purely to unmask them
-(4.2, stage 3). A bearing is chosen against the seat's own facing and cares about nothing else. Its facing actions
+**The move block needs no target at all, and it is the only way a seat moves.** The duel block's movement used to be
+target-relative -- `MOVE_TO_TARGET`, `MOVE_TO_RANGE`, `BACK_OFF`, `KEEP_RANGE`, `STAY_ON_TARGET`, `STOP` and
+`BREAK_LINE_OF_SIGHT`, each a position the pathfinder chose and walked to -- and it is gone: where to stand in a
+fight is a bearing chosen against the target's bearing and distance, learned rather than ordered. A bearing is
+chosen against the seat's own facing and cares about nothing else. Its facing actions
 are what make a strafe expressible: `SetFacing` on the spline, so the seat can run one way and look another, where
 a spline left to set its own orientation always turns the seat the way it is going.
 
@@ -1334,7 +1335,8 @@ Encounters then add their own columns:
 - travel: `arrived`, `travel_seconds`, `start_distance`, `walk_distance`, `distance_travelled`, `dry_distance`,
   `dry_detour`, `route_length`, `route_complete`, `route_failed`, `route_shortcut`, `dry_shortcut`,
   `objective_distance_at_end`, `objective_distance_nearest`, `nearest_at_seconds`, `trip_share`, `crossing`,
-  `swim_seconds`, `mounted_fraction`, `flying_fraction`; flight adds `flew`, `flight_speed`, `flight_yps`,
+  `swim_seconds`, `stall_seconds`, `stalls`, `detour_band`, `air_only`, `mounted_fraction`, `flying_fraction`;
+  flight adds `flew`, `flight_speed`, `flight_yps`,
   `flight_yps_peak`, `flight_height`, `flying_flag_share`, `flying_mount_fraction`, `knows_flying_mount`,
   `could_mount_flying`, `saved`, `saved_if_flew`, `saved_if_ground`
 - flag: `flag_captures`, `flag_pickups`, `flag_returns`, `carrier_kills`, `flag_deaths`, `match_won`,
@@ -1523,6 +1525,14 @@ in Outland's Nagrand, where flying mounts fly, at one of eight spawn points, eac
 player's fall damage, so the policy learns to take off, keep a height, land and dismount. Battlegrounds never allow
 flying mounts (the zone must be Outland or Northrend, `SpellInfo::CheckLocation`), so this is for the open world.
 180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 30M.
+
+Two arenas. `flight` (weight 2) places its objective anywhere the height probe finds dry ground, which in Nagrand
+is nearly always walkable -- 700 yd at run speed is 100 s of the clock, so a ground ride arrived often enough that
+nine of ten class heads never found the flying mount. `flight_air` (weight 1, `ArenaDefinition::AirOnly`) is where
+the wings are the way: the objective can only be reached by air (no complete ground route within
+`Travel.AirDetour` of the straight line), the ground mount is masked, and arriving is measured at the objective's
+own height (`Travel.AirArriveRise`) so the cliff foot under a plateau's edge does not count. The stage is gated
+per class on `flew` as well as on arrival.
 
 ### Stage 9: `stage14_companion`
 
