@@ -389,7 +389,7 @@ are little-endian:
 
 ```
 char[4]  "AMDL"
-u32      version (1)
+u32      version (2)
 u16      model name length, then the name (UTF-8, no terminator)
 u32      obs_dim
 u32      num_agents     the input is the observation followed by a one-hot agent id
@@ -400,17 +400,59 @@ per layer:
   u32    out_dim
   f32    weight[out_dim * in_dim]    row-major
   f32    bias[out_dim]
+u32      recurrent_size              0 = no memory
+if recurrent_size:
+  f32    weight_ih[3 * recurrent_size * trunk_out]    as torch.nn.GRUCell stores them (r, z, n)
+  f32    weight_hh[3 * recurrent_size * recurrent_size]
+  f32    bias_ih[3 * recurrent_size]
+  f32    bias_hh[3 * recurrent_size]
+u32      goal_count                  0 = no goals
+u32      goal_every_decisions
+if goal_count:
+  f32    goal_weight[goal_count * feature_width]      the goal head, over the same features
+  f32    goal_bias[goal_count]
+  f32    goal_embedding[goal_count * feature_width]   added to what the action head reads
 ```
 
 The loader checks the magic and version, that the name equals the expected model name, that `obs_dim` and
-`num_actions` equal the layout's, that the counts are sane (at most 64 layers, widths up to 65536), that each layer's
-input matches the previous output (the first layer's input is `obs_dim + num_agents`), that the last layer outputs
-`num_actions`, and that no bytes follow. It refuses big-endian hosts.
+`num_actions` equal the layout's, that the counts are sane (at most 64 layers, widths up to 65536), that the last
+layer outputs `num_actions`, and that no bytes follow. It refuses big-endian hosts.
 
-`Decide(obs, mask)` copies the observation, appends the one-hot for agent 0, runs every layer (tanh after each but the
-last) and returns the **allowed action with the highest logit**, or 0 when nothing is allowed. It doesn't allocate
-(two scratch buffers sized to the widest layer) and isn't thread-safe. The exported models have `num_agents = 1` and a
-zero-weight agent column.
+**Every layer's input is the previous layer's output, except the action head's.** With a memory the head reads the
+GRU's state rather than the trunk's, and the memory's size is only known further down the file, so the head is
+exempted from the chain check in the layer loop and validated where `recurrent_size` has been read: against the
+memory when there is one, against the trunk's width when there is not. That exception is load-bearing rather than
+cosmetic -- while the layer loop applied the chain rule to the head as well, it rejected every model that had a
+memory before the check below it could run, and since the curriculum trains with `recurrent_size: 128` from the
+first combat stage onward, that was every model the curriculum produces.
+
+`Decide(obs, mask, state)` copies the observation, appends the one-hot for agent 0, runs the trunk (tanh after each
+layer), passes it through the GRU when there is one, adds the standing goal's embedding when there are goals, and
+returns the **allowed action with the highest logit**, or 0 when nothing is allowed. It doesn't allocate after the
+first call (scratch buffers sized to the widest layer) and isn't thread-safe: one policy serves every seat that
+plays it, and what differs per seat lives in the caller's `State`.
+
+`MlpPolicy::State` is what one seat carries between its decisions: the GRU's state, the goal it is holding, and how
+many decisions it has held it. `State::Clear()` starts a new fight. A model with neither a memory nor goals never
+touches it, and passing no state at all decides as if every decision were the first.
+
+`Describe()` prints the shape a model actually has, which is the quickest way to tell what an exported file is:
+
+```
+644+1 -> 256 -> 512 -> 512 -> memory 128 -> 87 (6 goals every 16 decisions)
+```
+
+**The forward pass is compiled apart from the rest of the library.** It is a dot product per row, and the
+accumulator is a serial floating-point dependency chain; float addition is not associative, so without permission
+to reorder it no compiler will vectorise the reduction. `cmake/AnimusLibDependency.cmake` therefore gives this one
+file `-O3 -fassociative-math -fno-signed-zeros -fno-trapping-math` (`/O2 /fp:fast` on MSVC). Measured on a real
+model, a decision costs 310 us at the library's usual `-O2` and 94 us with those flags; allowing AVX2 as well
+(`-march=x86-64-v3`, not enabled -- it would drop pre-2013 CPUs) takes it to 60 us.
+
+The flags are deliberately *not* `-ffast-math`: nothing here assumes the absence of NaN or infinity, only that float
+addition may be reordered. `-O3` is needed alongside them because at `-O2` the vectoriser's cost model declines this
+loop even when reassociation is allowed. Verified over 4,000 decisions on each of five exported models, every
+decision identical before and after.
 
 ### ModelLibrary
 

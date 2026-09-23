@@ -1,8 +1,9 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. Twenty-four scenarios are defined; **twenty-three are the default queue**, in the
-order they are trained, and one (`mix_duel_pvp`) is a pilot trained only by name.
+`src/Scenario/Curriculum/`. Twenty-five scenarios are defined; **twenty-three are the default queue**, in the
+order they are trained, and two are trained only by name: the `stage1b_indoor` drill and the `mix_duel_pvp`
+pilot.
 
 Every stage trains the same ten class policies over a shared trunk, so what one class learns about moving,
 threat or interrupts helps the others. A class policy plays every role its class has specs for, and is measured
@@ -1324,13 +1325,24 @@ Encounters then add their own columns:
 - pulls: `kills`, `interrupts`, `pack_size`, `linked`, `pulls_cleared`, `food_used`, `drink_used`, `sustain_casts`,
   `deaths`, `wipes`; gauntlets also `engage_health`, `engage_mana`, `pulls_started_low`, `pulls_arrived`,
   `rest_seconds`, `eat_failed`, `drink_failed`, `meals_cut_short`, `control_seconds`
-- owner: `owner_class`, `owner_role`, `owner_died`, `owner_deaths`, `owner_damage_taken`, `owner_healing`,
-  `threat_on_bot`, `threat_on_owner`, `revives`
+- owner: `owner_class`, `owner_died`, `owner_deaths`, `owner_damage_taken`, `owner_healing`,
+  `owner_healing_aptitude`, `owner_mitigation`, `owner_heal_share`, `threat_on_bot`, `threat_on_owner`, `revives`
 - party: `seat`, `teammates_died`, `teammate_damage_taken`, `teammate_healing`, `threat_on_teammates`
-- opponent: `won`, `opponent_class`, `opponent_role`
+- opponent: `won`, `opponent`, `opponent_class`, `opponent_seat`, `opponent_elite`, `opponent_healing`,
+  `opponent_mitigation`
 - ambush: `ambushers`, `ambushers_killed`
-- travel: `arrived`, `travel_seconds`, `start_distance`, `mounted_fraction`, `flying_fraction`
-- flag: `flag_captures`, `flag_pickups`, `flag_returns`, `carrier_kills`, `flag_deaths`, `match_won`
+- travel: `arrived`, `travel_seconds`, `start_distance`, `walk_distance`, `distance_travelled`, `dry_distance`,
+  `dry_detour`, `route_length`, `route_complete`, `route_failed`, `route_shortcut`, `dry_shortcut`,
+  `objective_distance_at_end`, `objective_distance_nearest`, `nearest_at_seconds`, `trip_share`, `crossing`,
+  `swim_seconds`, `mounted_fraction`, `flying_fraction`; flight adds `flew`, `flight_speed`, `flight_yps`,
+  `flight_yps_peak`, `flight_height`, `flying_flag_share`, `flying_mount_fraction`, `knows_flying_mount`,
+  `could_mount_flying`, `saved`, `saved_if_flew`, `saved_if_ground`
+- flag: `flag_captures`, `flag_pickups`, `flag_returns`, `carrier_kills`, `flag_deaths`, `match_won`,
+  `team_seat`, `flag_in_reach`
+
+The authoritative list is the `table.Add("...")` registrations themselves, under
+`src/Scenario/Curriculum/`; `tests/test_gates.py`'s `sim_episode_info()` extracts exactly those, which is why a
+config that gates on a column the sim never emits fails the test suite rather than five hours into a queue.
 
 Then come the `reward_<term>` columns. Columns of encounters an episode's arena doesn't use read 0. The exact list for a
 stage is `episode_info` in its `stage.json`.

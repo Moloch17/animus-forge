@@ -69,6 +69,12 @@ layout (same stage, class, sizes, block offsets, actions, talents), and the `.am
 dimensions. Failures are logged once and cached. Models load on first use, and again after `.reload config`, which
 resets the library.
 
+> **The 18 models currently committed under `mod-animus/models/` are `.amdl` version 1 and will not load.**
+> They predate the memory and goal head, and the reader requires version 2 (3.8), so every one of them is
+> refused with "has model version 1, expected 2" and the companions fall back to following. They are stale
+> rather than broken: the curriculum is being retrained from scratch and every model has to be exported again
+> when it finishes. Until then, companions on a stock install have no policy.
+
 Where the models come from: `forge export <stage>` in the forge writes both files per class into
 `AnimusForge.ModelDir`. Copy them to the realm. Build the realm with an animus-lib revision whose blocks, stages and
 catalogs match the one the model trained with, or the manifests won't match. A layout's manifest doesn't depend on
@@ -279,7 +285,44 @@ is safe to call more than once.
 - **Nothing is saved.** Seats, owners and enemy players have no character rows. The rows a stock core writes for their
   instance binds and groups are removed when they go.
 
-## 6.7 Differences from the forge
+## 6.7 What it costs
+
+The question a server operator asks first is whether this makes the world tick worse. Measured on the real
+`MlpPolicy` against an exported model, one companion decision is:
+
+| | |
+|---|---|
+| Forward pass | **94 us** (`-O3` with the reassociation flags, 3.8); 310 us if that file is built plain `-O2` |
+| Build the observation | ~28 us |
+| Apply the action | ~9 us |
+| **One decision** | **~130 us** |
+
+A companion decides every `Animus.Curriculum.DecisionMs` (250 ms), so four times a second: **about 0.05% of one
+core per companion.** A player with a full party of four costs ~2 ms of CPU per second of play. Two hundred
+companions across fifty players cost about 10% of one core.
+
+Two things about *where* that lands matter more than the number:
+
+- **It runs on the world thread.** `AnimusWorldScript::OnUpdate` is `WORLDHOOK_ON_UPDATE`, so every companion's
+  decision is serial with everything else the world does, and adds to the tick rather than running beside it. At
+  these magnitudes that is fine; it is the thread to keep an eye on if the count ever grows.
+- **Decisions are not spread across ticks on purpose.** Each companion accumulates `SinceDecisionMs` and fires when
+  it passes `DecisionMs`, and `SinceDecisionMs %= DecisionMs` preserves whatever phase it started with. With
+  `MinWorldUpdateTime` at 1 ms and a 250 ms period there are enough distinct phases that companions summoned at
+  different moments spread themselves; companions summoned *in the same tick* stay aligned for their whole
+  lifetime. It costs nothing at party sizes. If hundreds are ever summoned together, seed `SinceDecisionMs` with
+  `urand(0, DecisionMs)` so they scatter.
+
+**Responsiveness is set by the cadence, not by the compute.** A companion reacts up to 250 ms after something
+happens, which is roughly human reaction time and reads as natural rather than sluggish. It is not a free knob:
+`DecisionMs` must match what the models were trained with (`AnimusForge.DecisionMs`), so making companions
+twitchier means retraining, not reconfiguring.
+
+**Memory** is one loaded model per class/role rather than per companion -- about 2.4 MB each, so under 45 MB with
+all eighteen resident -- plus each companion's `MlpPolicy::State`, which is the GRU vector and a couple of
+integers.
+
+## 6.8 Differences from the forge
 
 | Aspect | Forge | Stock core with mod-animus |
 |---|---|---|
