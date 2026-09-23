@@ -1105,6 +1105,10 @@ AnimusForge.Curriculum.Travel.ClearanceMax = 0.6
 #   was walking to, or after RouteRefresh seconds -- movement first, because at seven yards a second a clock alone
 #   goes stale inside the first corner. RouteCorner is how near counts as having reached one, and wants to be
 #   wider than a decision's travel (1.75 yd at run speed) so a corner cannot be stepped over and walked back to
+#   where the pathfinder hands the trip back: follow-route is offered while more than this many yards of route
+#   remain and masked inside it, so the long haul can be delegated and the approach cannot. The last forty yards
+#   are where arriving on the mark, keeping off the walls and stepping round what is underfoot live
+AnimusForge.Curriculum.Travel.RouteHandoff = 40.0
 AnimusForge.Curriculum.Travel.RouteStray = 25.0
 AnimusForge.Curriculum.Travel.RouteRefresh = 5.0
 AnimusForge.Curriculum.Travel.RouteCorner = 5.0
