@@ -439,3 +439,50 @@ def test_confidence_must_be_a_probability_beside_a_bound():
         validate_target(config, ("killed", "died"))
     config.target.metrics = {"clean_kill": {"min": 0.9, "confidence": 0.95}}
     validate_target(config, ("killed", "died"))
+
+
+def stage_definitions() -> dict[str, dict]:
+    """Each stage's Extends, Merges and Blocks, in queue order."""
+    source = (Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
+              / "Stages" / "Stages.cpp").read_text()
+    out: dict[str, dict] = {}
+    for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
+        name = re.search(r'\.Name = "([^"]+)"', body)
+        if not name:
+            continue
+        def field(pattern: str, default: str = "") -> str:
+            found = re.search(pattern, body)
+            return found.group(1) if found else default
+        out[name.group(1)] = dict(
+            extends=field(r'\.Extends = "([^"]*)"'),
+            merges=re.findall(r'"(stage[0-9a-z_]+)"', field(r"\.Merges = \{([^}]*)\}")),
+            blocks={b.strip() for b in field(r"\.Blocks = \{([^}]*)\}").split(",") if b.strip()},
+        )
+    assert out, "no stage definitions found"
+    return out
+
+
+def test_no_stage_relearns_a_block_an_earlier_stage_already_trained():
+    """A block the parent does not have starts from zero (animus.bootstrap), and a merge is the only way back.
+
+    The curriculum branches: the PvE line trains pack, gauntlet and support, the PvP line drops all three, and a
+    stage that rejoins the PvE line by extending the PvP one would start them again from nothing -- three stages
+    of training spent twice. Every block should be introduced by exactly one stage and carried by extension or
+    merge from then on."""
+    stages = stage_definitions()
+    order = list(stages)
+    relearned = {}
+    for index, name in enumerate(order):
+        stage = stages[name]
+        inherited: set[str] = set()
+        for ancestor in [stage["extends"], *stage["merges"]]:
+            if ancestor in stages:
+                inherited |= stages[ancestor]["blocks"]
+        trained_before: set[str] = set()
+        for earlier in order[:index]:
+            trained_before |= stages[earlier]["blocks"]
+        lost = (stage["blocks"] - inherited) & trained_before
+        if lost:
+            relearned[name] = sorted(lost)
+    assert not relearned, ("these stages start a block from zero that an earlier stage already trained; merge "
+                           f"the stage that trained it: {relearned}")
