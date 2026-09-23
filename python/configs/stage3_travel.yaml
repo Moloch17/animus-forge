@@ -36,4 +36,10 @@ target:
     mounted_fraction: {min: 0.45}
   layout_metrics:
     arrived: {min: 1.0}
+  # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena and it
+  # is not any of them, so those inherited entries name arenas that do not exist here and the learner refuses to
+  # start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with a single
+  # arena the per-arena floor would only restate the overall one. An empty map replaces where a populated one
+  # would merge, which is the only way to drop an inherited key.
+  arenas: {}
   until_passed: true
