@@ -871,7 +871,17 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
     // EnableParabolic clears the Falling bit it tests. The arc is a known 825 ms, so the honest fix is to hold
     // the clock ourselves and mask the feet for as long as they are not under the seat.
     bool const inFlight = view.Probe && view.NowMs < view.Probe->JumpUntilMs;
-    bool const canMove = bot && bot->IsAlive() && !bot->HasUnitState(Encoding::IMMOBILE_STATES) && !inFlight;
+
+    // A mount cast owns the feet the same way a jump arc does, and for the same reason: it takes several
+    // decisions and any movement in them destroys it. Without this the mount was unreachable by construction --
+    // the scripted policy cancelled its own every time, and a learned one has to find a run of consecutive
+    // decisions in which it presses nothing that moves, while potential shaping charges it for the pause.
+    //
+    // Only a mount. Protecting casts in general would stop a seat walking out of fire mid-spell, and that is a
+    // thing it must always be able to do.
+    bool const mounting = bot && Encoding::MountCastInProgress(bot);
+    bool const canMove = bot && bot->IsAlive() && !bot->HasUnitState(Encoding::IMMOBILE_STATES)
+        && !inFlight && !mounting;
     bool const airborne = Airborne(bot);
 
     if (bot)

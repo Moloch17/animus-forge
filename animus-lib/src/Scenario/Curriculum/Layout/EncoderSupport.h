@@ -77,6 +77,14 @@ namespace Animus::Curriculum::Encoding
     /// meanwhile. The core only checks this for client casts, so actions check it here.
     [[nodiscard]] bool CastInProgress(Player const* bot);
 
+    /// Whether the cast in flight is a mount.
+    ///
+    /// Narrower than CastInProgress on purpose. A mount is the one cast in the curriculum that the seat must
+    /// stand still through and that any movement destroys, so it is the one worth protecting -- and protecting
+    /// casts in general would stop a seat walking out of fire mid-spell, which is a thing it must always be
+    /// able to do.
+    [[nodiscard]] bool MountCastInProgress(Player const* bot);
+
     /// The core's own cast validation (Spell::CheckCast), without casting. `target` may be null (self-cast spells).
     [[nodiscard]] bool CanCast(Player* bot, SpellInfo const* info, Unit* target, Item* castItem = nullptr,
         Unit* friendUnit = nullptr);
