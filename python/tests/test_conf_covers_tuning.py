@@ -17,8 +17,21 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-TUNING = ROOT / "animus-lib" / "src" / "Scenario" / "Curriculum" / "CurriculumTuning.h"
 CONF = ROOT / "conf" / "mod_animus_forge.conf.dist"
+
+
+def _tuning_header() -> Path:
+    """CurriculumTuning.h, wherever the curriculum currently lives: under animus-lib/src before the library was
+    split, under one of its two roots after, and under the module's own src once it was folded in."""
+    for src in (ROOT / "animus-lib" / "src", ROOT / "src"):
+        for prefix in ((), ("runtime",), ("training",)):
+            candidate = src.joinpath(*prefix, "Scenario", "Curriculum", "CurriculumTuning.h")
+            if candidate.is_file():
+                return candidate
+    return ROOT / "CurriculumTuning.h"      # missing: the assert below names it
+
+
+TUNING = _tuning_header()
 
 
 def tuning_keys() -> set[str]:

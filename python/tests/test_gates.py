@@ -10,6 +10,33 @@ from animus.evaluation import DERIVED_METRICS
 from animus.gates import check_gates, required_score, validate_target
 
 
+def _curriculum_roots() -> list[Path]:
+    """Every directory the curriculum's sources live in, wherever they currently are.
+
+    There have been three layouts: one Curriculum tree under animus-lib/src, then two after the library split into
+    runtime and training roots, and then the module's own src once the library was folded into it. These tests care
+    about what the sim can emit, not about which layout is in force, so they look in all of them and use what is
+    there."""
+    base = Path(__file__).resolve().parents[2]
+    roots = []
+    for src in (base / "animus-lib" / "src", base / "src"):
+        for prefix in ((), ("runtime",), ("training",)):
+            root = src.joinpath(*prefix, "Scenario", "Curriculum")
+            if root.is_dir():
+                roots.append(root)
+    return roots
+
+
+def _curriculum_file(relative: str) -> Path | None:
+    """One curriculum source by its path below Curriculum/, from whichever root holds it."""
+    for root in _curriculum_roots():
+        candidate = root / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+
 def summary(score, layouts=None, **metrics):
     return {"score": score, "episodes": 100, "layouts": layouts or {}, **metrics}
 
@@ -203,11 +230,12 @@ def sim_episode_info() -> tuple[str, ...]:
     validate_target is handed the scenario's real column list, so the honest stand-in here is that list, taken
     from the source that registers it. A config that gates on something the sim never emits now fails here
     instead of five hours into a queue."""
-    root = Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
+    roots = _curriculum_roots()
     names: set[str] = set()
-    for source in root.rglob("*.cpp"):
-        names |= set(re.findall(r'Add\("([a-z0-9_]+)"', source.read_text()))
-    assert names, f"no episode info registrations found under {root}"
+    for root in roots:
+        for source in root.rglob("*.cpp"):
+            names |= set(re.findall(r'Add\("([a-z0-9_]+)"', source.read_text()))
+    assert names, f"no episode info registrations found under {roots}"
     return tuple(names | set(DERIVED_METRICS))
 
 
@@ -219,8 +247,9 @@ def sim_stage_arenas() -> dict[str, tuple[str, ...]]:
     suite and failed at startup instead -- stage3_travel inherited `open`, `broken` and `water` from stage1_move
     and took the queue down with it. Parsed from the definitions rather than from stage.json, which only exists
     for stages that have already been run."""
-    source = (Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
-              / "Stages" / "Stages.cpp").read_text()
+    stages_file = _curriculum_file("Stages/Stages.cpp")
+    assert stages_file, "Stages.cpp is in no curriculum root"
+    source = stages_file.read_text()
     stages: dict[str, tuple[str, ...]] = {}
     for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
         name = re.search(r'\.Name = "([^"]+)"', body)
@@ -240,11 +269,9 @@ def sim_stage_columns() -> dict[str, set[str]]:
     its parent's gate on it -- the raid stages inherited owner_deaths from the party line and would have failed
     it as "not in the evaluation summary" every evaluation, which under until_passed halts the queue for good.
     Checking names against the union of every column any stage can emit does not catch that; this does."""
-    root = Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
-
     def columns(relative: str) -> set[str]:
-        path = root / relative
-        return set(re.findall(r'Add\("([a-z0-9_]+)"', path.read_text())) if path.exists() else set()
+        path = _curriculum_file(relative)
+        return set(re.findall(r'Add\("([a-z0-9_]+)"', path.read_text())) if path else set()
 
     per_encounter = {name: columns(f"Encounters/{cls}.cpp") for name, cls in (
         ("opponent", "OpponentEncounter"), ("owner", "OwnerEncounter"), ("party", "PartyEncounter"),
@@ -252,10 +279,13 @@ def sim_stage_columns() -> dict[str, set[str]]:
         ("ambush", "AmbushEncounter"), ("travel", "TravelEncounter"), ("flag", "FlagEncounter"),
         ("director", "DirectorEncounter"))}
     always = columns("StageScenario.cpp") | set(DERIVED_METRICS)
-    for reward in (root / "Rewards").glob("*.cpp"):
-        always |= set(re.findall(r'Add\("([a-z0-9_]+)"', reward.read_text()))
+    for root in _curriculum_roots():
+        for reward in (root / "Rewards").glob("*.cpp"):
+            always |= set(re.findall(r'Add\("([a-z0-9_]+)"', reward.read_text()))
 
-    source = (root / "Stages" / "Stages.cpp").read_text()
+    stages_file = _curriculum_file("Stages/Stages.cpp")
+    assert stages_file, "Stages.cpp is in no curriculum root"
+    source = stages_file.read_text()
     out: dict[str, set[str]] = {}
     for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
         name = re.search(r'\.Name = "([^"]+)"', body)
@@ -463,8 +493,9 @@ def test_confidence_must_be_a_probability_beside_a_bound():
 
 def stage_definitions() -> dict[str, dict]:
     """Each stage's Extends, Merges and Blocks, in queue order."""
-    source = (Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
-              / "Stages" / "Stages.cpp").read_text()
+    stages_file = _curriculum_file("Stages/Stages.cpp")
+    assert stages_file, "Stages.cpp is in no curriculum root"
+    source = stages_file.read_text()
     out: dict[str, dict] = {}
     for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
         name = re.search(r'\.Name = "([^"]+)"', body)
