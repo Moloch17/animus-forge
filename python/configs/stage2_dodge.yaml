@@ -14,13 +14,22 @@ convergence:
   min_env_steps: 15000000
 
 target:
-  # Every pull has something on the ground. The clear rate must hold while the time spent standing in it falls:
-  # the charge lands about four times harder on a tank, so the per-build floor is looser than the overall one.
+  # There is nothing to fight here, so there is nothing to clear.
+  #
+  # This gate used to read `pulls_cleared`, inherited from stage6_pack along with the rest of the config, and
+  # the drill's own arena is PullSchedule::None -- no pull is ever scheduled, so the metric is never produced
+  # and the learner refused to start at all: "target.metrics.pulls_cleared: the scenario has no such episode
+  # info". It would have done so every time this stage was run. The scenario is the authority about what it
+  # measures, and what it measures is a seat standing in fire.
+  #
+  # hazard_seconds is the lesson: how long the seat spends in the patch. died is the floor under it -- with
+  # nothing attacking, a death is the fire and nothing else, so unlike stage6_pack's 0.20 there is no reason to
+  # allow any.
   min_over_baseline: 0.05
   metrics:
-    pulls_cleared: {min: 0.85}
     hazard_seconds: {max: 4.0}
-  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
-  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
-  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
+    died: {max: 0.0}
+  # stage6_pack's per-layout floor named pulls_cleared too; cleared rather than replaced, because a per-class
+  # floor on hazard_seconds wants measuring before it is asserted.
+  layout_metrics: {}
   until_passed: true
