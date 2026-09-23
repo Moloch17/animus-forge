@@ -591,6 +591,11 @@ namespace
             .Name = "stage14_companion",
             .Suffix = "_companion",
             .Extends = "stage13_arena",
+            // The pack, gauntlet and support blocks were trained across stages 6-8 and then dropped by the
+            // PvP line this stage extends, so without this merge they would start from zero here and three
+            // stages of training would be spent again. A merge seeds exactly the blocks the extended stage
+            // does not have.
+            .Merges = { "stage8_endurance" },
             .Summary = "the gauntlet beside a scripted owner: follow, assist, guard and heal it",
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Support },
             // 450 s, as the solo gauntlet: without its own length the arena took the host's 60 s, two or three pulls
@@ -657,7 +662,10 @@ namespace
             .Name = "stage18_flag",
             .Suffix = "_flag",
             .Extends = "stage17_triage",
-            .Merges = { "stage3_travel" },
+            // stage3_travel for the travel block, stage13_arena for the pvp block: this stage extends the
+            // party line, which has neither, and a flag match is a fight between two seats before it is
+            // anything else.
+            .Merges = { "stage3_travel", "stage13_arena" },
             .Summary = "capture the flag one-on-one: bases 100-180 yd apart, first to three captures",
             .Blocks = { Core, Move, Duel, Pet, Pvp, Travel, Flag },
             .Arenas = { { .Name = "flag", .Seats = SeatPlan::Mirror, .Against = Opposition::Flag, .Pvp = true,
@@ -672,6 +680,9 @@ namespace
             .Name = "stage19_warsong",
             .Suffix = "_warsong",
             .Extends = "stage18_flag",
+            // Ten a side is a group: the party block was trained at stages 15-17 and the flag line it extends
+            // does not carry it.
+            .Merges = { "stage17_triage" },
             .Summary = "ten against ten for the flag: escort the carrier, hold the base, stop theirs",
             .Blocks = { Core, Move, Duel, Pet, Pvp, Travel, Flag, Party },
             .Arenas = { { .Name = "warsong", .Seats = SeatPlan::Teams, .Against = Opposition::Flag, .Pvp = true,
@@ -731,6 +742,8 @@ namespace
             .Name = "stage22_duo_led",
             .Suffix = "_duo",
             .Extends = "stage19_warsong",
+            // The pack and support blocks, trained at stages 6-8; the flag line it extends dropped both.
+            .Merges = { "stage8_endurance" },
             .Summary = "two against two, told who to kill and whose turn it is: follow the call",
             .Blocks = { Core, Move, Duel, Pack, Pet, Pvp, Context, Hostiles, Support, Order },
             .Arenas = { { .Name = "duo", .Seats = SeatPlan::Teams, .Against = Opposition::MirrorSeat,
@@ -751,7 +764,7 @@ namespace
             // The leaf of every other branch, so nothing trained in the queue is left behind: the PvP line
             // through warsong, the movement line through flight. The PvE line arrives by extension.
             .Merges = {
-                "stage19_warsong", "stage13_arena", "stage9_pvp", "stage4_flight",
+                "stage22_duo_led", "stage19_warsong", "stage13_arena", "stage9_pvp", "stage4_flight",
                 "stage14_companion", "stage7_gauntlet", "stage5_duel",
             },
             .Summary = "PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet and a ganked owner",
