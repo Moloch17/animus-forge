@@ -1,8 +1,8 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. Twenty-five scenarios are defined; **twenty-four are the default queue**, in the
-order they are trained, and one is trained only by name: the `mix_duel_pvp` pilot.
+`src/Scenario/Curriculum/`. Twenty-five scenarios are defined; **twenty-three are the default queue**, in the
+order they are trained, and two are trained only by name: the `stage1b_indoor` drill and the `mix_duel_pvp` pilot.
 
 Every stage trains the same ten class policies over a shared trunk, so what one class learns about moving,
 threat or interrupts helps the others. A class policy plays every role its class has specs for, and is measured
@@ -16,7 +16,7 @@ the stage it seeds from.
 
 ```
 stage1_move          open ground, broken ground, water   ── the feet
-├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── queued after stage1_move; nothing extends it
+├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── trained by name, not queued
 └─ stage2_dodge      fire underfoot, nothing to fight
    └─ stage3_travel  the mount
       └─ stage4_flight
@@ -79,10 +79,10 @@ one commanding each side (see 4.12).
 | Stage | Extends | Seats | Blocks added | What it is |
 |---|---|---|---|---|
 | `stage1_move` | — | Solo | core, move, travel, duel | **The root, and nothing to fight.** A place 40-160 yd away on foot -- mounting is masked, so the trip is made with the speed cooldowns the class has. Three arenas: open ground, genuinely broken ground (ridges, canyon and shore, chosen by measured local relief), and water whose way round is longer than the way through. Every arrival gate is 1.0 -- the bot always arrives -- which is fair only because the generator refuses to place an objective the character cannot reach in the time it has |
-| `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the sixteen navmesh rays, the 15-degree turn, the clearance term and the jump are all worth something. In the default queue after `stage1_move`; nothing extends it, so `stage2_dodge` still seeds from `stage1_move` |
+| `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the sixteen navmesh rays, the 15-degree turn, the clearance term and the jump are all worth something. Trained by name, not in the default queue: its gate is one a first run is expected to fail, and a queued stage that halts below its target halts the queue with it |
 | `stage2_dodge` | stage1_move | Solo | same | **Drill.** Still nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage3_travel` | stage2_dodge | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
-| `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+. A third of its episodes (`flight_air`) put the place on a plateau or island the ground route does not reach, with the ground mount masked |
+| `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+. A third of its episodes (`flight_air`) put the place on a plateau or island the ground route does not reach, with the ground mount masked, where the spawn point has one in reach; `air_only` reports which trips did |
 | `stage5_duel` | stage4_flight | Solo | + pet | **Where the fighting starts.** A same-level creature out of aggro range: close in and kill it fast, taking little damage. It arrives already knowing how to place its feet |
 | `stage6_pack` | stage5_duel | Solo | + pack (−travel) | A pack of 2-4, casters included, usually linked: targets, interrupts, crowd control |
 | `stage7_gauntlet` | stage6_pack | Solo | + gauntlet, support | Pull after pull with short breaks: heals, food and drink |
@@ -167,8 +167,9 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
 | `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
 
-**The queue is 2,130M env steps over 24 stages** (2,190M with the `mix_duel_pvp` pilot, which is not in the
-queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
+**The queue is 2,100M env steps over 23 stages** (2,190M with the `mix_duel_pvp` pilot and the `stage1b_indoor`
+drill, neither of which is in the queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order of
+40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage
 descends from, but `stage8_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
 `stage1_move`.
@@ -229,7 +230,7 @@ independent random initialisations, which is the thing that makes the eventual j
 | The join and the objective stages, 18-23, once | 420M |
 | **Total** | **15,780M** |
 
-Against 2,130M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+Against 2,100M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
 and a half times the compute**, and that is the price of the thing it buys: a policy per class that has not had
 to share its trunk with nine others through the stages where classes have least in common.
 
@@ -1531,8 +1532,11 @@ is nearly always walkable -- 700 yd at run speed is 100 s of the clock, so a gro
 nine of ten class heads never found the flying mount. `flight_air` (weight 1, `ArenaDefinition::AirOnly`) is where
 the wings are the way: the objective can only be reached by air (no complete ground route within
 `Travel.AirDetour` of the straight line), the ground mount is masked, and arriving is measured at the objective's
-own height (`Travel.AirArriveRise`) so the cliff foot under a plateau's edge does not count. The stage is gated
-per class on `flew` as well as on arrival.
+own height (`Travel.AirArriveRise`) so the cliff foot under a plateau's edge does not count. A spawn point with no
+such place within reach builds an ordinary flight instead and reports `air_only` 0, as the water arena reports
+`crossing` 0 when it finds no crossing: the column says what the ground offered, not what the arena asked, and a
+spawn point that never offers one shows up there rather than as an env that cannot build an episode. The stage is
+gated per class on `flew` as well as on arrival.
 
 ### Stage 9: `stage14_companion`
 

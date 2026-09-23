@@ -19,10 +19,12 @@
 #   - a jump, which is the one move no pathfinder can propose: a route is polygons that touch, and a gap has
 #     none.
 #
-# In the default queue, straight after stage1_move, and still a side branch: nothing extends it, so stage2_dodge
-# seeds from stage1_move as before. It joined the queue once its rooms were known to be rooms (below), because it is
-# the stage that tests what the sixteen rays, the fifteen-degree turn, the clearance term and the jump were built
-# for -- a doorway off the objective's axis, which open country never asks for. It still trains by name too:
+# NOT in the default queue, and deliberately so -- it is a side branch off stage1_move, not a rung of the
+# ladder (stage2_dodge seeds from stage1_move). It is the stage that tests what the sixteen rays, the
+# fifteen-degree turn, the clearance term and the jump were built for -- a doorway off the objective's axis, which
+# open country never asks for -- and it joins the queue (StageDefinition::InDefaultQueue) once its rooms have been
+# stood on again with `forge rays` and its gate is one a run can pass: a queued stage that halts below its target
+# halts `forge start` with it, and the gate below is one a first run is expected to fail. Train it by name:
 #
 #   forge start stage1b_indoor
 #

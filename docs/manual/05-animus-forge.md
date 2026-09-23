@@ -569,6 +569,14 @@ a wide gap means the gated policy is not the one that trained (lower `mappo.entr
 movement stages run it at 0.3 for exactly this reason: stage1_move's sampled policy arrived 0.996 against the
 argmax's 0.979).
 
+**Masked actions** (`eval.mask_actions`): names of actions the evaluation may not take, resolved per layout through
+each layout's `action_names` (the same name sits at a different index in every class's catalog). Training is not
+masked; the evaluation is, so the number says what the policy arrives at without the actions it leaned on. The
+setting is meant for one measurement -- scoring the checkpoints trained with `follow_route` and `face_objective`
+without them, on the binary that still has them -- and a name no layout has is refused rather than ignored, so it
+cannot be left set across a build that removed the action. `python -m animus.evaluate --mask-actions` is the same
+mask by hand.
+
 **The baseline** (`eval.baseline`, `fight` for the curriculum) is scored once per run on the same seeds. It is cached in
 `eval_baseline.json` under a key of policy, seed, episodes, opponents, arenas and the stage tuning, and in
 `eval_baseline_<seed>_<episodes>.json` for confirmation seeds. With `opponent_baseline`, the sim plays the opponent
@@ -760,5 +768,8 @@ dim, action count or layouts changed. The env count, decision interval and episo
 
 `tests/test_export.py` checks that an exported network reproduces the torch actor's greedy actions.
 
-`python -m animus.evaluate --checkpoint <pt> --episodes N --seed S --baseline fight [--opponent-baseline]` scores a
-checkpoint by hand against a running sim.
+`python -m animus.evaluate --checkpoint <pt> --episodes N --seed S --baseline fight [--opponent-baseline]
+[--mask-actions NAME ...]` scores a checkpoint by hand against a running sim. `--mask-actions` forbids actions by
+name while scoring, resolved per layout as `eval.mask_actions` is: what a checkpoint arrives at without the actions
+it leaned on. A name no layout of the checkpoint's stage has is refused, so a mask written for one build cannot
+silently forbid nothing on another.
