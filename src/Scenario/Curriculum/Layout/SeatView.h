@@ -115,6 +115,7 @@ namespace Animus::Curriculum
         bool Valid = false;         // and there is a way to follow
         bool Complete = false;      // which reaches the objective rather than stopping short
         float Remaining = 0.0f;     // yards left along it
+        float Handoff = 0.0f;       // ... and the point inside which the seat walks it itself
         Position Next;              // the corner being walked to
     };
 

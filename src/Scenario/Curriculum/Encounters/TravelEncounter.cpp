@@ -591,6 +591,7 @@ void Animus::Curriculum::TravelEncounter::View(Env const& env, uint32 /*seat*/, 
     view.MountsAllowed = !_scenario.Arena(env).OnFoot;
 
     view.Route.Allowed = _scenario.Arena(env).Routes;
+    view.Route.Handoff = _scenario.Tuning().Travel.RouteHandoff;
     view.Route.Valid = travel.Way.Valid;
     view.Route.Complete = travel.Way.Complete;
     view.Route.Remaining = travel.Way.Valid ? travel.Way.Length : 0.0f;

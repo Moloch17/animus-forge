@@ -188,7 +188,7 @@ namespace
                 // reach every objective, a shorter clock is a handicap with nothing to teach in it. The
                 // difference between these two arenas is the terrain, which is what it was always meant to be.
                 { .Name = "open", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true },
+                    .OnFoot = true, .Routes = true },
                 // Ground that is actually broken. Until now neither arena declared spawn points, so both fell
                 // through to the stage list and ran on *the same terrain*: "broken ground is where the terrain
                 // probe earns its place" described an arena identical to the open one, and the measured detour
@@ -213,7 +213,7 @@ namespace
                 // barely moves, and the Durotar canyons and the Dustwallow shore are what this file already
                 // calls "canyon and rock" and "marsh and broken shore".
                 { .Name = "broken", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true,
+                    .OnFoot = true, .Routes = true,
                     .SpawnPoints = {
                         // Mulgore/Barrens ridge, relief 78 over a 179 yard span
                         { -1401.0f, -85.0f, 159.0f, 0.0f },
@@ -243,7 +243,7 @@ namespace
                 // z 65 and the seats have to stand on the bank at 82-94 and decide to get in. Taken from the land
                 // creatures the oases are ringed with (Kolkar centaurs), so the ground under each one is real.
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Water = true,
+                    .OnFoot = true, .Water = true, .Routes = true,
                     .SpawnPoints = {
                         { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
                         { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },

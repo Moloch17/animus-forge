@@ -110,8 +110,12 @@ namespace
             case TravelBlock::ACTION_DISMOUNT:
                 return bot->IsMounted();
             case TravelBlock::ACTION_FOLLOW_ROUTE:
-                // A way to follow, somewhere still to get to, and an arena that offers the action at all.
+                // A way to follow, somewhere still to get to, an arena that offers the action -- and enough of
+                // the trip left to be worth delegating. Inside the handoff the seat walks it itself, because
+                // the last forty yards are the part a pathfinder cannot do: arriving on the mark, keeping off
+                // the walls, stepping round whatever is underfoot.
                 return view.Route.Allowed && view.Route.Valid && view.HasObjective
+                    && view.Route.Remaining > view.Route.Handoff
                     && !TravelBlock::AtObjective(bot, view.Objective);
             default:
                 return false;
