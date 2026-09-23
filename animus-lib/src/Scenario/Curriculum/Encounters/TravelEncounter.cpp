@@ -230,6 +230,18 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
     {
         return _envs[env.Index].CouldMountFlyer ? 1.0f : 0.0f;
     });
+    table.Add("flying_zone", [this](Env const& env, uint32)
+    {
+        return float(_envs[env.Index].FlyerZone);
+    });
+    table.Add("flying_area", [this](Env const& env, uint32)
+    {
+        return float(_envs[env.Index].FlyerArea);
+    });
+    table.Add("flying_refusal", [this](Env const& env, uint32)
+    {
+        return float(_envs[env.Index].FlyerRefusal);
+    });
     table.Add("flying_mount_fraction", [this](Env const& env, uint32)
     {
         return env.EpisodeElapsedMs ? float(_envs[env.Index].FlyingMountMs) / float(env.EpisodeElapsedMs) : 0.0f;
@@ -505,6 +517,9 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
         travel.TripShare = seconds > 0.0f ? travel.WalkDistance / speed / seconds : 0.0f;
     }
     travel.KnowsFlyer = TravelBlock::FlyingMount(bot) != nullptr;
+    travel.CouldMountFlyer = TravelBlock::CanSummonFlying(bot, &travel.FlyerRefusal);
+    travel.FlyerZone = bot->GetZoneId();
+    travel.FlyerArea = bot->GetAreaId();
     travel.CouldMountFlyer = TravelBlock::CanSummonFlying(bot);
     _scenario.PrepareFighter(bot, data.Seats[0]);
     return true;

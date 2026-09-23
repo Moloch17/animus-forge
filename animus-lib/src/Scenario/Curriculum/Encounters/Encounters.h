@@ -625,7 +625,19 @@ namespace Animus::Curriculum
             uint32 MountedMs = 0;               // episode time spent mounted
             uint32 FlyingMountMs = 0;           // ... of it on a flying mount, in the air or not
             uint32 FlyingMs = 0;                // ... on a flying mount in the air
-            bool KnowsFlyer = false;            // the seat knows a flying mount spell at all
+            bool KnowsFlyer = false;
+            /// Why the flying mount was refused at the start of the episode, as a SpellCastResult.
+            ///
+            /// could_mount_flying was reported for the whole life of the flight stage while CouldMountFlyer was
+            /// never once assigned, so the column read false whatever happened. stage4_flight then ran its full
+            /// thirty million steps with flew at exactly 0.0000 -- every character level 67 and knowing a flying
+            /// mount -- and the one number that would have said so was a constant.
+            uint32 FlyerRefusal = 0;
+            /// The zone and area the seat believed it was in when that was asked. SpellInfo::CheckLocation
+            /// tests the player's own cached ids, not its coordinates, so a stale or unresolved zone refuses a
+            /// flying mount in the middle of Outland.
+            uint32 FlyerZone = 0;
+            uint32 FlyerArea = 0;            // the seat knows a flying mount spell at all
             bool CouldMountFlyer = false;       // ... and the mask would have offered it at the start
             bool Flew = false;                  // the seat rode a flying mount at some point this episode
             float FlightSpeedSeen = 0.0f;       // the fastest MOVE_FLIGHT speed it had while on one
