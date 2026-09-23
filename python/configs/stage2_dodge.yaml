@@ -5,8 +5,24 @@
 # about rather than a detail of a harder fight.
 #
 # Trained by name (`forge start stage2_dodge`), after stage6_pack, which it seeds from. Not in the default queue.
-extends: stage6_pack.yaml
+# Extends the shared base, not stage6_pack.
+#
+# It used to extend stage6_pack, and `merge` is a deep merge for non-empty maps -- so this drill inherited a
+# pack fight's gate, `pulls_cleared`, which its own arena (PullSchedule::None) can never produce. The learner
+# refused to start, every time, and leaving the metric out of the override did not help: only an empty map
+# replaces, so an omitted key is an inherited key. The C++ definition has said `.Extends = "stage1_move"` all
+# along; this file disagreed with it.
+#
+# Seeding is unaffected either way -- the seed chain comes from stage.json (the C++ definition), not from
+# `extends`, which is config inheritance only.
+extends: stage5_duel.yaml
 run_name: stage2_dodge
+# Carried forward from stage6_pack so that only the gate changes: a longer horizon and a longer rollout than
+# the duel default, which a 120 s drill wants for the same reason a pack fight does.
+rollout_length: 256
+mappo:
+  gamma: 0.999
+  gae_lambda: 0.995
 # A drill, not a stage of the curriculum: it is there to move one behaviour, and the behaviour shows early.
 total_env_steps: 60000000
 convergence:
@@ -29,7 +45,4 @@ target:
   metrics:
     hazard_seconds: {max: 4.0}
     died: {max: 0.0}
-  # stage6_pack's per-layout floor named pulls_cleared too; cleared rather than replaced, because a per-class
-  # floor on hazard_seconds wants measuring before it is asserted.
-  layout_metrics: {}
   until_passed: true
