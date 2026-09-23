@@ -395,16 +395,25 @@ namespace
                 // Terokkar Forest
                 { -1750.0f, 5154.0f, -37.0f, 0.0f },  { -1730.0f, 5282.0f, -32.0f, 0.0f },
             },
-            // THE CONTROL GROUND for flight. Map 530 carries Eversong and the Draenei isles as well as Outland,
-            // so the control here is a different continent rather than a different corner -- ground no training
-            // episode of this stage can reach, tens of thousands of yards away.
+            // THE CONTROL GROUND for flight, and it has to be ground a flying mount may actually leave.
+            //
+            // It used to be Eversong Woods and the Draenei isles, chosen because map 530 carries them as well as
+            // Outland and they are therefore a different continent rather than a different corner. They are also
+            // not flyable: AreaTableEntry::IsFlyable is `flags & AREA_FLAG_OUTLAND` and those zones do not carry
+            // it, so SpellInfo::CheckLocation refuses every flying mount there with SPELL_FAILED_INCORRECT_AREA.
+            //
+            // Evaluation spawns on held-out ground. So every one of the 2048 evaluation episodes began somewhere
+            // the seat could not take off, `flew` read exactly 0.0000 at every checkpoint, and the stage ran its
+            // whole thirty million steps against a gate of flew >= 0.35 that nothing could ever have met. The
+            // refusal code was identical on all 2048 episodes, which is what named it.
+            //
+            // Nagrand instead: Outland, so flyable, and none of the four zones this stage trains in (Hellfire,
+            // Zangarmarsh, Shadowmoon, Terokkar). The separation is a zone rather than a continent, which is what
+            // the requirement to fly allows. Every point stood on with `forge rays`.
             .HeldOutSpawnPoints = {
-                // Eversong Woods
-                { 9806.0f, -7284.0f, 23.0f, 0.0f },   { 9547.0f, -7159.0f, 16.0f, 0.0f },
-                // Azuremyst Isle
-                { -3613.0f, -11888.0f, 9.0f, 0.0f },  { -3737.0f, -11905.0f, 8.0f, 0.0f },
-                // Bloodmyst Isle
-                { -3577.0f, -12420.0f, 7.0f, 0.0f },  { -3757.0f, -12447.0f, 3.0f, 0.0f },
+                { -850.6f, 6517.2f, 172.6f, 0.0f },   { -842.4f, 6578.1f, 172.7f, 0.0f },
+                { -652.9f, 6576.9f, 170.4f, 0.0f },   { -685.5f, 6609.0f, 176.6f, 0.0f },
+                { -533.9f, 8870.4f, 209.0f, 0.0f },   { -974.2f, 8136.0f, -93.8f, 0.0f },
             },
             .MinLevel = 60,
         });

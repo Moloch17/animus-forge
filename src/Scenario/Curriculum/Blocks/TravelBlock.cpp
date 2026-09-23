@@ -84,15 +84,22 @@ namespace
     /// the key does. Gating this on a finished spline instead made mounting unreachable on the only trips worth
     /// mounting for: the seat moves every decision, so the spline is live from the first one to the last, and the
     /// action was masked out of every decision but the one before the bot had started.
-    bool CanSummon(Player* bot, SpellInfo const* mount)
+    /// `reason` reports the SpellCastResult when the cast is what refused it, SPELL_CAST_OK when the refusal
+    /// was one of the cheap checks above it, and NO_MOUNT_KNOWN when there is no such mount to summon.
+    constexpr uint32 NO_MOUNT_KNOWN = 0xFFFF;
+
+    bool CanSummon(Player* bot, SpellInfo const* mount, uint32* reason = nullptr)
     {
+        if (reason)
+            *reason = mount ? uint32(SPELL_CAST_OK) : NO_MOUNT_KNOWN;
+
         if (!mount || bot->IsMounted() || !bot->IsAlive() || Encoding::CastInProgress(bot)
             || bot->GetGlobalCooldownMgr().HasGlobalCooldown(mount))
             return false;
 
         SpellCastTargets targets;
         targets.SetUnitTarget(bot);
-        return Animus::SpellChecks::CheckCast(bot, mount, targets, nullptr);
+        return Animus::SpellChecks::CheckCast(bot, mount, targets, nullptr, reason);
     }
 
     bool IsAllowed(SeatView const& view, uint32 action)
@@ -128,9 +135,9 @@ SpellInfo const* Animus::Curriculum::TravelBlock::GroundMount(Player const* bot)
     return FastestMount(bot, false);
 }
 
-bool Animus::Curriculum::TravelBlock::CanSummonFlying(Player* bot)
+bool Animus::Curriculum::TravelBlock::CanSummonFlying(Player* bot, uint32* reason)
 {
-    return CanSummon(bot, FlyingMount(bot));
+    return CanSummon(bot, FlyingMount(bot), reason);
 }
 
 SpellInfo const* Animus::Curriculum::TravelBlock::FlyingMount(Player const* bot)
