@@ -1286,6 +1286,12 @@ Every stage reports these **core columns** per seat:
   `equipped_items`
 - `spell_casts`, `trinket_uses`
 - `present` (0 for an empty party seat; ignore that row), `arena` (index into `stage.json` arenas), `opponent_seat`
+- `spawn_point` (which spawn point the episode was built from) and `spawn_drawn` (which one it drew first),
+  indices into the stage's or the arena's `SpawnPoints`, or into `HeldOutSpawnPoints` while evaluating.
+  Equal, the first choice worked; different, that point could not build an episode and the reset moved on.
+  A point drawn often and built from never is ground no episode can start on -- held-out ground like that
+  is counted as control and scores nothing, which is how stage1b_indoor came to be gated on two of its
+  three rooms without anything saying so.
 - `killed`, `died`, `time_to_kill`, `damage_taken`, `health_left`, `stealth_openers`, `stealth_utility_casts`,
   `pet_summoned`, `pet_at_start`, `pet_damage_share` (of the seat's damage, what its pets and guardians dealt),
   `pet_died`, `pet_abilities` (pet bar abilities started), `pet_orders` (stances, follow, stay, sending the pet in),
