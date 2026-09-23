@@ -1,0 +1,17 @@
+# The same ledges, for the classes that can make a fall free.
+#
+# Seeded from stage1c_jump, so the seat already knows what a drop costs bare. Slow Fall (mage) and Levitate (priest)
+# are unmasked here and the stage is played only by the classes whose kit has one (StageDefinition::NeedsFeatherFall):
+# what they learn is that a cast beforehand makes the deadly drop free, and when that is worth the cast. Its lesson
+# shows as feather_falls rising while fall_damage and fall_deaths fall, per class.
+#
+# NOT in the default queue; trained by name after stage1c_jump:
+#
+#   forge start stage1d_glide
+
+extends: stage1c_jump.yaml
+run_name: stage1d_glide
+
+# A shorter budget: the legs and the ledges are inherited, and one spell is the new thing. Above the fast overlay's
+# 20M, which every stage has to stay above.
+total_env_steps: 24000000

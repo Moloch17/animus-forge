@@ -192,6 +192,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Actions.Repeat` | 0.02 | | | |
 | `Actions.RepeatWindowMs` | 10000 | | | |
 | `Actions.RepeatFree` | 3 | | | |
+| `Actions.JumpDropSearch` | 200 | | | |
 | `Actions.ModeLockMs` | 5000 | | | |
 | `Difficulty.MaxTier` | 6 | | | |
 | `Difficulty.EliteTier` | 4 | | | |
@@ -257,6 +258,11 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Travel.DetourMidShare` | 0.35 | | `Flag.StepCost` | 0.0002 |
 | `Travel.AirDetour` | 2.5 | | | |
 | `Travel.AirArriveRise` | 10.0 | | | |
+| `Travel.LedgeMin` | 20.0 | | | |
+| `Travel.LedgeMax` | 120.0 | | | |
+| `Travel.LedgeDetour` | 2.0 | | | |
+| `Travel.LedgeDropMin` | 5.0 | | | |
+| `Travel.LedgeDropMax` | 80.0 | | | |
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight. Arena ladder pin:
 `Arena.<stage>.<arena>.MaxRung`, defaulting to the definition's (`-1`: the ladder climbs to `Pulls.MaxTier`).

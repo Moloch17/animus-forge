@@ -732,6 +732,11 @@ AnimusForge.Curriculum.Actions.Repeat = 0.02
 AnimusForge.Curriculum.Actions.RepeatWindowMs = 10000
 #   presses of one action within the window that cost nothing
 AnimusForge.Curriculum.Actions.RepeatFree = 3
+#   how far below where a jump would come down the ground is looked for before the jump is refused (yards). The only
+#   limit on a drop: a landing this deep is a fall the seat may choose, and what it costs -- nothing with Slow Fall
+#   or Levitate, health past fourteen yards, death past about seventy -- is the seat's to learn. Only the void is
+#   masked
+AnimusForge.Curriculum.Actions.JumpDropSearch = 200
 #   a stance, form, presence, aspect, aura, seal, armor or pet stance holds this long before another change of its
 #   kind (ms)
 AnimusForge.Curriculum.Actions.ModeLockMs = 5000
@@ -1090,6 +1095,15 @@ AnimusForge.Curriculum.Travel.DetourMidShare = 0.35
 #   cliff six yards under a plateau's edge would count
 AnimusForge.Curriculum.Travel.AirDetour = 2.5
 AnimusForge.Curriculum.Travel.AirArriveRise = 10.0
+#   ledge arenas (stage1c_jump, stage1d_glide): the objective is LedgeMin to LedgeMax yards away and LedgeDropMin to
+#   LedgeDropMax yards below the seat, its way round on foot complete but at least LedgeDetour times the straight
+#   line, and the straight line crosses one edge the seat can drop off. LedgeDropMax runs past the lethal fall on
+#   purpose: with Slow Fall or Levitate the drop is free, without them the seat learns what it costs
+AnimusForge.Curriculum.Travel.LedgeMin = 20.0
+AnimusForge.Curriculum.Travel.LedgeMax = 120.0
+AnimusForge.Curriculum.Travel.LedgeDetour = 2.0
+AnimusForge.Curriculum.Travel.LedgeDropMin = 5.0
+AnimusForge.Curriculum.Travel.LedgeDropMax = 80.0
 #   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
 #   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
 AnimusForge.Curriculum.Travel.IndoorMin = 8.0
