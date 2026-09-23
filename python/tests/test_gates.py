@@ -210,10 +210,110 @@ def sim_episode_info() -> tuple[str, ...]:
     return tuple(names | set(DERIVED_METRICS))
 
 
+def sim_stage_arenas() -> dict[str, tuple[str, ...]]:
+    """Each stage's arena names, read from the curriculum that defines them.
+
+    validate_target only checks `target.arenas` when it is given the stage's arena list, and the shipped-config
+    test used to call it without one. An arena gate naming an arena the stage does not have therefore passed the
+    suite and failed at startup instead -- stage3_travel inherited `open`, `broken` and `water` from stage1_move
+    and took the queue down with it. Parsed from the definitions rather than from stage.json, which only exists
+    for stages that have already been run."""
+    source = (Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
+              / "Stages" / "Stages.cpp").read_text()
+    stages: dict[str, tuple[str, ...]] = {}
+    for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
+        name = re.search(r'\.Name = "([^"]+)"', body)
+        if not name:
+            continue
+        stages[name.group(1)] = tuple(re.findall(r'\{\s*\.Name = "([a-z0-9_]+)"', body[name.end():]))
+    assert stages, "no stage definitions found"
+    return stages
+
+
+def sim_stage_columns() -> dict[str, set[str]]:
+    """Per stage, the episode info columns it can actually emit.
+
+    An encounter is built only when an arena asks for it (StageScenario's constructor), and it registers its
+    columns only when it is built: a stage whose arenas are all Opposition::Pulls has no OwnerEncounter and so
+    never emits owner_deaths. Gates accumulate down the config chain, so a stage that drops a capability keeps
+    its parent's gate on it -- the raid stages inherited owner_deaths from the party line and would have failed
+    it as "not in the evaluation summary" every evaluation, which under until_passed halts the queue for good.
+    Checking names against the union of every column any stage can emit does not catch that; this does."""
+    root = Path(__file__).resolve().parents[2] / "animus-lib" / "src" / "Scenario" / "Curriculum"
+
+    def columns(relative: str) -> set[str]:
+        path = root / relative
+        return set(re.findall(r'Add\("([a-z0-9_]+)"', path.read_text())) if path.exists() else set()
+
+    per_encounter = {name: columns(f"Encounters/{cls}.cpp") for name, cls in (
+        ("opponent", "OpponentEncounter"), ("owner", "OwnerEncounter"), ("party", "PartyEncounter"),
+        ("pulls", "PullsEncounter"), ("creature", "CreatureEncounter"), ("hazards", "HazardEncounter"),
+        ("ambush", "AmbushEncounter"), ("travel", "TravelEncounter"), ("flag", "FlagEncounter"),
+        ("director", "DirectorEncounter"))}
+    always = columns("StageScenario.cpp") | set(DERIVED_METRICS)
+    for reward in (root / "Rewards").glob("*.cpp"):
+        always |= set(re.findall(r'Add\("([a-z0-9_]+)"', reward.read_text()))
+
+    source = (root / "Stages" / "Stages.cpp").read_text()
+    out: dict[str, set[str]] = {}
+    for body in re.findall(r"stages\.push_back\(\{(.*?)\n        \}\);", source, re.S):
+        name = re.search(r'\.Name = "([^"]+)"', body)
+        if not name:
+            continue
+        active: set[str] = set()
+        for arena in re.findall(r'\{\s*\.Name = "[a-z0-9_]+"(.*?)\}', body[name.end():], re.S):
+            against = (re.search(r"\.Against = Opposition::(\w+)", arena) or [None, "Creature"])[1]
+            if against in ("ScriptedPlayer", "MirrorSeat", "Flag"):
+                active.add("opponent")
+            for opposition, encounter in (("Pulls", "pulls"), ("Creature", "creature"), ("Hazards", "hazards"),
+                                          ("Travel", "travel"), ("Flag", "flag")):
+                if against == opposition:
+                    active.add(encounter)
+            if ".Owner = true" in arena:
+                active.add("owner")
+            if ".PartyGroup = true" in arena:
+                active.add("party")
+            if ".Directed = true" in arena:
+                active.add("director")
+            if re.search(r"\.Ambushers = [1-9]", arena):
+                active.add("ambush")
+        out[name.group(1)] = set(always).union(*(per_encounter[e] for e in active)) if active else set(always)
+    assert out, "no stage definitions found"
+    return out
+
+
+def gated_names(target) -> dict[str, str]:
+    """Every metric name a target gates on, and where it is gated."""
+    found: dict[str, str] = {}
+    for name in target.metrics or {}:
+        found.setdefault(name, "target.metrics")
+    for name in target.layout_metrics or {}:
+        found.setdefault(name, "target.layout_metrics")
+    for spec, bounds in (target.spec_metrics or {}).items():
+        for name in bounds or {}:
+            found.setdefault(name, f"target.spec_metrics.{spec}")
+    for arena, gates in (target.arenas or {}).items():
+        for name in (gates or {}).get("metrics") or {}:
+            found.setdefault(name, f"target.arenas.{arena}")
+    return found
+
+
+@pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "configs").glob("*.yaml")), ids=str)
+def test_shipped_configs_gate_only_on_columns_their_stage_emits(path):
+    config = TrainConfig.load(path)
+    emitted = sim_stage_columns().get(config.run_name or path.stem)
+    if emitted is None:
+        return
+    unreachable = {n: w for n, w in gated_names(config.target).items() if n not in emitted}
+    assert not unreachable, (f"{path.name} gates on columns its stage never emits: "
+                             + ", ".join(f"{w}.{n}" for n, w in sorted(unreachable.items())))
+
+
 @pytest.mark.parametrize("path", sorted((Path(__file__).parent.parent / "configs").glob("*.yaml")), ids=str)
 def test_shipped_configs_load_and_validate(path):
     config = TrainConfig.load(path)
-    validate_target(config, sim_episode_info())
+    arenas = sim_stage_arenas().get(config.run_name or path.stem)
+    validate_target(config, sim_episode_info(), arenas)
 
 
 def test_score_gate_allows_evaluation_noise():

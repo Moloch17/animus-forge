@@ -59,6 +59,12 @@ target:
     timed_out: {max: 0.0}
   layout_metrics:
     arrived: {min: 1.0}
+  # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena, `rooms`,
+  # and it is not any of them, so those inherited entries name arenas that do not exist here and the learner
+  # refuses to start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with
+  # a single arena the per-arena floor would only restate the overall one. An empty map replaces where a
+  # populated one would merge, which is the only way to drop an inherited key.
+  arenas: {}
   # reward_clearance is reported, never gated. It is a shaped cost, not an objective: a seat that hugs a wall to
   # get through a door has done the right thing and should not be marked down for it. What it is there to show is
   # the distribution -- if it sits at the episode cap for most seats, the margin or the coefficient is wrong.

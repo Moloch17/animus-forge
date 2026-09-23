@@ -393,10 +393,18 @@ def load_yaml(path: str | Path, seen: tuple[Path, ...] = ()) -> dict:
 
 def merge(base: dict, override: dict) -> dict:
     """`override` over `base`: sections merge key by key, anything else is replaced. An empty map replaces too, so
-    `metrics: {}` in an overlay clears what the stage set."""
+    `metrics: {}` in an overlay clears what the stage set, and `null` drops a single inherited key.
+
+    Dropping one key matters because gate maps accumulate down the chain, and a stage that drops a capability
+    keeps its parent's gate on it: the raid stages inherited `owner_deaths` from the party line, have no owner,
+    and so could never produce the column the gate asks for. Clearing the whole map was the only way to be rid
+    of one entry, which would have taken the gates worth keeping (`livelocked` reaches every stage this way)
+    with it. `null` removes the key, so the field falls back to its default."""
     merged = dict(base)
     for key, value in override.items():
-        if isinstance(value, dict) and value and isinstance(merged.get(key), dict):
+        if value is None:
+            merged.pop(key, None)
+        elif isinstance(value, dict) and value and isinstance(merged.get(key), dict):
             merged[key] = merge(merged[key], value)
         else:
             merged[key] = value
