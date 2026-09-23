@@ -213,8 +213,8 @@ namespace Animus::Curriculum::Encoding
     ///
     /// `fromZ` is the height the probe drops from and `maxStep` how far the result may differ from it, which
     /// is what keeps a point from landing on a roof above or in a pit below. Shared by anything that picks a
-    /// spot to walk to out of thin air -- cover behind a pillar (DuelBlock::FindCover), a place a director
-    /// names -- because a point that is not snapped sends a bot into a wall or off a ledge.
+    /// spot to walk to out of thin air -- a step along a held bearing (MoveBlock), a place a director names --
+    /// because a point that is not snapped sends a bot into a wall or off a ledge.
     [[nodiscard]] bool SnapToGround(Map const* map, uint32 phaseMask, Position& at, float fromZ,
         float maxStep = 6.0f);
 
@@ -246,7 +246,6 @@ namespace Animus::Curriculum::Encoding
     void JumpTo(Player* bot, float x, float y, float z, float speedXY, float speedZ,
 
         float const* facing = nullptr);
-
 
     void FlyTo(Player* bot, float x, float y, float z, float const* facing = nullptr);
 
