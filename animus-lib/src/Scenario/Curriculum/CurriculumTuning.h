@@ -586,6 +586,17 @@ namespace Animus::Curriculum
             /// the ground probe refreshes on movement first. RouteCorner is how near counts as having reached
             /// one, and wants to be wider than a decision's travel (1.75 yd at run speed) so a corner cannot be
             /// stepped over and walked back to.
+            /// Where the pathfinder hands the trip back. ACTION_FOLLOW_ROUTE is offered while more than this
+            /// many yards of route remain and masked inside it, so the long haul can be delegated and the
+            /// approach cannot.
+            ///
+            /// The split is where the failures are. At four million steps the episodes that timed out had
+            /// routes of 135 yards against arrivals' 105, with detour ratios of 1.24 and 1.21 -- identical.
+            /// It was never the rough ground or the things in the way; it was the length, and the drift that
+            /// a long trip leaves room for. The last forty yards are the part where clearance, arriving on the
+            /// mark and getting out of the way of what is underfoot actually live, and no pathfinder does
+            /// those.
+            float RouteHandoff = 40.0f;
             float RouteStray = 25.0f;
             float RouteRefresh = 5.0f;
             float RouteCorner = 5.0f;
@@ -861,6 +872,7 @@ namespace Animus::Curriculum
             f("Travel.DamageTaken", tuning.Travel.DamageTaken);
             f("Travel.Death", tuning.Travel.Death);
             f("Travel.StepCost", tuning.Travel.StepCost);
+            f("Travel.RouteHandoff", tuning.Travel.RouteHandoff);
             f("Travel.RouteStray", tuning.Travel.RouteStray);
             f("Travel.RouteRefresh", tuning.Travel.RouteRefresh);
             f("Travel.RouteCorner", tuning.Travel.RouteCorner);
