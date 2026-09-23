@@ -155,7 +155,8 @@ def test_validate_arena_targets():
     with pytest.raises(ValueError, match="no such arena"):
         validate_target(config, ("won",), ("pvp",))
 
-    config.target.arenas = {"pvp": {"metrics": {"lost": {"min": 0.1}}}}
+    # (`lost` was the example here until it became a derived metric the validator allows by name.)
+    config.target.arenas = {"pvp": {"metrics": {"no_such_column": {"min": 0.1}}}}
     with pytest.raises(ValueError, match="no such episode info"):
         validate_target(config, ("won",), ("pvp",))
     config.target.arenas = {"pvp": {"min_over": 0.1}}

@@ -55,6 +55,7 @@ target:
 
 # No sampling metric: the sampler reads one as higher-is-better and replays the episodes below 1.0 on it, and this
 # drill emits no such 0/1 column of its own -- hazard_seconds is a maximum and died is a loss. The classes are still
-# weighted by their gap to the baseline.
+# weighted by their gap to the baseline; without a metric there is nothing to replay, so that is off too.
 layout_sampling:
   metric: ""
+  replay_fraction: 0.0

@@ -605,7 +605,7 @@ class TrainingRun:
         """A chooser for run_evaluation that carries a recurrent actor's memory between decisions and clears it where
         an episode has just ended (the step it is given is the new one's first)."""
         acting = self.trainer.acting_state(self.spec.num_envs, self.spec.agents_per_env)
-        forbidden = self.eval_action_mask
+        forbidden = getattr(self, "eval_action_mask", None)
 
         def choose(step):
             acting.clear(step.done)
