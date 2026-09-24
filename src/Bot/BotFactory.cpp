@@ -256,8 +256,8 @@ WorldSession* Animus::BotFactory::Destroy(Player* bot, bool keepSession)
     // Removes the player from its map, drops its social list and deletes it; false = no SaveToDB.
     session->LogoutPlayer(false);
 
-    // A sim session's bind was never written to the character database; on a stock core it was, and goes with the bot.
-    sInstanceSaveMgr->PlayerUnbindInstance(guid, mapId, difficulty, !CoreHooks::HasSimSessions());
+    // A sim session's bind was never written to the character database: nothing there to delete.
+    sInstanceSaveMgr->PlayerUnbindInstance(guid, mapId, difficulty, false);
 
     if (keepSession)
         return session;

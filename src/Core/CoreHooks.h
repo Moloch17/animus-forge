@@ -25,10 +25,9 @@ class Group;
 class WorldSession;
 
 /*
- * What only the forge core can do, for code that also runs on a stock AzerothCore. The library calls these seams
- * wherever the forge needs its core's help; they do nothing until a host fills them in, which mod-animus-forge does at
- * load (it only builds on the forge core). On a stock core the calls are no-ops: bots write the few database rows a
- * logout writes, and groups are saved like any other.
+ * What only the forge core can do, behind function pointers the module fills in at load (AddSC_animus_forge). The
+ * curriculum layer calls these seams wherever it needs the forge core's help and never a forge-only API directly,
+ * which keeps the layer's sources the same ones mod-animus carries for a stock core.
  */
 namespace Animus::CoreHooks
 {
@@ -44,18 +43,12 @@ namespace Animus::CoreHooks
         void (*SeedRandom)(uint32 seed) = nullptr;
     };
 
-    /// Set the seams (once, at load, before any bot is created).
+    /// Set the seams: once, at load, before any bot is created. Every call below assumes they are set.
     void Install(Seams const& seams);
 
     void MarkSimSession(WorldSession* session);
-
-    /// Whether bot sessions are sim sessions (the forge core): their instance binds were never written to the
-    /// character database, so there is nothing to delete when a bot leaves.
-    [[nodiscard]] bool HasSimSessions();
     void MarkSimGroup(Group* group);
-
-    /// False when the core cannot reseed (a stock core): the numbers stay random.
-    bool SeedRandom(uint32 seed);
+    void SeedRandom(uint32 seed);
 }
 
 #endif

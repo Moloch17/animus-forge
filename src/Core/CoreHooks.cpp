@@ -30,26 +30,15 @@ void Animus::CoreHooks::Install(Seams const& seams)
 
 void Animus::CoreHooks::MarkSimSession(WorldSession* session)
 {
-    if (Installed.MarkSimSession)
-        Installed.MarkSimSession(session);
-}
-
-bool Animus::CoreHooks::HasSimSessions()
-{
-    return Installed.MarkSimSession != nullptr;
+    Installed.MarkSimSession(session);
 }
 
 void Animus::CoreHooks::MarkSimGroup(Group* group)
 {
-    if (Installed.MarkSimGroup)
-        Installed.MarkSimGroup(group);
+    Installed.MarkSimGroup(group);
 }
 
-bool Animus::CoreHooks::SeedRandom(uint32 seed)
+void Animus::CoreHooks::SeedRandom(uint32 seed)
 {
-    if (!Installed.SeedRandom)
-        return false;
-
     Installed.SeedRandom(seed);
-    return true;
 }

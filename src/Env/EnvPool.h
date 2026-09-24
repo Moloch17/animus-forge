@@ -65,8 +65,8 @@ namespace Animus
         void ApplyActions();
 
         /// Evaluation (the forge's MODE message): hand seed indexes 0..episodes-1 to envs as they reset, each env
-        /// rebuilt right after reseeding the world thread's random numbers from (seedBase, index) where the core can
-        /// reseed (CoreHooks::SeedRandom). With a baseline policy name, EvalBaseline() tells the caller to run it
+        /// rebuilt right after reseeding the world thread's random numbers from (seedBase, index)
+        /// (CoreHooks::SeedRandom). With a baseline policy name, EvalBaseline() tells the caller to run it
         /// instead of the learner's actions -- only on the opponent seats when EvalOpponentsOnly(). Takes effect at
         /// the next reset; call ResetAll to start every env on it.
         void SetEvaluation(bool enabled, uint32 seedBase, uint32 episodes, std::string const& baseline,
