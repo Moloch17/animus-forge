@@ -20,13 +20,13 @@
 #     none.
 #
 # NOT in the default queue, and deliberately so -- it is a side branch off stage1_move, not a rung of the
-# ladder (stage2_dodge seeds from stage1_move). It is the stage that tests what the sixteen rays, the
+# ladder (stage5_dodge seeds from stage1_move). It is the stage that tests what the sixteen rays, the
 # fifteen-degree turn, the clearance term and the jump were built for -- a doorway off the objective's axis, which
 # open country never asks for -- and it joins the queue (StageDefinition::InDefaultQueue) once its rooms have been
 # stood on again with `forge rays` and its gate is one a run can pass: a queued stage that halts below its target
 # halts `forge start` with it, and the gate below is one a first run is expected to fail. Train it by name:
 #
-#   forge start stage1b_indoor
+#   forge start stage2_indoor
 #
 # The spawn points started as the centre of every row of areatrigger_tavern and did not survive contact with the
 # ground. `forge rays` stood on all 22 Kalimdor taverns first: three were on no navmesh at all, four were night
@@ -35,13 +35,10 @@
 # three held back are what was left, with z corrected from the trigger centre to the floor underneath it.
 
 extends: stage1_move.yaml
-run_name: stage1b_indoor
+run_name: stage2_indoor
 
 # Short trips in small rooms: the episodes are quick and the lesson shows early.
-total_env_steps: 30000000
-
-convergence:
-  min_env_steps: 8000000
+total_env_steps: 16000000
 
 eval:
   # Until the rooms are known to be rooms, look often and trace what happens.
@@ -49,27 +46,3 @@ eval:
   trace_episodes: 64
   report: [arrived, spl, lost, wedged, stall_seconds, stalls, travel_seconds, start_distance, walk_distance,
            distance_travelled, objective_distance_at_end, trip_share, saved, died, timed_out, reward_clearance]
-
-target:
-  # The movement phase's standard, unchanged: the bot always arrives. It is fair here for the same reason it is
-  # fair outdoors -- the generator will not place an objective the character cannot reach in the time it has, and
-  # indoors it additionally refuses anywhere that is not a floor the seat could stand on.
-  #
-  # A first run is expected to fail this, and that is the point: at 1.0 the number of episodes that did not
-  # arrive is the whole report, and every one of them is worth reading individually.
-  min_over_baseline: 0.0
-  metrics:
-    arrived: {min: 1.0}
-    timed_out: {max: 0.0}
-  layout_metrics:
-    arrived: {min: 1.0}
-  # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena, `rooms`,
-  # and it is not any of them, so those inherited entries name arenas that do not exist here and the learner
-  # refuses to start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with
-  # a single arena the per-arena floor would only restate the overall one. An empty map replaces where a
-  # populated one would merge, which is the only way to drop an inherited key.
-  arenas: {}
-  # reward_clearance is reported, never gated. It is a shaped cost, not an objective: a seat that hugs a wall to
-  # get through a door has done the right thing and should not be marked down for it. What it is there to show is
-  # the distribution -- if it sits at the episode cap for most seats, the margin or the coefficient is wrong.
-  until_passed: true

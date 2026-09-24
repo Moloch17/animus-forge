@@ -8,9 +8,9 @@
 # The reward splits the way a team game does: a capture, pickup, return or carrier kill pays every seat of the
 # side, while a death charges only the seat that died. The critic is shared, so team credit is what it is built to
 # handle; per-seat credit for a team objective would make nine seats of every ten look useless.
-extends: stage18_flag.yaml
-run_name: stage19_warsong
-total_env_steps: 60000000
+extends: stage20_flag.yaml
+run_name: stage21_warsong
+total_env_steps: 40000000
 # Ten a side is twenty agents an env against the mirror's two, so a rollout covers ten times the experience per
 # decision. The horizon stays stage 11's: a capture is still a minute of riding, fighting and carrying, and a
 # seven-minute match holds several.
@@ -27,13 +27,10 @@ eval:
   episodes: 128
   report: [match_won, flag_captures, flag_pickups, flag_returns, carrier_kills, flag_deaths, team_seat, flag_in_reach,
     mounted_fraction, healing_done]
-convergence:
-  min_env_steps: 20000000
-target:
-  # Ten a side on a real Warsong Gulch instance: the same objective as stage 18 with twenty seats and a carrier
-  # to escort, so the pickup floor stays and the capture floor is lower -- a side has to get through ten people.
-  min_over_baseline: 0.05
-  metrics:
-    flag_pickups: {min: 1.0}
-    flag_captures: {min: 0.35}
-  until_passed: false
+
+# The far side of the mirror arena: the pvp stage's policy first (this stage's own seed parent is a PvE policy with no
+# pvp block), then this run's league, half the episodes; the live policy the other half (animus.cast).
+cast:
+  opponents: league
+  parent: "{runs_dir}/stage12_pvp/best.pt"
+  opponent_share: 0.5

@@ -1,0 +1,14 @@
+# Stage 13 of the curriculum: a raid of eight groups of five against one elite and its adds, won or lost as the
+# single pack is. The party stages taught a group of five; this asks whether the same policy holds together at
+# forty, where threat, healing and standing out of things all scale differently.
+
+extends: stage19_triage.yaml
+run_name: stage24_raid_single
+
+total_env_steps: 40000000
+
+eval:
+  every_env_steps: 20000000
+  baseline: fight
+  report: [pulls_cleared, died, low_health_seconds, threat_share]
+

@@ -29,6 +29,10 @@ class Runner:
         self.env_steps = 1234
         self.finished_episodes = []
         self.finished_layouts = []
+        self.spec = Spec()
+        self.last_layout_stats = {}
+        self.lr_scale_now = 1.0
+        self.frozen = np.zeros(0, dtype=np.int64)
 
 
 def test_layout_rows_group_by_layout(tmp_path):

@@ -34,14 +34,7 @@ namespace AnimusForge
     class LearnerProcess : public ChildProcess
     {
     public:
-        /// The learner's exit code when its stage stayed below the stage target after its restarts
-        /// (python/animus/stage.py): the plan must not move on.
-        static constexpr int EXIT_BELOW_TARGET = 3;
-
         LearnerProcess() : ChildProcess("Learner") { }
-
-        /// The last started learner exited because its stage stayed below its target.
-        [[nodiscard]] bool HaltedBelowTarget() const { return ExitCode() == EXIT_BELOW_TARGET; }
 
         /// Validate the setup and spawn the learner for `scenario`: training from scratch, or with `resume`
         /// continuing runs/<scenario>/latest.pt. Returns false (with the reason logged) if the working directory

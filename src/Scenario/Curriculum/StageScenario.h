@@ -70,8 +70,9 @@ namespace Animus::Curriculum
             STATE_OWNER_X               = 10,   // relative to the spawn point, / 40
             STATE_OWNER_Y               = 11,
             STATE_OWNER_IN_COMBAT       = 12,
-            STATE_ARENA_FIRST           = 13,   // one-hot: the episode's arena (MAX_ARENAS columns)
-            STATE_GLOBAL_COUNT          = 13 + MAX_ARENAS
+            STATE_TIER                  = 13,   // the fight's difficulty tier or the pull's rung, over the top one
+            STATE_ARENA_FIRST           = 14,   // one-hot: the episode's arena (MAX_ARENAS columns)
+            STATE_GLOBAL_COUNT          = 14 + MAX_ARENAS
         };
 
         enum StateSeat : uint32
@@ -176,6 +177,20 @@ namespace Animus::Curriculum
         [[nodiscard]] static uint32 EnvPhase(Env const& env);
         [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
         [[nodiscard]] uint32 SeatCount() const { return _seatCount; }
+        /// Whether some arena of the stage plays its owner as an agent (ArenaDefinition::OwnerCast): one more row
+        /// on the wire, after the seats and the directors, in every episode of the stage.
+        [[nodiscard]] bool HasCastOwner() const { return _castOwner; }
+        /// The owner's agent index (valid when HasCastOwner).
+        [[nodiscard]] uint32 OwnerAgent() const { return _seatCount + (HasDirectors() ? TEAM_COUNT : 0); }
+        /// Whether this episode's owner is played through its row: a cast-owner arena, not an evaluation, and
+        /// not one of the episodes Owner.CastScriptedShare keeps scripted.
+        [[nodiscard]] bool CastOwnerActive(Env const& env) const;
+        /// Build the owner as a seat in the owner's agent slot: a class and build of the run meeting `demand`,
+        /// at `level`, placed at `start`; null when nothing could be built. The caller sets its faction and
+        /// records it as the env's ally.
+        Player* BuildOwnerSeat(Env& env, Map*& map, uint8 level, Position const& start, AptitudeDemand demand);
+        /// Release the owner's seat: its character goes and its slot reads empty.
+        void ReleaseOwnerSeat(Env& env);
         /// Whether the run carries the two director agents at all (some arena of the stage has a learned
         /// director), and whether the env's current episode is actually using them.
         [[nodiscard]] bool HasDirectors() const { return _directorLayout != NO_LAYOUT; }
@@ -202,6 +217,7 @@ namespace Animus::Curriculum
 
         /// Every class/role layout of the run, by Layout::Index (the index AgentLayouts reports).
         [[nodiscard]] std::vector<Layout> const& Layouts() const { return _layouts; }
+        [[nodiscard]] bool Playable() const override { return !_layouts.empty(); }
 
         /// How many (class, role) pairs the run can field, which is what an evaluation spreads its seeds over.
         /// The difficulty ladder divides by the same number, so every pair meets every rung.
@@ -259,8 +275,9 @@ namespace Animus::Curriculum
         /// The class and build `seat` plays this episode. An evaluation episode takes both from its seed index, so
         /// the seeds spread evenly over the (class, spec) pairs -- one model per class, but a paladin's healing
         /// build is still scored on its own share of the seeds. A training episode draws one, weighted by
-        /// SetLayoutWeights.
-        [[nodiscard]] Casting DrawCasting(Env const& env, uint32 seat, AptitudeDemand demand) const;
+        /// SetLayoutWeights unless `weighted` is off (a cast owner, which learns nothing from the draw).
+        [[nodiscard]] Casting DrawCasting(Env const& env, uint32 seat, AptitudeDemand demand,
+            bool weighted = true) const;
 
         /// How often a training episode draws this class with this build, relative to the others; 1 without weights.
         [[nodiscard]] float Weight(Layout const& layout, uint8 spec) const;
@@ -315,6 +332,9 @@ namespace Animus::Curriculum
     static void TrackMotion(Env const& env, SeatState& seat, Player const* bot, Unit const* target);
 
     void TrackSupport(Env& env, uint32 seatIndex, Player* bot);
+        /// The per-decision bookkeeping SeatReward does before any encounter's terms (damage dealt and taken,
+        /// the current target, support), for a row that is observed but not paid: the cast owner's.
+        void TrackSeatStep(Env& env, uint32 seatIndex, Player* bot);
         void WriteState(Env const& env, float* state) const;
 
         StageDefinition const& _stage;
@@ -323,6 +343,7 @@ namespace Animus::Curriculum
         Position _spawnPoint;
         bool _continent = false;
         uint32 _seatCount = 1;
+        bool _castOwner = false;            // some arena plays its owner as an agent (ArenaDefinition::OwnerCast)
         uint32 _level = 0;                  // StageSettings::Level: every character's level, 0 = random
         float _decisionScale = 1.0f;
         uint32 _decisionMs = 0;

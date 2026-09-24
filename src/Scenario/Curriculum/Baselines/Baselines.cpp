@@ -491,7 +491,7 @@ namespace
     ///
     /// Holding BEARING_FORWARD was what this did before, and it is why the scripted baseline arrived in 8% of its
     /// episodes against a trained policy's 99%: forward is the right way only until something is in front of it,
-    /// and a baseline that cannot steer makes `min_over_baseline` a floor anything clears. Bearing b points at
+    /// and a baseline that cannot steer is a yardstick anything clears. Bearing b points at
     /// -b*45 degrees in the seat's own frame (MoveBlock::HeadingOf), so its alignment with an objective lying at
     /// `heading` is cos(heading + b*45). Weighed against OBS_GROUND_FIRST, that is a seat that walks round a
     /// cliff instead of into it -- and, now that the probe reports water as ground it can cross, one that swims a

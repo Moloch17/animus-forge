@@ -20,7 +20,7 @@ def test_progress_is_flat_and_nonfinite_values_are_nulled(tmp_path):
 
 def test_writer_keeps_metrics_and_evaluation_between_writes(tmp_path):
     config = _config()
-    spec = SimpleNamespace(scenario="stage5_duel")
+    spec = SimpleNamespace(scenario="stage8_duel")
     tracker = ConvergenceTracker(patience=3)
     writer = ProgressWriter(tmp_path, config, spec, resumed_update=4, resumed_env_steps=400)
 
@@ -35,18 +35,18 @@ def test_writer_keeps_metrics_and_evaluation_between_writes(tmp_path):
     assert row["phase"] == "evaluating" and row["update"] == 6 and row["env_steps"] == 600
     assert row["total_env_steps"] == 1000 and row["resumed_update"] == 4 and row["resumed_env_steps"] == 400
     assert row["entropy"] == 1.25 and row["env_steps_per_sec"] == 900.0
-    assert row["patience"] == 3 and row["eval_every"] == 100 and row["min_env_steps"] == 200
+    assert row["patience"] == 3 and row["eval_every"] == 100 and row["window"] == 4
     assert row["evals"] == 2 and row["last_eval_score"] == 10.01 and row["baseline_score"] == 7.5
     assert row["best_score"] == 10.0 and row["best_env_steps"] == 500 and row["evals_since_best"] == 1
     assert row["baseline"] == "fight" and row["finish_reason"] == ""
 
 
 def _config() -> TrainConfig:
-    config = TrainConfig(run_name="stage5_duel", total_env_steps=1000)
+    config = TrainConfig(run_name="stage8_duel", total_env_steps=1000)
     config.eval.every_env_steps = 100
     config.eval.baseline = "fight"
     config.convergence.patience = 3
-    config.convergence.min_env_steps = 200
+    config.convergence.window = 4
     return config
 
 
@@ -54,7 +54,7 @@ def test_restore_evaluation_after_resume(tmp_path):
     tracker = ConvergenceTracker(patience=2)
     tracker.observe(3.0, 100)
     tracker.observe(2.0, 200)
-    writer = ProgressWriter(tmp_path, _config(), SimpleNamespace(scenario="stage5_duel"))
+    writer = ProgressWriter(tmp_path, _config(), SimpleNamespace(scenario="stage8_duel"))
 
     writer.restore_evaluation(tracker, 1.5)
     row = json.loads(writer.write("training", 2, 200).read_text())
@@ -63,16 +63,19 @@ def test_restore_evaluation_after_resume(tmp_path):
     assert row["best_score"] == 3.0 and row["evals_since_best"] == 1 and row["baseline_score"] == 1.5
 
 
-def test_restarts_and_target_are_reported(tmp_path):
+def test_convergence_per_class_is_reported(tmp_path):
     config = _config()
-    config.target.min_over_baseline = 0.1
     tracker = ConvergenceTracker(patience=2)
     tracker.observe(3.0, 100)
-    controller = SimpleNamespace(restarts=1)
-    writer = ProgressWriter(tmp_path, config, SimpleNamespace(scenario="stage5_duel"))
+    controller = SimpleNamespace(
+        converged_layouts=lambda: ["warrior_dps"], active_layouts=lambda: ["mage_dps"],
+        weakest=lambda: ("mage_dps", ["score", "kl"]), layouts={"mage_dps": SimpleNamespace(reentries=1)})
+    writer = ProgressWriter(tmp_path, config, SimpleNamespace(scenario="stage8_duel"))
 
     writer.evaluated(100, 3.0, 1.5, tracker, controller)
-    row = json.loads(writer.write("finished", 2, 200, "below_target").read_text())
+    row = json.loads(writer.write("finished", 2, 200, "budget", advanced=True).read_text())
 
-    assert row["target"] == 1 and row["max_restarts"] == 2 and row["restarts"] == 1
-    assert row["finish_reason"] == "below_target" and row["advanced"] == 0
+    assert row["converged_layouts"] == "warrior_dps" and row["active_layouts"] == "mage_dps"
+    assert row["weakest_layout"] == "mage_dps" and row["weakest_missing"] == "score,kl" and row["reentries"] == 1
+    assert row["window"] == config.convergence.window
+    assert row["finish_reason"] == "budget" and row["advanced"] == 1

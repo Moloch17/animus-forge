@@ -162,6 +162,14 @@ namespace Animus::Curriculum
             /// those had to wait for stage 2's packs, where they compete with learning to fight several enemies.
             uint32 CasterChance = 40;
             uint32 HazardChance = 30;
+            /// The outcome terms scale with the tier: a win (kill, clear, health kept) is multiplied by
+            /// 1 + TierScale x tier, a loss (death, timeout, overtime) divided by it. A tier-0 fight is unchanged;
+            /// at tier 6 and 0.25 a kill pays 2.5x and a death costs 0.4x. Evaluations spread their seeds over
+            /// every tier while training climbs per class, so with flat terms the score fell as the ladder rose
+            /// -- every rung-6 loss cost as much as a rung-0 one -- and convergence read the fall as done. Scaled,
+            /// the break-even win rate falls with the tier, so a hard fight is worth attempting, and the score is
+            /// comparable across rungs. Fixed-bonus opponents (evade, hide, stealth) are not a ladder and stay flat.
+            float TierScale = 0.25f;
         } Difficulty;
 
         /// Cast-time spells, from the duel stage on.
@@ -472,6 +480,11 @@ namespace Animus::Curriculum
             int32 LevelSpread = 2;              // its level: the bot's plus or minus this
             int32 TankChance = 25;              // percent tanks, healers, the rest damage dealers
             int32 HealerChance = 25;
+            /// In a cast-owner arena (ArenaDefinition::OwnerCast), the percent of training episodes whose owner
+            /// is still the script rather than the frozen checkpoint: the script wanders and engages on a
+            /// timer, which is the owner the follow lesson was built on, and a frozen solo policy may just stand
+            /// between pulls. Evaluations always script it.
+            int32 CastScriptedShare = 30;
             // Rewards added to the pulls'.
             float DamageTakenDps = 1.0f;        // damage dealers: the owner's damage taken, fraction of its health
             float DamageTakenProtector = 2.0f;  // tanks and healers exist to prevent it
@@ -577,7 +590,7 @@ namespace Animus::Curriculum
             float FlyingMax = 700.0f;
             /// Which trips the ground arenas ask for, by how much longer the walking way round is than the
             /// straight line. Drawn uniformly, real detours were the tail -- 51% of stage1_move's trips and 82%
-            /// of stage3_travel's had a dry detour under 1.15 -- and a policy taught on straight lines learns to
+            /// of stage6_travel's had a dry detour under 1.15 -- and a policy taught on straight lines learns to
             /// hold forward. Each episode draws a band first (DetourEasyShare of them under DetourEasy,
             /// DetourMidShare between DetourEasy and DetourHard, the rest from DetourHard up to the generator's
             /// ceiling of 1.8) and looks for an objective in it, settling for any band only once half its
@@ -751,6 +764,7 @@ namespace Animus::Curriculum
             f("Difficulty.StretchChance", tuning.Difficulty.StretchChance);
             f("Difficulty.CasterChance", tuning.Difficulty.CasterChance);
             f("Difficulty.HazardChance", tuning.Difficulty.HazardChance);
+            f("Difficulty.TierScale", tuning.Difficulty.TierScale);
 
             f("Casting.TimeWasted", tuning.Casting.TimeWasted);
             f("Casting.TimeCompleted", tuning.Casting.TimeCompleted);
@@ -872,6 +886,7 @@ namespace Animus::Curriculum
             f("Owner.LevelSpread", tuning.Owner.LevelSpread);
             f("Owner.TankChance", tuning.Owner.TankChance);
             f("Owner.HealerChance", tuning.Owner.HealerChance);
+            f("Owner.CastScriptedShare", tuning.Owner.CastScriptedShare);
             f("Owner.DamageTakenDps", tuning.Owner.DamageTakenDps);
             f("Owner.DamageTakenProtector", tuning.Owner.DamageTakenProtector);
             f("Owner.TankOwnerDamageShare", tuning.Owner.TankOwnerDamageShare);

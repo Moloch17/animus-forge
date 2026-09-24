@@ -76,7 +76,13 @@ namespace Animus::Curriculum
         SeatPlan Seats = SeatPlan::Solo;
         Opposition Against = Opposition::Creature;
         PullSchedule Schedule = PullSchedule::None;
-        bool Owner = false;             // a scripted owner the seats fight for
+        bool Owner = false;             // an owner the seats fight for
+        /// The owner is an agent of its own: one more row on the wire, after the seats (and the directors), which
+        /// the learner plays from a frozen checkpoint (its cast, stage.json `cast`) and never trains. A share of
+        /// the episodes (Owner.CastScriptedShare) keeps the scripted owner, which wanders and engages on a timer
+        /// -- the shape the companion's follow lesson was built on -- and every evaluation does: the yardstick
+        /// stays the owner it always was. Ignored unless Owner.
+        bool OwnerCast = false;
         bool PartyGroup = false;        // the owner and seats form a core group
         bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
         uint32 EpisodeSeconds = 0;      // episode length; 0 = StageSettings::EpisodeSeconds
@@ -126,7 +132,7 @@ namespace Animus::Curriculum
         /// because a masked action cannot be explored into and the lesson stays clean.
         bool OnFoot = false;
         /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
-        /// through. On a creature arena instead (stage5_duel's `lake`): the opponent stands in the water, so the
+        /// through. On a creature arena instead (stage8_duel's `lake`): the opponent stands in the water, so the
         /// fight is a swimming one for whoever goes in after it.
         /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
         /// through. Every other travel arena refuses an objective anywhere near water, which is why nothing in the
@@ -179,7 +185,7 @@ namespace Animus::Curriculum
         ///
         /// A spawn point is one pose, not one place. Drawing the objective at a uniform bearing varies the task
         /// but not the view the episode opens on, so a policy sees as many opening views as the stage has points
-        /// -- seven in stage1b_indoor's training, two in the evaluation that actually runs. "Read the walls from
+        /// -- seven in stage2_indoor's training, two in the evaluation that actually runs. "Read the walls from
         /// this spot" is a smaller thing to learn than "read the walls", and the gap between them is the whole
         /// claim an indoor drill makes.
         ///
@@ -238,18 +244,6 @@ namespace Animus::Curriculum
         /// (animus.bootstrap), which refuses loudly rather than fresh-initialising in silence, so a stage like
         /// this can sit in the middle of a chain when the run it is in allows it.
         bool NeedsStealth = false;
-        /// The feather-fall spells (Slow Fall, Levitate: ActionCatalog::Action::FeatherFall) are masked, so every
-        /// class learns the bare price of a drop before the classes that can make one free learn to. A drill's
-        /// setting: nothing else masks a spell a character knows.
-        bool FeatherFallMasked = false;
-        /// Played only by the classes whose kit has a feather-fall spell (StageScenario's CanFeatherFall), the way
-        /// NeedsStealth restricts the stealth drill. The same caveat applies: a checkpoint of a restricted stage
-        /// holds only the layouts it played, and animus.bootstrap refuses to seed the rest from it in silence.
-        bool NeedsFeatherFall = false;
-        /// The same pair for water: the water-breathing spells (Unending Breath, Water Breathing) are masked so
-        /// every class learns the bare price of a dive, and a stage played only by the classes that have one.
-        bool WaterBreathingMasked = false;
-        bool NeedsWaterBreathing = false;
         std::vector<BlockId> Blocks;    // in layout order: every block any of its arenas needs
         std::vector<ArenaDefinition> Arenas;
         bool InDefaultQueue = true;     // trained by an empty AnimusForge.Queue (false: only when named)

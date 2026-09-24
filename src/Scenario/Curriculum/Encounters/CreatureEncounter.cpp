@@ -144,7 +144,8 @@ void Animus::Curriculum::CreatureEncounter::Reward(Env& env, uint32 seat, Player
     }
 
     Unit* opponent = env.FindTargetUnit(0);
-    CombatReward::OneOnOne(_scenario, env, seat, bot, opponent, ledger);
+    CombatReward::OneOnOne(_scenario, env, seat, bot, opponent, ledger,
+        CombatReward::TierScale(_scenario.Tuning().Difficulty.TierScale, _envs[env.Index].Tier));
 
     // Measured, not paid: the duel's reward stays as trained, but a class that wins by holding the opponent stunned
     // is now visible as such rather than only as a shorter fight.
@@ -218,8 +219,16 @@ void Animus::Curriculum::CreatureEncounter::Reward(Env& env, uint32 seat, Player
     {
         tally.TimedOut = true;
         ledger.Add(RewardTerm::Timeout, -tuning.Timeout
-            * CombatReward::TimeoutScale(tuning.TimeoutFloor, CombatReward::HealthLeft(opponent)));
+            * CombatReward::TimeoutScale(tuning.TimeoutFloor, CombatReward::HealthLeft(opponent))
+            / CombatReward::TierScale(_scenario.Tuning().Difficulty.TierScale, fight.Tier));
     }
+}
+
+void Animus::Curriculum::CreatureEncounter::WriteState(Env const& env, float* state) const
+{
+    // The fight's tier, so the critic can predict a tier-scaled return.
+    uint32 const top = std::max<uint32>(1, _scenario.Tuning().Difficulty.MaxTier);
+    state[StageScenario::STATE_TIER] = float(_envs[env.Index].Tier) / float(top);
 }
 
 bool Animus::Curriculum::CreatureEncounter::TimeIsUp(Env const& env)

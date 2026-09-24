@@ -1,19 +1,18 @@
 # Stage 20, the crossroads: the PvE and PvP branches join in one policy. Every episode is one of the
-# stage's arenas (weights in the stage definition): the companion's and the party's gauntlets, self-play and scripted
-# one-on-ones, the solo gauntlet and duel, and two new situations -- an ambush of the owner by 1-2 enemy players in the
+# stage's arenas (weights in the stage definition): the companion's and the party's gauntlets, the self-play
+# one-on-one, the solo gauntlet and duel, and two new situations -- an ambush of the owner by 1-2 enemy players in the
 # middle of a gauntlet, and a lone enemy player attacking the owner (escort_duel). The context and hostiles blocks let
 # the policy tell them apart as a live server would. PvE arenas run 5-minute episodes, one-on-ones 60-90 s.
 #
-# Seeding: the trunk and PvE blocks from stage15_party; the pvp block from stage13_arena (merges). Distillation: each
-# arena is taught by the first parent that has it (party by stage15_party, arena_1v1 by stage13_arena, pvp_scripted by
-# stage9_pvp, companion by stage14_companion, gauntlet by stage7_gauntlet, duel by stage5_duel); the new arenas learn
-# from the reward alone.
+# Seeding: the trunk and PvE blocks from stage19_triage; the pvp block from stage12_pvp (merges). Distillation: each
+# arena is taught by the first parent that has it (party by stage17_party, arena_1v1 by stage12_pvp, companion by
+# stage16_companion, gauntlet by stage10_gauntlet, duel by stage8_duel); the new arenas learn from the reward alone.
 
-extends: stage15_party.yaml
+extends: stage17_party.yaml
 run_name: stage23_crossroads
 
 # ~20 h at ~15k env steps/s (up to four seats); convergence usually ends the stage sooner.
-total_env_steps: 150000000
+total_env_steps: 100000000
 
 mappo:
   gamma: 0.999
@@ -31,34 +30,14 @@ eval:
   report: [dps, died, won, kills, pulls_cleared, wipes, owner_deaths, owner_healing, teammates_died, ambushers,
     ambushers_killed, casts_completed, casts_cancelled]
 
-convergence:
-  min_env_steps: 20000000
-
 # Every situation holds up on its own, not only on average; the new arenas only need to beat the fight baseline.
-target:
-  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
-  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
-  # This is the stage that gets exported, so it is the most gated one, and gated per arena rather than overall:
-  # a policy excellent at the gauntlet that has forgotten how to duel would pass a single averaged floor, and
-  # the whole point of the join is that no earlier situation regressed.
-  min_over_baseline: 0.15
-  min_layout_over_baseline: 0.0
-  min_layout_episodes: 32
-  metrics:
-    owner_deaths: {max: 0.30}
-  arenas:
-    companion:
-      metrics:
-        owner_deaths: {max: 0.30}
-        pulls_cleared: {min: 3.5}
-    party:
-      metrics:
-        pulls_cleared: {min: 3.0}
-    duel:
-      metrics:
-        clean_kill: {min: 0.70, confidence: 0.95}
-    pvp_scripted:
-      metrics:
-        clean_kill: {min: 0.35, confidence: 0.95}
-  confirm_episodes: 4096
-  until_passed: true
+
+# The far side of the mirror arena: the pvp stage's policy first (this stage's own seed parent is a PvE policy with no
+# pvp block), then this run's league, half the episodes; the live policy the other half (animus.cast).
+cast:
+  opponents: league
+  parent: "{runs_dir}/stage12_pvp/best.pt"
+  opponent_share: 0.5
+  # The companion, party, ambush and escort arenas' owner: the endurance policy, as in the companion line.
+  agents:
+    owner: "{runs_dir}/stage11_endurance/best.pt"

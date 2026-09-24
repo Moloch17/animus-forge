@@ -407,33 +407,30 @@ void AnimusForge::ProgressMonitor::ReportTraining(ForgeConfig const& config, Sim
     std::optional<double> const evals = progress->Number("evals");
     if (steps && total && rate && *rate > 0 && patience && *patience > 0 && every && *every > 0)
     {
-        // Convergence counts min_env_steps again from the last restart (segment_env_steps). The trend test can keep
-        // a run going past this, so it is the earliest the stage can be judged.
-        double const needed = std::max(1.0, *patience - sinceBest.value_or(0.0));
-        double stopAt = progress->Number("last_eval_env_steps").value_or(0.0) + needed * *every;
-        double const earliest = progress->Number("segment_env_steps").value_or(0.0)
-            + progress->Number("min_env_steps").value_or(0.0);
-        while (stopAt < earliest)
-            stopAt += *every;
-
-        bool const target = progress->Number("target").value_or(0.0) != 0.0;
+        // The overall score's plateau is when the learning rates start to anneal; every class then has to show
+        // the rest of its signals over `window` evaluations, so this is the earliest the stage can end.
+        double const window = progress->Number("window").value_or(1.0);
+        double const needed = std::max(window, *patience - sinceBest.value_or(0.0));
+        double const stopAt = progress->Number("last_eval_env_steps").value_or(0.0) + needed * *every;
         if (stopAt < *total)
         {
             double const eta = std::max(0.0, stopAt - *steps) / *rate;
             table.AddRow({ "ETA (converged, earliest)", Format::Duration(eta),
-                Acore::StringFormat("at {} if {} more eval{} bring{} no new best{}", Format::Compact(stopAt),
-                    uint32(needed), needed == 1 ? "" : "s", needed == 1 ? "s" : "",
-                    target ? "; then the stage target decides: move on, restart or halt" : "") });
+                Acore::StringFormat("at {} if every class settles over the next {} eval{}", Format::Compact(stopAt),
+                    uint32(needed), needed == 1 ? "" : "s") });
         }
 
         if (sinceBest && *sinceBest > 0 && *patience - *sinceBest <= 1 && evals && *evals > 0)
-            warnings.push_back(Acore::StringFormat("Convergence: {} of {} evaluations without a new best; the next "
-                "one can end the stage unless the score improves", uint32(*sinceBest), uint32(*patience)));
-
-        if (std::optional<double> const restarts = progress->Number("restarts"); restarts && *restarts > 0)
-            table.AddRow({ "restarts", Acore::StringFormat("{} of {}", uint32(*restarts),
-                uint32(progress->Number("max_restarts").value_or(0.0))), "converged below the stage target" });
+            warnings.push_back(Acore::StringFormat("Convergence: {} of {} evaluations without a new overall best; "
+                "the learning rates anneal from here", uint32(*sinceBest), uint32(*patience)));
     }
+
+    // Which classes have converged (held out of the training draw) and which is furthest from it.
+    if (std::string const converged = progress->Text("converged_layouts"); !converged.empty())
+        table.AddRow({ "converged", converged, "held at hold_share of the draw, adapter and head frozen" });
+    if (std::string const weakest = progress->Text("weakest_layout"); !weakest.empty())
+        table.AddRow({ "weakest", weakest, Acore::StringFormat("still missing: {}",
+            progress->Text("weakest_missing")) });
 
     std::optional<double> const score = progress->Number("last_eval_score");
     std::optional<double> const best = progress->Number("best_score");

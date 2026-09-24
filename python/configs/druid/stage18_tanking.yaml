@@ -6,14 +6,8 @@
 # what the seat pressed. Nothing here asks for Maul, for a form, or for a rate of anything -- a bear that holds a
 # pull some other way has held the pull.
 
-extends: ../stage16_tanking.yaml
-run_name: stage16_tanking
+extends: ../stage18_tanking.yaml
+run_name: stage18_tanking
 
 eval:
   report: [threat_share, threat_on_teammates, teammate_damage_taken, pulls_cleared, wipes]
-
-target:
-  spec_metrics:
-    feral_bear:
-      threat_share: {min: 0.55}
-      threat_on_teammates: {max: 0.30}

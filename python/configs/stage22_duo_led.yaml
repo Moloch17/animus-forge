@@ -4,7 +4,7 @@
 #
 # order_focus_kept, the share of a side's seats on the called target, is the measure that matters: a seat that
 # never obeys and a channel that never arrives look identical without it.
-extends: stage13_arena.yaml
+extends: stage12_pvp.yaml
 run_name: stage22_duo_led
 total_env_steps: 30000000
 rollout_length: 256
@@ -27,23 +27,3 @@ eval:
            order_focus_alive, order_focus_unseen, director_enemies_seen, order_has_focus,
            order_changes, order_posture, order_place_called, order_place_reached,
            order_place_distance, reward_place_match]
-convergence:
-  min_env_steps: 20000000
-target:
-  # Two a side under a learned director. The gate is on the director's calls being worth following, not on the
-  # seats obeying: order_focus_lowest is how often it names the most hurt enemy, order_focus_chance is what
-  # naming one at random would score, and the first has to clear the second. It has not in four runs, so this
-  # is expected to fail until the director works -- until_passed is false so the queue moves on rather than
-  # grinding here.
-  # The learned director is now strictly less informed than the yardstick it is scored against: it sees only
-  # what its side can see, while the scripted director and the `fight` baseline read the world. A score gate
-  # against that baseline would be asking it to beat an opponent with better information, so there is none.
-  #
-  # order_focus_alive comes down for the same reason. It used to mean "the call named a living enemy"; it now
-  # means "the call named one the side has seen", and an episode can legitimately start with nobody in sight.
-  # order_focus_unseen and director_enemies_seen are reported alongside so a director that is blind is
-  # distinguishable from one that is merely bad.
-  metrics:
-    order_focus_lowest: {min: 0.45}
-    order_focus_alive: {min: 0.50}
-  until_passed: false

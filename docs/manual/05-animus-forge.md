@@ -253,12 +253,11 @@ and `AnimusForge.Fast.ClassRoles` are left over from that and are **read by noth
 nothing (`ForgeConfig::FastProfile`).
 
 Decision interval, episode lengths and rewards stay the real ones. `configs/fast.yaml` is merged over each stage's
-config: a 20M-step budget, evaluation of 64 episodes every 1M steps, convergence after 4 evaluations without a new
-best but not before 4M steps, no stage target (so a fast plan never halts), 1 restart with a 200k half-life. The sim
-then overrides two of those per invocation: `total_env_steps` from `AnimusForge.Fast.Budget` (or `forge fast 30M`),
+config: a 10M-step fallback budget, evaluation of 64 episodes every 1M steps, a convergence window of 3
+evaluations. The sim then overrides two of those per invocation: `total_env_steps` from `AnimusForge.Fast.Budget` (or `forge fast 30M`),
 and `convergence.patience=0` -- which is what makes a budget a budget, since a stage then trains every step it was
 given instead of stopping when its score flattens. The default `Fast.Queue` is empty: every curriculum stage in
-order, the `mix_duel_pvp` pilot included, so a plain `forge fast` is a full run of the curriculum with no stage
+order, the two raid stages included, so a plain `forge fast` is a full run of the curriculum with no stage
 skipped.
 
 A fast run never archives, seeds from or overwrites a real run, because everything lives under `fast/`. `pause`,
@@ -337,7 +336,7 @@ Python 3.11 or later with numpy, pyyaml and torch 2.4 or later. Extras: `tensorb
 `TrainConfig.load(path, overrides, overlays)`:
 
 1. **`extends`.** Load the YAML and recursively merge it over the file named by `extends:` (relative to the
-   extending file). Every curriculum config extends `stage5_duel.yaml`, directly or through a chain, and lists only what
+   extending file). Every curriculum config extends `stage8_duel.yaml`, directly or through a chain, and lists only what
    it changes.
 2. **Overlays** (`--overlay`) are merged over the result in order.
 3. **`--set key=value`** overrides are applied last. Dotted keys address sections, and values are parsed as YAML.
@@ -482,9 +481,10 @@ copy the trunk.
    - With `target_kl`, stop after an epoch whose mean approx KL exceeds 1.5 x `target_kl` (`epochs_run` records it).
 4. Record `explained_variance` of the rollout's returns by its values, and sync the rollout copies.
 
-`entropy_coef` is set by the stage controller before each rollout, so it can be boosted after a restart (5.19).
-`reset_optimizers()` and `shrink_perturb(shrink, perturb)` (weights = shrink x weights + perturb x fresh
-initialisation) are used by restarts.
+`entropy_coef` and the learning-rate scale are set by the stage controller before each rollout (5.19): the entropy
+floor's boost, and the rates held at full until the overall score plateaus. `freeze_layouts(indices)` stops training
+the adapters and heads of the classes that have converged; `layout_stats` carries each class's entropy and approx KL
+from the last update. `reset_optimizers()` and `shrink_perturb(shrink, perturb)` remain for experiments.
 
 ## 5.17 Seeding a stage (`bootstrap.py`)
 
@@ -540,7 +540,7 @@ coef(env_steps) x mean KL(teacher || policy)        coef = max(min_coef, coef0 x
 - Below a coefficient of 1e-4 the term isn't computed. `metrics.csv` logs `distill_coef`, `distill_kl` and
   `distill_rows`.
 
-## 5.19 Evaluation, convergence, targets and restarts
+## 5.19 Evaluation, convergence and the cast
 
 ### Seeded evaluation (`evaluation.py`)
 
@@ -589,48 +589,40 @@ A new best score saves `best.pt`.
 
 - An evaluation is a **new best** only if it beats the best by the margin: the largest of `min_improvement x |best|`,
   `min_improvement_abs`, and `z x sqrt(stderr^2 + best_stderr^2)`. A lucky evaluation inside the noise doesn't count.
-- The stage has **converged** when `patience` evaluations in a row set no new best, **and** at least `min_env_steps`
-  have passed since the start or the last restart, **and** a linear fit over the last `window` (at least 3) scores of
-  the current segment, projected `patience` evaluations ahead, wouldn't reach the margin (so a slow climb hidden by
-  noise keeps training). With fewer than 3 scores in the segment, patience alone decides.
-- `patience: 0` trains to `total_env_steps`.
+- The overall score has **plateaued** when `patience` evaluations in a row set no new best, **and** a linear fit
+  over the last `window` (at least 3) scores, projected `patience` evaluations ahead, wouldn't reach the margin (so a
+  slow climb hidden by noise keeps training). The plateau is when the learning rates start to anneal
+  (`lr_hold_until_plateau`); it does not end the stage by itself.
+- `patience: 0` (a fast run) never plateaus: the rates stay at full and the stage trains to `total_env_steps`.
 
-### Stage targets (`gates.py`)
+### The convergence rule (`stage.py`)
 
-Score gates are relative to the baseline on the same seeds: `score >= baseline + ratio x |baseline|`, which reads
-"ratio better than baseline" whatever the sign of the reward.
+There are no stage targets, floors or restarts: every stage ends on the same signals, read **per class** over the
+last `convergence.window` evaluations. A class has converged when all four hold:
 
-- `min_over_baseline`: the overall score.
-- `min_layout_over_baseline`: every class with at least `min_layout_episodes` rows (one per seat with a
-  character per seeded episode). A looser floor so no layout hides behind the average, since the next stage seeds
-  every layout.
-- `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
-  these. Five derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying,
-  `livelocked`, the share stuck in a cast/stop loop, and on a travel stage `lost` (did not arrive and covered more
-  than three times the path), `wedged` (did not arrive and covered less than half of it) and `spl` (arrived, times
-  the path over the distance actually covered: success weighted by path length). A bound with `confidence` (for example
-  `{clean_kill: {min: 0.9, confidence: 0.95}}`) judges a share by its one-sided Wilson bound over the group's episodes
-  instead of its raw mean: a minimum must hold for the lowest rate the episodes are consistent with, a maximum for the
-  highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
-  enough episodes still pass (95% of 228 bound at 0.92).
-- `layout_metrics`: the same bounds on every class's own episodes, which no baseline can lower.
-- `spec_metrics`: bounds per build (episode info `spec`, named by stage.json's `spec_names`) on that build's
-  episodes: `{restoration: {owner_heal_share: {min: 0.3}}}`. What a build is for, which a floor every build shares
-  cannot ask. It replaced `role_metrics` and is finer -- a role could not separate two builds that share it, and a
-  feral cat and a balance druid are both "damage" and are not equally hard to win with. What it gives up is the
-  one-line "every tank": a build gate names builds, so per-class floors live in `configs/<class>/`.
-- `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
-  summary's `up_to` group, overall and per class and build), for a stage whose ladder climbs above the fights its floors
-  were set for. The tiers above still count through the score and `difficulties`.
-- `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
-  `min_arena_episodes`.
-- `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass
-  again, because a best picked out of many evaluations is partly luck.
-- `noise_z`: how much evaluation noise a score gate forgives, in standard errors of the difference between the two
-  scores. A class is scored on its share of the episodes only, so at `0` one that is really level with its
-  baseline fails about half the time.
+1. **Score plateau** -- its own evaluation score has stopped improving by the margin above (a `ConvergenceTracker`
+   per class, with the window as its patience).
+2. **Policy stopped moving** -- its `approx_kl` per update, divided by the learning-rate scale in force, has stayed
+   under `convergence.kl` (0.003). The division is the point: a KL that fell with the anneal is the schedule, not
+   convergence, which is what the party run's 0.021-to-0.003 over 120M steps was, with its entropy flat throughout.
+3. **Entropy settled** -- its entropy over `ln(allowed actions)` has a slope within `convergence.entropy_slope`
+   (0.01) per evaluation and sits above `entropy_floor.fraction` when one is set: not still exploring, not collapsed.
+4. **The ladder settled** -- on a ladder stage its training rung (the mean `difficulty` of its training episodes)
+   has not moved by half a rung; on a league stage the live policy's win rate against the hardest league member has
+   moved by less than 0.05.
 
-With no gates set, a converged stage advances.
+`layouts.csv` carries each class's `entropy`, `approx_kl`, `allowed_actions`, `lr_scale` and `frozen` per update,
+and `progress.json` says which classes have converged and what the weakest one is still missing.
+
+**A converged class leaves the training draw.** Its layout weight drops to `convergence.hold_share` (0.02) and its
+adapter and head are frozen (`MappoTrainer.freeze_layouts`; its rows are no longer samples), so the rest of the budget
+goes to the classes still learning; only the shared trunk, which those classes keep training, can still move it. It
+is still evaluated every evaluation, and if its score falls below its converged level by more than the margin it
+**re-enters** at full weight and must converge again (`reentries` in the reports). With every class the run plays
+converged the stage advances; a class the run never plays (a director in an undirected stage) is not waited for.
+
+`total_env_steps` is a ceiling: a stage that reaches it advances too, with reason `budget`, and `finished.json` names
+each class, whether it converged, and which signals it was missing.
 
 ### Keeping the update honest (`mappo`)
 
@@ -644,7 +636,7 @@ With no gates set, a converged stage advances.
 - `target_kl`: stop an update once its epochs have moved the policy about this far in KL (0 = never). PPO's
   clipping bounds a single step, not the sum of four epochs over one rollout. `epochs_run` records when it fired.
 - `lr_final_fraction` and `entropy_final_fraction`: where `actor_lr`/`critic_lr` and `entropy_coef` end, as a fraction
-  of their configured values, falling linearly over `total_env_steps` (1 = constant). stage5_duel ends its learning
+  of their configured values, falling linearly over `total_env_steps` (1 = constant). stage8_duel ends its learning
   rates at a tenth: at a constant rate the update kept growing all run while the late gains were small.
 - `recurrent_size`: a GRU between the actor's trunk and its action head (0 = off), carried from decision to decision
   and cleared when an episode ends -- the policy's own memory, for what no observation of the moment holds (which add
@@ -654,7 +646,7 @@ With no gates set, a converged stage advances.
   same memory (`MlpPolicy::State`). It changes the actor's shape and the exported format, so turning it on retrains
   the curriculum from stage 1 and rebuilds every model. Distillation replays a teacher's own memory through the same
   decisions (`animus.distill`), so stage 8 works with it; a plain per-minibatch auxiliary loss is refused, because it
-  cannot carry that memory. **On from stage5_duel (128).**
+  cannot carry that memory. **On from stage8_duel (128).**
 - `slow_layout`, `slow_every_decisions`, `slow_gamma`, `slow_gae_lambda`: a layout that decides on a slower
   clock than the seats and is credited on it -- the director (`""` = none, and a stage without a layout of
   that name simply has no agents of it). Its agents choose every `slow_every_decisions` and their call stands
@@ -675,7 +667,7 @@ With no gates set, a converged stage advances.
   `Goals.Match` once per goal held (on the first decision that matches it, so a goal pays for being reached rather
   than for being sat in), reports `goal_<name>_share`, `goal_match_share` and `goal_changes`, and shows a
   party its teammates' goals. Per update the learner logs `goal_<i>_share` and `goal_kept_share`, which is how a
-  collapsed head (one share at 1) is spotted. **On from stage5_duel (6 goals, chosen every 16 decisions).**
+  collapsed head (one share at 1) is spotted. **On from stage8_duel (6 goals, chosen every 16 decisions).**
 - `foresight_coef`, `foresight_horizons_seconds` and `foresight_time_scale_seconds`: an auxiliary head on the actor's
   trunk (0 = off, the default). It predicts, from the very features the actions are chosen from, the discounted return
   at each horizon and how much of the episode is left as a share of the time scale; its loss (Huber on the returns,
@@ -706,7 +698,7 @@ on the size of the scenario's rewards. `strength` scales the effect (0 = even), 
 the heaviest and the lightest, and the weights average 1, so the number of episodes is unchanged -- only where they
 are spent. Evaluation episodes stay evenly spread over the class and build pairs whatever the weights are.
 
-The score gap alone misses a class and build that beats its baseline yet fails an absolute gate (stage5_duel's mage beat
+The score gap alone misses a class and build that beats its baseline yet fails an absolute gate (stage8_duel's mage beat
 the scripted mage while killing only 68% of the time). `metric` names a summary field where higher is better, usually
 the one the stage is gated on (`clean_kill`): a class and build's need is then the larger of its score gap and its
 shortfall on the metric, each in its own standard deviations, so a wide lead over a weak baseline cannot cancel a
@@ -721,32 +713,68 @@ replay seeds.
 
 ### The stage controller (`stage.py`)
 
-After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns an action:
+After each evaluation (`after_eval`) and at the budget (`at_budget`) the `ConvergenceController` returns an action:
 
 | Situation | Action | Learner |
 |---|---|---|
-| Not converged, budget left | continue | Keep training |
-| Converged, target passed (on best, then confirmed) | **advance** | Exit 0, `finished.json` reason `converged` |
-| Converged, below target, restarts left | **restart** | Reload `best.pt`, reseed RNGs, optional shrink and perturb, fresh optimizers, entropy coefficient `base x (1 + (entropy_boost - 1) x 0.5^(steps since restart / entropy_half_life_env_steps))`, convergence test starts a new segment (best score kept) |
-| Converged, below target, no restarts left | **halt** | Exit 3, reason `below_target` |
-| Budget reached, target passed | advance | Exit 0, reason `total_env_steps` |
-| Budget reached, below target | halt | Exit 3, reason `budget_below_target` |
+| Some class the run plays has not converged, budget left | continue | Keep training; converged classes are held and frozen |
+| Every class the run plays has converged | **advance** | Exit 0, `finished.json` reason `converged` |
+| Budget reached | advance | Exit 0, reason `budget`; the report names who was not done |
 
-With `target.until_passed` (stage5_duel sets it) converging below the target does not halt the stage;
-`total_env_steps` stays the ceiling:
+Nothing halts the plan but a crash. The advance is appended to `stage.jsonl` with every class's signals, and
+`finished.json` records the reason, the step and update counts, the best score and where it was reached, and per
+class whether it converged, how many times it re-entered, and which signals it was missing.
 
-| Situation | Action | Learner |
-|---|---|---|
-| Converged, below target, no restarts left | **extend** | Keep training; the convergence test starts a new segment and judges again when it next converges |
-| Budget reached, below target | halt | Exit 3, reason `budget_below_target`, as without it |
+### The cast: frozen checkpoints in the seats a script used to play (`cast.py`)
 
-Under `until_passed` an evaluation that passes the target becomes the best (and `best.pt`) even when a failing one
-scored higher, and a passing best is only replaced by a higher score that passes too, so the networks that pass are
-the ones confirmed and moved on with.
+The far side of a self-play arena -- seat 1 of a `Mirror` arena, the second team of a `Teams` one -- is played in
+training by a **frozen checkpoint** rather than by the live policy alone, and any agent the sim declares in
+stage.json's `cast` list (an owner played for the seats) likewise. Their rows take the frozen actor's action and
+are not samples. Nothing changes on the wire: the learner tells an opponent seat from stage.json (each arena's
+`plan` and `team_seats`, the episode's arena from the critic state one-hot) and a declared agent from the `cast`
+list; a frozen actor is `distill.build_teacher`'s, mapped block by block onto the stage, with its own memory and
+goals per row.
 
-Every advance, restart, extension and halt is appended to `stage.jsonl` with the gate report. `finished.json` records the
-reason, whether it advanced, the step and update counts, the best score and where it was reached, restarts, which
-evaluation it was judged on, and the gates.
+```yaml
+cast:
+  opponents: league        # "" live self-play | auto = the seed chain's parent best.pt | league = parent + this run's snapshots | a path
+  parent: "{runs_dir}/stage12_pvp/best.pt"   # the league's first member when the seed parent is a PvE policy
+  opponent_share: 0.5      # share of self-play episodes whose far side is cast, drawn per env at episode start
+  agents: {owner: "{runs_dir}/stage11_endurance/best.pt"}   # stage.json `cast` entries by name
+  snapshot_every_env_steps: 5000000
+  league_size: 8
+  rate_window: 200
+  floor: 0.05
+  retire_above: 0.85
+  keep_newest: 2
+```
+
+**The league is fed on a clock, not on `best.pt` alone.** `best.pt` moves only behind the convergence margin, so a
+league fed from it can go a whole stage without a new member. Every `snapshot_every_env_steps` the current
+`latest.pt` is copied into `<run_dir>/league/step_<env steps>.pt`, and every improved `best.pt` into
+`best_<env steps>.pt`. Members are drawn per episode by prioritised fictitious self-play weights,
+`(1 - p)^2 + floor` with `p` the live policy's win rate against the member (an average over `rate_window` of the
+live seats' `won` at the episode's end), so the ones the policy still loses to are met most and none is forgotten.
+A member beaten above `retire_above` for a full window is retired; the newest `keep_newest` never are, and
+`league_size` prunes the most-beaten first, never the newest or the hardest. `league.json` in the run directory
+lists them, and `metrics.csv` carries `cast_rows` (the share of rows cast), `cast_fallback_rows` (rows whose layout
+the checkpoint lacked), `cast_members` and `cast_hardest_win_rate` -- the live policy's win rate against its
+hardest member, which climbing toward 1 says the pool has gone stale and the clock is too slow. The convergence
+rule reads it too: on a league stage a class's ladder signal is that this rate has settled.
+
+**The evaluation never runs a cast actor.** The sim's `fight` baseline plays the far side of a seeded evaluation
+(`eval.opponent_baseline`), so the yardstick is fixed across runs; the league is a training-time device.
+
+**The owner as a cast seat** (`ArenaDefinition::OwnerCast`, the companion, party, tanking, triage and crossroads
+arenas): the sim builds the owner as a seat in an agent slot of its own after the seats and the directors, declares
+it in stage.json's `cast` list, observes it and applies its action like any seat, pays it nothing and leaves its
+episode-info row empty; the learner plays the row from `cast.agents.owner`. `Owner.CastScriptedShare` (30%) of the
+training episodes keep the scripted owner, which wanders and engages on a timer, and every evaluation does, so the
+reported `owner_deaths` are measured beside the owner they always were.
+
+**Kept scripted, on purpose:** the hunter of the evade, hide and stealth drills (`ScriptedPlayer::Search` is what
+those drills measure against), the scripted director (a yardstick), the ambushers (they arrive mid-episode, which
+the per-episode `present` contract cannot carry), and `fight` as the evaluation opponent.
 
 ## 5.20 Checkpoints, resume and export
 
@@ -762,7 +790,7 @@ dim, action count or layouts changed. The env count, decision interval and episo
 - `<model name>.amdl`: the layout's adapter (with its observation normaliser folded in: `W / sd` and
   `b - W(mean / sd)`), the trunk layers and the layout's head, in the format described in
   [3.8](03-animus-lib.md#38-models), with `num_agents = 1` and a zero-weight agent column. The model name comes from
-  `stage.json` `models` (`warrior_dps` at `stage5_duel` is `warrior_dps_duel`). A scenario without `stage.json` uses
+  `stage.json` `models` (`warrior_dps` at `stage8_duel` is `warrior_dps_duel`). A scenario without `stage.json` uses
   its own name for a single layout, or appends the layout name.
 - `<model name>.json`: the layout manifest, copied from `<layouts_dir>/<stage>/`.
 

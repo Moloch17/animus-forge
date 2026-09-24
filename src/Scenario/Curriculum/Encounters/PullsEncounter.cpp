@@ -465,6 +465,17 @@ bool Animus::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
                 entries.push_back(entry);
     }
 
+    // Every pull has a rung, which its outcome terms are scaled by (CombatReward::TierScale): a single pack's is
+    // its class and build's ladder rung (drawn above), a planned run's and a raid run's is the pull's index in
+    // the run, and a gauntlet pull's says only whether it was an elite or a level above. The `difficulty` column
+    // reports it.
+    if (Sequence(env))
+        pulls.Rung = uint32(std::min<std::size_t>(pulls.PullsCleared, SEQUENCE_PULLS.size() - 1));
+    else if (Gauntlet(env) && arena.Seats == SeatPlan::Raid)
+        pulls.Rung = uint32(std::min<std::size_t>(pulls.PullsCleared, RAID_RUNGS.size() - 1));
+    else if (Gauntlet(env))
+        pulls.Rung = pulls.EliteOrHigher ? 3 : 0;
+
     // A hazard arena puts one in every pull, whatever the rung drew. The pack ladder only reaches hazards at
     // rung 3, so a class/role that stalls below it never meets one, and elsewhere they are thin enough to be hard
     // to learn from (stage4_gauntlet averages about a second of hazard an episode). Replacing the last entry rather
@@ -947,10 +958,13 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
         tally.PetSummoned = true;
 
     // Kills and clears are the party's: every seat shares them. With an owner they count more: the pilot's party
-    // learned to fight less to avoid the penalties.
+    // learned to fight less to avoid the penalties. And every outcome term carries the pull's rung: a win is
+    // multiplied by the tier scale and a loss divided by it, so a hard pull is worth attempting and the score
+    // stays comparable as the ladder climbs (Difficulty.TierScale).
     float const clearScale = _scenario.Arena(env).Owner ? tuning.OwnerClearScale : 1.0f;
+    float const tierScale = CombatReward::TierScale(_scenario.Tuning().Difficulty.TierScale, pulls.Rung);
     if (pulls.NewKills)
-        ledger.Add(RewardTerm::Kill, dense * tuning.Kill * clearScale * float(pulls.NewKills));
+        ledger.Add(RewardTerm::Kill, dense * tuning.Kill * clearScale * tierScale * float(pulls.NewKills));
 
     if (pulls.PullCleared)
     {
@@ -961,9 +975,9 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
         {
             float const pullTime = float(env.EpisodeElapsedMs - engageMs);
             float const fast = 1.0f - std::min(1.0f, pullTime / PULL_TIME_SCALE_MS);
-            ledger.Add(RewardTerm::Clear, SoloGauntlet(env)
+            ledger.Add(RewardTerm::Clear, (SoloGauntlet(env)
                 ? tuning.SoloGauntletClear + tuning.SoloGauntletFastPull * fast
-                : (tuning.Clear + tuning.FastPull * fast) * clearScale);
+                : (tuning.Clear + tuning.FastPull * fast) * clearScale) * tierScale);
             pull.PullDamageTaken = 0;
         }
         else
@@ -975,12 +989,12 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
             }
 
             ledger.Add(RewardTerm::Clear,
-                tuning.PackClear + tuning.FastClear * CombatReward::TimeLeftSince(env, engageMs));
+                (tuning.PackClear + tuning.FastClear * CombatReward::TimeLeftSince(env, engageMs)) * tierScale);
         }
 
         float const kept = SinglePack(env) ? tuning.PackHealthKept
             : SoloGauntlet(env) ? tuning.SoloGauntletHealthKept : tuning.HealthKept;
-        ledger.Add(RewardTerm::HealthKept, kept * healthKept);
+        ledger.Add(RewardTerm::HealthKept, kept * healthKept * tierScale);
     }
 
     if (!tally.DeathCounted && !bot->IsAlive())
@@ -990,14 +1004,14 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
         tally.DeathMs = env.EpisodeElapsedMs;
         ++tally.Deaths;
         ledger.Add(RewardTerm::Death, -(SoloGauntlet(env) ? tuning.SoloGauntletDeath
-            : Gauntlet(env) ? tuning.GauntletDeath : tuning.PackDeath));
+            : Gauntlet(env) ? tuning.GauntletDeath : tuning.PackDeath) / tierScale);
 
         // A single pack lost in overtime: the rest of the overtime too, which timing out would have cost.
         if (SinglePack(env) && !tally.Killed && pulls.PullEngaged
             && env.EpisodeElapsedMs > pulls.PullEngageMs + tuning.OvertimeGraceMs
             && env.EpisodeLengthMs > env.EpisodeElapsedMs)
             ledger.Add(RewardTerm::Timeout,
-                -tuning.Overtime * float(env.EpisodeLengthMs - env.EpisodeElapsedMs) / 1000.0f);
+                -tuning.Overtime * float(env.EpisodeLengthMs - env.EpisodeElapsedMs) / 1000.0f / tierScale);
     }
 
     if (SoloGauntlet(env))
@@ -1033,7 +1047,7 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
         uint32 const overtimeGraceMs = tuning.OvertimeGraceMs
             + std::min(pull.ControlledMs, tuning.ControlGraceMaxMs);
         if (pulls.PullEngaged && env.EpisodeElapsedMs > pulls.PullEngageMs + overtimeGraceMs)
-            ledger.Add(RewardTerm::Timeout, -tuning.Overtime * seconds);
+            ledger.Add(RewardTerm::Timeout, -tuning.Overtime * seconds / tierScale);
 
         if (seat.L && seat.L->Profile->Specs[seat.Spec].Range != RangeBand::Melee)
         {
@@ -1053,7 +1067,7 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
     {
         tally.TimedOut = true;
         ledger.Add(RewardTerm::Timeout, -tuning.Timeout * CombatReward::TimeoutScale(tuning.TimeoutFloor,
-            pullHealth > 0.0f ? pullLeft / pullHealth : 1.0f));
+            pullHealth > 0.0f ? pullLeft / pullHealth : 1.0f) / tierScale);
     }
 
     // The outcome moves that class and role on the ladder, once: a clear without a death is a win.
@@ -1322,6 +1336,7 @@ void Animus::Curriculum::PullsEncounter::WriteState(Env const& env, float* state
         : std::clamp((float(pulls.NextPullMs) - float(env.EpisodeElapsedMs)) / NEXT_PULL_SCALE_MS, 0.0f, 1.0f);
     state[StageScenario::STATE_ELITE_PULL] = pullActive && pulls.EliteOrHigher ? 1.0f : 0.0f;
     state[StageScenario::STATE_LINKED_PULL] = pullActive && pulls.Linked ? 1.0f : 0.0f;
+    state[StageScenario::STATE_TIER] = float(pulls.Rung) / float(std::max<std::size_t>(1, PACK_RUNGS.size() - 1));
 }
 
 bool Animus::Curriculum::PullsEncounter::IsTerminal(Env const& env) const

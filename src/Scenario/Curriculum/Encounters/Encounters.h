@@ -127,6 +127,7 @@ namespace Animus::Curriculum
         bool Build(Env& env, Map* map, uint8 level) override;
         void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        void WriteState(Env const& env, float* state) const override;
 
         /// Class `layout` built as `spec`'s current training tier.
         [[nodiscard]] uint32 Tier(uint16 layout, uint8 spec) const { return _ladder.Tier(layout, spec); }
@@ -314,14 +315,17 @@ namespace Animus::Curriculum
         DifficultyLadder _ladder;
     };
 
-    /// A scripted player of a random class and role near the seats' level, whom the seats fight for (companion and
-    /// party stages). It is the env's ally 0.
+    /// A player of a random class and role near the seats' level, whom the seats fight for (companion and party
+    /// stages). It is the env's ally 0. Scripted (ScriptedPlayer::UpdateMember), or in a cast-owner arena a seat
+    /// of its own in the scenario's owner slot, played through its row by the learner's frozen checkpoint.
     class OwnerEncounter final : public Encounter
     {
     public:
         OwnerEncounter(StageScenario& scenario, uint32 envs);
 
         [[nodiscard]] Player* Find(Env const& env) const;
+        /// Whether this episode's owner is played through its row rather than by the script.
+        [[nodiscard]] bool IsCast(Env const& env) const { return _envs[env.Index].Cast; }
 
         [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
         void AddEpisodeInfo(EpisodeInfoTable& table) override;
@@ -338,6 +342,9 @@ namespace Animus::Curriculum
         void Teardown(Env& env) override;
 
     private:
+        /// The owner as a seat in the scenario's owner slot (ArenaDefinition::OwnerCast).
+        bool BuildCast(Env& env, Map* map, uint8 level);
+
         struct SeatOwner
         {
             uint64 Healing = 0;                 // effective healing the seat did on the owner
@@ -347,7 +354,8 @@ namespace Animus::Curriculum
 
         struct EnvOwner
         {
-            BotSlot Bot;
+            BotSlot Bot;                        // the scripted owner's character (a cast owner's is its seat's)
+            bool Cast = false;                  // this episode's owner is a seat in the scenario's owner slot
             uint8 Class = 0;
             Aptitude Apt;
             ScriptedPlayer::State Script;
@@ -682,7 +690,7 @@ namespace Animus::Curriculum
             /// Why the flying mount was refused at the start of the episode, as a SpellCastResult.
             ///
             /// could_mount_flying was reported for the whole life of the flight stage while CouldMountFlyer was
-            /// never once assigned, so the column read false whatever happened. stage4_flight then ran its full
+            /// never once assigned, so the column read false whatever happened. stage7_flight then ran its full
             /// thirty million steps with flew at exactly 0.0000 -- every character level 67 and knowing a flying
             /// mount -- and the one number that would have said so was a constant.
             uint32 FlyerRefusal = 0;

@@ -3,29 +3,18 @@
 # last pull, and whether the fourth pull (a small one) is used as a rest or as a chance to get ahead. It is won by
 # clearing the last pull alive: the 900 s clock running out is a loss however far it got.
 #
-# Trained by name (`forge start stage8_endurance`), after stage7_gauntlet, which it seeds from.
+# Trained by name (`forge start stage11_endurance`), after stage10_gauntlet, which it seeds from.
 
-extends: stage7_gauntlet.yaml
-run_name: stage8_endurance
+extends: stage10_gauntlet.yaml
+run_name: stage11_endurance
 
-total_env_steps: 300000000
+total_env_steps: 60000000
 
 # The run is the same every episode, so an evaluation's spread comes from the characters alone and settles sooner
 # than the gauntlet's.
 eval:
-  every_env_steps: 15000000
+  every_env_steps: 10000000
   trace_episodes: 4
-
-convergence:
-  min_env_steps: 40000000
 
 # Won by finishing the run. The floors are provisional, to be reset from the first run: clearing the last pull is
 # hard, and the interesting number early on is how far a run gets (pulls_cleared, 8 is the whole thing).
-target:
-  # A known run of eight pulls, won by finishing it. This is the stage that says whether sustain actually holds
-  # up over a whole run rather than over two pulls.
-  min_over_baseline: 0.10
-  metrics:
-    pulls_cleared: {min: 7.0}
-    died: {max: 0.40}
-  until_passed: true

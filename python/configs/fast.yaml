@@ -22,7 +22,7 @@
 # here because a fast run is where it matters and where someone will look for it.)
 seed_from: latest
 
-total_env_steps: 20000000
+total_env_steps: 10000000
 rollout_length: 128
 checkpoint_every: 10
 keep_checkpoints: 2
@@ -40,22 +40,6 @@ convergence:
   # non-zero only so that running the overlay by hand, without the sim's --set, still behaves like a short run.
   patience: 4
   window: 3
-  min_env_steps: 4000000
 
-# No stage target: a short run is not held to the real gates, so the plan never halts on a fast stage. To test the gates
-# and restarts too: AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0".
-target:
-  min_over_baseline: null
-  min_layout_over_baseline: null
-  metrics: {}
-  layout_metrics: {}
-  # spec_metrics too, or a fast sweep halts on the per-build floors a class's own configs carry (holding threat,
-  # overhealing): the overlay merges key by key, so a section it does not name survives.
-  spec_metrics: {}
-  arenas: {}
-  difficulties: {}
-  confirm_episodes: 64
-
-restarts:
-  max_restarts: 1
-  entropy_half_life_env_steps: 200000
+# No stage has a pass gate, in a fast run or a real one: with patience 0 every fast stage trains its whole budget and
+# advances on it, with the convergence report saying which classes were done.

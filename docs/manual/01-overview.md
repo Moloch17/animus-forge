@@ -75,8 +75,8 @@ module fills in. See [chapter 3](03-animus-lib.md) and [chapter 4](04-curriculum
 
 **Animus Forge** (`mod-animus-forge`) runs training. It holds the plan of stages to train, the console commands, the
 socket bridge to the learner, the learner child process, progress reports and model export. Its `python/` directory
-is the learner: MAPPO networks and updates, rollouts, seeded evaluation, convergence and stage targets, seeding from
-earlier stages, distillation and export. See [chapter 5](05-animus-forge.md).
+is the learner: MAPPO networks and updates, rollouts, seeded evaluation, the convergence rule that ends a stage, seeding
+from earlier stages, distillation and export. See [chapter 5](05-animus-forge.md).
 
 **Animus** (`mod-animus`) runs trained models on an ordinary realm with real clients. Players summon class
 companions into their party. Game masters can watch any curriculum stage play out in their own instance. It needs no
@@ -111,10 +111,10 @@ observation vector and action list it gets. The layout is built by placing the s
 `pack`, ...) one after another. The layout's **manifest** records everything the layout's meaning depends on. A
 model only works on a server that builds the same manifest.
 
-**Stage and arena.** A **stage** is a scenario the learner trains (`stage6_pack`). It extends an earlier stage and
+**Stage and arena.** A **stage** is a scenario the learner trains (`stage9_pack`). It extends an earlier stage and
 inherits that stage's trained weights. An **arena** is one situation a stage's episodes can be: a duel, a gauntlet, a
-party, an ambush, a trip or a flag match. Every stage has one arena except stage 8, which mixes eight, and the
-`mix_duel_pvp` pilot, which mixes two.
+party, an ambush, a trip or a flag match. Most stages have one arena; `stage1_move`, `stage4_dive`, `stage7_flight`
+and `stage8_duel` mix two or three, and `stage23_crossroads` mixes seven.
 
 **Decision.** One step of the environment, and `AnimusForge.DecisionMs` of game time (250 ms by default). For each
 decision, every env scores the last transition, resets if the episode ended, observes, receives an action per seat
@@ -142,10 +142,11 @@ pass.
 4. **Evaluate.** At regular intervals the learner switches the sim to seeded evaluation: the same characters and
    opponents every time, with argmax actions. It compares the score with a scripted baseline on the same seeds. A new
    best score saves `best.pt`.
-5. **Decide.** When the score stops improving, the learner checks the stage target (beat the baseline overall, for
-   every class, and optionally per arena), then confirms it on held-out seeds. If the target passes, the learner
-   exits 0 and the plan moves to the next stage. If not, it restarts from `best.pt` with more exploration. When the
-   restarts run out, it exits 3 and the plan halts.
+5. **Decide.** A class has converged when, over the last few evaluations, its score has plateaued, its policy has
+   stopped moving (approx KL against the learning rate in force), its entropy has settled and its ladder rung has
+   too; a converged class leaves the training draw. When every class has converged -- or the step budget runs out
+   -- the learner exits 0 and the plan moves to the next stage. There are no pass gates; what a stage taught is
+   read from its reports.
 6. **Export.** `forge export <stage>` writes one `<class>_<role><suffix>.amdl` per layout (the observation normaliser,
    adapter, shared trunk and head folded into a plain MLP) and copies each layout manifest beside it.
 7. **Deploy.** Copy the `.amdl` and `.json` files into a realm's `Animus.ModelDir`. mod-animus loads a model the first

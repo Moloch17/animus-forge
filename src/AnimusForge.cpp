@@ -307,19 +307,41 @@ void AnimusForge::Forge::HoldWhilePaused()
 
 bool AnimusForge::Forge::StartCurrent()
 {
+    // A stage none of this run's classes can play (the stealth drill in a run of classes that cannot stealth) is
+    // skipped rather than failed: the plan moves to the next entry, and that entry's learner seeds from the stage
+    // before the skipped one (its seed chain walks past a checkpoint that lacks a layout). A plan whose remaining
+    // entries are all skipped ends here, as it would after its last scenario.
+    while (!_scenario)
+    {
+        PlanEntry const& skipped = _plan.Entries[_plan.Index];
+        std::unique_ptr<Animus::Scenario> scenario = Animus::CreateScenario(skipped.Scenario, RunConfig().Stage());
+        if (!scenario)
+        {
+            LOG_ERROR("module.animus", "Unknown scenario '{}'", skipped.Scenario);
+            return false;
+        }
+        if (scenario->Playable())
+        {
+            _scenario = std::move(scenario);
+            break;
+        }
+
+        LOG_INFO("module.animus", "Skipping {}: none of this run's classes can play it", skipped.Scenario);
+        _plan.Entries[_plan.Index].Result = Outcome::Skipped;
+        if (_plan.Index + 1 >= _plan.Entries.size())
+        {
+            EndPlan("every scenario has ended");
+            return true;
+        }
+        ++_plan.Index;
+    }
+
     PlanEntry const& entry = _plan.Entries[_plan.Index];
     ForgeConfig const& config = RunConfig();
     _current = entry.Scenario;
 
     std::string const position = _plan.Entries.size() > 1
         ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "";
-
-    _scenario = Animus::CreateScenario(entry.Scenario, config.Stage());
-    if (!_scenario)
-    {
-        LOG_ERROR("module.animus", "Unknown scenario '{}'", entry.Scenario);
-        return false;
-    }
 
     LOG_INFO("module.animus", "Starting {}{}{} with policy {}{}", entry.Scenario, position,
         entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy, _plan.Fast
@@ -431,7 +453,6 @@ char const* AnimusForge::Forge::OutcomeName(Outcome outcome)
         case Outcome::Skipped:     return "skipped";
         case Outcome::Failed:      return "failed";
         case Outcome::Cancelled:   return "cancelled";
-        case Outcome::BelowTarget: return "below target";
     }
 
     return "unknown";
@@ -495,11 +516,6 @@ bool AnimusForge::Forge::LearnerFinished() const
     return _plan.Remote() && _learnerStarted && _learner.FinishedCleanly();
 }
 
-bool AnimusForge::Forge::LearnerHalted() const
-{
-    return _plan.Remote() && _learnerStarted && _learner.HaltedBelowTarget();
-}
-
 std::vector<std::string> AnimusForge::Forge::DefaultQueue() const
 {
     if (!_config.Queue.empty())
@@ -531,7 +547,8 @@ bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string cons
     if (!finished.Load(config.RunsDir() / scenario / "finished.json"))
         return false;
 
-    // A stage below its target writes finished.json too, with "advanced": false: it has not been passed.
+    // Every finished run advanced: there are no stage targets. A finished.json from before that, with
+    // "advanced": false, is a run that was judged and failed under rules that no longer exist.
     std::optional<double> const advanced = finished.Number("advanced");
     return !advanced || *advanced != 0.0;
 }
@@ -539,11 +556,11 @@ bool AnimusForge::Forge::RunAdvanced(ForgeConfig const& config, std::string cons
 /// What the learner will actually seed from, which is the checkpoint and not the verdict.
 ///
 /// animus.config.resolved_init_from walks the seed chain and takes the first best.pt that exists, whether or not
-/// that stage passed its target and whether or not it ever wrote finished.json -- an interrupted run does not
-/// write one. RunAdvanced answers a different question (did this stage pass), and using it here warned that a
-/// parent would not be seeded from whenever its run had merely been cancelled, while the learner went on to seed
-/// from it: every `forge start stage19_duo_led` this session printed that warning and then seeded from
-/// stage15_arena's best.pt in the next breath. A warning that is usually wrong teaches operators to skip them.
+/// that stage finished -- an interrupted run does not write finished.json. RunAdvanced answers a different question
+/// (did this stage finish), and using it here warned that a parent would not be seeded from whenever its run had
+/// merely been cancelled, while the learner went on to seed from it: every `forge start stage19_duo_led` this
+/// session printed that warning and then seeded from stage15_arena's best.pt in the next breath. A warning that is
+/// usually wrong teaches operators to skip them.
 bool AnimusForge::Forge::RunSeedable(ForgeConfig const& config, std::string const& scenario) const
 {
     std::error_code error;
@@ -570,14 +587,14 @@ void AnimusForge::Forge::WarnSeedOrder(ForgeConfig const& config, std::vector<st
 
             if (RunSeedable(config, parent))
             {
-                // It will be seeded from. Worth saying only that the run never passed its target, which is a
-                // reason to read this stage's scores carefully and not a reason to retrain anything.
+                // It will be seeded from. Worth saying only that the run never finished (it was cancelled), which
+                // is a reason to read this stage's scores carefully and not a reason to retrain anything.
                 //
                 // It does not say which checkpoint: that is the learner's to decide (TrainConfig.seed_from, and
                 // the run's own seed_from file), and it said "best" here while the learner took latest.pt.
                 if (!RunAdvanced(config, parent))
-                    out(Acore::StringFormat("  {} seeds from {}, which has not passed its target (the run was "
-                        "cancelled or fell short).", stage->Name, parent));
+                    out(Acore::StringFormat("  {} seeds from {}, whose run did not finish (it was cancelled).",
+                        stage->Name, parent));
                 continue;
             }
 
@@ -1085,7 +1102,7 @@ void AnimusForge::Forge::RemoteDecision()
     // Waiting for a learner to connect holds no decision, so a pause applies right away (OnUpdate pauses next tick).
     auto const onAccepting = [this, &onIdle]()
     {
-        return onIdle() && !_pauseRequested && !LearnerFinished() && !LearnerHalted();
+        return onIdle() && !_pauseRequested && !LearnerFinished();
     };
 
     if (!_server.HasClient())
@@ -1100,17 +1117,6 @@ void AnimusForge::Forge::RemoteDecision()
         {
             if (LearnerFinished())
                 FinishCurrent(Outcome::Done);
-            else if (LearnerHalted())
-            {
-                // The stage stayed below its target after its restarts: later stages must not train on top of it.
-                _plan.Entries[_plan.Index].Result = Outcome::BelowTarget;
-                ReportStageEnd();
-                LOG_ERROR("module.animus", "{} stayed below its stage target after its restarts (see runs/{}/"
-                    "finished.json and stage.jsonl). The plan halts here: tune the target or the stage, then `forge "
-                    "start {}`.", _current, _current, _current);
-                TeardownScenario(false);
-                EndPlan("a stage stayed below its target");
-            }
             return;
         }
 

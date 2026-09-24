@@ -11,7 +11,7 @@ import torch
 from torch import nn
 
 from .buffer import RolloutBuffer
-from .networks import LayoutActor, LayoutCritic, per_layout, skip_distribution_checks, update_norms
+from .networks import LayoutActor, LayoutCritic, _per_layout, per_layout, skip_distribution_checks, update_norms
 from .valuenorm import ValueNorm
 
 
@@ -50,7 +50,7 @@ class MappoConfig:
     # the rollouts, travel in the checkpoint, and are folded into the adapter when a model is exported.
     normalise_observations: bool = True
     # Where the learning rates end, as a fraction of actor_lr and critic_lr, falling linearly over total_env_steps:
-    # a constant rate kept the update growing all run (stage5_duel: approx KL 0.014 -> 0.028, ~20% of samples
+    # a constant rate kept the update growing all run (stage8_duel: approx KL 0.014 -> 0.028, ~20% of samples
     # clipped) when late progress needs small steps. 1 = constant.
     lr_final_fraction: float = 1.0
     # Auxiliary foresight heads on the actor's trunk (0 = off). They predict, from the same features the actions are
@@ -219,6 +219,39 @@ class MappoTrainer:
         """Fresh Adam state: after a restart the step sizes are no longer shrunk by the old gradient history."""
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.config.actor_lr, eps=1e-5)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=self.config.critic_lr, eps=1e-5)
+        # The last update's entropy and approx_kl per layout (animus.stage reads them per class), by layout index.
+        self.layout_stats: dict[int, dict[str, float]] = {}
+        self.frozen_layouts: set[int] = set()
+
+    def freeze_layouts(self, indices: set[int]) -> None:
+        """Stop training the adapters and heads of these layouts (a class that has converged, animus.stage): their
+        own parameters take no gradient, so only the shared trunk can still move them. Layouts not in `indices`
+        are thawed."""
+        self.frozen_layouts = set(indices)
+        for network in (self.actor, self.critic):
+            for name, parameter in network.named_parameters():
+                parts = name.split(".")
+                if len(parts) >= 2 and parts[0] in ("adapters", "heads") and parts[1].isdigit():
+                    parameter.requires_grad_(int(parts[1]) not in self.frozen_layouts)
+
+    @staticmethod
+    def _layout_totals(totals: dict, layout: torch.Tensor, entropy: torch.Tensor, kl: torch.Tensor,
+                       weight: torch.Tensor | None = None) -> None:
+        """Add one minibatch's per-row entropy and KL into per-layout sums (weighted by `weight` where given)."""
+        flat_layout = layout.reshape(-1)
+        flat_entropy = entropy.reshape(-1).detach()
+        flat_kl = kl.reshape(-1).detach()
+        flat_weight = weight.reshape(-1) if weight is not None else torch.ones_like(flat_entropy)
+        for index, rows in _per_layout(flat_layout, 1 << 30):
+            entry = totals.setdefault(index, [0.0, 0.0, 0.0])
+            w = flat_weight[rows]
+            entry[0] += float((flat_entropy[rows] * w).sum())
+            entry[1] += float((flat_kl[rows] * w).sum())
+            entry[2] += float(w.sum())
+
+    def _finish_layout_stats(self, totals: dict) -> None:
+        self.layout_stats = {index: {"entropy": e / max(n, 1e-9), "approx_kl": k / max(n, 1e-9), "rows": n}
+                             for index, (e, k, n) in totals.items() if n > 0}
 
     def set_learning_rate_scale(self, scale: float) -> None:
         """Both optimizers at `scale` times their configured learning rate (see MappoConfig.lr_final_fraction)."""
@@ -493,6 +526,7 @@ class MappoTrainer:
         # Summed on the device and read once at the end: a .item() per statistic per minibatch is a pipeline stall
         # per statistic per minibatch.
         totals = {name: torch.zeros((), device=self.train_device) for name in stats}
+        layout_totals: dict = {}
         epochs_run = 0
 
         for _ in range(cfg.epochs):
@@ -569,6 +603,7 @@ class MappoTrainer:
                 self.critic_opt.step()
 
                 with torch.no_grad():
+                    self._layout_totals(layout_totals, layout, dist.entropy(), (ratio - 1) - log_ratio)
                     totals["policy_loss"] += policy_loss.detach()
                     totals["value_loss"] += value_loss.detach()
                     # Reported on its own: the entropy floor compares this with ln(allowed actions), and folding
@@ -602,6 +637,7 @@ class MappoTrainer:
 
         if sync:
             self._sync_rollout()
+        self._finish_layout_stats(layout_totals)
         stats = {name: float(total) for name, total in totals.items()}
         result = {k: v / max(1, updates) for k, v in stats.items()}
         result["explained_variance"] = float(explained)
@@ -679,6 +715,7 @@ class MappoTrainer:
         explained = 1.0 - (returns - values).var() / variance if float(variance) > 0.0 else torch.zeros(())
 
         totals = {name: torch.zeros((), device=self.train_device) for name in stats}
+        layout_totals: dict = {}
         splits = max(1, min(cfg.minibatches, envs))
         auxiliary_stats: dict[str, float] = {}
         auxiliary_updates = 0
@@ -732,7 +769,7 @@ class MappoTrainer:
                 if teach is not None:
                     # The whole chunk in one call. A recurrent teacher still sees the decisions in order, but only
                     # its GRU cell runs per step: replaying every teacher's adapters and trunk decision by decision
-                    # cost stage16_crossroads a 306 s update against a 6 s rollout, with six teachers.
+                    # cost stage23_crossroads a 306 s update against a 6 s rollout, with six teachers.
                     state_all = (data["state"][:, chunk][:, :, None, :]
                                  .expand(steps, envs_here, agents, data["state"].shape[-1])
                                  .reshape(steps, rows_here, -1))
@@ -811,6 +848,8 @@ class MappoTrainer:
 
                 with torch.no_grad():
                     log_ratio = log_probs - taken
+                    self._layout_totals(layout_totals, layout_all, action_entropies, (ratio - 1) - log_ratio,
+                                        counted)
                     kl = (((ratio - 1) - log_ratio) * counted).sum() / weight
                     totals["policy_loss"] += policy_loss.detach()
                     totals["value_loss"] += value_loss.detach()
@@ -832,6 +871,7 @@ class MappoTrainer:
                     and float(epoch_kl) / epoch_updates > EPOCH_KL_TOLERANCE * cfg.target_kl:
                 break
 
+        self._finish_layout_stats(layout_totals)
         for name in stats:
             stats[name] = float(totals[name]) / max(1, updates)
         stats["explained_variance"] = float(explained)

@@ -24,7 +24,7 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 4. [The curriculum](04-curriculum.md): the stages and how they seed each other, their blocks, arenas,
    encounters and rewards, the characters the seats become, and team play under a director.
 5. [Animus Forge](05-animus-forge.md): the training module (plans, the lock-step bridge, the learner process, console,
-   progress, export) and the Python learner (MAPPO, seeding, distillation, evaluation, convergence and stage targets).
+   progress, export) and the Python learner (MAPPO, seeding, distillation, evaluation and the convergence rule).
 6. [Animus](06-animus.md): companions and the stage viewer on a live, stock server.
 7. [Operations](07-operations.md): step-by-step workflows for setup, training, monitoring, exporting, deploying,
    extending and troubleshooting.

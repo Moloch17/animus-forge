@@ -1,293 +1,209 @@
-"""Stage controller decisions (move on, restart, halt) and the trainer hooks restarts use."""
+"""The convergence rule that ends every stage (animus.stage.ConvergenceController)."""
+
+import math
 
 import pytest
-import torch
 
 from animus.config import TrainConfig
-from animus.mappo.trainer import MappoConfig, MappoTrainer
-from animus.stage import ADVANCE, CONTINUE, EXTEND, HALT, RESTART, StageController
+from animus.stage import ADVANCE, CONTINUE, ConvergenceController
+
+pytest.importorskip("torch")
+
+from animus.mappo.trainer import MappoTrainer  # noqa: E402
+
+CLASSES = ("warrior_dps", "mage_dps")
 
 
-def make_config(**target) -> TrainConfig:
+def _config(**overrides) -> TrainConfig:
     config = TrainConfig()
-    config.eval.every_env_steps = 10
-    config.eval.baseline = "fight"
-    config.convergence.patience = 1
-    config.convergence.min_improvement = 0.0
+    config.total_env_steps = 1000
+    config.eval.every_env_steps = 100
+    config.convergence.patience = 2
+    config.convergence.window = 3
+    config.convergence.kl = 0.003
     config.convergence.min_improvement_abs = 0.5
-    config.target.confirm_episodes = 0
-    for key, value in target.items():
-        setattr(config.target, key, value)
+    config.convergence.min_improvement = 0.0
+    config.entropy_floor.fraction = 0.0
+    for key, value in overrides.items():
+        section, _, name = key.partition(".")
+        setattr(getattr(config, section), name, value) if name else setattr(config, section, value)
     return config
 
 
-def evaluate(controller: StageController, score: float, env_steps: int, baseline: float = 10.0):
-    controller.baseline_summary = {"score": baseline, "layouts": {}}
-    controller.observe({"score": score, "episodes": 64, "layouts": {}}, env_steps)
-    return controller.after_eval(env_steps, confirm=lambda: pytest.fail("no confirmation expected"))
+def _summary(scores: dict[str, float], stderr: float = 0.0) -> dict:
+    return {"score": sum(scores.values()) / len(scores), "stderr": stderr,
+            "layouts": {name: {"score": score, "stderr": stderr, "episodes": 64} for name, score in scores.items()}}
 
 
-def test_no_target_moves_on_once_converged():
-    controller = StageController(make_config())
-    assert evaluate(controller, 5.0, 0).action == CONTINUE
-    outcome = evaluate(controller, 5.1, 10)
-    assert (outcome.action, outcome.reason) == (ADVANCE, "converged")
+def _run(controller: ConvergenceController, evals: list[dict[str, float]], kl: float = 0.001, entropy: float = 0.5,
+         rung: float | None = None, allowed: float = 10.0) -> list:
+    """Feed `evals` evaluations, each preceded by one update carrying the given per-class signals."""
+    outcomes = []
+    for index, scores in enumerate(evals):
+        env_steps = 100 * (index + 1)
+        controller.observe_update({name: {"approx_kl": kl, "entropy": entropy * math.log(allowed),
+                                          "allowed_actions": allowed} for name in CLASSES}, 1.0)
+        if rung is not None:
+            controller.observe_training_episodes({name: rung for name in CLASSES})
+        controller.observe(_summary(scores), env_steps)
+        outcomes.append(controller.after_eval(env_steps))
+    return outcomes
 
 
-def test_a_resumed_controller_judges_its_best_evaluation():
-    controller = StageController(make_config(min_over_baseline=0.2))
-    evaluate(controller, 13.0, 0)
-    controller.record_restart(5)
-
-    resumed = StageController(make_config(min_over_baseline=0.2))
-    resumed.tracker.load_state_dict(controller.tracker.state_dict())
-    resumed.load_state_dict(controller.state_dict())
-    assert (resumed.restarts, resumed.restart_env_steps) == (1, 5)
-    assert resumed.entropy_coef(5) == controller.entropy_coef(5)
-
-    outcome = evaluate(resumed, 12.9, 20)
-    assert (outcome.action, outcome.stage) == (ADVANCE, "best")
+def test_a_stage_advances_once_every_class_shows_all_four_signals():
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    outcomes = _run(controller, [flat] * 4, rung=2.0)
+    assert outcomes[-1].action == ADVANCE and outcomes[-1].reason == "converged"
+    assert controller.converged_layouts() == list(CLASSES)
+    assert all(row["missing"] == [] for row in outcomes[-1].report.values())
 
 
-def test_a_controller_resumed_at_its_budget_still_has_its_baseline():
-    controller = StageController(make_config(min_over_baseline=0.2))
-    evaluate(controller, 13.0, 0)
-
-    resumed = StageController(make_config(min_over_baseline=0.2))
-    resumed.tracker.load_state_dict(controller.tracker.state_dict())
-    resumed.load_state_dict(controller.state_dict())
-    outcome = resumed.at_budget(confirm=lambda: pytest.fail("no confirmation expected"))
-    assert (outcome.action, outcome.reason) == (ADVANCE, "total_env_steps")
+def test_a_climbing_score_blocks_convergence():
+    controller = ConvergenceController(_config(), CLASSES)
+    climbing = [{"warrior_dps": 5.0 + index, "mage_dps": 3.0} for index in range(5)]
+    outcomes = _run(controller, climbing)
+    assert all(outcome.action == CONTINUE for outcome in outcomes)
+    assert "score" in controller.report()["warrior_dps"]["missing"]
+    assert controller.weakest()[0] == "warrior_dps"
 
 
-def test_converged_above_target_moves_on():
-    controller = StageController(make_config(min_over_baseline=0.2))
-    evaluate(controller, 13.0, 0)
-    outcome = evaluate(controller, 12.9, 10)
-    assert (outcome.action, outcome.stage) == (ADVANCE, "best")  # judged on the best evaluation, not the latest
+def test_a_moving_policy_blocks_convergence():
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    outcomes = _run(controller, [flat] * 5, kl=0.02)
+    assert all(outcome.action == CONTINUE for outcome in outcomes)
+    assert controller.report()["mage_dps"]["missing"] == ["kl"]
 
 
-def test_below_target_restarts_then_halts():
-    config = make_config(min_over_baseline=0.2)
-    config.restarts.max_restarts = 2
-    controller = StageController(config)
-    evaluate(controller, 11.0, 0)
-    outcome = evaluate(controller, 10.9, 10)
-    assert outcome.action == RESTART and outcome.gates.failures == ["score 11 (needs 12)"]
-
-    controller.record_restart(10)
-    assert controller.tracker.evals_since_best == 0 and controller.tracker.best == 11.0
-    assert evaluate(controller, 10.0, 20).action == RESTART  # converged again in the new segment
-    controller.record_restart(20)
-    outcome = evaluate(controller, 10.0, 30)
-    assert (outcome.action, outcome.reason) == (HALT, "below_target")
+def test_the_kl_is_read_against_the_learning_rate():
+    """A KL that only fell with the anneal is the schedule: at a tenth of the rate 0.0005 is 0.005."""
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    for index in range(4):
+        controller.observe_update({name: {"approx_kl": 0.0005, "entropy": 1.0, "allowed_actions": 10.0}
+                                   for name in CLASSES}, 0.1)
+        controller.observe(_summary(flat), 100 * (index + 1))
+    assert controller.after_eval(400).action == CONTINUE
+    assert "kl" in controller.report()["warrior_dps"]["missing"]
 
 
-def test_restart_that_escapes_moves_on():
-    config = make_config(min_over_baseline=0.2)
-    controller = StageController(config)
-    evaluate(controller, 11.0, 0)
-    assert evaluate(controller, 10.9, 10).action == RESTART
-    controller.record_restart(10)
-    assert evaluate(controller, 12.5, 20).action == CONTINUE  # new best: not converged
-    assert evaluate(controller, 12.4, 30).action == ADVANCE
+def test_a_sliding_entropy_blocks_convergence():
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    for index in range(4):
+        controller.observe_update({name: {"approx_kl": 0.001, "entropy": (0.9 - 0.1 * index) * math.log(10.0),
+                                          "allowed_actions": 10.0} for name in CLASSES}, 1.0)
+        controller.observe(_summary(flat), 100 * (index + 1))
+    assert controller.after_eval(400).action == CONTINUE
+    assert controller.report()["warrior_dps"]["missing"] == ["entropy"]
 
 
-def test_confirmation_on_held_out_seeds():
-    config = make_config(min_over_baseline=0.2)
-    config.target.confirm_episodes = 256
-    controller = StageController(config)
-    controller.baseline_summary = {"score": 10.0}
-    controller.observe({"score": 13.0}, 0)
-    controller.observe({"score": 12.0}, 10)
-
-    calls = []
-
-    def lucky_best():
-        calls.append(1)
-        return {"score": 11.0}, {"score": 10.0}
-
-    outcome = controller.after_eval(10, lucky_best)
-    assert calls and (outcome.action, outcome.stage) == (RESTART, "confirm")
-
-    outcome = controller.at_budget(lambda: ({"score": 12.5}, {"score": 10.0}))
-    assert (outcome.action, outcome.reason, outcome.stage) == (ADVANCE, "total_env_steps", "confirm")
+def test_a_collapsed_entropy_blocks_convergence_when_a_floor_is_set():
+    controller = ConvergenceController(_config(**{"entropy_floor.fraction": 0.3}), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    outcomes = _run(controller, [flat] * 4, entropy=0.1)
+    assert outcomes[-1].action == CONTINUE and controller.report()["warrior_dps"]["missing"] == ["entropy"]
 
 
-def test_budget_below_target_halts_without_restarting():
-    controller = StageController(make_config(min_over_baseline=0.2))
-    controller.baseline_summary = {"score": 10.0}
-    controller.observe({"score": 11.0}, 0)
-    outcome = controller.at_budget(lambda: pytest.fail("gates failed on the best: no confirmation"))
-    assert (outcome.action, outcome.reason) == (HALT, "budget_below_target")
-
-    no_target = StageController(make_config())
-    assert no_target.at_budget(lambda: pytest.fail("no target")).action == ADVANCE
-
-
-def test_entropy_boost_decays_after_restart():
-    config = make_config()
-    config.mappo.entropy_coef = 0.01
-    config.restarts.entropy_boost = 3.0
-    config.restarts.entropy_half_life_env_steps = 100
-    controller = StageController(config)
-    assert controller.entropy_coef(50) == pytest.approx(0.01)
-    controller.record_restart(1000)
-    assert controller.entropy_coef(1000) == pytest.approx(0.03)
-    assert controller.entropy_coef(1100) == pytest.approx(0.02)
-    assert controller.entropy_coef(10_000) == pytest.approx(0.01, abs=1e-6)
+def test_a_climbing_ladder_blocks_convergence():
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    for index in range(4):
+        controller.observe_update({name: {"approx_kl": 0.001, "entropy": 1.0, "allowed_actions": 10.0}
+                                   for name in CLASSES}, 1.0)
+        controller.observe_training_episodes({name: float(index) for name in CLASSES})
+        controller.observe(_summary(flat), 100 * (index + 1))
+    assert controller.after_eval(400).action == CONTINUE
+    assert controller.report()["warrior_dps"]["missing"] == ["ladder"]
 
 
-def test_trainer_restart_hooks():
-    torch.manual_seed(0)
-    trainer = MappoTrainer([(3, 2), (4, 3)], 5, MappoConfig(hidden=(8,), entropy_coef=0.02))
-    assert trainer.entropy_coef == 0.02
-
-    before = [p.clone() for p in trainer.actor.parameters()]
-    trainer.shrink_perturb(1.0, 0.0)
-    assert all(torch.equal(a, b) for a, b in zip(before, trainer.actor.parameters()))
-    trainer.shrink_perturb(0.5, 0.1)
-    assert any(not torch.allclose(a * 0.5, b) for a, b in zip(before, trainer.actor.parameters()))
-    rollout = dict(trainer._rollout_actor.named_parameters())
-    assert all(torch.equal(p, rollout[name]) for name, p in trainer.actor.named_parameters())
-
-    old_opt = trainer.actor_opt
-    trainer.reset_optimizers()
-    assert trainer.actor_opt is not old_opt and not trainer.actor_opt.state
+def test_the_weakest_class_decides_and_the_converged_one_is_held():
+    controller = ConvergenceController(_config(), CLASSES)
+    evals = [{"warrior_dps": 5.0, "mage_dps": 3.0 + index} for index in range(5)]
+    outcomes = _run(controller, evals)
+    assert all(outcome.action == CONTINUE for outcome in outcomes)
+    assert controller.converged_layouts() == ["warrior_dps"] and controller.active_layouts() == ["mage_dps"]
+    assert controller.hold_weights() == {"warrior_dps": 0.02, "mage_dps": 1.0}
 
 
-def test_learning_rates_follow_their_schedule():
-    from animus.mappo.trainer import schedule
-
-    assert schedule(0.1, 0, 300) == pytest.approx(1.0)
-    assert schedule(0.1, 150, 300) == pytest.approx(0.55)
-    assert schedule(0.1, 300, 300) == pytest.approx(0.1) and schedule(0.1, 900, 300) == pytest.approx(0.1)
-    assert schedule(1.0, 150, 300) == 1.0
-
-    trainer = MappoTrainer([(3, 2)], 5, MappoConfig(hidden=(8,), actor_lr=3e-4, critic_lr=1e-3))
-    trainer.set_learning_rate_scale(0.5)
-    assert trainer.actor_opt.param_groups[0]["lr"] == pytest.approx(1.5e-4)
-    assert trainer.critic_opt.param_groups[0]["lr"] == pytest.approx(5e-4)
+def test_a_held_class_re_enters_when_it_regresses():
+    controller = ConvergenceController(_config(), CLASSES)
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    _run(controller, [flat] * 4)
+    assert controller.converged_layouts() == list(CLASSES)
+    _run(controller, [{"warrior_dps": 2.0, "mage_dps": 3.0}])
+    assert controller.converged_layouts() == ["mage_dps"]
+    assert controller.report()["warrior_dps"]["reentries"] == 1
 
 
-def test_act_and_value_matches_act_and_value_apart():
-    """One pass for both networks, grouping the rows by layout once, answers as the two calls do."""
-    import numpy as np
+def test_the_budget_advances_and_names_who_was_not_done():
+    controller = ConvergenceController(_config(), CLASSES)
+    _run(controller, [{"warrior_dps": 5.0 + index, "mage_dps": 3.0} for index in range(2)])
+    outcome = controller.at_budget()
+    assert outcome.action == ADVANCE and outcome.reason == "budget"
+    assert outcome.report["warrior_dps"]["converged"] is False
 
-    torch.manual_seed(0)
-    trainer = MappoTrainer([(3, 2), (4, 3)], 5, MappoConfig(hidden=(8, 8)))
-    rng = np.random.default_rng(0)
-    obs = rng.random((6, 2, 4), dtype=np.float32)
-    mask = np.ones((6, 2, 3), bool)
-    mask[..., 2] = False
-    layout = rng.integers(0, 2, (6, 2))
-    state = rng.random((6, 5), dtype=np.float32)
 
-    actions, log_probs = trainer.act(obs, mask, layout, deterministic=True)
-    values = trainer.value(state, obs, layout)
-    together = trainer.act_and_value(obs, mask, layout, state, deterministic=True)
-    assert (together[0] == actions).all()
-    assert np.allclose(together[1], log_probs) and np.allclose(together[2], values, atol=1e-6)
+def test_a_class_the_run_never_plays_is_not_waited_for():
+    controller = ConvergenceController(_config(), (*CLASSES, "director"))
+    flat = {"warrior_dps": 5.0, "mage_dps": 3.0}
+    outcomes = _run(controller, [flat] * 4)
+    assert outcomes[-1].action == ADVANCE
+    assert controller.report()["director"]["missing"] == ["never played"]
+
+
+def test_the_learning_rate_is_held_until_the_score_plateaus():
+    config = _config()
+    config.mappo.lr_final_fraction = 0.1
+    controller = ConvergenceController(config, CLASSES)
+    assert controller.lr_scale(500) == 1.0
+    _run(controller, [{"warrior_dps": 5.0, "mage_dps": 3.0}] * 3)
+    assert controller.plateau_env_steps == 300
+    assert controller.lr_scale(300) == pytest.approx(1.0)
+    assert controller.lr_scale(1000) == pytest.approx(0.1)
+    assert 0.1 < controller.lr_scale(650) < 1.0
+
+    config.convergence.lr_hold_until_plateau = False
+    plain = ConvergenceController(config, CLASSES)
+    assert plain.lr_scale(500) == pytest.approx(0.55)
+
+
+def test_state_round_trips_through_a_checkpoint():
+    controller = ConvergenceController(_config(), CLASSES)
+    _run(controller, [{"warrior_dps": 5.0, "mage_dps": 3.0 + index} for index in range(3)])
+    saved = controller.state_dict()
+    restored = ConvergenceController(_config(), CLASSES)
+    restored.load_state_dict(saved)
+    assert restored.converged_layouts() == controller.converged_layouts()
+    assert restored.report() == controller.report()
 
 
 def test_entropy_floor_lifts_a_collapsing_policy_and_lets_go():
-    """The floor raises the coefficient while entropy is under its share of ln(legal actions), never above."""
-    from animus.config import TrainConfig
-    from animus.stage import StageController
-
-    config = TrainConfig()
-    config.mappo.entropy_coef = 0.01
-    config.entropy_floor.fraction = 0.3
-    config.entropy_floor.max_boost = 4.0
-    config.entropy_floor.rate = 0.5
-    controller = StageController(config)
-
-    assert controller.entropy_coef(0) == pytest.approx(0.01)
-
-    # Nine legal actions: the ceiling is ln(9) = 2.20, so the target is 0.66.
-    for _ in range(20):
-        controller.observe_entropy(0.2, 9.0)  # collapsed
-    lifted = controller.entropy_coef(0)
-    assert lifted > 0.01, "a collapsed policy should raise the coefficient"
-    assert lifted <= 0.01 * 4.0 + 1e-9, "never past max_boost"
-
-    for _ in range(40):
-        controller.observe_entropy(1.5, 9.0)  # well above the target again
-    assert controller.entropy_coef(0) == pytest.approx(0.01, rel=1e-2), "it has to let go once entropy recovers"
-
-
-def test_entropy_floor_is_off_by_default():
-    from animus.config import TrainConfig
-    from animus.stage import StageController
-
-    config = TrainConfig()
-    config.mappo.entropy_coef = 0.02
-    controller = StageController(config)
+    config = _config(**{"entropy_floor.fraction": 0.5, "entropy_floor.max_boost": 4.0, "entropy_floor.rate": 0.5})
+    controller = ConvergenceController(config, CLASSES)
+    base = controller.entropy_coef(0)
     for _ in range(10):
-        controller.observe_entropy(0.0, 50.0)
-    assert controller.entropy_coef(0) == pytest.approx(0.02)
-
-
-def test_until_passed_trains_on_below_target_instead_of_halting():
-    config = make_config(min_over_baseline=0.2, until_passed=True)
-    config.restarts.max_restarts = 1
-    config.total_env_steps = 1000
-    controller = StageController(config)
-    evaluate(controller, 11.0, 0)
-    assert evaluate(controller, 10.9, 10).action == RESTART
-    controller.record_restart(10)
-    outcome = evaluate(controller, 10.9, 20)
-    assert (outcome.action, outcome.reason) == (EXTEND, "below_target")  # restarts used up: no halt
-    controller.record_extension(20)
-    assert evaluate(controller, 10.8, 30).action == EXTEND
-    controller.record_extension(30)
-    assert evaluate(controller, 12.5, 40).action == CONTINUE  # passes, but has not converged yet
-    assert evaluate(controller, 12.4, 50).action == ADVANCE
-
-
-def test_until_passed_still_halts_at_the_budget():
-    """total_env_steps stays the ceiling: training on below the target ends there."""
-    controller = StageController(make_config(min_over_baseline=0.2, until_passed=True))
-    controller.baseline_summary = {"score": 10.0}
-    controller.observe({"score": 11.0}, 0)
-    outcome = controller.at_budget(lambda: pytest.fail("gates failed on the best: no confirmation"))
-    assert (outcome.action, outcome.reason) == (HALT, "budget_below_target")
-
-
-def test_until_passed_keeps_the_networks_that_pass():
-    """A passing evaluation is the best whatever a failing one scored, and only a passing one replaces it."""
-    config = make_config(metrics={"clean_kill": {"min": 1.0}}, until_passed=True)
-    config.convergence.patience = 5
-    controller = StageController(config)
-    controller.baseline_summary = {"score": 1.0, "layouts": {}}
-
-    def row(score, clean):
-        return {"score": score, "episodes": 64, "layouts": {}, "clean_kill": clean}
-
-    assert controller.observe(row(8.0, 0.9), 0)
-    assert controller.observe(row(7.0, 1.0), 10)  # lower score, but it passes
-    assert controller.tracker.best == 7.0
-    assert not controller.observe(row(9.0, 0.95), 20)  # higher score that fails: best.pt keeps the passing networks
-    assert controller.best_summary["clean_kill"] == 1.0 and controller.tracker.best == 7.0
-    assert controller.tracker.evals_since_best == 0
-    assert controller.observe(row(9.5, 1.0), 30)
-
-
-def test_without_until_passed_the_budget_still_halts():
-    controller = StageController(make_config(min_over_baseline=0.2))
-    controller.baseline_summary = {"score": 10.0}
-    controller.observe({"score": 11.0}, 0)
-    assert controller.at_budget(lambda: pytest.fail("no confirmation")).action == HALT
+        controller.observe_entropy(0.1, 10.0)  # far under 0.5 x ln(10)
+    assert controller.entropy_coef(0) > base
+    for _ in range(20):
+        controller.observe_entropy(2.0, 10.0)
+    assert controller.entropy_coef(0) == pytest.approx(base, rel=0.05)
 
 
 def test_entropy_coef_follows_its_schedule():
-    config = make_config()
-    config.total_env_steps = 100
-    config.mappo.entropy_coef = 0.01
-    config.mappo.entropy_final_fraction = 0.2
-    controller = StageController(config)
-    assert controller.entropy_coef(0) == pytest.approx(0.01)
-    assert controller.entropy_coef(50) == pytest.approx(0.006)
-    assert controller.entropy_coef(100) == pytest.approx(0.002)
-    assert controller.entropy_coef(500) == pytest.approx(0.002)  # held at the end, past the budget
+    config = _config()
+    config.mappo.entropy_final_fraction = 0.5
+    controller = ConvergenceController(config, CLASSES)
+    assert controller.entropy_coef(0) == pytest.approx(config.mappo.entropy_coef)
+    assert controller.entropy_coef(1000) == pytest.approx(config.mappo.entropy_coef * 0.5)
 
+
+def test_frozen_layouts_take_no_gradient_and_thaw_again():
+    trainer = MappoTrainer([(3, 2), (2, 2)], 3, _config().mappo, "cpu", "cpu")
+    trainer.freeze_layouts({1})
+    frozen = {name for name, param in trainer.actor.named_parameters() if not param.requires_grad}
+    assert frozen and all(".1." in name for name in frozen)
+    assert all(param.requires_grad for name, param in trainer.actor.named_parameters() if ".0." in name)
+    trainer.freeze_layouts(set())
+    assert all(param.requires_grad for param in trainer.actor.parameters())

@@ -9,24 +9,17 @@
 # about what that costs; the cost is what it learns here, and the round trip by the ramp is always there for the
 # episodes where the drop is not worth it.
 #
-# Slow Fall and Levitate are masked in this stage (StageDefinition::FeatherFallMasked), so every class learns the
-# bare price of a drop first. stage1d_glide gives the classes that have one the button back.
-#
-# NOT in the default queue: a side branch off stage1_move like stage1b_indoor, trained by name:
-#
-#   forge start stage1c_jump
+# Slow Fall and Levitate are open: a mage or a priest that has one learns when a cast is worth spending to make a
+# deadly drop free, and a class without one (or below the level that has it) learns the bare price of the drop.
 #
 # The spawn points are plateau tops above the ground the broken arena trains its cliff feet on, found from the
 # relief in the creature spawns; whether a top offers a ledge trip is what the `ledge` column reports, and a top
 # that never does is a top to replace.
 
 extends: stage1_move.yaml
-run_name: stage1c_jump
+run_name: stage3_jump
 
-total_env_steps: 30000000
-
-convergence:
-  min_env_steps: 8000000
+total_env_steps: 16000000
 
 eval:
   every_env_steps: 2000000
@@ -37,18 +30,3 @@ eval:
   report: [arrived, spl, lost, wedged, ledge, ledge_drop, jumps, jumps_refused, drops, drop_yards, fell, fall_damage,
            fall_deaths, feather_falls, damage_taken, saved, travel_seconds, start_distance, walk_distance,
            distance_travelled, objective_distance_at_end, trip_share, died, timed_out]
-
-target:
-  # The movement phase's standard: the bot always arrives. The way round always exists, so it is fair here too.
-  # No floor on drops or deaths: the scripted baseline cannot jump and walks round, so gating on the mechanism would
-  # gate on something the yardstick cannot do; the outcome is arrival, with travel_seconds and saved against the
-  # baseline saying whether the drop was taken where it paid. A class that dies to learn is doing the drill.
-  min_over_baseline: 0.0
-  metrics:
-    arrived: {min: 1.0}
-    timed_out: {max: 0.0}
-  layout_metrics:
-    arrived: {min: 1.0}
-  # One arena, `ledges`: stage1_move's per-arena floors name arenas this stage does not have.
-  arenas: {}
-  until_passed: true

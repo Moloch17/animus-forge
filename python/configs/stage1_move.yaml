@@ -22,17 +22,17 @@
 #           running, so the crossing pays only when the straight line saves more than about a third of the
 #           distance -- and what a build can do in water changes the answer, which is why this is not a reflex
 
-extends: stage5_duel.yaml
+extends: stage8_duel.yaml
 run_name: stage1_move
 
 # The root of the tree starts from nothing, but it is a far smaller problem than the duel: few actions are live,
 # there is one objective and the episodes are short.
-total_env_steps: 40000000
+total_env_steps: 30000000
 
 mappo:
   # The policy that is gated and shipped takes the argmax; the one that trained sampled. With the coefficient held
   # flat the two drifted apart on every movement stage -- stage1_move's sampled actions arrived 0.996 against the
-  # argmax's 0.979, stage3_travel 0.992 against 0.970, stage4_flight 0.851 against 0.543 -- so the exploration bonus
+  # argmax's 0.979, stage6_travel 0.992 against 0.970, stage7_flight 0.851 against 0.543 -- so the exploration bonus
   # anneals to a third of itself by total_env_steps and the two converge. eval.sampled_every writes the remaining
   # gap into eval.jsonl as argmax_gap.
   entropy_final_fraction: 0.3
@@ -49,7 +49,7 @@ eval:
   # the honest measure of one. Turned off for one experiment on 2026-09-22 -- sampling cut timeouts from 9.5% to
   # 6.4%, all of it on open and broken ground, which is what a deterministic livelock looks like. Left on would
   # have hidden that behind the sampling rather than fixing it.
-  # TEMPORARY, for testing generalisation early: 2M instead of the 10M inherited from stage5_duel. Scored episodes
+  # TEMPORARY, for testing generalisation early: 2M instead of the 10M inherited from stage8_duel. Scored episodes
   # stand on the control ground (StageDefinition::HeldOutSpawnPoints), so this is the only number that says whether
   # the policy reads terrain or has learned the training regions -- and waiting 10M steps to see it first is a long
   # time to be guessing. Each evaluation is 2048 seeded episodes, about 90 s, so at this rate it costs roughly a
@@ -62,74 +62,5 @@ eval:
            distance_travelled, objective_distance_at_end, dry_distance, dry_detour, detour_band, trip_share, saved,
            died, timed_out, crossing, swim_seconds]
 
-convergence:
-  min_env_steps: 20000000
-
-target:
-  # **The standard is that the bot always arrives.** Every arrival floor is 1.0 and timing out is not allowed at
-  # all, on every arena.
-  #
-  # The old floors (0.90 overall, 0.95/0.85/0.80 per arena) were not merely lenient, they were the wrong shape:
-  # they encode an acceptable loss rate, and `broken` passed at 0.85 while losing one trip in eleven. A bot that
-  # does not arrive has not moved, it has wandered, and there is no number of yards covered that makes up for
-  # ending somewhere else. The bar is one an arena already clears: water read 1.0000 over all 415 of its scored
-  # episodes, including the 3.86% that can only be done by swimming.
-  #
-  # This is only a fair gate because the episode generator now refuses to set a trip that cannot be finished in
-  # the time allowed at the character's own speed (TravelEncounter FEASIBLE_SHARE). Without that, one pathological
-  # draw in 2048 halts the queue over something no policy could have done. The two belong together, and if the
-  # feasibility cap is ever removed these floors have to come down with it.
-  #
-  # `confidence` is gone from the arrival floors and stays on `crossing`. A Wilson lower bound can never reach
-  # 1.0, so a confidence interval and a floor of 1.0 are mutually exclusive; at 1.0 the test is simply whether
-  # every one of the 2048 seeded episodes arrived. It still belongs on `crossing`, which is a genuine proportion
-  # below 1.
-  #
-  # Arriving is the objective and `saved` is how well: it is the share of the plain-running time the trip saved,
-  # so on foot it measures the speed cooldowns and not stopping. mounted_fraction is deliberately not gated -- it
-  # is 0 by construction here, and gating it would only restate the mask.
-  min_over_baseline: 0.0
-  metrics:
-    arrived: {min: 1.0}
-    saved: {min: 0.05}
-    timed_out: {max: 0.0}
-  # Redundant against the floor above rather than weaker than it: if every layout arrives every time, so does the
-  # average. Kept because it is the line that says the standard is per character and not per cohort -- a build
-  # that cannot cross ground is not excused by the ones that can.
-  layout_metrics:
-    arrived: {min: 1.0}
-  # Per arena, because an average over three kinds of ground hides the one the seat cannot handle: a policy that
-  # crosses open ground perfectly and drowns in the water arena would pass a single `arrived` floor comfortably.
-  # At 1.0 the per-arena floors cannot be looser than the overall one, but they are what names the arena that
-  # failed, which is the difference between a halted queue you can act on and one you cannot.
-  # stage5_duel gates tier 0 on clean_kill >= 0.95, and a stage with no difficulty tiers is judged for tier 0 on its
-  # whole summary (gates.py). Nothing is killed on a trip, so clean_kill was 0 by construction and every movement
-  # stage failed its gate at every evaluation ("tier 0 clean_kill (min, 95% lower bound) 0 (needs 0.95)" in
-  # stage1_move/stage.jsonl). An empty map replaces where a populated one would merge, which is the only way to drop
-  # the inherited key; every movement stage says so itself.
-  difficulties: {}
-  arenas:
-    open:
-      metrics:
-        arrived: {min: 1.0}
-    broken:
-      metrics:
-        arrived: {min: 1.0}
-    water:
-      metrics:
-        arrived: {min: 1.0}
-        # A water arena that finds no crossing within reach of its spawn points falls back to an ordinary trip,
-        # so the env still builds -- and would otherwise be a second copy of the open arena, reported as
-        # teaching swimming and teaching nothing. `crossing` is what stops that being silent: it is what the
-        # arena offered, a property of the ground rather than of the policy, so it is the scenario's to meet.
-        crossing: {min: 0.70}
-        # swim_seconds is reported, never gated -- for the same reason as mounted_fraction above. The lesson is
-        # the fastest way to the objective, not swimming: every crossing here has a dry way round by
-        # construction, and where that way round is quicker, walking it is the right answer and a floor on
-        # swimming would punish it. Whether the seat judged the two correctly is what `saved` measures.
-  until_passed: true
-
-# The sampler weights the classes by their shortfall on this metric, higher being better, and replays the episodes
-# that fell short of it. clean_kill, inherited from the duel, is 0 for every class here and weights nothing.
 layout_sampling:
   metric: arrived

@@ -133,14 +133,12 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     server.start()
 
     steps_per_update = 4 * SPEC.num_envs * SPEC.agents_per_env
-    config = TrainConfig.load(Path(__file__).parent.parent / "configs" / "stage5_duel.yaml", [
+    config = TrainConfig.load(Path(__file__).parent.parent / "configs" / "stage8_duel.yaml", [
         f"socket={path}", f"runs_dir={tmp_path / 'runs'}", f"layouts_dir={tmp_path / 'layouts'}", "run_name=fake",
         "rollout_length=4", f"total_env_steps={2 * steps_per_update}", "checkpoint_every=1", "init_from=''",
         "train_device=cpu", "mappo.hidden=[8, 8]", "mappo.epochs=1", "mappo.minibatches=1",
         f"eval.every_env_steps={steps_per_update}", "eval.episodes=2", "eval.baseline=''",
-        "convergence.patience=0", "target.min_over_baseline=null", "target.min_layout_over_baseline=null",
-        # The fake scenario's episode info is not the duel's, so its metric gates cannot be checked here.
-        "target.metrics={}", "target.layout_metrics={}", "target.difficulties={}",
+        "convergence.patience=0",
     ])
 
     exit_code = TrainingRun(config, resume=False).run()
@@ -151,6 +149,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     assert exit_code == 0
     finished = json.loads((run_dir / "finished.json").read_text())
     assert (finished["advanced"], finished["update"], finished["env_steps"]) == (True, 2, 2 * steps_per_update)
+    assert finished["reason"] == "budget" and set(finished["layouts"]) == {"warrior_dps", "mage_dps"}
 
     with (run_dir / "metrics.csv").open() as f:
         rows = list(csv.DictReader(f))
@@ -165,11 +164,11 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
 
     with (run_dir / "eval.csv").open() as f:
         evals = list(csv.DictReader(f))
-    # The third evaluation also plays sampled actions on the same seeds (stage5_duel: eval.sampled_every 3).
+    # The third evaluation also plays sampled actions on the same seeds (stage8_duel: eval.sampled_every 3).
     assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update, 2 * steps_per_update]
     assert [row["policy"] for row in evals] == ["learner", "learner", "learner", "learner_sampled"]
     assert modes.count((True, 2, "")) == 4
-    # After each training evaluation the lost seeds go to the sim (stage5_duel replays clean_kill losses). The fake
+    # After each training evaluation the lost seeds go to the sim (stage8_duel replays clean_kill losses). The fake
     # episodes have no killed or died columns, so none can be told lost: an empty replay each time.
     assert len(replays) == 3 and all(len(seeds) == 0 for _, _, seeds in replays)
 
