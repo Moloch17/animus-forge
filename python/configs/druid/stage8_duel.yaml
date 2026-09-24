@@ -29,17 +29,3 @@ init_from:
 
 eval:
   report: [clean_kill, killed, died, time_to_kill, health_left, livelocked, form_at_end]
-
-target:
-  spec_metrics:
-    balance:
-      clean_kill: {min: 0.90, confidence: 0.95}
-    feral_cat:
-      clean_kill: {min: 0.90, confidence: 0.95}
-    feral_bear:
-      # Slower, so the clock is the thing that beats it: the kill floor is lower and the timeout floor is what
-      # actually holds it to account.
-      clean_kill: {min: 0.86, confidence: 0.95}
-      timed_out: {max: 0.10}
-    restoration:
-      clean_kill: {min: 0.80, confidence: 0.95}

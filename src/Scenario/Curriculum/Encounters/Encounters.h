@@ -127,6 +127,7 @@ namespace Animus::Curriculum
         bool Build(Env& env, Map* map, uint8 level) override;
         void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
         [[nodiscard]] bool IsTerminal(Env const& env) const override;
+        void WriteState(Env const& env, float* state) const override;
 
         /// Class `layout` built as `spec`'s current training tier.
         [[nodiscard]] uint32 Tier(uint16 layout, uint8 spec) const { return _ladder.Tier(layout, spec); }

@@ -150,32 +150,45 @@ decide what the other should do rather than assuming it follows.
 
 ### Budgets
 
-From `python/configs/*.yaml`; `python/tests/test_manual.py` fails if this table and the configs drift
-apart. `min` is `convergence.min_env_steps`, the floor before convergence may end a stage; `total_env_steps` is
-the ceiling regardless. A `forge fast` run replaces all of these (20M a stage, evaluations every 1M of 64
-episodes, and `patience` 0 so every stage trains its whole budget).
+From `python/configs/*.yaml`; `python/tests/test_manual.py` fails if this table and the configs drift apart. A
+budget is a **ceiling, never a target**: a stage ends when every class it plays has converged (the rule at the head
+of this chapter, `python/animus/stage.py`), and a stage that reaches its budget first advances anyway, with its
+report naming the classes that were not done and the signal each was missing. There are no pass gates. A
+`forge fast` run replaces the budgets (20M a stage, evaluations every 1M of 64 episodes, and `patience` 0 so every
+stage trains its whole budget).
 
-| Stage | Budget | Eval every | Episodes | Min | Stage | Budget | Eval every | Episodes | Min |
-|---|---|---|---|---|---|---|---|---|---|
-| `stage1_move` | 40M | 2M | 2048 | 20M | `stage2_indoor` | 30M | 2M | 2048 | 8M |
-| `stage3_jump` | 30M | 2M | 2048 | 8M | `stage4_dive` | 30M | 2M | 2048 | 8M |
-| `stage5_dodge` | 60M | 10M | 2048 | 15M | `stage6_travel` | 30M | 2M | 2048 | 20M |
-| `stage7_flight` | 30M | 2M | 2048 | 20M | `stage8_duel` | 300M | 10M | 2048 | 30M |
-| `stage9_pack` | 60M | 10M | 2048 | 30M | `stage10_gauntlet` | 90M | 15M | 2048 | 20M |
-| `stage11_endurance` | 300M | 15M | 2048 | 40M | `stage12_pvp` | 60M | 10M | 2048 | 30M |
-| `stage13_evade` | 60M | 10M | 2048 | 30M | `stage14_hide` | 40M | 10M | 2048 | 30M |
-| `stage15_stealth` | 40M | 10M | 2048 | 30M | `stage16_companion` | 90M | 15M | 2048 | 20M |
-| `stage17_party` | 120M | 20M | 2048 | 20M | `stage18_tanking` | 150M | 20M | 2048 | 20M |
-| `stage19_triage` | 150M | 20M | 2048 | 20M | `stage20_flag` | 60M | 10M | 2048 | 20M |
-| `stage21_warsong` | 60M | 10M | 128 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
-| `stage23_crossroads` | 150M | 25M | 256 | 20M | `stage24_raid_single` | 60M | 20M | 2048 | 40M |
-| `stage25_raid_gauntlet` | 60M | 20M | 2048 | 40M |  | | | |  |
+| Stage | Budget | Eval every | Episodes | Stage | Budget | Eval every | Episodes |
+|---|---|---|---|---|---|---|---|
+| `stage1_move` | 30M | 2M | 2048 | `stage2_indoor` | 16M | 2M | 2048 |
+| `stage3_jump` | 16M | 2M | 2048 | `stage4_dive` | 20M | 2M | 2048 |
+| `stage5_dodge` | 30M | 5M | 2048 | `stage6_travel` | 20M | 2M | 2048 |
+| `stage7_flight` | 20M | 2M | 2048 | `stage8_duel` | 100M | 10M | 2048 |
+| `stage9_pack` | 40M | 10M | 2048 | `stage10_gauntlet` | 60M | 10M | 2048 |
+| `stage11_endurance` | 60M | 10M | 2048 | `stage12_pvp` | 60M | 10M | 2048 |
+| `stage13_evade` | 30M | 10M | 2048 | `stage14_hide` | 30M | 10M | 2048 |
+| `stage15_stealth` | 20M | 10M | 2048 | `stage16_companion` | 60M | 10M | 2048 |
+| `stage17_party` | 90M | 15M | 2048 | `stage18_tanking` | 60M | 15M | 2048 |
+| `stage19_triage` | 60M | 15M | 2048 | `stage20_flag` | 40M | 10M | 2048 |
+| `stage21_warsong` | 40M | 10M | 128 | `stage22_duo_led` | 30M | 10M | 512 |
+| `stage23_crossroads` | 100M | 25M | 256 | `stage24_raid_single` | 40M | 20M | 2048 |
+| `stage25_raid_gauntlet` | 40M | 20M | 2048 |  | | |  |
 
-**The queue is 2,010M env steps over 23 stages** (2,130M with the two raid stages, which are trained by
-name). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
-time. Two budgets are worth questioning before a long build: `stage8_duel` at 300M is the root every other stage
-descends from, but `stage11_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
-`stage1_move`.
+**What the budgets assume.** Stages 1-7 (the movement root) are trained once, for every class; stages 8-19 are
+trained per class, each class with all 128 envs; stages 20-23 (the objective stages and the crossroads) once, after
+the join; the two raid stages by name. So the queue's ceiling is 1,032M (1,112M with the raids), and a
+ten-class build's is 152M for the root, 670M per class (6,700M for ten) and 210M for the
+objective stages: about 7,062M, against the 15,780M the earlier per-class plan came
+to. Two assumptions carry that number. The objective stages "once after the join" assume the **take-one-trunk**
+join below (seed from one class's trunk and let the adapters adapt), the only one of the three options that costs
+no training. And per-class configs exist only for the druid today (`configs/druid/`): a ten-class build needs a
+`configs/<class>/stage8_duel.yaml` per class naming the shared flight checkpoint (`{shared_runs}` in a path is
+the shared run directory beside the class's own).
+
+**What an evaluation costs.** `episodes x episode seconds / envs` sim-seconds per evaluation, which the sim runs
+faster than real time: the duel's 2048 x 90 s / 128 is 1,440 sim-seconds (about 80 s of wall clock); the party
+line's 2048 x 450 s / 128 is 7,200; Warsong's 128 matches x 420 s / 128 is 420. Convergence usually ends a stage
+well short of its ceiling: an earlier run of the duel had its best at 80M of a 300M budget, and the party stage its
+best at 100M of 120M.
 
 **A drill** fixes what one episode is about, where the curriculum otherwise teaches the same skill inside a stage
 won by something else and the credit for it is smeared over the clear. Drills are *on* the trunk rather than
@@ -893,7 +906,7 @@ the elite fights it was scored on). A fight that simple play wins
 every time teaches nothing a plan would add. An evaluation spreads its seeds over every tier, every class and role over
 every one (seed i plays pair i mod the pairs, at tier (i / the pairs) mod the tiers), so two
 checkpoints meet the same fights, and the summary scores each tier on its own
-(`difficulties`; stage targets can gate a tier, `target.difficulties`). Tiers restart at 0 with the worldserver.
+(`difficulties`). Tiers restart at 0 with the worldserver.
 `difficulty` and `opponent_elite` in the episode info say what each fight was. The bookkeeping is
 `DifficultyLadder`, which the single pack's ladder shares. The creature is summoned at the seat's
 level plus its tier's levels (`PendingSummonLevel`) 40-50 yd away at a random line-of-sight bearing on level ground
@@ -1062,6 +1075,15 @@ below 35%); gauntlets add `buff_coverage` at engage.
   damage features and rewards have a similar size at every level. Pet, guardian and totem damage counts for the owner.
 - **Health fractions.** Damage dealt is a fraction of the opponent's (or the pull's total) health, and damage taken a
   fraction of the seat's own maximum health.
+- **Tier scale.** On a ladder -- the duel's tiers, the pack's and raid's rungs, the endurance run's pulls -- the
+  outcome terms scale with the rung: a win (kill, clear, health kept) is multiplied by `1 + Difficulty.TierScale x
+  tier` and a loss (death, timeout, overtime) divided by it. A tier-0 fight is unchanged; at tier 6 and the default
+  0.25 a kill pays 2.5x and a death costs 0.4x. Evaluations spread their seeds over every tier while training climbs
+  per class, so with flat terms the score fell as the ladder rose -- every rung-6 loss cost as much as a rung-0 one
+  -- and convergence read the fall as done. Scaled, the break-even win rate falls with the tier, a hard fight is
+  worth attempting, and the score is comparable across rungs. The tier is in the critic's state (4.8). Fixed-bonus
+  opponents (evade, hide, stealth) are not a ladder and stay flat; the `difficulties` group of `eval.jsonl` is where
+  the per-tier win rates are read.
 
 ### By stage (defaults)
 
@@ -1204,8 +1226,8 @@ objective changes, so a flag changing hands pays nothing by itself.
      (and wait while moving, rather than cast something that would dismount). Steering weighs each bearing's aim at
      the objective against what the ground probe says lies that way (`Baselines::Steer`, `GROUND_OVER_AIM`), so a
      bearing onto ground the seat can cross beats one pointed straight into a cliff. It used to hold
-     `BEARING_FORWARD`, which is why it arrived in 8% of its episodes against a trained policy's 99% -- and why
-     `min_over_baseline` was a floor anything cleared on the four movement stages. The bearing already being walked
+     `BEARING_FORWARD`, which is why it arrived in 8% of its episodes against a trained policy's 99%, a yardstick
+     anything cleared on the four movement stages. The bearing already being walked
      is left alone rather than swapped for the second best, which would set the seat zig-zagging whenever the
      objective sat between two bearings,
   2. with the gauntlet block and no target: eat when health is low, drink when mana is low,
@@ -1246,7 +1268,9 @@ They are the reference numbers a trained policy has to beat (evaluation baseline
 
 ## 4.8 The critic state
 
-The centralised critic sees a class-agnostic global state of the env. `StateDim = 21 + 4 x 23 + 4 x 25 = 213`.
+The centralised critic sees a class-agnostic global state of the env. `StateDim = 22 + 4 x 26 + 4 x 33 = 258`
+(`STATE_GLOBAL_COUNT` is 14 plus one arena column each, the tier among the 14, then `MAX_SEATS` seat blocks and
+`PACK_SLOTS` enemy blocks -- the enum in `StageScenario.h` is the source).
 
 | Part | Features |
 |---|---|
@@ -1413,7 +1437,7 @@ its spell lasts. No creature is spawned, nothing is targetable, and the episode 
 one thing -- get off it -- and it is the only thing in the episode. It adds the support block for the hazard
 charge.
 
-Why nothing to fight. The first version was stage 2's pack with a hazard caster forced into every pull, and its
+Why nothing to fight. The first version was the pack stage's pack with a hazard caster forced into every pull, and its
 numbers could not be read: hazard seconds rose over 7M steps while the pack rung rose underneath them, and nothing
 in the run could say whether the policy was failing to step out or simply meeting more fire. Pinning the ladder
 (`MaxRung`, 4.1) fixes half of that; removing the pack fixes the rest.
@@ -1445,7 +1469,7 @@ what it is holding an enemy in -- read the per-role columns before the overall o
 Getting somewhere, off the duel. A character of level 20 or more, with its level's riding and its side's mounts, starts
 in Old Hillsbrad (which allows mounts) with a place 60-320 yd away by path. A mount's cast time only pays on a long
 trip, and arriving on foot is what lets it fight at the end. Blocks: core, duel, pet, travel. 150 s episodes. Config:
-budget 30M, at least 20M steps, a travel report.
+budget 20M, a travel report.
 
 ### Stage 7: `stage7_flight`
 
@@ -1454,7 +1478,7 @@ in Outland's Nagrand, where flying mounts fly, at one of eight spawn points, eac
 350-700 yd away: flying is several times faster and passes over everything, but dismounting in the air falls with a
 player's fall damage, so the policy learns to take off, keep a height, land and dismount. Battlegrounds never allow
 flying mounts (the zone must be Outland or Northrend, `SpellInfo::CheckLocation`), so this is for the open world.
-180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 30M.
+180 s episodes. Config: gamma 0.999 and lambda 0.99, budget 20M.
 
 Two arenas. `flight` (weight 2) places its objective anywhere the height probe finds dry ground, which in Nagrand
 is nearly always walkable -- 700 yd at run speed is 100 s of the clock, so a ground ride arrived often enough that
@@ -1464,8 +1488,8 @@ the wings are the way: the objective can only be reached by air (no complete gro
 own height (`Travel.AirArriveRise`) so the cliff foot under a plateau's edge does not count. A spawn point with no
 such place within reach builds an ordinary flight instead and reports `air_only` 0, as the water arena reports
 `crossing` 0 when it finds no crossing: the column says what the ground offered, not what the arena asked, and a
-spawn point that never offers one shows up there rather than as an env that cannot build an episode. The stage is
-gated per class on `flew` as well as on arrival.
+spawn point that never offers one shows up there rather than as an env that cannot build an episode. `flew` per
+class is the column to read beside `arrived`.
 
 ### Stage 8: `stage8_duel`
 
@@ -1476,7 +1500,7 @@ offered four beasts each episode through `call_beast` actions, because Call Pet 
 observation shows each beast's family and pet type, so the policy can learn its preference. Warlock demons, Raise
 Dead, Water Elemental and Feral Spirit are ordinary spell actions with their reagents in the bags. A warlock carries 5
 Soul Shards: they don't stack, and the 20 it once had filled the 16-slot backpack, so no potion, bandage, healthstone
-or soulstone fit and stage 1's warlocks never used one. The bot gains no XP.
+or soulstone fit and the duel's warlocks never used one. The bot gains no XP.
 
 Pets are played as a player has them:
 
@@ -1528,26 +1552,27 @@ Learner (`configs/stage8_duel.yaml`, the root every other config extends):
   at start), clip 0.2, entropy 0.01 with an entropy floor at 30% of `ln(legal actions)` (boosted up to 4x), learning
   rates 3e-4, 4 epochs stopped early past approx KL 0.03 (`target_kl` 0.02 x the 1.5 tolerance), 8 minibatches,
   rollout 128 with updates run serially, value
-  normaliser beta 0.99, advantages normalised per class. Budget 300M env steps.
+  normaliser beta 0.99, advantages normalised per class. Budget 100M env steps, a ceiling.
 - **Evaluation:** every 10M steps and at the start, 2048 seeded episodes against `fight`. Training episodes lean
-  toward the class and role pairs furthest from their gates (`layout_sampling`, by score gap and `clean_kill`, at most 4x).
-- **Convergence:** patience 3, window 4, z 2, at least 2% and 0.01 improvement, not before 30M steps.
-- **Target:** at least baseline for every class (16+ episodes, 1 standard error of slack) on the same spread of
-  difficulty tiers, 95% of base-tier fights won outright (`clean_kill`, by its Wilson bound; `target.difficulties`),
-  and no livelocks, overall and for every class; confirmed on 4096 held-out episodes. Up to 2 restarts with 3x
-  entropy decaying over 10M steps and fresh optimizers.
+  toward the class and role pairs furthest behind the baseline and short of clean kills (`layout_sampling`, by score
+  gap and `clean_kill`, at most 4x), and a class that has converged is held at 2% of its draw.
+- **Convergence:** the rule at the head of the chapter, per class over a window of 4 evaluations: score plateau
+  (2% and 0.01 improvement, 2 standard errors), LR-normalised KL under 0.003, entropy settled above the 30% floor,
+  ladder rung settled. The learning rates hold at full until the overall score has gone 3 evaluations without a
+  new best, then anneal.
+- **What to read:** `clean_kill` per class and per tier (`difficulties`), `livelocked`, and the per-tier win rates
+  against `fight`. None of it is a gate.
 
 ### Stage 9: `stage9_pack`
 
 Adds the pack block: target slots and the enemy-slot observation (the tactical spells come with the core from stage 1). Linked packs mean pulling one
 enemy pulls all of them. The interrupt reward teaches casting interrupts at the right moment. 150 s episodes: a pack
-is up to four of the duel's creatures, which took stage 1's policy about 17 s each. Rewards are the duel's win-first
+is up to four of the duel's creatures, which took the duel's policy about 17 s each. Rewards are the duel's win-first
 ones (4.6).
 
-Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon). The target is clean wins of at least 85% overall
-and 65% per class and build (Wilson bounds) **on rungs 0-2** (`target.base_difficulty: 2`), the 2-4 creature packs of the
-first run, which had no ladder and reached 90% overall at 20M steps; the caster and elite rungs above count through the
-score. `until_passed` is off, so a stage that converges short of it halts after its restarts instead of training on.
+Config: rollout 256, gamma 0.999 and lambda 0.99 (~100 s horizon), budget 40M. What to read: clean wins overall and
+per class and build on rungs 0-2 (the summary's `up_to` group) -- the 2-4 creature packs of the first run, which had no
+ladder and reached 90% overall at 20M steps -- and how the caster and elite rungs above fare in `difficulties`.
 
 ### Stage 10: `stage10_gauntlet`
 
@@ -1559,10 +1584,9 @@ columns: `engage_health` and `engage_mana` (means over the pulls engaged, taken 
 (below half health or 30% mana), `pulls_arrived` (came to the seat unengaged), `rest_seconds`, `eat_failed`,
 `drink_failed`, `meals_cut_short` (food or drink that ended early with health or mana still to restore) and
 `control_seconds` (enemy-seconds kept out of the fight, as the control reward counts them).
-Config (extends stage 2's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
-stealthing in is tied to the clear it pays for), rollout 256, budget 90M, at least 20M steps, evaluations every 15M.
-Target, provisional until a run calibrates it: 55% of gauntlets won overall and 40% per class (Wilson bound),
-four pulls cleared on average, no livelocks; `until_passed: false`. The first run (300 s, pulls that waited, a win by
+Config (extends stage 9's): gamma 0.999 and lambda 0.99 (~100 s horizon, ~9 s credit trace, so resting before a pull or
+stealthing in is tied to the clear it pays for), rollout 256, budget 60M, evaluations every 10M. What to read:
+gauntlets won, `pulls_cleared`, `engage_health` and `livelocked`. The first run (300 s, pulls that waited, a win by
 merely lasting) reached 63-66% survived with 12% of its wins on at most one pull cleared, rogues and healers avoiding
 the pulls.
 
@@ -1570,7 +1594,7 @@ the pulls.
 
 A planned run: eight pulls in a fixed order, the same every episode, seeded from stage 4 and using its blocks. The
 order is an opener of two, three, four with two casters, a small one, four, three with an elite, four with an elite a
-level up, and last an elite pack two levels up. Nothing about the fights is new -- stage 4 taught them -- so what is
+level up, and last an elite pack two levels up. Nothing about the fights is new -- the gauntlet taught them -- so what is
 left is the plan: what to spend on the opener, what to keep for the last pull, and whether the small fourth pull is
 used as a rest. It is won by clearing the last pull alive; the 900 s clock running out is a loss however far it got,
 and `pulls_cleared` (out of 8) is how far. `PullSchedule::Sequence` builds it; `eval.trace_episodes: 4` records four
@@ -1617,9 +1641,10 @@ scripted opponent's casting as readily as it hides the seat, and the baseline's 
 same change. At ten it is back to 0.290 -- still beatable about three times in ten, which is deliberate. The
 lesson is recognising a losing fight and leaving it, not obeying a rule that says every fight here is lost.
 
-The gate drops the baseline comparison (`min_over_baseline: 0`) on purpose: the yardstick would be a policy
-trained to win fights that are not winnable here, so surviving is a new axis rather than a better version of
-the old one. `stage14_hide` seeds from this stage, so every class carries the lesson on.
+The `fight` baseline is a poor yardstick here on purpose: it is a policy trained to win fights that are not winnable,
+so surviving is a new axis rather than a better version of the old one, and the columns above are read against the
+baseline's measured values rather than its score. `stage14_hide` seeds from this stage, so every class carries the
+lesson on.
 
 **Two things had to be true before any of this could work, and neither was.**
 
@@ -1652,8 +1677,8 @@ sight with terrain, with distance, and with whatever its kit and its race give i
 Death, Invisibility, Ice Block, Sprint, and Shadowmeld for any night elf of any class. So the stage grades the
 **outcome**, not which button produced it.
 
-Six levels rather than stage 16's ten, so the fight is winnable often enough that hiding is a choice rather
-than the only move left. That is the whole difference between the two: stage 16 is about leaving a fight that
+Six levels rather than stage 13's ten, so the fight is winnable often enough that hiding is a choice rather
+than the only move left. That is the whole difference between the two: stage 13 is about leaving a fight that
 is lost, this one is about not being found once you have.
 
 Columns that carry the gate:
@@ -1743,24 +1768,25 @@ role-specific behaviour appears (tank threat, healer throughput, DPS threat disc
 the episode always runs its full length (450 s; without its own the arena took the host's 60 s), so letting the owner
 die is never a way to escape penalties.
 
-The target (provisional, for the first run to calibrate): `clean_kill` -- the win above, with the seat never dead -- of
-50% overall and 35% per class by the Wilson bound, the owner dead in at most 35% of episodes, wipes at most 0.2 an
-episode, at least 5 pulls cleared on average, no livelocks. The care checks are reported per class and per build
-(the summary's `roles`): `owner_heal_share`, the share of the owner's damage taken the seat healed, for healers, and
+What to read: `clean_kill` -- the win above, with the seat never dead -- overall and per class, `owner_deaths`,
+`wipes`, `pulls_cleared` and `livelocked`. The care checks are reported per class and per build (the summary's
+`builds`): `owner_heal_share`, the share of the owner's damage taken the seat healed, for healers, and
 `threat_share`, the share of the enemies' attention on the seat rather than the owner, high for tanks and low for the
-rest. `target.spec_metrics`, in a class's own config, gates them once a run shows what each build reaches.
+rest. The party run's measured values (owner dead in 66% of episodes at 100M steps against the scripted baseline's
+92%) are the numbers to read a new run against.
 
 ### Stage 17: `stage17_party`
 
 Adds the party block. One to four learned seats (like a player bringing one to four companions) plus the owner form a
 sim group. Every seat plays the same policy and sees the other three. An empty seat has no character and only the
-no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450 s, as stage 4's. Config: budget 120M,
-evaluation every 20M steps, at least 20M steps, a party-focused report. It inherits stage 4's target, which says nothing
-of teammates' deaths yet: set its own before it runs.
+no-op, and the learner drops its rows. Pulls are elite-heavy. The arena runs 450 s, as stage 10's. Config: budget 90M,
+evaluation every 15M steps, a party-focused report. What to read: `owner_deaths`, `wipes`, `teammates_died`,
+`pulls_cleared` and `low_health_seconds`; the 120M run's best (the owner dead in 66% of episodes against the scripted
+baseline's 92%, 5.96 pulls cleared) is the number to read a new run against.
 
 ### Stage 18: `stage18_tanking`
 
-**Drill.** Stage 10's party, with seat 0 always the tank (`ArenaDefinition::SeatRoles`). The ordinary party
+**Drill.** Stage 17's party, with seat 0 always the tank (`ArenaDefinition::SeatAptitudes`). The ordinary party
 draws every role, so the tanking lesson is smeared over whoever happened to play it; here the episode is about
 holding what the pull brings and keeping it off the others. `threat_share` is the column that says whether it
 happened. On the trunk: `stage19_triage` seeds from it.
@@ -1777,7 +1803,8 @@ the trunk: `stage24_raid_single` seeds from it.
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
 between bases 100-180 yd apart, with a carrier kept on foot. Blocks: core, duel, pet, pvp, travel, flag. 300 s
 episodes, first to three captures. As in the arena, evaluation plays the second seat with `fight` (which heads for the
-flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 60M, at least 20M steps.
+flags on a mount). Config: gamma 0.999 and lambda 0.99, budget 40M. What to read: `flag_pickups`, `flag_captures`
+and `won` against `fight`.
 
 ### Stage 21: `stage21_warsong`
 
@@ -1812,19 +1839,18 @@ included). It is the last stage in the queue, and the one whose checkpoint is wh
 
 | Arena | Weight | Episode | Situation |
 |---|---|---|---|
-| `companion` | 20 | 300 s | Stage 9's |
-| `party` | 20 | 300 s | Stage 10's |
-| `arena_1v1` | 15 | 60 s | Stage 18's |
-| `pvp_scripted` | 10 | 60 s | Stage 15's |
-| `gauntlet` | 10 | 450 s | Stage 4's |
-| `duel` | 5 | 60 s | Stage 1's |
+| `companion` | 20 | 300 s | Stage 16's |
+| `party` | 20 | 300 s | Stage 17's |
+| `arena_1v1` | 25 | 60 s | Stage 12's |
+| `gauntlet` | 10 | 450 s | Stage 10's |
+| `duel` | 5 | 60 s | Stage 8's |
 | `ambush` | 15 | 300 s | Companion gauntlet plus 1-2 ambushers arriving 20-120 s in |
 | `escort_duel` | 5 | 90 s | Owner plus one enemy player, no pulls |
 
 Learner: distilled with `teachers: auto` (each earlier arena is taught by the first parent that has it; the two new
 arenas learn from reward alone), coef 1.0 halving every 50M steps. 256 evaluation episodes every 25M steps, the
-arena_1v1 seat scored against `fight`. Budget 150M, at least 20M steps. Per-arena targets: +10% over baseline for the six
-inherited arenas, at least baseline for `ambush` and `escort_duel`, each with at least 16 episodes.
+arena_1v1 seat scored against `fight`. Budget 100M. What to read: each arena's score against the baseline (the
+summary's `arenas`), `owner_deaths` in the companion, party and ambush arenas, and `won` in the mirror one.
 
 ### Stage 24 (by name): `stage24_raid_single`
 
@@ -1946,7 +1972,8 @@ function worse for nothing. And the **scripted director keeps reading ground tru
 instrumentation, not a policy, and a yardstick that had to scout would stop being fixed.
 
 This makes the learned director strictly *less* informed than the omniscient yardstick it is scored against, so
-the directed stages' `min_over_baseline` was relaxed in the same change, and `order_focus_unseen` and
+the directed stages' baseline comparison was relaxed in the same change (and has since gone with every other gate),
+and `order_focus_unseen` and
 `director_enemies_seen` were added so a director that is blind is distinguishable from one that is merely bad.
 
 ### Scripted or learned

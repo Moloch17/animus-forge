@@ -253,9 +253,8 @@ and `AnimusForge.Fast.ClassRoles` are left over from that and are **read by noth
 nothing (`ForgeConfig::FastProfile`).
 
 Decision interval, episode lengths and rewards stay the real ones. `configs/fast.yaml` is merged over each stage's
-config: a 20M-step budget, evaluation of 64 episodes every 1M steps, convergence after 4 evaluations without a new
-best but not before 4M steps, no stage target (so a fast plan never halts), 1 restart with a 200k half-life. The sim
-then overrides two of those per invocation: `total_env_steps` from `AnimusForge.Fast.Budget` (or `forge fast 30M`),
+config: a 10M-step fallback budget, evaluation of 64 episodes every 1M steps, a convergence window of 3
+evaluations. The sim then overrides two of those per invocation: `total_env_steps` from `AnimusForge.Fast.Budget` (or `forge fast 30M`),
 and `convergence.patience=0` -- which is what makes a budget a budget, since a stage then trains every step it was
 given instead of stopping when its score flattens. The default `Fast.Queue` is empty: every curriculum stage in
 order, the two raid stages included, so a plain `forge fast` is a full run of the curriculum with no stage
@@ -482,9 +481,10 @@ copy the trunk.
    - With `target_kl`, stop after an epoch whose mean approx KL exceeds 1.5 x `target_kl` (`epochs_run` records it).
 4. Record `explained_variance` of the rollout's returns by its values, and sync the rollout copies.
 
-`entropy_coef` is set by the stage controller before each rollout, so it can be boosted after a restart (5.19).
-`reset_optimizers()` and `shrink_perturb(shrink, perturb)` (weights = shrink x weights + perturb x fresh
-initialisation) are used by restarts.
+`entropy_coef` and the learning-rate scale are set by the stage controller before each rollout (5.19): the entropy
+floor's boost, and the rates held at full until the overall score plateaus. `freeze_layouts(indices)` stops training
+the adapters and heads of the classes that have converged; `layout_stats` carries each class's entropy and approx KL
+from the last update. `reset_optimizers()` and `shrink_perturb(shrink, perturb)` remain for experiments.
 
 ## 5.17 Seeding a stage (`bootstrap.py`)
 
@@ -589,48 +589,40 @@ A new best score saves `best.pt`.
 
 - An evaluation is a **new best** only if it beats the best by the margin: the largest of `min_improvement x |best|`,
   `min_improvement_abs`, and `z x sqrt(stderr^2 + best_stderr^2)`. A lucky evaluation inside the noise doesn't count.
-- The stage has **converged** when `patience` evaluations in a row set no new best, **and** at least `min_env_steps`
-  have passed since the start or the last restart, **and** a linear fit over the last `window` (at least 3) scores of
-  the current segment, projected `patience` evaluations ahead, wouldn't reach the margin (so a slow climb hidden by
-  noise keeps training). With fewer than 3 scores in the segment, patience alone decides.
-- `patience: 0` trains to `total_env_steps`.
+- The overall score has **plateaued** when `patience` evaluations in a row set no new best, **and** a linear fit
+  over the last `window` (at least 3) scores, projected `patience` evaluations ahead, wouldn't reach the margin (so a
+  slow climb hidden by noise keeps training). The plateau is when the learning rates start to anneal
+  (`lr_hold_until_plateau`); it does not end the stage by itself.
+- `patience: 0` (a fast run) never plateaus: the rates stay at full and the stage trains to `total_env_steps`.
 
-### Stage targets (`gates.py`)
+### The convergence rule (`stage.py`)
 
-Score gates are relative to the baseline on the same seeds: `score >= baseline + ratio x |baseline|`, which reads
-"ratio better than baseline" whatever the sign of the reward.
+There are no stage targets, floors or restarts: every stage ends on the same signals, read **per class** over the
+last `convergence.window` evaluations. A class has converged when all four hold:
 
-- `min_over_baseline`: the overall score.
-- `min_layout_over_baseline`: every class with at least `min_layout_episodes` rows (one per seat with a
-  character per seeded episode). A looser floor so no layout hides behind the average, since the next stage seeds
-  every layout.
-- `metrics`: episode-info means, for example `{killed: {min: 0.8}, died: {max: 0.2}}`. Reward shaping can't game
-  these. Five derived fields are gateable too: `clean_kill`, the share of episodes that killed without dying,
-  `livelocked`, the share stuck in a cast/stop loop, and on a travel stage `lost` (did not arrive and covered more
-  than three times the path), `wedged` (did not arrive and covered less than half of it) and `spl` (arrived, times
-  the path over the distance actually covered: success weighted by path length). A bound with `confidence` (for example
-  `{clean_kill: {min: 0.9, confidence: 0.95}}`) judges a share by its one-sided Wilson bound over the group's episodes
-  instead of its raw mean: a minimum must hold for the lowest rate the episodes are consistent with, a maximum for the
-  highest. Thin evidence then fails rather than passing on luck (16 wins of 16 bound at 0.86), while a few losses among
-  enough episodes still pass (95% of 228 bound at 0.92).
-- `layout_metrics`: the same bounds on every class's own episodes, which no baseline can lower.
-- `spec_metrics`: bounds per build (episode info `spec`, named by stage.json's `spec_names`) on that build's
-  episodes: `{restoration: {owner_heal_share: {min: 0.3}}}`. What a build is for, which a floor every build shares
-  cannot ask. It replaced `role_metrics` and is finer -- a role could not separate two builds that share it, and a
-  feral cat and a balance druid are both "damage" and are not equally hard to win with. What it gives up is the
-  one-line "every tank": a build gate names builds, so per-class floors live in `configs/<class>/`.
-- `base_difficulty`: judge `metrics` and `layout_metrics` only on the episodes of difficulty tiers up to this one (the
-  summary's `up_to` group, overall and per class and build), for a stage whose ladder climbs above the fights its floors
-  were set for. The tiers above still count through the score and `difficulties`.
-- `arenas`: the same gates per arena, on that arena's episodes only, skipping arenas with fewer than
-  `min_arena_episodes`.
-- `confirm_episodes` and `confirm_seed`: before moving on, `best.pt` is scored again on held-out seeds and must pass
-  again, because a best picked out of many evaluations is partly luck.
-- `noise_z`: how much evaluation noise a score gate forgives, in standard errors of the difference between the two
-  scores. A class is scored on its share of the episodes only, so at `0` one that is really level with its
-  baseline fails about half the time.
+1. **Score plateau** -- its own evaluation score has stopped improving by the margin above (a `ConvergenceTracker`
+   per class, with the window as its patience).
+2. **Policy stopped moving** -- its `approx_kl` per update, divided by the learning-rate scale in force, has stayed
+   under `convergence.kl` (0.003). The division is the point: a KL that fell with the anneal is the schedule, not
+   convergence, which is what the party run's 0.021-to-0.003 over 120M steps was, with its entropy flat throughout.
+3. **Entropy settled** -- its entropy over `ln(allowed actions)` has a slope within `convergence.entropy_slope`
+   (0.01) per evaluation and sits above `entropy_floor.fraction` when one is set: not still exploring, not collapsed.
+4. **The ladder settled** -- on a ladder stage its training rung (the mean `difficulty` of its training episodes)
+   has not moved by half a rung; on a league stage the live policy's win rate against the hardest league member has
+   moved by less than 0.05.
 
-With no gates set, a converged stage advances.
+`layouts.csv` carries each class's `entropy`, `approx_kl`, `allowed_actions`, `lr_scale` and `frozen` per update,
+and `progress.json` says which classes have converged and what the weakest one is still missing.
+
+**A converged class leaves the training draw.** Its layout weight drops to `convergence.hold_share` (0.02) and its
+adapter and head are frozen (`MappoTrainer.freeze_layouts`; its rows are no longer samples), so the rest of the budget
+goes to the classes still learning; only the shared trunk, which those classes keep training, can still move it. It
+is still evaluated every evaluation, and if its score falls below its converged level by more than the margin it
+**re-enters** at full weight and must converge again (`reentries` in the reports). With every class the run plays
+converged the stage advances; a class the run never plays (a director in an undirected stage) is not waited for.
+
+`total_env_steps` is a ceiling: a stage that reaches it advances too, with reason `budget`, and `finished.json` names
+each class, whether it converged, and which signals it was missing.
 
 ### Keeping the update honest (`mappo`)
 
@@ -721,32 +713,17 @@ replay seeds.
 
 ### The stage controller (`stage.py`)
 
-After each evaluation (`after_eval`) and at the budget (`at_budget`) it returns an action:
+After each evaluation (`after_eval`) and at the budget (`at_budget`) the `ConvergenceController` returns an action:
 
 | Situation | Action | Learner |
 |---|---|---|
-| Not converged, budget left | continue | Keep training |
-| Converged, target passed (on best, then confirmed) | **advance** | Exit 0, `finished.json` reason `converged` |
-| Converged, below target, restarts left | **restart** | Reload `best.pt`, reseed RNGs, optional shrink and perturb, fresh optimizers, entropy coefficient `base x (1 + (entropy_boost - 1) x 0.5^(steps since restart / entropy_half_life_env_steps))`, convergence test starts a new segment (best score kept) |
-| Converged, below target, no restarts left | **halt** | Exit 3, reason `below_target` |
-| Budget reached, target passed | advance | Exit 0, reason `total_env_steps` |
-| Budget reached, below target | halt | Exit 3, reason `budget_below_target` |
+| Some class the run plays has not converged, budget left | continue | Keep training; converged classes are held and frozen |
+| Every class the run plays has converged | **advance** | Exit 0, `finished.json` reason `converged` |
+| Budget reached | advance | Exit 0, reason `budget`; the report names who was not done |
 
-With `target.until_passed` (stage8_duel sets it) converging below the target does not halt the stage;
-`total_env_steps` stays the ceiling:
-
-| Situation | Action | Learner |
-|---|---|---|
-| Converged, below target, no restarts left | **extend** | Keep training; the convergence test starts a new segment and judges again when it next converges |
-| Budget reached, below target | halt | Exit 3, reason `budget_below_target`, as without it |
-
-Under `until_passed` an evaluation that passes the target becomes the best (and `best.pt`) even when a failing one
-scored higher, and a passing best is only replaced by a higher score that passes too, so the networks that pass are
-the ones confirmed and moved on with.
-
-Every advance, restart, extension and halt is appended to `stage.jsonl` with the gate report. `finished.json` records the
-reason, whether it advanced, the step and update counts, the best score and where it was reached, restarts, which
-evaluation it was judged on, and the gates.
+Nothing halts the plan but a crash. The advance is appended to `stage.jsonl` with every class's signals, and
+`finished.json` records the reason, the step and update counts, the best score and where it was reached, and per
+class whether it converged, how many times it re-entered, and which signals it was missing.
 
 ## 5.20 Checkpoints, resume and export
 

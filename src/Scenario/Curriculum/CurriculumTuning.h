@@ -162,6 +162,14 @@ namespace Animus::Curriculum
             /// those had to wait for stage 2's packs, where they compete with learning to fight several enemies.
             uint32 CasterChance = 40;
             uint32 HazardChance = 30;
+            /// The outcome terms scale with the tier: a win (kill, clear, health kept) is multiplied by
+            /// 1 + TierScale x tier, a loss (death, timeout, overtime) divided by it. A tier-0 fight is unchanged;
+            /// at tier 6 and 0.25 a kill pays 2.5x and a death costs 0.4x. Evaluations spread their seeds over
+            /// every tier while training climbs per class, so with flat terms the score fell as the ladder rose
+            /// -- every rung-6 loss cost as much as a rung-0 one -- and convergence read the fall as done. Scaled,
+            /// the break-even win rate falls with the tier, so a hard fight is worth attempting, and the score is
+            /// comparable across rungs. Fixed-bonus opponents (evade, hide, stealth) are not a ladder and stay flat.
+            float TierScale = 0.25f;
         } Difficulty;
 
         /// Cast-time spells, from the duel stage on.
@@ -751,6 +759,7 @@ namespace Animus::Curriculum
             f("Difficulty.StretchChance", tuning.Difficulty.StretchChance);
             f("Difficulty.CasterChance", tuning.Difficulty.CasterChance);
             f("Difficulty.HazardChance", tuning.Difficulty.HazardChance);
+            f("Difficulty.TierScale", tuning.Difficulty.TierScale);
 
             f("Casting.TimeWasted", tuning.Casting.TimeWasted);
             f("Casting.TimeCompleted", tuning.Casting.TimeCompleted);

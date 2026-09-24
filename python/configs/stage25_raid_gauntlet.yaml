@@ -4,26 +4,10 @@
 extends: stage24_raid_single.yaml
 run_name: stage25_raid_gauntlet
 
-total_env_steps: 60000000
+total_env_steps: 40000000
 
 eval:
+  every_env_steps: 20000000
   baseline: fight
   report: [pulls_cleared, died, engage_health, engage_mana, low_health_seconds]
 
-convergence:
-  min_env_steps: 40000000
-
-target:
-  # The same thing stage 4 gates, at forty seats: what the raid brings to the next pull, not only that it
-  # cleared the last one.
-  min_over_baseline: 0.05
-  metrics:
-    pulls_cleared: {min: 3.0}
-    engage_health: {min: 0.70}
-    died: {max: 0.30}
-    # A raid has no scripted owner -- its arena is Opposition::Pulls with no Owner -- so OwnerEncounter never
-    # runs and owner_deaths is never emitted. The party line above sets it, gates accumulate down the chain, and
-    # a gate on a column the stage cannot produce fails as "not in the evaluation summary" and halts the queue
-    # for good under until_passed. Dropped rather than the whole map cleared, which would take livelocked with it.
-    owner_deaths: null
-  until_passed: true

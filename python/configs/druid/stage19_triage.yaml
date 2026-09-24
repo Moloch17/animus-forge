@@ -11,12 +11,3 @@ run_name: stage19_triage
 
 eval:
   report: [low_health_seconds, overheal_share, healing_per_mana, hot_healing_share, pulls_cleared, wipes]
-
-target:
-  spec_metrics:
-    restoration:
-      low_health_seconds: {max: 18}
-      # Looser than a paladin's would be: a heal over time landing on somebody who has since been topped up is
-      # counted as overheal, and casting those early is what a druid is supposed to do.
-      overheal_share: {max: 0.65}
-      healing_per_mana: {min: 2.1}

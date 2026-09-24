@@ -99,7 +99,6 @@ namespace AnimusForge
             Skipped,
             Failed,         // it could not start or run
             Cancelled,
-            BelowTarget,    // its stage stayed below its target after its restarts
         };
 
         /// "done", "below target", ...; "not started" for Outcome::None.
@@ -167,20 +166,16 @@ namespace AnimusForge
         /// The plan stops here (finished, cancelled or failed); the sim goes idle.
         void EndPlan(char const* reason);
 
-        /// The running scenario's auto-started learner finished its run and moved on (exit 0: converged and past its
-        /// target, or at its step limit).
+        /// The running scenario's auto-started learner finished its run and moved on (exit 0: every class converged,
+        /// or its step limit reached).
         [[nodiscard]] bool LearnerFinished() const;
-
-        /// The running scenario's auto-started learner stopped below its stage target after its restarts (exit 3).
-        [[nodiscard]] bool LearnerHalted() const;
 
         /// AnimusForge.Queue, or every curriculum stage in order when it is empty.
         [[nodiscard]] std::vector<std::string> DefaultQueue() const;
         /// AnimusForge.Fast.Queue, or every curriculum stage in order (pilots too) when it is empty.
         [[nodiscard]] std::vector<std::string> FastQueue() const;
 
-        /// The run of `scenario` finished and moved on (<RunsDir>/<scenario>/finished.json with "advanced": true, or
-        /// a finished.json from before stage targets).
+        /// The run of `scenario` finished (<RunsDir>/<scenario>/finished.json): it converged or reached its budget.
         [[nodiscard]] bool RunAdvanced(ForgeConfig const& config, std::string const& scenario) const;
         /// Whether a stage has a checkpoint the learner would seed from, which is not the same question.
         [[nodiscard]] bool RunSeedable(ForgeConfig const& config, std::string const& scenario) const;

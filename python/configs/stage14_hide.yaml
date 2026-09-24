@@ -10,7 +10,7 @@
 
 extends: stage13_evade.yaml
 run_name: stage14_hide
-total_env_steps: 40000000
+total_env_steps: 30000000
 
 rollout_length: 256
 
@@ -20,28 +20,3 @@ mappo:
 
 eval:
   report: [escaped, re_hides, unseen_longest_seconds, survived, contact_breaks, unseen_seconds, re_stealths, stealth_openers, died]
-
-target:
-  # `escaped` is a single unbroken stretch out of sight long enough that the hunter lost the seat rather than
-  # blinked (Evade.EscapeMs, 8 s), and `re_hides` is getting back out of sight after being found -- the harder
-  # half, and the one every class can do. `re_stealths` and `stealth_openers` are reported, never gated:
-  # fourteen class/builds have no stealth button, and gating on one would ask them for something they cannot do.
-  #
-  # Measured `fight` baseline on this arena, 2048 episodes over all eighteen layouts: escaped 0.079,
-  # re_hides 0.240, contact_breaks 0.541, unseen_seconds 3.17, survived 0.551, won 0.450, and re_stealths
-  # exactly 0.0000 -- the scripted baseline simply fights. Every one of the eighteen produced both gate metrics,
-  # so no layout is being asked for something it has no way to do; the spread runs from warlock_dps (survived
-  # 0.257) to deathknight_tank (0.781), which is what the layout floor is set against.
-  #
-  # `escaped` is the least certain of these floors: it is a rare event at baseline (one episode in thirteen),
-  # and 0.20 asks for one in five. If a full run lands short of it while re_hides and survived pass, lower this
-  # rather than assume the stage failed.
-  min_over_baseline: 0.0
-  min_layout_over_baseline: 0.0
-  metrics:
-    escaped: {min: 0.20, confidence: 0.95}
-    re_hides: {min: 0.40}
-    survived: {min: 0.60}
-  layout_metrics:
-    survived: {min: 0.30}
-  until_passed: true

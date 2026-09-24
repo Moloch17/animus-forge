@@ -36,7 +36,7 @@ namespace
 }
 
 void Animus::Curriculum::CombatReward::OneOnOne(StageScenario& scenario, Env const& env,
-    uint32 seatIndex, Player* bot, Unit* opponent, RewardLedger& ledger)
+    uint32 seatIndex, Player* bot, Unit* opponent, RewardLedger& ledger, float tierScale)
 {
     CurriculumTuning::DuelTuning const& tuning = scenario.Tuning().Duel;
     SeatState& seat = scenario.Data(env).Seats[seatIndex];
@@ -106,8 +106,8 @@ void Animus::Curriculum::CombatReward::OneOnOne(StageScenario& scenario, Env con
 
         float const healthKept = 1.0f - std::min(1.0f, float(tally.DamageTaken) / botHealth);
         float const timeLeft = TimeLeftSince(env, tally.Engaged ? tally.EngageMs : env.EpisodeElapsedMs);
-        ledger.Add(RewardTerm::Kill, tuning.Kill + tuning.FastKill * timeLeft);
-        ledger.Add(RewardTerm::HealthKept, tuning.HealthKept * healthKept);
+        ledger.Add(RewardTerm::Kill, (tuning.Kill + tuning.FastKill * timeLeft) * tierScale);
+        ledger.Add(RewardTerm::HealthKept, tuning.HealthKept * healthKept * tierScale);
     }
 
     // Every death costs, including one after resurrecting itself.
@@ -117,6 +117,6 @@ void Animus::Curriculum::CombatReward::OneOnOne(StageScenario& scenario, Env con
         tally.Died = true;
         tally.DeathMs = env.EpisodeElapsedMs;
         ++tally.Deaths;
-        ledger.Add(RewardTerm::Death, -tuning.Death);
+        ledger.Add(RewardTerm::Death, -tuning.Death / tierScale);
     }
 }

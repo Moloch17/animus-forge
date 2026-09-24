@@ -121,8 +121,7 @@ What to check, in `fast/runs/<stage>/`:
 - `finished.json`: why the stage ended.
 - For merge stages, the `distill_kl` column should fall.
 
-To exercise stage targets and restarts as well:
-`AnimusForge.Fast.Learner.Args = "--set target.min_over_baseline=0.0"`. To start fresh: `forge clean fast`.
+To start fresh: `forge clean fast`.
 
 ## 7.4 Training the curriculum
 
@@ -136,7 +135,7 @@ only when named), skipping any stage whose run already finished. Each stage:
 1. builds its env pool (world stalls for a few seconds per class on the first build),
 2. writes `layouts/<stage>/`,
 3. starts the learner, which seeds from the closest trained ancestor,
-4. trains until it advances (the next stage starts), halts below its target (the plan stops), or is cancelled.
+4. trains until every class has converged or its budget is reached (the next stage starts), or it is cancelled.
 
 To train particular stages: `forge start stage12_pvp stage13_evade`. List each stage after the stage it extends, or it
 won't seed from it (the command warns you). With no arguments the queue is every default-queue stage in number
@@ -300,22 +299,24 @@ Or run `./forge.sh --build`, which recreates the container and builds before sta
 If layouts changed for a stage that earlier stages were trained on, those ancestors still seed block by block where
 block sizes match. A block whose size changed raises an error during seeding, and the ancestor must be retrained.
 
-## 7.5 When a stage halts below its target
+## 7.5 When a stage ends at its budget
 
-The plan stops with outcome `below target` and the learner exits 3.
+A stage never halts the plan: it advances when every class has converged, or at `total_env_steps` with reason
+`budget`. The second case is the one to read.
 
-1. Read `runs/<stage>/finished.json` (reason, best score, gates) and the last lines of `stage.jsonl`, which list the
-   failed gates, for example `layout priest_heal: score 1.2 < baseline 1.5`.
-2. Read `eval.jsonl` for per class, per-band and per-arena scores next to the baseline.
+1. Read `runs/<stage>/finished.json`: per class, whether it converged and which of `score`, `kl`, `entropy` and
+   `ladder` it was still missing. `progress.json` carried the same while it ran (`weakest_layout`,
+   `weakest_missing`), as does `forge status`.
+2. Read `eval.jsonl` for per class, per-band and per-arena scores next to the `fight` baseline, and `layouts.csv`
+   for each class's `entropy` and `approx_kl` over the run.
 3. Decide:
-   - **The target is too strict.** The configs' targets are first guesses. Edit `python/configs/<stage>.yaml` (for
-     example `target.min_layout_over_baseline: -0.1`), or apply it to every stage with `AnimusForge.Learner.Args =
-     "--set target.min_layout_over_baseline=-0.1"`.
-   - **The stage needs more training.** Raise `total_env_steps` or `convergence.patience`, or loosen
-     `min_improvement`.
+   - **It was still learning.** A class missing `score` or `kl` at the budget wanted more steps: raise
+     `total_env_steps` for that stage.
+   - **Its ladder was still climbing.** A class missing `ladder` was still moving up the difficulty rungs, which is
+     progress, not a fault; more budget, or a lower `Difficulty.MaxTier` if the top rungs are not wanted.
    - **The reward or scenario is wrong.** Change `AnimusForge.Curriculum.*` tuning or the code, check it with
      `forge fast <stage>`, then retrain.
-4. `forge start <stage>` (and the stages after it) to train again. `best.pt` of the halted run is archived, not deleted.
+4. `forge start <stage>` (and the stages after it) to train again; the earlier run is archived, not deleted.
 
 ## 7.6 Exporting and deploying models
 

@@ -42,9 +42,10 @@ namespace Animus::Curriculum
     namespace CombatReward
     {
         /// A seat's reward against one opponent (a creature or a player): damage dealt as a fraction of its health,
-        /// damage taken, casting, approach, stealth openers, the kill (faster and healthier pays more), death.
+        /// damage taken, casting, approach, stealth openers, the kill (faster and healthier pays more), death. The
+        /// kill and the death carry `tierScale` (TierScale): 1 outside a ladder.
         void OneOnOne(StageScenario& scenario, Env const& env, uint32 seat, Player* bot, Unit* opponent,
-            RewardLedger& ledger);
+            RewardLedger& ledger, float tierScale = 1.0f);
     }
 }
 

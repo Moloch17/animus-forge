@@ -24,9 +24,8 @@ init_from: auto
 
 # One policy has to cover 80 levels, every race and spec of the class and random builds and gear, so it needs far
 # more experience than a single-character scenario. At 64 envs one update is 128 x 64 = 8192 env steps.
-# ~12 h at ~7k env steps/s: convergence usually ends the stage much sooner; the headroom is for up to two restarts
-# (see restarts).
-total_env_steps: 300000000
+# ~12 h at ~7k env steps/s: convergence usually ends the stage much sooner; the budget is a ceiling, not a target.
+total_env_steps: 100000000
 rollout_length: 128
 
 # Updating on a worker thread while the sim collects the next rollout used to buy ~20% more env steps per second,
@@ -120,11 +119,11 @@ mappo:
 # episode behind them. The best networks go to best.pt and are the ones the next stage seeds from.
 #
 # 2048 episodes spread over the 18 class/builds leave ~114 each. At 1024 (~57 each) one lost fight moved a
-# class/build's win rate by 1.75 points, too coarse for its own gates, its training weight and the fights it
-# replays. The whole evaluation is ~80 s against ~20 min of training between two of them.
+# class/build's win rate by 1.75 points, too coarse for its convergence signals, its training weight and the fights
+# it replays. The whole evaluation is ~80 s against ~20 min of training between two of them.
 #
 # sampled_every: every third evaluation also plays sampled actions on the same seeds (policy learner_sampled), to
-# see whether the argmax policy that is gated and exported plays like the one that trained.
+# see whether the argmax policy that is exported plays like the one that trained.
 eval:
   every_env_steps: 10000000
   at_start: true
@@ -134,94 +133,48 @@ eval:
   baseline: fight
   sampled_every: 3
 
-# Done learning: `patience` evaluations in a row set no new best -- one has to beat the best by 2% and by 2 standard
-# errors of the two scores, so a lucky evaluation does not count -- and the trend of the last 4 scores is flat too;
-# not before min_env_steps (counted again after each restart). total_env_steps stays the upper bound.
+# Done: the one rule every stage ends on (animus.stage). A class has converged when, over the last `window`
+# evaluations, its score has stopped improving by the margin (2% of the best, 0.01 absolute, or 2 standard errors of
+# the two scores, whichever is largest -- so a lucky evaluation does not count), its approx_kl per update against the
+# learning rate in force has stayed under `kl`, its entropy over ln(allowed actions) has stopped sliding (and sits
+# above the floor below), and its ladder rung has settled. The stage advances when every class has; a converged
+# class keeps `hold_share` of its training draw and its adapter and head are frozen, so the budget goes to the
+# classes still learning. total_env_steps is a ceiling: reached first, the stage advances anyway and the report
+# names which classes were not done and what each was missing.
 #
-# patience 3: the first run of this stage had its best at 80M env steps and scored within 0.5% of it at 40M, then
-# spent its remaining 90M steps -- most of a 4 h run -- on that half a percent. Three evaluations without a new
-# best is still 30M steps of evidence.
+# patience 3 is the overall score's plateau, which is when the learning rates start to anneal
+# (lr_hold_until_plateau): the first run of this stage had its best at 80M env steps and scored within 0.5% of it
+# at 40M. There are no pass gates: what the stage taught is read from the evaluation reports, never judged.
 convergence:
   patience: 3
   window: 4
   z: 2.0
   min_improvement: 0.02
   min_improvement_abs: 0.01
-  min_env_steps: 30000000
+  kl: 0.003
+  entropy_slope: 0.01
+  hold_share: 0.02
+  lr_hold_until_plateau: true
 
-# Good enough to move on: every class/build wins nearly every base-tier fight (difficulties.0; the harder tiers weigh in
-# through the score and the per-class/build baseline gate), measured with enough episodes to believe it, on
-# the evaluation that set the best and again on 4096 held-out episodes (a best picked from many evaluations is partly
-# luck).
-#
-# A win is clean_kill: the opponent killed and the seat never dead (a death or the clock running out is a loss). A
-# share gated with `confidence` is judged by its one-sided Wilson bound over the group's episodes, not its raw mean:
-# the lowest win rate those episodes are still consistent with has to clear the minimum. So thin evidence fails rather
-# than passing on luck, and a few lost fights are allowed where there are enough episodes to show they are rare. With
-# 2048 evaluation episodes a class/build has ~114: all won gives a bound of 0.977, three lost 0.936, six lost 0.901,
-# seven lost 0.89 (a fail). The 4096 confirming episodes give ~228 each, where 95% observed bounds at ~0.92.
-# Overall, 0.95 needs 1962 of the 2048 won (95.8%), and 95.6% of the 4096.
-#
-# Metric gates are absolute, which no baseline can lower: the first run of this stage passed warlock_dps against a
-# required score of -2.34 while it killed 65% of the time. The score gate that remains keeps every class/build at least
-# level with the scripted fight baseline (within noise_z standard errors); an overall "10% over baseline" gate is gone,
-# because it judged the size of the rewards rather than the fights.
-#
-# until_passed: converging below the target restarts from best.pt (restarts.max_restarts), then keeps training
-# instead of halting, until a best that passes is confirmed or total_env_steps (the ceiling) is reached. A passing
-# evaluation is kept as best.pt over a higher-scoring one that fails.
-target:
-  min_over_baseline: null
-  min_layout_over_baseline: 0.0
-  min_layout_episodes: 16
-  noise_z: 1.0
-  metrics:
-    livelocked: {max: 0.01}
-  layout_metrics:
-    livelocked: {max: 0.02}
-  # Opponents get harder per class/build as it wins (AnimusForge.Curriculum.Difficulty.*), and an evaluation spreads
-  # its seeds over every tier: the win-rate floors hold on the base tier, where every fight is winnable, and the
-  # harder tiers count through the score (and each class/build against its baseline on the same tiers).
-  difficulties:
-    0:
-      metrics:
-        clean_kill: {min: 0.95, confidence: 0.95}
-  confirm_episodes: 4096
-  confirm_seed: 50000
-  until_passed: true
-
-# Exploration has a floor, measured against what the mask allowed. A masked policy's ceiling is
-# ln(legal actions) -- about ln(9) in this stage, not ln(82) -- so a flat coefficient says little about whether
-# the policy still explores. Below 30% of that ceiling the coefficient climbs (up to 4x), and it falls straight
-# back once entropy recovers, so a policy converging on its own is never held open. allowed_actions and entropy
-# in metrics.csv are the pair to read. fraction: 0 turns it off.
+# Exploration has a floor, measured against what the mask allowed: below 30% of ln(legal actions) the entropy
+# coefficient climbs (up to 4x) and falls straight back once entropy recovers. It is also the collapse guard of the
+# convergence rule's entropy signal.
 entropy_floor:
   fraction: 0.3
   max_boost: 4.0
   rate: 0.05
 
 # Where the data goes: after every evaluation the sim is told how often to build each class/build, so the ones
-# furthest below their baseline, and the ones furthest short of clean kills -- the gate every class/build must pass --
-# get more episodes than the ones already clear of both. Without the metric, mage_dps drew no extra data at 0.68
-# clean kills because it beat the scripted mage's score. Evaluation stays evenly spread whatever the weights are.
+# furthest below their baseline, and the ones furthest short of clean kills, get more episodes than the ones already
+# clear of both; a class that has converged is held at convergence.hold_share on top. Without the metric, mage_dps
+# drew no extra data at 0.68 clean kills because it beat the scripted mage's score. Evaluation stays evenly spread
+# whatever the weights are.
 #
 # replay_fraction: a fifth of training resets rebuild a fight the last evaluation lost -- the same character and
-# opponent, fresh combat rolls -- so training goes over exactly the fights still being lost. Confirmation seeds are
-# never replayed.
+# opponent, fresh combat rolls -- so training goes over exactly the fights still being lost.
 layout_sampling:
   enabled: true
   strength: 1.0
   max_ratio: 4.0
   metric: clean_kill
   replay_fraction: 0.2
-
-# Converged below the target is a local optimum: restart from best.pt with 3x the entropy bonus (decaying back with a
-# 10M env step half-life) and fresh optimizers, at most twice. After that it trains on (target.until_passed); at
-# total_env_steps below the target the learner exits with code 3 and the queue halts on this stage.
-restarts:
-  max_restarts: 2
-  entropy_boost: 3.0
-  entropy_half_life_env_steps: 10000000
-  reset_optimizers: true
-  shrink: 1.0
-  perturb: 0.0

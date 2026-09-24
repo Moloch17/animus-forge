@@ -357,15 +357,13 @@ def test_config_overrides(tmp_path):
     path = tmp_path / "c.yaml"
     path.write_text("total_env_steps: 100\neval:\n  every_env_steps: 10\n  baseline: greedy\n")
     config = TrainConfig.load(path, ["total_env_steps=5", "eval.episodes=16", "convergence.patience=3",
-                                     "eval.report=[dps,died]", "target.min_over_baseline=0.2",
-                                     "target.metrics={killed: {min: 0.9}}", "restarts.max_restarts=1"])
+                                     "eval.report=[dps,died]", "convergence.kl=0.01",
+                                     "convergence.hold_share=0.1"])
     assert config.total_env_steps == 5
     assert config.eval.every_env_steps == 10 and config.eval.episodes == 16 and config.eval.baseline == "greedy"
     assert config.eval.report == ("dps", "died")
     assert config.convergence.patience == 3
-    assert config.target.min_over_baseline == 0.2 and config.target.metrics == {"killed": {"min": 0.9}}
-    assert config.target.enabled and not TrainConfig().target.enabled
-    assert config.restarts.max_restarts == 1
+    assert config.convergence.kl == 0.01 and config.convergence.hold_share == 0.1
 
     with pytest.raises(ValueError):
         TrainConfig.load(path, ["eval.nope=1"])
@@ -388,15 +386,15 @@ def test_config_extends_merges_sections(tmp_path):
 
 def test_config_overlay_merges_over_extends_before_overrides(tmp_path):
     (tmp_path / "base.yaml").write_text("run_name: base\ntotal_env_steps: 100\neval:\n  episodes: 128\n"
-                                        "  baseline: fight\ntarget:\n  min_over_baseline: 0.1\n")
+                                        "  baseline: fight\nconvergence:\n  window: 6\n")
     (tmp_path / "stage.yaml").write_text("extends: base.yaml\nrun_name: stage\ntotal_env_steps: 200\n")
     (tmp_path / "fast.yaml").write_text("total_env_steps: 10\neval:\n  episodes: 16\n"
-                                        "target:\n  min_over_baseline: null\n")
+                                        "convergence:\n  window: 2\n")
 
     config = TrainConfig.load(tmp_path / "stage.yaml", ["eval.episodes=8"], [tmp_path / "fast.yaml"])
     assert config.run_name == "stage" and config.total_env_steps == 10
     assert config.eval.episodes == 8 and config.eval.baseline == "fight"
-    assert not config.target.enabled
+    assert config.convergence.window == 2
 
 
 def test_fast_overlay_loads_over_every_stage():
@@ -406,10 +404,8 @@ def test_fast_overlay_loads_over_every_stage():
         fast = TrainConfig.load(stage, overlays=[configs / "fast.yaml"])
         assert fast.run_name == full.run_name
         assert fast.total_env_steps < full.total_env_steps
-        assert fast.eval.every_env_steps < fast.convergence.min_env_steps < fast.total_env_steps
+        assert fast.eval.every_env_steps < fast.total_env_steps
         assert fast.convergence.patience > 0
-        # A fast stage never halts the plan on a gate, per-arena gates of mixed stages included.
-        assert not fast.target.enabled
         assert tuple(fast.mappo.hidden) == tuple(full.mappo.hidden)
 
 

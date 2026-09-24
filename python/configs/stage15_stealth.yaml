@@ -13,7 +13,7 @@
 
 extends: stage14_hide.yaml
 run_name: stage15_stealth
-total_env_steps: 40000000
+total_env_steps: 20000000
 
 rollout_length: 256
 
@@ -23,31 +23,3 @@ mappo:
 
 eval:
   report: [stalk_seconds, stalk_longest_seconds, stalked_into_range, closest_stealthed, stalk_approaches, stealth_openers, re_stealths, survived, won, died]
-
-target:
-  # The stage is the approach: `stalked_into_range` says it got inside Stealth.StalkYards of a living opponent
-  # while stealthed and unseen at all, `stalk_seconds` says it held there rather than touching the band and
-  # being spotted, and `stealth_openers` says the position was used for what it is for.
-  #
-  # `closest_stealthed` is reported rather than gated because it is a distance -- lower is better, and a gate
-  # floor cannot say that.
-  #
-  # The `fight` baseline reads 0.0000 on every stalk column, because it never presses Stealth at all -- which
-  # means a zero here proves nothing about whether the channel works. The figures the floors are set against
-  # are the *at_start learner* instead, which explores into Stealth by accident: stalked_into_range 0.066 over
-  # 2048 episodes (136 of them non-zero), stalk_seconds 0.14 with a 21.75 s maximum, stealth_openers 0.044,
-  # reward_stalk 0.011 and reaching the 1.0 cap in at least one episode.
-  #
-  # No per-layout floor on stalked_into_range, deliberately. Untrained, rogue_dps reads 0.236 and druid_tank
-  # reads exactly 0.000: Prowl needs cat form, and a bear tank would have to shift out of its role, stalk, and
-  # shift back. That may be learnable and it may not, and a layout floor here would halt the whole queue on it.
-  # survived is the per-layout check instead -- it only says no layout collapsed.
-  min_over_baseline: 0.0
-  min_layout_over_baseline: 0.0
-  metrics:
-    stalked_into_range: {min: 0.30, confidence: 0.95}
-    stalk_seconds: {min: 1.5}
-    stealth_openers: {min: 0.20}
-  layout_metrics:
-    survived: {min: 0.30}
-  until_passed: true

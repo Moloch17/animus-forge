@@ -10,7 +10,7 @@ def test_numbers_bools_and_unions_load():
         "total_env_steps": 1000,
         "init_from": ["a.pt", "b.pt"],
         "mappo": {"hidden": [64, 64], "entropy_coef": 1},
-        "target": {"min_over_baseline": None, "metrics": {"killed": {"min": 0.5}}},
+        "convergence": {"kl": 0.005, "lr_hold_until_plateau": False},
         "eval": {"at_start": False},
     })
     assert config.total_env_steps == 1000

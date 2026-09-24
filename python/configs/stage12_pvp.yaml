@@ -24,12 +24,3 @@ eval:
   baseline: fight
   opponent_baseline: true
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
-
-target:
-  # Self-play: `won` is 0.5 whatever happens, because both sides are this policy. It cannot be gated on and is
-  # not. What can be gated is the score against the scripted-opponent baseline, which is a fixed yardstick, and
-  # the per-class floor so no class/build is carried by the rest.
-  min_over_baseline: 0.15
-  min_layout_over_baseline: 0.0
-  min_layout_episodes: 32
-  until_passed: true

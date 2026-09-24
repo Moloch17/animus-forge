@@ -199,6 +199,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Difficulty.LowerBelow` | 0.6 | | | |
 | `Difficulty.Window` | 200 | | | |
 | `Difficulty.ReviewChance` | 25 | | | |
+| `Difficulty.TierScale` | 0.25 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
@@ -390,21 +391,24 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 
 ### `finished.json`
 
-`reason` (`converged`, `total_env_steps`, `below_target`, `budget_below_target`), `advanced`, `env_steps`, `update`,
-`best_score`, `best_env_steps`, `restarts`, `judged` (`best`, `confirm`, or empty), `gates` (`passed`, `failures`,
-`checks[]` with gate, value, required and passed, and `skipped`).
+`reason` (`converged` or `budget`), `advanced` (always true: nothing halts a plan), `env_steps`, `update`,
+`best_score`, `best_env_steps`, and `layouts`: per class, `converged`, `reentries`, `missing` (which of `score`,
+`kl`, `entropy`, `ladder` it still lacked, or `never played`), and its last `score`, `kl`, `entropy`, `rung` and
+`league` readings.
 
 ### `progress.json`
 
 A flat object rewritten after every update and evaluation. Fields include:
 
 - run: `run_name`, `scenario`, `total_env_steps`, `started_at`, `resumed_update`, `resumed_env_steps`
-- evaluation settings: `eval_every`, `patience`, `min_env_steps`, `baseline`, `target`, `max_restarts`
+- evaluation settings: `eval_every`, `patience`, `window`, `baseline`
 - state: `phase` (`training`, `evaluating`, `finished`, `stopped`), `update`, `env_steps`, `updated_at`,
-  `finish_reason`, `advanced`
-- latest training metrics
+  `finish_reason` (`converged` or `budget`), `advanced`
+- latest training metrics, `lr_scale` and `frozen_layouts` among them
 - evaluation: `evals`, `last_eval_env_steps`, `last_eval_score`, `baseline_score`, `best_score`, `best_env_steps`,
-  `evals_since_best`, `restarts`, `segment_env_steps`
+  `evals_since_best`
+- convergence per class: `converged_layouts` and `active_layouts` (comma-separated), `weakest_layout` and
+  `weakest_missing` (which of `score`, `kl`, `entropy`, `ladder` it still lacks), `reentries`
 - `nonfinite`: names of metrics written as null
 
 ## 8.5 Run directory

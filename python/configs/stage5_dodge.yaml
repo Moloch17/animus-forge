@@ -26,36 +26,13 @@ mappo:
   # As stage1_move: the argmax policy is the one that is gated, so the exploration bonus anneals towards it.
   entropy_final_fraction: 0.3
 # A drill, not a stage of the curriculum: it is there to move one behaviour, and the behaviour shows early.
-total_env_steps: 60000000
+total_env_steps: 30000000
 convergence:
   patience: 2
-  min_env_steps: 15000000
 
-target:
-  # There is nothing to fight here, so there is nothing to clear.
-  #
-  # This gate used to read `pulls_cleared`, inherited from stage9_pack along with the rest of the config, and
-  # the drill's own arena is PullSchedule::None -- no pull is ever scheduled, so the metric is never produced
-  # and the learner refused to start at all: "target.metrics.pulls_cleared: the scenario has no such episode
-  # info". It would have done so every time this stage was run. The scenario is the authority about what it
-  # measures, and what it measures is a seat standing in fire.
-  #
-  # hazard_seconds is the lesson: how long the seat spends in the patch. died is the floor under it -- with
-  # nothing attacking, a death is the fire and nothing else, so unlike stage9_pack's 0.20 there is no reason to
-  # allow any.
-  min_over_baseline: 0.05
-  metrics:
-    hazard_seconds: {max: 4.0}
-    died: {max: 0.0}
-  # The tier-0 clean_kill gate inherited from stage8_duel could never pass here: nothing is killed, so clean_kill is
-  # 0 by construction, and a stage with no tiers is judged for tier 0 on its whole summary. An empty map is the only
-  # way to drop an inherited key (see stage1_move.yaml).
-  difficulties: {}
-  until_passed: true
-
-# No sampling metric: the sampler reads one as higher-is-better and replays the episodes below 1.0 on it, and this
-# drill emits no such 0/1 column of its own -- hazard_seconds is a maximum and died is a loss. The classes are still
-# weighted by their gap to the baseline; without a metric there is nothing to replay, so that is off too.
 layout_sampling:
   metric: ""
   replay_fraction: 0.0
+
+eval:
+  every_env_steps: 5000000

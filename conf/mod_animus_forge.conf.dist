@@ -31,11 +31,13 @@ AnimusForge.OutputDir = ""
 #        Description: Comma-separated scenarios `forge start` trains one after another when it is given
 #                     none. The sim starts idle: nothing trains until `forge start` is typed on the
 #                     console (`forge help` lists every command). Every env in the pool runs the current
-#                     scenario. Each runs until its auto-started learner finishes (its evaluation score
-#                     converges and its best networks pass the stage target, or it reaches
-#                     total_env_steps, and it exits cleanly), then the next one starts; after the last one
-#                     the sim idles again. A stage still below its target after its restarts exits with
-#                     code 3 and the plan halts there (see runs/<scenario>/finished.json). Moving on needs
+#                     scenario. Each runs until its auto-started learner finishes (every class the run
+#                     plays has converged on the generic signals, or it reaches total_env_steps, and it
+#                     exits cleanly), then the next one starts; after the last one the sim idles again.
+#                     There are no pass gates: nothing but a crash halts the plan, and a stage that ends
+#                     at its budget says which classes were not done in runs/<scenario>/finished.json. A
+#                     stage none of the run's classes can play (the stealth drill in a run without rogues
+#                     or druids) is skipped. Moving on needs
 #                     AnimusForge.Policy = "remote" and AnimusForge.Learner.AutoStart = 1 (see
 #                     AnimusForge.Queue.LocalEpisodes for local policies). `forge start` rejects an unknown
 #                     name and lists the available scenarios. Each scenario trains in
@@ -80,7 +82,7 @@ AnimusForge.Queue = ""
 #        Description: `forge start` without scenarios leaves out queued scenarios whose run already
 #                     finished and moved on (runs/<scenario>/finished.json in AnimusForge.OutputDir with
 #                     "advanced": true), so it continues where training stopped instead of training
-#                     every stage again. A stage that halted below its target trains again. Scenarios
+#                     every stage again. A cancelled stage trains again. Scenarios
 #                     named on `forge start` always train. To retrain a finished stage, move its run
 #                     directory away or set this to 0. Only with the remote policy.
 #        Default:     1 - (Skip finished runs)
@@ -460,8 +462,7 @@ AnimusForge.Fast.OutputDir = "fast"
 #    AnimusForge.Fast.Learner.Overlay
 #        Description: Learner config merged over every stage's config in a fast run (--overlay),
 #                     relative to the directory of worldserver.conf or absolute. The default evaluates
-#                     often, ends a stage once its score stops improving (with a step cap as a safety
-#                     net) and turns the stage targets off.
+#                     often and trains every stage its whole budget (the sim sets patience to 0).
 #        Default:     "" - configs/fast.yaml
 
 AnimusForge.Fast.Learner.Overlay = ""
@@ -469,7 +470,7 @@ AnimusForge.Fast.Learner.Overlay = ""
 #
 #    AnimusForge.Fast.Learner.Args
 #        Description: Extra learner arguments for fast runs only, after AnimusForge.Learner.Args.
-#        Example:     "--set target.min_over_baseline=0.0" - (also test the stage target and restarts)
+#        Example:     "--set convergence.window=2" - (a shorter convergence window for a rehearsal)
 #        Default:     ""
 
 AnimusForge.Fast.Learner.Args = ""
@@ -652,6 +653,11 @@ AnimusForge.Curriculum.Difficulty.StretchChance = 10
 #   stage, where it competes with learning to fight several enemies at once
 AnimusForge.Curriculum.Difficulty.CasterChance = 40
 AnimusForge.Curriculum.Difficulty.HazardChance = 30
+#   the outcome terms scale with the tier: a win (kill, clear, health kept) is multiplied by 1 + TierScale x tier and
+#   a loss (death, timeout, overtime) divided by it, in the duel, the packs, the raids and the endurance run's pulls.
+#   A tier-0 fight is unchanged; at tier 6 a kill pays 2.5x and a death costs 0.4x, so a hard fight is worth
+#   attempting and the score no longer falls as the ladder climbs. 0 keeps every tier flat
+AnimusForge.Curriculum.Difficulty.TierScale = 0.25
 
 #
 #    AnimusForge.Curriculum.Casting.*

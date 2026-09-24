@@ -70,8 +70,9 @@ namespace Animus::Curriculum
             STATE_OWNER_X               = 10,   // relative to the spawn point, / 40
             STATE_OWNER_Y               = 11,
             STATE_OWNER_IN_COMBAT       = 12,
-            STATE_ARENA_FIRST           = 13,   // one-hot: the episode's arena (MAX_ARENAS columns)
-            STATE_GLOBAL_COUNT          = 13 + MAX_ARENAS
+            STATE_TIER                  = 13,   // the fight's difficulty tier or the pull's rung, over the top one
+            STATE_ARENA_FIRST           = 14,   // one-hot: the episode's arena (MAX_ARENAS columns)
+            STATE_GLOBAL_COUNT          = 14 + MAX_ARENAS
         };
 
         enum StateSeat : uint32

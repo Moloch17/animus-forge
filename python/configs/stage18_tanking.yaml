@@ -9,18 +9,9 @@
 # Trained by name (`forge start stage18_tanking`), after stage17_party, which it seeds from. Not in the default queue.
 extends: stage17_party.yaml
 run_name: stage18_tanking
-total_env_steps: 150000000
+total_env_steps: 60000000
 convergence:
   patience: 2
-  min_env_steps: 20000000
 
-target:
-  # Seat 0 is always the tank. Holding what the pull brings is threat_share; keeping it off the others is
-  # threat_on_teammates, and a tank that tops threat while its group is being chewed has not held anything.
-  min_over_baseline: 0.05
-  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
-  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
-  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
-  metrics:
-    pulls_cleared: {min: 3.5}
-  until_passed: true
+eval:
+  every_env_steps: 15000000

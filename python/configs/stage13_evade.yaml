@@ -8,7 +8,7 @@
 
 extends: stage12_pvp.yaml
 run_name: stage13_evade
-total_env_steps: 60000000
+total_env_steps: 30000000
 
 rollout_length: 256
 
@@ -18,18 +18,3 @@ mappo:
 
 eval:
   report: [survived, escaped, contact_breaks, line_of_sight_breaks, unseen_seconds, unseen_longest_seconds, died]
-
-target:
-  # Conservative on purpose: a failed gate halts the queue, so these ask whether the stage's lesson happened at
-  # all. The baseline comparison is dropped (min_over_baseline 0) because the yardstick for this arena is a
-  # policy trained to win fights it cannot win here -- surviving is the new axis, not a better version of the
-  # old one. clean_kill is deliberately absent: killing a level-56 enemy at 50 is not what is being asked.
-  min_over_baseline: 0.0
-  min_layout_over_baseline: 0.0
-  metrics:
-    survived: {min: 0.35, confidence: 0.95}
-    unseen_seconds: {min: 5.0}
-    contact_breaks: {min: 0.5}
-  layout_metrics:
-    survived: {min: 0.15}
-  until_passed: true

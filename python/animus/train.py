@@ -8,13 +8,13 @@ retries until the sim's socket appears. A start trains from scratch: an earlier 
 archived first (animus.runs). With --resume the run continues from its latest.pt instead, as long as the scenario's
 layouts and dimensions are unchanged.
 
-Progress (steps, losses, evaluation scores, restarts) is kept in <runs_dir>/<run_name>/progress.json for the sim's
+Progress (steps, losses, evaluation scores, convergence per class) is kept in <runs_dir>/<run_name>/progress.json for the sim's
 console (animus.progress).
 
 With eval.every_env_steps set, the networks are scored on seeded episodes as they train (see
-animus.evaluation): the best-scoring networks are kept in best.pt. With convergence.patience set the stage ends
-once the score converges; with a target set it only moves on once the best networks also pass it, restarting from
-best.pt when stuck below it, and exits with code 3 (halting the queue) when the restarts run out (animus.stage).
+animus.evaluation): the best-scoring networks are kept in best.pt. The stage ends when every class the run
+plays has converged on the generic signals (animus.stage), or at total_env_steps; there are no pass gates,
+and the learner exits 0 either way so the queue moves on.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ from .env import ForgeEnv
 from .evaluation import (DERIVED_METRICS, ConvergenceTracker, EvalResult, action_mask_table, casting_weights,
                          format_summary,
                          run_evaluation)
-from .gates import validate_target
 from .mappo.buffer import RolloutBuffer
 from .mappo.trainer import MappoTrainer, horizon_seconds, per_decision
 from .progress import ProgressWriter
@@ -53,8 +52,7 @@ STALL_KL = 0.0015
 STALL_WINDOW = 10
 STALL_MIN_UPDATES = 20
 from .runs import FINISHED_FILE, archive_run, prune_checkpoints, resume_checkpoint_path, resume_mismatch
-from .mappo.trainer import schedule
-from .stage import ADVANCE, EXIT_BELOW_TARGET, EXTEND, HALT, RESTART, Outcome, StageController
+from .stage import ADVANCE, ConvergenceController, Outcome
 from .stages import STAGE_FILE, load_stage
 
 
@@ -178,11 +176,11 @@ def save_checkpoint(
 
 class EvalLog:
     """eval.csv (one row per evaluation), eval.jsonl (the full summary, level bands included), eval_episodes.jsonl
-    (one row per scored episode), eval_trace.jsonl (every decision of the traced seeds) and stage.jsonl (each decision
-    to move on, restart or halt, with the gates behind it)."""
+    (one row per scored episode), eval_trace.jsonl (every decision of the traced seeds) and stage.jsonl (the decision
+    to move on, with every class's convergence signals behind it)."""
 
     COLUMNS = ["update", "env_steps", "policy", "episodes", "score", "stderr", "margin", "best", "evals_since_best",
-               "restarts", "seconds"]
+               "seconds"]
 
     def __init__(self, run_dir: Path, tb):
         self.csv_path = run_dir / "eval.csv"
@@ -192,8 +190,7 @@ class EvalLog:
         self.stage_path = run_dir / "stage.jsonl"
         self.tb = tb
 
-    def write(self, update: int, env_steps: int, result: EvalResult, summary: dict, tracker: ConvergenceTracker,
-              restarts: int = 0) -> None:
+    def write(self, update: int, env_steps: int, result: EvalResult, summary: dict, tracker: ConvergenceTracker) -> None:
         row = {
             "update": update,
             "env_steps": env_steps,
@@ -204,7 +201,6 @@ class EvalLog:
             "margin": tracker.last_margin,
             "best": tracker.best,
             "evals_since_best": tracker.evals_since_best,
-            "restarts": restarts,
             "seconds": round(result.seconds, 1),
         }
         new_file = not self.csv_path.exists()
@@ -245,16 +241,14 @@ class EvalLog:
                 if isinstance(value, float):
                     self.tb.add_scalar(f"eval_{group}/{name}", value, env_steps)
 
-    def write_outcome(self, update: int, env_steps: int, outcome: Outcome, restarts: int) -> None:
+    def write_outcome(self, update: int, env_steps: int, outcome: Outcome) -> None:
         with self.stage_path.open("a") as f:
             f.write(json.dumps({
                 "update": update,
                 "env_steps": env_steps,
                 "action": outcome.action,
                 "reason": outcome.reason,
-                "restarts": restarts,
-                "judged": outcome.stage,
-                "gates": outcome.gates.to_dict() if outcome.gates else None,
+                "layouts": outcome.report,
             }) + "\n")
 
 
@@ -342,7 +336,7 @@ class TrainingRun:
     """One learner run against the sim, from connecting to finished.json.
 
     The state the phases share -- the networks, the current STEP, the update and env step counters, the stage
-    controller -- lives here, so rollouts, evaluation, confirmation and restarts are methods rather than closures over
+    controller -- lives here, so rollouts, evaluation and the stage's end are methods rather than closures over
     one long function.
     """
 
@@ -387,8 +381,6 @@ class TrainingRun:
         # And its class's build names, in the order the "spec" episode info column indexes them.
         self.spec_names = {name: layout.get("spec_names", [])
                            for name, layout in (self.stage or {}).get("layouts", {}).items()}
-        validate_target(config, spec.episode_info_names, self.arena_names if self.stage and "arenas" in self.stage
-                        else None)
         # An evaluation-only action mask (eval.mask_actions), resolved by name per layout here so that a name no
         # layout has is refused before anything trains.
         self.eval_action_mask = action_mask_table(config.eval.mask_actions, [layout.name for layout in spec.layouts],
@@ -450,7 +442,7 @@ class TrainingRun:
             )
 
         self.evaluating = config.eval.every_env_steps > 0
-        self.controller = StageController(config)
+        self.controller = ConvergenceController(config, [layout.name for layout in spec.layouts])
         self.tracker = self.controller.tracker
         self.update = 0
         self.env_steps = 0
@@ -487,14 +479,7 @@ class TrainingRun:
             columns += ["goal_entropy", "goal_kept_share",
                         *(f"goal_{index}_share" for index in range(self.trainer.goal_count))]
         self.logger = RunLogger(self.run_dir, columns, append=self.resume_path is not None)
-        # Metric gates are checked on the summary, so their columns are summarised even when not reported.
-        report = tuple(config.eval.report)
-        gated = (*config.target.metrics, *config.target.layout_metrics,
-                 *(name for gates in config.target.arenas.values() for name in gates.get("metrics", {})),
-                 *(name for gates in config.target.difficulties.values() for name in gates.get("metrics", {})))
-        # Derived fields are computed by the summary itself, not averaged from an episode info column.
-        report += tuple(name for name in gated if name not in report and name not in DERIVED_METRICS)
-        self.report = report
+        self.report = tuple(config.eval.report)
         self.eval_log = EvalLog(self.run_dir, self.logger.tb)
         # Self-play arenas scored against the baseline as their opponent (eval.opponent_baseline).
         self.opponents = config.eval.baseline if config.eval.opponent_baseline else ""
@@ -524,6 +509,14 @@ class TrainingRun:
         # The recent KL, and when a stall was last mentioned (audit_progress).
         self.recent_kl: list[float] = []
         self.stall_warned_at: int | None = None
+        # The learning-rate scale in force (animus.stage reads the KL against it), the layouts whose classes have
+        # converged (frozen and out of the training draw), and the last update's per-class statistics.
+        self.lr_scale_now = 1.0
+        self.frozen = np.zeros(0, dtype=np.int64)
+        self.layout_allowed: dict[int, float] = {}
+        self.last_layout_stats: dict[str, dict[str, float]] = {}
+        self.difficulty_column = names.index("difficulty") if "difficulty" in names else None
+        self.apply_holds()
 
     # ------------------------------------------------------------------ setup
 
@@ -539,11 +532,11 @@ class TrainingRun:
             self.trainer.load_state_dict(checkpoint["trainer"])
             self.update = int(checkpoint.get("update", 0))
             self.env_steps = int(checkpoint.get("env_steps", 0))
-            # The convergence test, the restarts and the best evaluation carry on where the run stopped.
+            # The convergence test and the best evaluation carry on where the run stopped.
             self.tracker.load_state_dict(checkpoint.get("convergence"))
             self.controller.load_state_dict(checkpoint.get("controller"))
             print(f"Resumed {config.run_name} from {self.resume_path} at update {self.update}, {self.env_steps} env "
-                  f"steps ({self.controller.restarts} restarts)", flush=True)
+                  f"steps", flush=True)
 
         # The parents: the extended stage's checkpoint (the first init_from candidate that exists) and a merge stage's
         # further parents.
@@ -665,7 +658,7 @@ class TrainingRun:
                                        arenas=self.arena_names, action_names=self.action_names)
             summary = result.summary(self.report)
             baseline_path.write_text(json.dumps({"key": key, "summary": summary}, indent=2))
-            self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
+            self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker)
             print(f"Baseline {config.eval.baseline}: score {result.score:.4g} over {result.episodes} seeded "
                   f"episodes (seed {seed}, {result.seconds:.0f} s)", flush=True)
         self.baselines[seed, episodes] = summary
@@ -685,7 +678,7 @@ class TrainingRun:
                                            trace_episodes=config.eval.trace_episodes)
         summary = result.summary(self.report)
         improved = controller.observe(summary, self.env_steps)
-        self.eval_log.write(self.update, self.env_steps, result, summary, tracker, controller.restarts)
+        self.eval_log.write(self.update, self.env_steps, result, summary, tracker)
         self.progress.evaluated(self.env_steps, result.score, baseline_summary["score"] if baseline_summary else None,
                                 tracker, controller)
         self.progress.write("training", self.update, self.env_steps)
@@ -705,8 +698,23 @@ class TrainingRun:
         if sampled_every > 0 and len(tracker.history) % sampled_every == 0:
             self.evaluate_sampled(summary)
 
+        self.apply_holds()
         self.send_layout_weights(summary, baseline_summary)
         self.send_replay(result)
+
+    def apply_holds(self) -> None:
+        """Freeze the classes that have converged (animus.stage) and keep them out of the rollout's samples."""
+        converged = set(self.controller.converged_layouts())
+        frozen = [index for index, layout in enumerate(self.spec.layouts) if layout.name in converged]
+        if set(frozen) != set(int(index) for index in self.frozen):
+            entering = sorted(converged - {self.spec.layouts[i].name for i in self.frozen})
+            leaving = sorted({self.spec.layouts[i].name for i in self.frozen} - converged)
+            if entering:
+                print(f"Converged and out of the training draw: {', '.join(entering)}", flush=True)
+            if leaving:
+                print(f"Regressed and back in the training draw: {', '.join(leaving)}", flush=True)
+        self.frozen = np.asarray(frozen, dtype=np.int64)
+        self.trainer.freeze_layouts(set(frozen))
 
     def evaluate_sampled(self, argmax: dict) -> None:
         """Score sampled actions on the evaluation seeds, next to the argmax evaluation that just ran."""
@@ -724,7 +732,7 @@ class TrainingRun:
         # not the one that trained, which is what mappo.entropy_final_fraction is there to close.
         summary["argmax_gap"] = {name: float(summary[name]) - float(argmax[name])
                                  for name in fields if isinstance(argmax.get(name), (int, float))}
-        self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
+        self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker)
         print("Sampled vs argmax actions on the evaluation seeds: " + ", ".join(
             f"{name} {summary[name]:.4g} / {argmax.get(name, float('nan')):.4g}" for name in fields), flush=True)
 
@@ -749,91 +757,42 @@ class TrainingRun:
         are not equally hard to win with, which is the case a feral druid is.
         """
         sampling = self.config.layout_sampling
-        if not sampling.enabled or baseline is None or not summary.get("castings"):
+        weights = {}
+        if sampling.enabled and baseline is not None and summary.get("castings"):
+            weights = casting_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
+        hold = self.controller.hold_weights()
+        if not weights and all(factor == 1.0 for factor in hold.values()):
             return
 
-        weights = casting_weights(summary, baseline, sampling.strength, sampling.max_ratio, sampling.metric)
         vector = []
         for layout in self.spec.layouts:
             named = self.spec_names.get(layout.name, [])
             for slot in range(MAX_SPECS):
                 spec = named[slot] if slot < len(named) else ""
-                vector.append(weights.get(f"{layout.name}_{spec}", 1.0) if spec else 1.0)
+                weight = weights.get(f"{layout.name}_{spec}", 1.0) if spec else 1.0
+                vector.append(weight * hold.get(layout.name, 1.0))
 
         self.env.set_layout_weights(vector)
         heaviest = sorted(weights.items(), key=lambda item: -item[1])[:3]
+        held = [name for name, factor in hold.items() if factor != 1.0]
         print("Layout weights: " + ", ".join(f"{name} {weight:.2f}" for name, weight in heaviest)
-              + f" (of {len(weights)} class/builds, {len(vector)} slots)", flush=True)
-
-    def confirm_best(self) -> tuple[dict, dict | None]:
-        """Score best.pt on the held-out confirmation seeds, then put the training networks back."""
-        self.drain_update()
-        target, trainer = self.config.target, self.trainer
-        training_state = copy.deepcopy(trainer.state_dict())
-        trainer.load_state_dict(torch.load(self.best_path, map_location="cpu", weights_only=False)["trainer"],
-                                load_optimizers=False)
-        try:
-            baseline = self.baseline_for(target.confirm_seed, target.confirm_episodes)
-            result, self.step = run_evaluation(self.env, self.spec, self.learner_actions(), target.confirm_episodes,
-                                               target.confirm_seed, opponents=self.opponents,
-                                               arenas=self.arena_names, action_names=self.action_names)
-        finally:
-            trainer.load_state_dict(training_state)
-        result.policy = "confirm"
-        summary = result.summary(self.report)
-        self.eval_log.write(self.update, self.env_steps, result, summary, self.tracker, self.controller.restarts)
-        print(f"Confirmation of best.pt on {result.episodes} held-out episodes: score {result.score:.4g} "
-              f"+/- {result.stderr:.2g}\n{format_summary(summary, baseline, self.report)}", flush=True)
-        return summary, baseline
+              + f" (of {len(weights)} class/builds, {len(vector)} slots)"
+              + (f"; held at {self.config.convergence.hold_share:.0%}: {', '.join(held)}" if held else ""), flush=True)
 
     # ------------------------------------------------------------------ stage decisions
 
-    def restart_from_best(self) -> None:
-        self.drain_update()
-        r = self.config.restarts
-        self.trainer.load_state_dict(torch.load(self.best_path, map_location="cpu", weights_only=False)["trainer"],
-                                     load_optimizers=False)
-        seed_everything(self.config.seed + self.controller.restarts + 1)
-        if r.shrink != 1.0 or r.perturb != 0.0:
-            self.trainer.shrink_perturb(r.shrink, r.perturb)
-        if r.reset_optimizers:
-            self.trainer.reset_optimizers()
-        # The networks are older ones now: what the policy remembered and the goal it was pursuing were produced by
-        # weights that no longer exist, so the acting state starts again as it does at an episode boundary.
-        self.acting = self.trainer.acting_state(self.spec.num_envs, self.spec.agents_per_env)
-        self.controller.record_restart(self.env_steps)
-
     def handle(self, outcome: Outcome) -> bool:
         """Carry out the controller's decision; True when training stops."""
-        if outcome.action not in (ADVANCE, RESTART, HALT, EXTEND):
+        if outcome.action != ADVANCE:
             return False
-        tracker, controller = self.tracker, self.controller
-        self.eval_log.write_outcome(self.update, self.env_steps, outcome, controller.restarts)
-        failures = "; ".join(outcome.gates.failures) if outcome.gates else ""
-        # Gates that could not be judged at all -- a layout with no baseline row, or with too few episodes to read
-        # through the noise. Skipping them is deliberate, but a stage that advances with gates that never ran has
-        # been judged on less than its target asks for, and nothing said so.
-        skipped = "; ".join(outcome.gates.skipped) if outcome.gates else ""
-        if outcome.action == RESTART:
-            self.restart_from_best()
-            print(f"Converged below the target ({outcome.stage}: {failures}). Restart {controller.restarts} of "
-                  f"{self.config.restarts.max_restarts} from best.pt (score {tracker.best:.4g}), entropy_coef "
-                  f"{controller.entropy_coef(self.env_steps):.3g}.", flush=True)
-            return False
-        if outcome.action == EXTEND:
-            controller.record_extension(self.env_steps)
-            print(f"Converged below the target ({outcome.stage}: {failures}) with {controller.restarts} restarts used; "
-                  f"training on until it passes or total_env_steps (target.until_passed).", flush=True)
-            return False
-        if outcome.action == HALT:
-            print(f"Below the target after {controller.restarts} restarts ({outcome.stage}: {failures}); best score "
-                  f"{tracker.best:.4g} at {tracker.best_env_steps} env steps. Stopping; the queue halts here.",
-                  flush=True)
-        else:
-            print(f"Stage complete ({outcome.reason}): best score {tracker.best:.4g} at {tracker.best_env_steps} env "
-                  f"steps after {controller.restarts} restarts.", flush=True)
-        if skipped:
-            print(f"  Gates not judged ({outcome.stage}): {skipped}", flush=True)
+        tracker = self.tracker
+        self.eval_log.write_outcome(self.update, self.env_steps, outcome)
+        pending = {name: row["missing"] for name, row in (outcome.report or {}).items() if not row["converged"]}
+        print(f"Stage complete ({outcome.reason}): best score {tracker.best:.4g} at {tracker.best_env_steps} env "
+              f"steps; {len((outcome.report or {})) - len(pending)} of {len(outcome.report or {})} classes converged.",
+              flush=True)
+        for name, missing in pending.items():
+            print(f"  {name}: not converged, missing {', '.join(missing) or 'nothing'}", flush=True)
         return True
 
     # ------------------------------------------------------------------ training
@@ -883,7 +842,12 @@ class TrainingRun:
 
             actions, log_probs, values, foresight, goals, chosen = trainer.act_and_value(
                 step.obs, step.mask, step.layout, step.state, state=self.acting)
-            buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, step.present,
+            # A converged class still plays (its rows are needed to act and to carry the recurrence) but is not a
+            # sample: its adapter and head are frozen, and the trunk is trained on the classes still learning.
+            present = step.present
+            if len(self.frozen):
+                present = present & ~np.isin(step.layout, self.frozen)
+            buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, present,
                                 foresight, memory, goals, critic_memory, chosen)
 
             # The ended episodes' layouts: the next STEP already carries the new episodes'.
@@ -934,11 +898,13 @@ class TrainingRun:
         # Read before the buffers swap below: log_update runs on the rollout that has just been collected.
         self.rollout_reward = buffer.mean_reward()
         self.rollout_allowed_actions = buffer.mean_allowed_actions()
+        self.layout_allowed = self.allowed_actions_by_layout(buffer)
         trainer.entropy_coef = self.controller.entropy_coef(self.env_steps)
         # With an overlapped update this applies to the update submitted below: a rollout's worth late, which a
-        # schedule over hundreds of millions of steps does not notice.
-        trainer.set_learning_rate_scale(schedule(self.config.mappo.lr_final_fraction, self.env_steps,
-                                                 self.config.total_env_steps))
+        # schedule over hundreds of millions of steps does not notice. The scale is the controller's: held at full
+        # until the score first plateaus, so the KL it reads is the policy's and not the schedule's.
+        self.lr_scale_now = self.controller.lr_scale(self.env_steps)
+        trainer.set_learning_rate_scale(self.lr_scale_now)
         if self.distiller is not None:
             self.distiller.coef = self.config.distill.coef_at(self.env_steps)
 
@@ -962,8 +928,38 @@ class TrainingRun:
             stats = self.finish_update()
         return stats, started, rollout_seconds
 
+    @staticmethod
+    def allowed_actions_by_layout(buffer: RolloutBuffer) -> dict[int, float]:
+        """Mean legal actions per decision, per layout index, over the rollout's samples."""
+        layout = buffer.layout.reshape(-1)
+        valid = buffer.valid.reshape(-1)
+        allowed = buffer.mask.reshape(-1, buffer.mask.shape[-1]).sum(-1)
+        out = {}
+        for index in np.unique(layout[valid]):
+            rows = valid & (layout == index)
+            out[int(index)] = float(allowed[rows].mean()) if rows.any() else 0.0
+        return out
+
+    def named_layout_stats(self) -> dict[str, dict[str, float]]:
+        """The last update's per-class entropy, approx_kl and allowed actions, by layout name."""
+        names = [layout.name for layout in self.spec.layouts]
+        out = {}
+        for index, stats in self.trainer.layout_stats.items():
+            if index < len(names):
+                out[names[index]] = {**stats, "allowed_actions": self.layout_allowed.get(index, 0.0)}
+        return out
+
     def log_update(self, stats: dict[str, float], started: float, rollout_seconds: float) -> None:
         config, spec = self.config, self.spec
+        self.last_layout_stats = self.named_layout_stats()
+        self.controller.observe_update(self.last_layout_stats, self.lr_scale_now)
+        if self.difficulty_column is not None and self.finished_episodes:
+            names = [layout.name for layout in spec.layouts]
+            episodes = np.asarray(self.finished_episodes)
+            layouts = np.asarray(self.finished_layouts)
+            self.controller.observe_training_episodes({
+                names[index]: float(episodes[layouts == index, self.difficulty_column].mean())
+                for index in np.unique(layouts) if index < len(names)})
         if self.update % config.log_every != 0:
             return
 
@@ -978,6 +974,8 @@ class TrainingRun:
             "elapsed_seconds": time.perf_counter() - self.started_at,
             "episodes": len(self.finished_episodes),
             "entropy_coef": self.trainer.entropy_coef,
+            "lr_scale": self.lr_scale_now,
+            "frozen_layouts": len(self.frozen),
             **({"distill_coef": self.distiller.coef} if self.distiller is not None else {}),
         }
         if self.finished_episodes:
@@ -1018,6 +1016,8 @@ class TrainingRun:
         if kl is None or self.update < STALL_MIN_UPDATES:
             return
 
+        # Against the learning rate in force: a KL that fell with the anneal is the schedule, not a stall.
+        kl = float(kl) / max(self.lr_scale_now, 1e-6)
         self.recent_kl.append(float(kl))
         if len(self.recent_kl) > STALL_WINDOW:
             self.recent_kl.pop(0)
@@ -1079,13 +1079,21 @@ class TrainingRun:
                 means = np.mean(group, axis=0)
                 row = {"update": self.update, "env_steps": self.env_steps, "layout": name, "spec": spec,
                        "episodes": len(group)}
+                # The class's own convergence signals (animus.stage): what its policy is doing, not only what its
+                # episodes came to.
+                signals = self.last_layout_stats.get(name, {})
+                row.update({"entropy": signals.get("entropy", float("nan")),
+                            "approx_kl": signals.get("approx_kl", float("nan")),
+                            "allowed_actions": signals.get("allowed_actions", float("nan")),
+                            "lr_scale": self.lr_scale_now, "frozen": int(name in
+                                                                        {self.spec.layouts[i].name for i in self.frozen})})
                 row.update({f"episode_{field}": float(value) for field, value in zip(info, means)})
                 rows.append(row)
 
         self.logger.log_layouts(rows)
 
     def train(self) -> Outcome:
-        """Train until the stage decides to move on or halt, or the step budget runs out."""
+        """Train until every class has converged, or the step budget runs out."""
         config, controller = self.config, self.controller
         while self.env_steps < config.total_env_steps:
             stats, started, rollout_seconds = self.rollout()
@@ -1096,16 +1104,13 @@ class TrainingRun:
                 # The evaluation resets every env: the training episodes in progress are cut short, and the next
                 # rollout starts from fresh ones (this rollout's advantages were already computed above).
                 self.evaluate()
-                if self.handle(decision := controller.after_eval(self.env_steps, self.confirm_best)):
+                if self.handle(decision := controller.after_eval(self.env_steps)):
                     return decision
 
         # One last score, so the best model also considers the final networks.
         if self.evaluating and self.last_eval_env_steps < self.env_steps:
             self.evaluate()
-        if self.evaluating and controller.baseline_summary is None:
-            # A run resumed at its budget judges without evaluating: the baseline is cached in eval_baseline.json.
-            controller.baseline_summary = self.baseline_for(config.eval.seed, config.eval.episodes)
-        outcome = controller.at_budget(self.confirm_best)
+        outcome = controller.at_budget()
         self.handle(outcome)
         return outcome
 
@@ -1123,7 +1128,7 @@ class TrainingRun:
         finally:
             self.finish(outcome)
 
-        return 0 if outcome.action == ADVANCE else EXIT_BELOW_TARGET
+        return 0
 
     def finish(self, outcome: Outcome | None) -> None:
         """Save latest.pt and, when the stage was decided, finished.json; close the logs and the connection."""
@@ -1137,9 +1142,7 @@ class TrainingRun:
                 "update": self.update,
                 "best_score": tracker.best,
                 "best_env_steps": tracker.best_env_steps,
-                "restarts": self.controller.restarts,
-                "judged": outcome.stage,
-                "gates": outcome.gates.to_dict() if outcome.gates else None,
+                "layouts": outcome.report,
             }, indent=2))
             print(f"{self.config.run_name} finished: {outcome.reason}", flush=True)
         self.progress.write("finished" if outcome else "stopped", self.update, self.env_steps,

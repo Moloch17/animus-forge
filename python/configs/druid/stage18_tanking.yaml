@@ -11,9 +11,3 @@ run_name: stage18_tanking
 
 eval:
   report: [threat_share, threat_on_teammates, teammate_damage_taken, pulls_cleared, wipes]
-
-target:
-  spec_metrics:
-    feral_bear:
-      threat_share: {min: 0.55}
-      threat_on_teammates: {max: 0.30}

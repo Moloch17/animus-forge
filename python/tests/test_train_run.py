@@ -138,9 +138,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
         "rollout_length=4", f"total_env_steps={2 * steps_per_update}", "checkpoint_every=1", "init_from=''",
         "train_device=cpu", "mappo.hidden=[8, 8]", "mappo.epochs=1", "mappo.minibatches=1",
         f"eval.every_env_steps={steps_per_update}", "eval.episodes=2", "eval.baseline=''",
-        "convergence.patience=0", "target.min_over_baseline=null", "target.min_layout_over_baseline=null",
-        # The fake scenario's episode info is not the duel's, so its metric gates cannot be checked here.
-        "target.metrics={}", "target.layout_metrics={}", "target.difficulties={}",
+        "convergence.patience=0",
     ])
 
     exit_code = TrainingRun(config, resume=False).run()
@@ -151,6 +149,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
     assert exit_code == 0
     finished = json.loads((run_dir / "finished.json").read_text())
     assert (finished["advanced"], finished["update"], finished["env_steps"]) == (True, 2, 2 * steps_per_update)
+    assert finished["reason"] == "budget" and set(finished["layouts"]) == {"warrior_dps", "mage_dps"}
 
     with (run_dir / "metrics.csv").open() as f:
         rows = list(csv.DictReader(f))

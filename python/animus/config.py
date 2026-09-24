@@ -91,99 +91,30 @@ class EvalConfig:
 
 @dataclass
 class ConvergenceConfig:
-    """When the stage is done learning (animus.evaluation.ConvergenceTracker). Needs eval.every_env_steps."""
+    """When the stage is done (animus.stage.ConvergenceController): the one rule every stage ends on. Needs
+    eval.every_env_steps; without evaluations a stage trains to total_env_steps.
 
-    patience: int = 0  # evaluations without a new best before converging; 0 = train to total_env_steps
-    window: int = 4  # latest evaluations whose trend must be flat too
+    A class has converged when, over the last `window` evaluations, its score has plateaued (the margin below), its
+    LR-normalised approx_kl per update has stayed under `kl`, its entropy over ln(allowed actions) has a slope within
+    `entropy_slope` (and sits above entropy_floor.fraction when one is set), and its ladder rung or league win rate
+    has settled. The stage advances when every class the run plays has converged, or at total_env_steps.
+    """
+
+    patience: int = 0  # evaluations without a new *overall* best before the score counts as plateaued (LR anneal)
+    window: int = 4  # evaluations every class signal is read over
     z: float = 2.0  # a new best beats the best by this many standard errors ...
     min_improvement: float = 0.02  # ... or by this fraction of |best| ...
     min_improvement_abs: float = 0.01  # ... or by this much, whichever is largest
-    min_env_steps: int = 0  # never converge before this many env steps (counted again after each restart)
-
-
-@dataclass
-class TargetConfig:
-    """When the stage is good enough to move on (animus.gates). Unset gates are not checked; with none set, the
-    stage moves on as soon as it converges."""
-
-    # Overall score >= baseline + this x |baseline|, on the eval.baseline scripted policy's seeds: 0.2 = 20% better.
-    min_over_baseline: float | None = None
-    # Every class/build's score >= its baseline + this x |baseline|: a looser floor so no layout is left behind.
-    min_layout_over_baseline: float | None = None
-    # Layouts with fewer eval rows than this (one per seat with a character in each seeded episode) are too noisy to
-    # gate. Named episodes for the configs' sake; in the party stage one episode gives up to four rows.
-    min_layout_episodes: int = 16
-    # Episode info means, e.g. {killed: {min: 0.9}, died: {max: 0.1}}.
-    metrics: dict = field(default_factory=dict)
-    # The same bounds, checked on every class's own episodes. min_layout_over_baseline only asks a layout to
-    # beat its own baseline, which says nothing where the scripted baseline is itself hopeless: stage8_duel passed
-    # warlock_dps against a required score of -2.34 and priest_heal against -0.72, so a warlock that killed 65% of
-    # the time and livelocked in a quarter of its episodes cleared the gate. An absolute floor cannot be lowered by
-    # a bad baseline. Same shape as metrics, and derived summary fields (livelocked) can be gated too.
-    layout_metrics: dict = field(default_factory=dict)
-    # Per build (episode info "spec", named by stage.json's spec_names), the same bounds on that build's
-    # episodes, e.g. {restoration: {low_health_seconds: {max: 5}}, feral_bear: {threat_share: {min: 0.6}}}: what a
-    # build is for, which a floor every build shares cannot ask.
-    #
-    # This replaces role_metrics and is strictly finer. A role could not separate two builds that share it, so a
-    # feral cat and a balance druid were graded as one thing and either could carry the other; a spec is the name
-    # of a talent template, which is a real property of a build rather than a guess at what it is for. Judged on
-    # the base_difficulty group when one is set.
-    spec_metrics: dict = field(default_factory=dict)
-    # Per arena of a stage that mixes arenas (names from stage.json), the same gates on that arena's episodes only,
-    # e.g. {duel: {min_over_baseline: 0.1}, pvp_scripted: {metrics: {won: {min: 0.5}}}}.
-    arenas: dict = field(default_factory=dict)
-    min_arena_episodes: int = 16  # arenas and tiers with fewer eval episodes than this are too noisy to gate
-    # Per difficulty tier of the creature duel (episode info "difficulty"), the same gates on that tier's episodes
-    # only, e.g. {0: {metrics: {clean_kill: {min: 0.95}}}}. An evaluation spreads its seeds over every tier, and a
-    # floor the base tier must reach says nothing about an elite a level above.
-    difficulties: dict = field(default_factory=dict)
-    # Judge metrics and layout_metrics only on the episodes of difficulty tiers up to this one (the summary's "up_to"),
-    # for a stage whose ladder climbs above the fights its floors were set for; the tiers above count through the
-    # score and the per-tier gates. None = every episode.
-    base_difficulty: int | None = None
-    # Score gates pass when the score is within this many standard errors of what they require (of the difference
-    # between the two means, the learner's and the baseline's). Each layout is scored on its share of the episodes
-    # only, so without an allowance a class/build that is truly level with its baseline fails about half the time.
-    # 0 = compare the raw means.
-    noise_z: float = 1.0
-    # Before moving on, the best networks are scored again on seeds training never evaluated, and must pass again:
-    # a best picked out of many evaluations is partly luck. 0 = trust the evaluation that set the best.
-    confirm_episodes: int = 2048
-    confirm_seed: int = 50000
-    # Keep training below the target instead of halting when it converges: once the restarts are used up the stage
-    # trains on and is judged again at its next convergence. total_env_steps stays the ceiling (reached below the
-    # target, the stage halts). An evaluation that passes the target becomes the best even when a failing one scored
-    # higher, and a passing best is only replaced by a better one that passes too.
-    until_passed: bool = False
-
-    @property
-    def enabled(self) -> bool:
-        return (self.min_over_baseline is not None or self.min_layout_over_baseline is not None
-                or bool(self.metrics) or bool(self.layout_metrics) or bool(self.spec_metrics) or bool(self.arenas)
-                or bool(self.difficulties))
-
-    def arena_needs_baseline(self) -> bool:
-        return any(isinstance(gates, dict) and gates.get("min_over_baseline") is not None
-                   for gates in (*self.arenas.values(), *self.difficulties.values()))
-
-    def __post_init__(self) -> None:
-        # YAML reads tier keys as numbers; the summary names tiers as strings.
-        self.difficulties = {str(tier): gates for tier, gates in (self.difficulties or {}).items()}
-
-
-@dataclass
-class RestartConfig:
-    """Escaping a local optimum: a stage that converges below its target restarts from its best networks with
-    more exploration, up to max_restarts times; after that the learner exits with an error and the queue halts."""
-
-    max_restarts: int = 2
-    entropy_boost: float = 3.0  # mappo.entropy_coef x this right after a restart ...
-    entropy_half_life_env_steps: int = 10_000_000  # ... decaying back to entropy_coef with this half-life
-    reset_optimizers: bool = True  # fresh Adam state, so steps are full-sized again
-    # Shrink and perturb: weights = shrink x best + perturb x freshly initialised weights. 1 and 0 = off.
-    shrink: float = 1.0
-    perturb: float = 0.0
+    # approx_kl per update, divided by the learning-rate scale in force, under which a class's policy has stopped
+    # moving. Measured: stages that never stall sit at 0.003-0.010 at full rate, stalled ones near 0.001.
+    kl: float = 0.003
+    entropy_slope: float = 0.01  # per evaluation, of entropy / ln(allowed actions)
+    # A converged class keeps this share of its training draw (its adapter and head are frozen), so the rest of
+    # the budget goes to the classes still learning; it re-enters at full weight if its score regresses.
+    hold_share: float = 0.02
+    # Hold both learning rates at full until the overall score first plateaus, then anneal: an anneal that starts
+    # at step 0 makes the KL fall with the schedule, which read as convergence when it was not.
+    lr_hold_until_plateau: bool = True
 
 
 @dataclass
@@ -321,8 +252,6 @@ class TrainConfig:
     distill: DistillConfig = field(default_factory=DistillConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
-    target: TargetConfig = field(default_factory=TargetConfig)
-    restarts: RestartConfig = field(default_factory=RestartConfig)
     layout_sampling: LayoutSamplingConfig = field(default_factory=LayoutSamplingConfig)
     entropy_floor: EntropyFloorConfig = field(default_factory=EntropyFloorConfig)
 

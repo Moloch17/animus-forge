@@ -18,7 +18,7 @@ extends: stage9_pack.yaml
 run_name: stage10_gauntlet
 
 # ~16 h at ~7k env steps/s; convergence usually ends the stage much sooner (the headroom is for restarts).
-total_env_steps: 90000000
+total_env_steps: 60000000
 
 # rollout_length 256 (64 s at 250 ms decisions) and gamma 0.999 / lambda 0.995 per 100 ms (a ~100 s horizon, ~17 s
 # of GAE trace) come from stage 2: a pull, its recovery and the next pull's setup fit in a few rollouts, and resting
@@ -28,10 +28,7 @@ total_env_steps: 90000000
 # 2048 five-minute episodes took about 3 minutes). Evaluate less often rather than on fewer episodes -- the score's
 # standard error sets the convergence margin and the per-class/build gates.
 eval:
-  every_env_steps: 15000000
-
-convergence:
-  min_env_steps: 20000000
+  every_env_steps: 10000000
 
 # A win is clean_kill: the gauntlet lasted to the end without a death and with Pulls.SoloGauntletWinPulls (5) pulls
 # cleared (PullsEncounter counts that as the kill; lasting on fewer is a timeout). The gauntlet has no difficulty
@@ -42,17 +39,3 @@ convergence:
 # win is stricter, so the floors are lower: 55% overall and 40% per class/build by the Wilson bound, four pulls cleared
 # on average, no livelocks. The stage halts below them rather than training on; recalibrate from this run's
 # evaluations.
-target:
-  # Pull after pull with short breaks. Clearing is not enough: the seat has to arrive at the next pull with
-  # something left, which is what eating, drinking and healing between pulls are for. engage_health and
-  # engage_mana are what it brings to the next fight -- the thing this stage exists to teach.
-  min_over_baseline: 0.10
-  min_layout_over_baseline: 0.0
-  metrics:
-    pulls_cleared: {min: 4.0}
-    engage_health: {min: 0.75}
-    died: {max: 0.35}
-  # No build floors here. These used to be role_metrics, which could say "every tank" in one line; a build gate
-  # names builds, and a shared config does not know which classes a run plays. Per-build floors live in
-  # configs/<class>/<stage>.yaml, where they can name that class's builds -- see configs/druid/.
-  until_passed: true

@@ -7,7 +7,7 @@
 extends: stage6_travel.yaml
 run_name: stage7_flight
 
-total_env_steps: 30000000
+total_env_steps: 20000000
 
 # gamma below is a ~100 s horizon, so a 128-decision rollout (12.8 s) would leave nearly every return to the
 # critic's bootstrap. 256 covers 25.6 s of it, as the gauntlet line does.
@@ -23,36 +23,7 @@ mappo:
   gae_lambda: 0.995
 
 eval:
+  every_env_steps: 2000000
   report: [arrived, spl, lost, wedged, stall_seconds, air_only, travel_seconds, mounted_fraction, flying_fraction,
     flying_mount_fraction, knows_flying_mount, could_mount_flying, flew, saved_if_flew, saved_if_ground,
     flight_speed, flight_yps, flight_yps_peak, flying_flag_share, flight_height, saved, died]
-
-target:
-  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
-  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
-  # Flying has to be adopted and has to pay. `flew` adoption decayed through an earlier run while the arrival
-  # rate stayed flat, so arrival alone would have called that a pass. saved_if_flew is what flying was worth on
-  # the episodes it was used, which is the honest measure of whether it is being used well.
-  min_over_baseline: 0.10
-  #
-  # Arriving is 1.0, as everywhere in the movement phase. This is the stage where that claim is least tested: a
-  # 700 yard flying trip has failure modes the ground stages do not, and no run of this stage has yet been scored
-  # against a 1.0 floor. `flew` and `saved_if_flew` stay proportions, because adopting flight and using it well
-  # are matters of degree in a way that arriving is not.
-  metrics:
-    arrived: {min: 1.0}
-    flew: {min: 0.35}
-    saved_if_flew: {min: 0.30}
-  # Per class as well: nine of ten class heads had never found the flying mount while the mage flew 0.96 of its
-  # trips, and an average over the ten hid it. A third of the episodes (the flight_air arena) can only be finished
-  # in the air, so a class that arrives there flew.
-  layout_metrics:
-    arrived: {min: 1.0}
-    flew: {min: 0.35}
-  # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena and it
-  # is not any of them, so those inherited entries name arenas that do not exist here and the learner refuses to
-  # start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with a single
-  # arena the per-arena floor would only restate the overall one. An empty map replaces where a populated one
-  # would merge, which is the only way to drop an inherited key.
-  arenas: {}
-  until_passed: true

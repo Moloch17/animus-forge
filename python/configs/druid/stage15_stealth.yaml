@@ -19,17 +19,3 @@ run_name: stage15_stealth
 
 eval:
   report: [stalked_into_range, stalk_seconds, stealth_openers, survived, won, form_at_end]
-
-target:
-  spec_metrics:
-    feral_cat:
-      # The one the stage is really about: Prowl into Pounce or Ravage, six levels down, so the opener has to
-      # decide the fight rather than decorate one that was winnable anyway.
-      stalked_into_range: {min: 0.45, confidence: 0.95}
-      stealth_openers: {min: 0.50}
-    feral_bear:
-      stalked_into_range: {min: 0.30, confidence: 0.95}
-    balance:
-      stalked_into_range: {min: 0.25, confidence: 0.95}
-    restoration:
-      stalked_into_range: {min: 0.25, confidence: 0.95}

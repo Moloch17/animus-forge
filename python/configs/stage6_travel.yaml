@@ -7,40 +7,12 @@ extends: stage1_move.yaml
 run_name: stage6_travel
 
 # Trips take seconds to a minute: shorter than a fight, one policy for every class/build.
-total_env_steps: 30000000
+total_env_steps: 20000000
 
 eval:
+  every_env_steps: 2000000
   baseline: fight
   report: [arrived, spl, lost, wedged, stall_seconds, stalls, travel_seconds, start_distance, walk_distance,
            distance_travelled, dry_detour, detour_band, mounted_fraction, saved, died,
            route_complete, route_failed, route_shortcut]
 
-convergence:
-  min_env_steps: 20000000
-
-target:
-  # These floors are deliberately conservative: a failed gate halts the whole queue, so they ask "did this stage
-  # learn its lesson at all" rather than "is it good". Raise them once a full pass has given real numbers.
-  # Arriving is most of it, but arriving on foot when a mount was available is a failure the arrival rate cannot
-  # see. `saved` is the share of the walking time the trip saved, which is the whole point of mounting, and
-  # mounted_fraction says the mount was actually used rather than the objective happening to be close.
-  min_over_baseline: 0.10
-  #
-  # Arriving is 1.0 here for the same reason it is in stage 1: the standard is that the bot always arrives, and
-  # this stage is the same trip with a mount under it. It inherits the feasibility cap that makes such a gate
-  # fair -- FindPlace measures the budget against the character's own speed, so a mounted trip is judged at
-  # mounted speed -- and it inherits timed_out: 0.0 from stage 1 rather than contradicting it, which a floor of
-  # 0.90 on arrival would have done.
-  metrics:
-    arrived: {min: 1.0}
-    saved: {min: 0.20}
-    mounted_fraction: {min: 0.45}
-  layout_metrics:
-    arrived: {min: 1.0}
-  # stage1_move gates each of its three arenas by name (open, broken, water). This stage has one arena and it
-  # is not any of them, so those inherited entries name arenas that do not exist here and the learner refuses to
-  # start: "target.arenas.open: the stage has no such arena". Cleared rather than translated -- with a single
-  # arena the per-arena floor would only restate the overall one. An empty map replaces where a populated one
-  # would merge, which is the only way to drop an inherited key.
-  arenas: {}
-  until_passed: true

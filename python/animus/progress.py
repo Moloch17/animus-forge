@@ -59,10 +59,8 @@ class ProgressWriter:
             "resumed_env_steps": resumed_env_steps,
             "eval_every": config.eval.every_env_steps,
             "patience": config.convergence.patience if config.eval.every_env_steps > 0 else 0,
-            "min_env_steps": config.convergence.min_env_steps,
+            "window": config.convergence.window,
             "baseline": config.eval.baseline,
-            "target": int(config.target.enabled),
-            "max_restarts": config.restarts.max_restarts if config.target.enabled else 0,
         }
         self.metrics: dict = {}
         self.evaluation: dict = {}
@@ -72,10 +70,8 @@ class ProgressWriter:
         self.metrics = dict(row)
 
     def evaluated(self, env_steps: int, score: float, baseline_score: float | None, tracker, controller=None) -> None:
+        weakest = controller.weakest() if controller else None
         self.evaluation = {
-            "restarts": controller.restarts if controller else 0,
-            # The convergence test counts evaluations and min_env_steps again from the last restart.
-            "segment_env_steps": tracker.segment_env_steps,
             "evals": len(tracker.history),
             "last_eval_env_steps": env_steps,
             "last_eval_score": score,
@@ -83,6 +79,13 @@ class ProgressWriter:
             "best_score": tracker.best,
             "best_env_steps": tracker.best_env_steps,
             "evals_since_best": tracker.evals_since_best,
+            # The convergence rule per class (animus.stage): who is done, who is not, and what the one furthest
+            # from done is still missing.
+            "converged_layouts": ",".join(controller.converged_layouts()) if controller else "",
+            "active_layouts": ",".join(controller.active_layouts()) if controller else "",
+            "weakest_layout": weakest[0] if weakest else "",
+            "weakest_missing": ",".join(weakest[1]) if weakest else "",
+            "reentries": sum(state.reentries for state in controller.layouts.values()) if controller else 0,
         }
 
     def restore_evaluation(self, tracker, baseline_score: float | None, controller=None) -> None:

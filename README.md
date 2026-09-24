@@ -19,7 +19,7 @@ baseline, decides when a stage is good enough to move on, and exports one small 
 | Forge core | Fixed-tick, headless AzerothCore: no clients, no bot persistence, a simulated clock | [2](docs/manual/02-forge-core.md) |
 | The curriculum layer, `src/` | Stages, blocks, encounters, rewards, characters, env pools and bots. Was animus-lib, a separate repository; folded in here | [3](docs/manual/03-animus-lib.md), [4](docs/manual/04-curriculum.md) |
 | This module, `src/` | Plans of stages, the `forge` console commands, the lock-step bridge, the learner process, progress reports, export | [5A](docs/manual/05-animus-forge.md#part-a-the-module) |
-| The learner, `python/` | MAPPO, seeding from earlier stages, distillation, seeded evaluation, convergence, stage targets, `.amdl` export | [5B](docs/manual/05-animus-forge.md#part-b-the-learner) |
+| The learner, `python/` | MAPPO, seeding from earlier stages, distillation, seeded evaluation, the convergence rule that ends a stage, `.amdl` export | [5B](docs/manual/05-animus-forge.md#part-b-the-learner) |
 | [mod-animus](https://github.com/Moloch17/animus) | Class companions on a stock realm | [6](docs/manual/06-animus.md) |
 
 ## The curriculum
@@ -68,7 +68,7 @@ Then, on the worldserver console:
 |---|---|
 | `forge run stage8_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
 | `forge fast` | The whole pipeline on an easy profile, minutes per stage, into `<OutputDir>/fast/` |
-| `forge start` | Train the curriculum stage by stage, until every stage has advanced or one halts below its target |
+| `forge start` | Train the curriculum stage by stage; each ends when every class has converged or at its budget, and the queue moves on |
 | `forge status` | Rates, ETAs, evaluation scores against the baseline, warnings |
 | `forge pause`, `resume`, `cancel`, `skip` | Control a run. The learner saves on cancel and skip |
 | `forge export <stage>` | Write the `.amdl` models and their manifests for mod-animus |

@@ -16,10 +16,10 @@ from animus.config import TrainConfig
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 MANUAL = Path(__file__).resolve().parents[2] / "docs" / "manual" / "04-curriculum.md"
 
-# `| `stage8_duel` | 300M | 10M | 2048 | 30M |` -- the table pairs two stages per row, so each line yields two.
+# `| `stage8_duel` | 100M | 10M | 2048 |` -- the table pairs two stages per row, so each line yields two.
 ROW = re.compile(
     r"\|\s*`(?P<name>\w+)`\s*\|\s*(?P<budget>[\d.]+)M\s*\|\s*(?P<every>[\d.]+)M\s*\|"
-    r"\s*(?P<episodes>\d+)\s*\|\s*(?P<min>[\d.]+)M\s*(?=\|)")
+    r"\s*(?P<episodes>\d+)\s*(?=\|)")
 
 
 def documented() -> dict[str, dict]:
@@ -30,7 +30,6 @@ def documented() -> dict[str, dict]:
                 "total_env_steps": int(float(m.group("budget")) * 1e6),
                 "every_env_steps": int(float(m.group("every")) * 1e6),
                 "episodes": int(m.group("episodes")),
-                "min_env_steps": int(float(m.group("min")) * 1e6),
             }
     return out
 
@@ -41,7 +40,6 @@ def configured(name: str) -> dict:
         "total_env_steps": config.total_env_steps,
         "every_env_steps": config.eval.every_env_steps,
         "episodes": config.eval.episodes,
-        "min_env_steps": config.convergence.min_env_steps,
     }
 
 
@@ -63,8 +61,8 @@ def test_the_queue_total_is_what_the_manual_says():
     # seats an env cannot run at the usual env count): they are trained by name.
     outside = {"stage24_raid_single", "stage25_raid_gauntlet"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
-    assert queue == 2_010_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,010M"
-    assert sum(v["total_env_steps"] for v in rows.values()) == 2_130_000_000
+    assert queue == 1_032_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 1,032M"
+    assert sum(v["total_env_steps"] for v in rows.values()) == 1_112_000_000
 
 
 # --------------------------------------------------------------------------- 8.2 tuning defaults
