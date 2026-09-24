@@ -9,7 +9,7 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 | Piece | Repository | What it is |
 |---|---|---|
 | **The forge core** | `forge` branch of [azerothcore-wotlk](https://github.com/Moloch17/azerothcore-wotlk) | AzerothCore turned into a headless simulator that runs faster than real time |
-| **animus-lib** | [animus-lib](https://github.com/Moloch17/animus-lib) (`modules/mod-animus-lib`) | The curriculum, env pools, bots and model runtime that both modules share |
+| **The curriculum layer** | `modules/mod-animus-forge/src` (was animus-lib, a repository of its own) | The curriculum, env pools, bots and model runtime |
 | **Animus Forge** | [animus-forge](https://github.com/Moloch17/animus-forge) (`modules/mod-animus-forge`) | The training module and its Python MAPPO learner |
 | **Animus** | [animus](https://github.com/Moloch17/animus) (`modules/mod-animus`) | The module that plays the trained models on a stock AzerothCore |
 

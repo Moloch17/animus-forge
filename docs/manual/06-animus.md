@@ -33,14 +33,14 @@ with real clients. It offers two features:
 | `src/Viewer/StageViewer.{h,cpp}` | One game master's stage |
 | `conf/mod_animus.conf.dist` | Every key, documented |
 | `mod-animus.cmake` | Installs `models/`, creates `mod_animus.conf` when missing, builds the bundled animus-lib |
-| `animus-lib/` | The bundled animus-lib (a git subtree); `tools/update-animus-lib.sh` updates it |
+| `animus-lib/` | This module's copy of the curriculum layer, left from when it was a shared repository. Nothing updates it now |
 | `models/` | Where you may put models for the install step to copy |
 
 ## 6.3 Installing
 
-1. Put the module in a stock AzerothCore's `modules/`. animus-lib comes bundled in `animus-lib/`, so nothing is fetched
-   at build time (a `modules/mod-animus-lib` checkout, when present, is built instead). Build static (the default); a
-   dynamic build needs the library as its own module (copy the bundle to `modules/mod-animus-lib`).
+1. Put the module in a stock AzerothCore's `modules/`. The curriculum layer comes with it in `animus-lib/`, so
+   nothing is fetched at build time. Build static (the default). Do not enable mod-animus-forge in the same
+   configure: it carries its own copy of those sources and the two would link twice, which the configure refuses.
 2. Rebuild and install the worldserver.
 3. Installing creates `mod_animus.conf` in the modules config directory from its `.dist` when there is none, and never
    overwrites one (under Docker the container copies it to the config volume on first start). AzerothCore reads a

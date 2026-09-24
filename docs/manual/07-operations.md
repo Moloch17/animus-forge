@@ -13,8 +13,6 @@ data, builds and runs. A GPU is optional: updates run on the CPU without one, ju
    git clone -b forge git@github.com:Moloch17/azerothcore-wotlk.git animus-forge-core
    cd animus-forge-core
    git clone git@github.com:Moloch17/animus-forge.git modules/mod-animus-forge
-   # optional: animus-lib is bundled in mod-animus-forge/animus-lib; a checkout here is built instead (to develop it)
-   git clone git@github.com:Moloch17/animus-lib.git modules/mod-animus-lib
    ```
 
    If you also keep `modules/mod-animus` in this checkout, it must be disabled in the forge build (step 2).
@@ -541,7 +539,7 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
 | Every `AnimusForge.*` (or `Animus.*`) key logs "Missing property" | The module's `.conf` doesn't exist: AzerothCore no longer reads a module's `.dist`. Installing creates it when missing (Docker copies it to the config volume on start); for an install that predates that, copy it from the `.dist` |
 | "The world ticks N ms, but AnimusForge.DecisionMs M over TicksPerDecision T wants X ms" | The worldserver and the module disagree about the split, because it was built before this, or because the conf changed without restarting both. Run `./forge.sh --build` |
 | Configure fails: "mod-animus-forge needs mod-animus-lib, which is disabled" or linkage mismatch | Build both the same way. Set the named variable to `static` or `dynamic` |
-| Configure fails: "built dynamic, which needs animus-lib as its own module" | Copy the module's `animus-lib/` bundle to `modules/mod-animus-lib` and build it dynamic too |
+| Configure fails: "mod-animus and mod-animus-forge each carry their own copy of the curriculum" | Enable one, not both: `-DMODULE_MOD-ANIMUS=disabled` on a forge core |
 | "Learner directory ... does not contain animus/train.py" | The worldserver runs from a baked image, or the module moved. Set `AnimusForge.Learner.WorkDir` |
 | "waiting for learner" forever | Auto-start failed (see the server log and `animus-learner.log`), or `AutoStart = 0`. Run the printed command by hand |
 | The learner exits right after connecting | Config error (unknown key, wrong type), target validation (a gate on a missing metric), or a resume mismatch. See `animus-learner.log` |

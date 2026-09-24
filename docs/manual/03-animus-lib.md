@@ -1,6 +1,9 @@
 # 3. animus-lib
 
-animus-lib (`modules/mod-animus-lib`, namespace `Animus`) is the code that training and play share. Because both
+The curriculum layer (namespace `Animus`) is the code that training and play share. It was animus-lib, a
+repository of its own bundled into both modules as a git subtree; it now lives in `modules/mod-animus-forge/src`,
+and mod-animus keeps its own copy under `animus-lib/`. The chapter is still named after it because that is what
+the layer is called throughout the code and the rest of this manual. Because both
 modules run the same scenario code, the stage a game master watches in mod-animus is exactly the stage the forge
 trained, and a model's observations and actions mean the same thing in both places.
 
@@ -38,25 +41,18 @@ mod-animus-forge and mod-animus**.
 
 ## 3.2 Build and loading
 
-Each dependent bundles the library's source as a git subtree in `<module>/animus-lib` (`tools/update-animus-lib.sh
-[ref]` pulls a revision in), so a module folder builds offline with the library revision it was tested with. Its
-`<module>.cmake` includes `cmake/AnimusLibDependency.cmake` (from `modules/mod-animus-lib` when that exists, else from
-its bundle) and calls `AnimusLibRequire(<dependent> <bundle dir>)`. Exactly one copy is built:
+There is nothing to resolve. mod-animus-forge carries these sources in its own `src/`, so AzerothCore's module
+machinery collects them like any other module's, and `AddSC_animus_lib()` is called from
+`src/animus_forge_loader.cpp` beside the module's own registrations.
 
-- **`modules/mod-animus-lib` is a module of this configure** (a development checkout). It is the library, and the
-  bundles are ignored. It must use the same linkage as the dependent: a disabled library or mismatched linkage stops
-  the configure with a message naming the variable to set. Static builds need nothing more; a dynamic dependent links
-  the library's shared module.
-- **Otherwise** the first static dependent adds its bundle's `src/` sources and include directories to the `modules`
-  target (once, guarded by a global property). AzerothCore only collects a module's own `src/`, so a bundle is never
-  compiled twice. A dynamic dependent needs the library as its own module; the configure says to copy the bundle to
-  `modules/mod-animus-lib`.
+mod-animus keeps its own copy under `animus-lib/`, left from when this was a shared repository and a git subtree in
+both. It is a plain copy now: nothing updates it, and it tracks nothing.
 
-Lib changes are made in animus-lib; a dependent that needs them runs its update script before shipping.
-
-Script registration follows the same logic. The generated modules loader calls `Addmod_animus_libScripts()` when the
-library is a known module, and each dependent's own loader also calls it first. The function is idempotent (a static
-`added` flag), so the hooks are registered exactly once however the library was found.
+**The two modules cannot be built together.** They each carry the curriculum, and two copies in one link is a
+duplicate-symbol failure with nothing to say why, so `mod-animus.cmake` stops the configure with a message instead.
+Disable one: `-DMODULE_MOD-ANIMUS=disabled` for a forge core, `-DMODULE_MOD-ANIMUS-FORGE=disabled` for a realm.
+This is not a new restriction in practice -- a forge core has no clients and no use for companions -- but it used to
+be a convention and is now enforced.
 
 ## 3.3 The scenario interface
 

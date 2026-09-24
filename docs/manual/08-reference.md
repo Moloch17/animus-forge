@@ -80,8 +80,7 @@ The forge core also relies on these `worldserver.conf` keys: `MapUpdate.Threads`
 | `Animus.Stage.SpawnPoint.MapId/X/Y/Z/O` | `560`, `2741.9`, `1315.2`, `14.0`, `2.96` | Where stages happen |
 | `Animus.Curriculum.<tuning>` | see 8.2 | The stage viewer's curriculum tuning (companions don't use it) |
 
-CMake: `ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`). Both modules: `ANIMUS_LIB_GIT_URL`
-(`https://github.com/Moloch17/animus-lib.git`), `ANIMUS_LIB_GIT_REF` (`master`).
+CMake: `ANIMUS_MODELS_INSTALL_DIR` (default `<install prefix>/data/animus`).
 
 ### Docker environment (`docker-compose.yml`)
 
@@ -101,9 +100,8 @@ Prefix: `AnimusForge.Curriculum.` (forge) or `Animus.Curriculum.` (mod-animus). 
 
 This table is a quick reference to the values worth knowing. **The authoritative list is each module's
 `conf/*.conf.dist`**, which documents every key with a comment saying what it does, and is checked against
-`CurriculumTuning::Visit` by `python/tests/test_conf_covers_tuning.py` and again by
-`tools/update-animus-lib.sh` -- both directions, so a key the sim reads and the template omits, or a key the
-template offers and the sim ignores, fails. A missing key is otherwise silent: `CurriculumTuning::Load` asks
+`CurriculumTuning::Visit` by `python/tests/test_conf_covers_tuning.py` -- both directions, so a key the sim reads
+and the template omits, or a key the template offers and the sim ignores, fails. A missing key is otherwise silent: `CurriculumTuning::Load` asks
 for every key with a default and no warning, so an undocumented one quietly keeps its compiled-in value.
 
 | Key | Default | | Key | Default |

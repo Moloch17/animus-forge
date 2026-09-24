@@ -23,7 +23,12 @@ RELATIVE = Path("src/Scenario/Curriculum/Character/SpecBuilds.cpp")
 
 
 def spec_builds_path() -> Path | None:
-    """animus-lib beside this checkout, wherever the two were cloned (or mounted, under test)."""
+    """SpecBuilds.cpp: this module's own copy since the library was folded in, and before that animus-lib beside
+    the checkout, wherever the two were cloned (or mounted, under test)."""
+    here = Path(__file__).resolve().parents[2] / RELATIVE
+    if here.exists():
+        return here
+
     for base in Path(__file__).resolve().parents:
         for candidate in (base / "mod-animus-lib" / RELATIVE, base / "modules/mod-animus-lib" / RELATIVE):
             if candidate.exists():

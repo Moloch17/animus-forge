@@ -89,9 +89,9 @@ core changes. See [chapter 6](06-animus.md).
 | Forge core (training) | yes | yes | **no** (`-DMODULE_MOD-ANIMUS=disabled`) |
 | Stock core (playing) | yes | no (it needs forge-only APIs) | yes |
 
-Both modules bundle animus-lib's source in `animus-lib/` (a git subtree at the revision they were tested with), so
-they build offline; a `modules/mod-animus-lib` checkout, when present, is built instead. Build static (the default); a
-dynamic build needs the library as its own module.
+mod-animus-forge carries the curriculum in its own `src/`; mod-animus keeps a copy under `animus-lib/`. Both build
+offline, and the two cannot be enabled in one configure -- they would link two copies of the same code, and the
+configure says so.
 
 ## Core ideas
 

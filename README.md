@@ -17,7 +17,7 @@ baseline, decides when a stage is good enough to move on, and exports one small 
 | Piece | What it does | Manual |
 |---|---|---|
 | Forge core | Fixed-tick, headless AzerothCore: no clients, no bot persistence, a simulated clock | [2](docs/manual/02-forge-core.md) |
-| [animus-lib](https://github.com/Moloch17/animus-lib) | The curriculum (stages, blocks, encounters, rewards, characters), env pools, bots and the model runtime, shared with mod-animus | [3](docs/manual/03-animus-lib.md), [4](docs/manual/04-curriculum.md) |
+| The curriculum layer, `src/` | Stages, blocks, encounters, rewards, characters, env pools, bots and the model runtime. Was animus-lib, a separate repository; folded in here | [3](docs/manual/03-animus-lib.md), [4](docs/manual/04-curriculum.md) |
 | This module, `src/` | Plans of stages, the `forge` console commands, the lock-step bridge, the learner process, progress reports, export | [5A](docs/manual/05-animus-forge.md#part-a-the-module) |
 | The learner, `python/` | MAPPO, seeding from earlier stages, distillation, seeded evaluation, convergence, stage targets, `.amdl` export | [5B](docs/manual/05-animus-forge.md#part-b-the-learner) |
 | [mod-animus](https://github.com/Moloch17/animus) | Class/role companions and a stage viewer on a stock realm | [6](docs/manual/06-animus.md) |
@@ -54,9 +54,8 @@ git clone git@github.com:Moloch17/animus-forge.git modules/mod-animus-forge
 ./forge.sh            # build and start everything, then attach to the console (detach: Ctrl+P Ctrl+Q)
 ```
 
-animus-lib comes bundled in `animus-lib/` (`tools/update-animus-lib.sh` updates it); a `modules/mod-animus-lib`
-checkout, when present, is built instead. The first start builds the images, the worldserver and the Python venv, so it
-takes a while. GPU passthrough, native builds and the settings worth reviewing first are in
+Everything the module needs is in `src/`; there is no library to fetch. The first start builds the images, the
+worldserver and the Python venv, so it takes a while. GPU passthrough, native builds and the settings worth reviewing first are in
 [Operations 7.1](docs/manual/07-operations.md#71-setting-up-the-training-host-docker).
 
 Then, on the worldserver console:

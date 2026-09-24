@@ -10,7 +10,7 @@ A missing key is not loud: CurriculumTuning::Load asks for every key with a defa
 so an absent one silently keeps its compiled-in value. That is the right behaviour for a running server and the
 wrong one for finding out that a knob was never documented.
 
-This test reads the bundled animus-lib, so it checks the lib the module actually builds against.
+This test reads the module's own curriculum sources, so it checks what the module actually builds.
 """
 
 import re
