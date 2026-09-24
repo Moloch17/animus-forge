@@ -126,6 +126,9 @@ namespace Animus::Curriculum
         /// because a masked action cannot be explored into and the lesson stays clean.
         bool OnFoot = false;
         /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
+        /// through. On a creature arena instead (stage5_duel's `lake`): the opponent stands in the water, so the
+        /// fight is a swimming one for whoever goes in after it.
+        /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
         /// through. Every other travel arena refuses an objective anywhere near water, which is why nothing in the
         /// curriculum had ever had to swim.
         ///
@@ -191,6 +194,13 @@ namespace Animus::Curriculum
         /// place in reach builds an ordinary trip and reports `ledge` 0, as a water arena reports `crossing` 0.
         /// Arriving means the objective's own floor (ARRIVE_SAME_FLOOR), or the lip above it would count.
         bool Ledges = false;
+        /// Travel, on foot: the objective is on the bed of a lake, under Travel.DiveDepthMin to DiveDepthMax yards
+        /// of water, Travel.DiveMin to DiveMax yards away. Arriving is standing on the bed beside it, which means
+        /// swimming down, and the deep ones cannot be reached on one breath: the core's breath timer and its
+        /// drowning damage (a fifth of the seat's health a second once the breath is spent) are the price, and
+        /// what the seat learns. A spawn point with no water that deep in reach builds an ordinary trip and
+        /// reports `dive` 0, as a water arena reports `crossing` 0.
+        bool Underwater = false;
 
         [[nodiscard]] uint32 SeatCount() const;
     };
@@ -228,6 +238,10 @@ namespace Animus::Curriculum
         /// NeedsStealth restricts the stealth drill. The same caveat applies: a checkpoint of a restricted stage
         /// holds only the layouts it played, and animus.bootstrap refuses to seed the rest from it in silence.
         bool NeedsFeatherFall = false;
+        /// The same pair for water: the water-breathing spells (Unending Breath, Water Breathing) are masked so
+        /// every class learns the bare price of a dive, and a stage played only by the classes that have one.
+        bool WaterBreathingMasked = false;
+        bool NeedsWaterBreathing = false;
         std::vector<BlockId> Blocks;    // in layout order: every block any of its arenas needs
         std::vector<ArenaDefinition> Arenas;
         bool InDefaultQueue = true;     // trained by an empty AnimusForge.Queue (false: only when named)

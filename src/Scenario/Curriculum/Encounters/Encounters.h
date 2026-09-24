@@ -549,6 +549,10 @@ namespace Animus::Curriculum
         float LedgeDetour = 2.0f;
         float DropMin = 5.0f;
         float DropMax = 80.0f;
+        /// The place must be on a lakebed under DepthMin to DepthMax yards of water (ArenaDefinition::Underwater).
+        bool Underwater = false;
+        float DepthMin = 6.0f;
+        float DepthMax = 40.0f;
     };
 
     class TravelEncounter final : public Encounter
@@ -591,7 +595,7 @@ namespace Animus::Curriculum
         static bool FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying, Position& place,
             float budgetSeconds, float* walk = nullptr, bool across = false, float* dry = nullptr,
             bool indoors = false, bool* shortcut = nullptr, TravelPlaceRules const& rules = TravelPlaceRules(),
-            float* ledgeDrop = nullptr);
+            float* ledgeDrop = nullptr, float* diveDepth = nullptr);
         /// Whether the straight line from `bot` to (x, y) passes through water.
         static bool CrossesWater(Player const* bot, Map* map, Position const& place, float x, float y);
         /// Whether the straight line from `bot` to the place crosses one edge the seat can drop off -- the
@@ -607,10 +611,11 @@ namespace Animus::Curriculum
             bool AirOnly = false;           // the arena is air-only: placement, the ground mount and arrival change
             bool Ledge = false;             // the objective is below a ledge on the straight line (a ledge arena that found one)
             float LedgeDrop = 0.0f;         // and how high that edge is
+            bool Dive = false;              // the objective is on a lakebed (a dive arena that found one)
+            float DiveDepth = 0.0f;         // and how much water stands over it
             int32 Band = -1;                // the detour band the trip was drawn for (TravelPlaceRules::Band); -1 none
             bool Crossing = false;          // the objective was placed across water (a water arena that found one)
             float DryDistance = 0.0f;       // yards of the way round on foot, water excluded; 0 = no dry route
-            uint32 SwimMs = 0;              // how long the seat has been in the water this episode
             bool HasObjective = false;
             Position Objective;
             float StartDistance = 0.0f;         // yards on the ground at the start

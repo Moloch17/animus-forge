@@ -332,8 +332,8 @@ def gated_names(target) -> dict[str, str]:
     return found
 
 
-MOVEMENT_STAGES = ("stage1_move", "stage1b_indoor", "stage1c_jump", "stage1d_glide", "stage2_dodge", "stage3_travel",
-                   "stage4_flight")
+MOVEMENT_STAGES = ("stage1_move", "stage1b_indoor", "stage1c_jump", "stage1d_glide", "stage1e_dive", "stage1f_breathe",
+                   "stage2_dodge", "stage3_travel", "stage4_flight")
 
 
 @pytest.mark.parametrize("name", MOVEMENT_STAGES)

@@ -29,6 +29,7 @@
 #include "DBCStores.h"
 #include "DuelBlock.h"
 #include "MoveBlock.h"
+#include "World.h"
 #include "EncoderSupport.h"
 #include "Encounters.h"
 #include "SpellMgr.h"
@@ -106,6 +107,27 @@ namespace
         for (Animus::Curriculum::ClassKit::KitSpell const& kitSpell : assets.Kit->Spells())
             if (SpellInfo const* spell = sSpellMgr->GetSpellInfo(kitSpell.SpellId);
                 spell && spell->HasAura(SPELL_AURA_MOD_STEALTH))
+                return true;
+
+        return false;
+    }
+
+    /// The core's breath, in game milliseconds: WaterBreath.Timer, 180 s by default (World::LoadConfigSettings).
+    uint32 BreathMs()
+    {
+        return std::max<uint32>(1000, sWorld->getIntConfig(CONFIG_WATER_BREATH_TIMER));
+    }
+
+    /// Whether the class can breathe under water: a kit spell with the water-breathing aura (Unending Breath,
+    /// Water Breathing). The breathe drill (StageDefinition::NeedsWaterBreathing) is played only by these.
+    bool CanWaterBreathe(Animus::Curriculum::ClassAssets const& assets)
+    {
+        if (!assets.Kit)
+            return false;
+
+        for (Animus::Curriculum::ClassKit::KitSpell const& kitSpell : assets.Kit->Spells())
+            if (SpellInfo const* spell = sSpellMgr->GetSpellInfo(kitSpell.SpellId);
+                spell && spell->HasAura(SPELL_AURA_WATER_BREATHING))
                 return true;
 
         return false;
@@ -308,6 +330,8 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
         if (_stage.NeedsStealth && !CanStealth(assets))
             continue;
         if (_stage.NeedsFeatherFall && !CanFeatherFall(assets))
+            continue;
+        if (_stage.NeedsWaterBreathing && !CanWaterBreathe(assets))
             continue;
 
         Layout layout = Layout::Build(profile, _stage);
@@ -682,6 +706,22 @@ void Animus::Curriculum::StageScenario::AddCoreEpisodeInfo()
     // land, drops (a landing more than a step below the seat) and the deepest of them, drops made under Slow Fall
     // or Levitate, and the falls that followed -- whether there was one, what they cost in health, and whether one
     // killed the seat. A drill about ledges reads these; every other stage gets them for free.
+    // Water, for every stage: time swimming, time with the head under, surfacings, the most of a breath spent
+    // (past 1 while drowning), damage taken under water past the breath and whether it killed the seat, and time
+    // walking on water under an aura for it.
+    _info.Add("swim_seconds", [seat](Env const& env, uint32 index) { return float(seat(env, index).WaterMs) / 1000.0f; });
+    _info.Add("dive_seconds", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).SubmergedMs) / 1000.0f;
+    });
+    _info.Add("breaths", [seat](Env const& env, uint32 index) { return float(seat(env, index).Breaths); });
+    _info.Add("breath_spent", [seat](Env const& env, uint32 index) { return seat(env, index).BreathSpentMax; });
+    _info.Add("drowning_damage", [seat](Env const& env, uint32 index) { return seat(env, index).DrowningDamage; });
+    _info.Add("drowned", [seat](Env const& env, uint32 index) { return seat(env, index).Drowned ? 1.0f : 0.0f; });
+    _info.Add("water_walk_seconds", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).WaterWalkMs) / 1000.0f;
+    });
     _info.Add("jumps", [seat](Env const& env, uint32 index) { return float(seat(env, index).Jumps); });
     _info.Add("jumps_refused", [seat](Env const& env, uint32 index) { return float(seat(env, index).JumpsRefused); });
     _info.Add("drops", [seat](Env const& env, uint32 index) { return float(seat(env, index).Drops); });
@@ -1391,6 +1431,7 @@ bool Animus::Curriculum::StageScenario::Setup(Env& env)
         LOG_ERROR("module.animus", "{}: no class/role to play (check the host's class/role list{}{})", Name(),
             _stage.NeedsStealth ? ", and this stage is played only by class/roles whose kit has stealth" : "",
             _stage.NeedsFeatherFall ? ", and this stage is played only by classes whose kit has Slow Fall or Levitate"
+                : _stage.NeedsWaterBreathing ? ", and this stage is played only by classes whose kit breathes water"
                 : "");
         return false;
     }
@@ -2079,6 +2120,7 @@ Animus::Curriculum::SeatView Animus::Curriculum::StageScenario::ViewSeat(Env con
     view.CloseRate = seat.CloseRate;
     view.SubmergedTime = seat.SubmergedSinceMs && env.EpisodeElapsedMs > seat.SubmergedSinceMs
         ? float(env.EpisodeElapsedMs - seat.SubmergedSinceMs) / 1000.0f : 0.0f;
+    view.BreathSpent = float(seat.BreathSpentMs) / float(std::max<uint32>(1, BreathMs()));
     view.Build = &seat.Build;
     view.KnownRanks = &seat.KnownRanks;
     view.Memory = &seat.Memory;
@@ -2190,14 +2232,50 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
     seat.PitchTurning = view.PitchTurning;
     seat.Pitch = view.Pitch;
     seat.Facing = view.Facing;
-    // A breath starts when the head goes under and is finished the moment it comes up again.
-    if (bot && bot->IsAlive() && bot->IsUnderWater())
+    // Water, the way the core keeps it. A breath is spent under water and comes back ten times as fast above it
+    // (Player::HandleDrowning), so bobbing up for a decision buys a fraction of one rather than a whole one; under
+    // a water-breathing aura the core runs no timer, and neither does this. Damage taken under water past the
+    // breath is drowning -- nothing else hurts a seat down there -- and a death in that state is a drowning.
+    if (bot && bot->IsAlive())
     {
-        if (!seat.SubmergedSinceMs)
-            seat.SubmergedSinceMs = std::max<uint32>(1, env.EpisodeElapsedMs);
+        uint32 const breath = std::max<uint32>(1, BreathMs());
+        bool const under = bot->IsUnderWater();
+        bool const swimming = bot->Unit::IsInWater();
+        if (swimming)
+            seat.WaterMs += _decisionMs;
+        if (bot->HasWaterWalkAura() && !swimming
+            && bot->GetMap()->GetLiquidData(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(),
+                bot->GetPositionZ(), bot->GetCollisionHeight(), {}).Status == LIQUID_MAP_WATER_WALK)
+            seat.WaterWalkMs += _decisionMs;
+        if (under)
+        {
+            seat.SubmergedMs += _decisionMs;
+            if (!seat.SubmergedSinceMs)
+                seat.SubmergedSinceMs = std::max<uint32>(1, env.EpisodeElapsedMs);
+            if (bot->HasWaterBreathingAura())
+                seat.BreathSpentMs = 0;
+            else
+            {
+                if (seat.BreathSpentMs >= breath && seat.LastStepDamageTaken > 0.0f)
+                    seat.DrowningDamage += seat.LastStepDamageTaken;
+                seat.BreathSpentMs += _decisionMs;
+            }
+        }
+        else
+        {
+            if (seat.SubmergedSinceMs)
+                ++seat.Breaths;
+            seat.SubmergedSinceMs = 0;
+            seat.BreathSpentMs -= std::min(seat.BreathSpentMs, 10 * _decisionMs);
+        }
+        seat.BreathSpentMax = std::max(seat.BreathSpentMax, float(seat.BreathSpentMs) / float(breath));
     }
-    else
+    else if (bot && !bot->IsAlive() && seat.SubmergedSinceMs && seat.BreathSpentMs >= BreathMs()
+        && !seat.Drowned)
+    {
+        seat.Drowned = true;
         seat.SubmergedSinceMs = 0;
+    }
     if (action > 0)
         Press(env, seat, bot, uint32(action), result.DidSomething());
 

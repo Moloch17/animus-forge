@@ -88,6 +88,11 @@ namespace Animus::Curriculum
             /// learn the bare price of a drop masks these (StageDefinition::FeatherFallMasked); the one after it
             /// lets the classes that have one spend a cast to make a deadly drop harmless.
             bool FeatherFall = false;
+            /// It lets the seat breathe under water (Unending Breath, Water Breathing) or walk on it (Water Walking,
+            /// Path of Frost, Levitate again). Masked the same way for the drill that teaches the bare price of a
+            /// dive (StageDefinition::WaterBreathingMasked).
+            bool WaterBreathing = false;
+            bool WaterWalk = false;
         };
 
         ActionCatalog(uint8 playerClass, ClassKit const& kit, TalentBuilder const& talents);

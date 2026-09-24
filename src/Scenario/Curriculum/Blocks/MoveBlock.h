@@ -369,9 +369,11 @@ namespace Animus::Curriculum
         /// Both halves matter. A jump of a few inches is not a move, and a jump of none at all is a spline with
         /// no length, whose duration is zero and whose position is then whatever dividing by it produces.
         static constexpr float JUMP_MIN_YARDS = 1.0f;
-        /// What a character's breath is worth, for OBS_SUBMERGED_TIME. A held breath is about a minute in this
-        /// expansion; the number only has to be the right size for the feature to mean something.
-        static constexpr float BREATH_SECONDS = 60.0f;
+        /// Where a water-walking seat's feet go: a hair over the surface, so the core reads LIQUID_MAP_WATER_WALK.
+        static constexpr float WATER_WALK_ABOVE = 0.1f;
+        /// OBS_SUBMERGED_TIME is the breath spent as the core spends it (SeatView::BreathSpent, against
+        /// WaterBreath.Timer), not seconds under over a guessed minute: the old sixty was a third of the real
+        /// breath, so the feature saturated with two thirds of the air still to come.
 
         [[nodiscard]] BlockId Id() const override { return BlockId::Move; }
         [[nodiscard]] BlockSize Size(Layout const& layout) const override;

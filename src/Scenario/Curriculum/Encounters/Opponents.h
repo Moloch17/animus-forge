@@ -92,6 +92,10 @@ namespace Animus::Curriculum::Opponents
     /// A random spot 40-50 yd from the bot, in line of sight on roughly level ground the bot can walk to (so a
     /// creature there has a path to it), with a random facing.
     [[nodiscard]] Position FindSpawnPoint(Player* bot, Map* map);
+    /// The same, in the water: a spot at the surface of a lake at least BODY_HEIGHT deep, in line of sight, so the
+    /// fight is a swimming one for whoever goes in after the other (a creature arena with ArenaDefinition::Water).
+    /// The dry spot FindSpawnPoint would give when no water is in reach.
+    [[nodiscard]] Position FindSpawnPointInWater(Player* bot, Map* map);
 
     /// Summon `entry` at `pos` and `level`, hostile to players and aggressive, and not regenerating health in a fight
     /// it cannot reach. Returns nullptr on failure.

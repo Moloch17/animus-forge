@@ -1,0 +1,17 @@
+# The same lakebeds, for the classes that can breathe down there.
+#
+# Seeded from stage1e_dive, so the seat already knows what a breath is worth. Unending Breath (warlock) and Water
+# Breathing (shaman) are unmasked here and the stage is played only by the classes whose kit has one
+# (StageDefinition::NeedsWaterBreathing): what they learn is that a cast before the dive makes the deep one free.
+# Its lesson shows as breath_spent and drowning_damage falling per class while dive_depth and arrival hold.
+#
+# NOT in the default queue; trained by name after stage1e_dive:
+#
+#   forge start stage1f_breathe
+
+extends: stage1e_dive.yaml
+run_name: stage1f_breathe
+
+# A shorter budget: the legs and the lakebeds are inherited, and one spell is the new thing. Above the fast
+# overlay's 20M, which every stage has to stay above.
+total_env_steps: 24000000

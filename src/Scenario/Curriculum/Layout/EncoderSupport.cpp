@@ -810,7 +810,10 @@ namespace Animus::Curriculum::Encoding
             *yards = 0.0f;
         if (healthFraction)
             *healthFraction = 0.0f;
-        if (!bot->IsAlive() || bot->CanFly() || !bot->movespline->Finalized())
+        // Not in water: a seat holding still under the surface is swimming, not hanging in the air, and the lakebed
+        // twenty yards down is not a fall waiting to happen. Unit::IsInWater reads the terrain; Player::IsInWater
+        // is the cached flag the client would have sent.
+        if (!bot->IsAlive() || bot->CanFly() || !bot->movespline->Finalized() || bot->Unit::IsInWater())
             return false;
 
         float const ground = bot->GetMapHeight(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), true,

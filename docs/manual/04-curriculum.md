@@ -1,9 +1,9 @@
 # 4. The curriculum
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
-`src/Scenario/Curriculum/`. Twenty-seven scenarios are defined; **twenty-three are the default queue**, in the
-order they are trained, and four are trained only by name: the three drills off `stage1_move` (`stage1b_indoor`,
-`stage1c_jump`, `stage1d_glide`) and the `mix_duel_pvp` pilot.
+`src/Scenario/Curriculum/`. Twenty-nine scenarios are defined; **twenty-three are the default queue**, in the
+order they are trained, and six are trained only by name: the five drills off `stage1_move` (`stage1b_indoor`,
+`stage1c_jump`, `stage1d_glide`, `stage1e_dive`, `stage1f_breathe`) and the `mix_duel_pvp` pilot.
 
 Every stage trains the same ten class policies over a shared trunk, so what one class learns about moving,
 threat or interrupts helps the others. A class policy plays every role its class has specs for, and is measured
@@ -20,6 +20,8 @@ stage1_move          open ground, broken ground, water   ── the feet
 ├─ stage1b_indoor    inns: walls within reach, doorways, a jump  ── trained by name, not queued
 ├─ stage1c_jump      ledges: drop off, or take the long way round  ── trained by name; Slow Fall masked
 │  └─ stage1d_glide  the same ledges with Slow Fall or Levitate  ── trained by name; mage and priest only
+├─ stage1e_dive      lakebeds: swim down, come up for air  ── trained by name; water breathing masked
+│  └─ stage1f_breathe  the same lakebeds with Unending Breath or Water Breathing  ── warlock and shaman only
 └─ stage2_dodge      fire underfoot, nothing to fight
    └─ stage3_travel  the mount
       └─ stage4_flight
@@ -85,6 +87,8 @@ one commanding each side (see 4.12).
 | `stage1b_indoor` | stage1_move | Solo | same | **Inside.** A place 8-40 yd away in an inn -- shorter than an outdoor episode's first step. Where the sixteen navmesh rays, the 15-degree turn, the clearance term and the jump are all worth something. Trained by name, not in the default queue: its gate is one a first run is expected to fail, and a queued stage that halts below its target halts the queue with it |
 | `stage1c_jump` | stage1_move | Solo | same | **Down.** A place 20-120 yd away below a ledge, 5-80 yd under the seat, with a way round on foot at least twice the straight line. The jump drops off the edge and the fall after it is the core's own, with the core's own damage: free to fourteen yards, lethal past about seventy. Slow Fall and Levitate are masked, so every class learns the bare price of a drop. Trained by name |
 | `stage1d_glide` | stage1c_jump | Solo | same | The same ledges for the classes with a feather-fall spell (mage, priest), with the spell unmasked: a cast beforehand makes the deadly drop free, and when that is worth the cast is the lesson. Trained by name |
+| `stage1e_dive` | stage1_move | Solo | same | **Down, into the water.** A place 20-120 yd away on the bed of an oasis under 6-40 yd of water; arriving means standing on it. The breath is the core's three minutes and the drowning after it a fifth of the seat's health a second, and the deep places cannot be reached on one breath. Unending Breath and Water Breathing are masked. Trained by name |
+| `stage1f_breathe` | stage1e_dive | Solo | same | The same lakebeds for the classes with a water-breathing spell (warlock, shaman), with the spell unmasked: a cast before the dive makes the deep one free. Trained by name |
 | `stage2_dodge` | stage1_move | Solo | same | **Drill.** Still nothing to fight: fire lands underfoot every few seconds and stays, so getting off it is the only thing in the episode |
 | `stage3_travel` | stage2_dodge | Solo | same | A place 60-320 yd away by path: mount when it pays, get there, arrive on foot. Level 20+ |
 | `stage4_flight` | stage3_travel | Solo | same | A place 350-700 yd away in Nagrand: take off, fly over what is in the way, land, dismount. Level 60+. A third of its episodes (`flight_air`) put the place on a plateau or island the ground route does not reach, with the ground mount masked, where the spawn point has one in reach; `air_only` reports which trips did |
@@ -165,7 +169,8 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage11_hide` | 40M | 10M | 2048 | 30M |
 | `stage1_move` | 40M | 2M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
 | `stage1b_indoor` | 30M | 2M | 2048 | 8M | `stage1c_jump` | 30M | 2M | 2048 | 8M |
-| `stage1d_glide` | 24M | 2M | 2048 | 8M | | | | | |
+| `stage1d_glide` | 24M | 2M | 2048 | 8M | `stage1e_dive` | 30M | 2M | 2048 | 8M |
+| `stage1f_breathe` | 24M | 2M | 2048 | 8M | | | | | |
 | `stage3_travel` | 30M | 2M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
 | `stage4_flight` | 30M | 2M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
 | `stage14_companion` | 90M | 15M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
@@ -173,7 +178,7 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 | `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
 | `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
 
-**The queue is 2,100M env steps over 23 stages** (2,244M with the `mix_duel_pvp` pilot and the three drills off
+**The queue is 2,100M env steps over 23 stages** (2,298M with the `mix_duel_pvp` pilot and the five drills off
 `stage1_move`, none of which is in the queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order
 of 40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage

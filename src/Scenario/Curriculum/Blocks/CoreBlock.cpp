@@ -74,6 +74,8 @@ namespace
                 // so the one after it has nothing to relearn about where the button is.
                 if (def.FeatherFall && view.L && view.L->Stage && view.L->Stage->FeatherFallMasked)
                     return false;
+                if (def.WaterBreathing && view.L && view.L->Stage && view.L->Stage->WaterBreathingMasked)
+                    return false;
                 break;
         }
 

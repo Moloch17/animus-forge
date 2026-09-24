@@ -621,6 +621,14 @@ namespace Animus::Curriculum
             float LedgeDetour = 2.0f;
             float LedgeDropMin = 5.0f;
             float LedgeDropMax = 80.0f;
+            /// Dive arenas (ArenaDefinition::Underwater): how far the objective is and how much water stands over
+            /// it. DiveDepthMax runs past what one breath reaches on purpose, as LedgeDropMax runs past the lethal
+            /// fall: with Unending Breath or Water Breathing the dive is free, without them the seat learns to come
+            /// up for air, or what not coming up costs.
+            float DiveMin = 20.0f;
+            float DiveMax = 120.0f;
+            float DiveDepthMin = 6.0f;
+            float DiveDepthMax = 40.0f;
         } Travel;
 
         /// The flag match (Warsong Gulch's rules between two seats).
@@ -905,6 +913,10 @@ namespace Animus::Curriculum
             f("Travel.LedgeDetour", tuning.Travel.LedgeDetour);
             f("Travel.LedgeDropMin", tuning.Travel.LedgeDropMin);
             f("Travel.LedgeDropMax", tuning.Travel.LedgeDropMax);
+            f("Travel.DiveMin", tuning.Travel.DiveMin);
+            f("Travel.DiveMax", tuning.Travel.DiveMax);
+            f("Travel.DiveDepthMin", tuning.Travel.DiveDepthMin);
+            f("Travel.DiveDepthMax", tuning.Travel.DiveDepthMax);
 
             f("Flag.BaseMin", tuning.Flag.BaseMin);
             f("Flag.BaseMax", tuning.Flag.BaseMax);

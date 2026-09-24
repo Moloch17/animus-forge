@@ -730,6 +730,16 @@ namespace
                 && (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) != 0
                 && liquid.Level >= bot->GetPositionZ() - MoveBlock::MAX_STEP)
             {
+                // With a water-walking aura the lake is a floor: the step lands on the surface, and the movement
+                // flag the core would only set on a client's acknowledgement (Unit::SetWaterWalking sends a packet
+                // to a client-controlled player and waits) is set here, the way AllowFlight sets CAN_FLY.
+                if (bot->HasWaterWalkAura())
+                {
+                    bot->AddUnitMovementFlag(MOVEMENTFLAG_WATERWALKING);
+                    Encoding::SwimTo(bot, destination.GetPositionX(), destination.GetPositionY(),
+                        liquid.Level + MoveBlock::WATER_WALK_ABOVE, &view.Facing);
+                    return;
+                }
                 Encoding::SwimTo(bot, destination.GetPositionX(), destination.GetPositionY(),
                     liquid.Level - bot->GetCollisionHeight() * 0.5f, &view.Facing);
                 return;
@@ -1078,7 +1088,7 @@ void Animus::Curriculum::MoveBlock::Observe(SeatView const& view, float* obs, ui
         out[OBS_FALLING] = (view.Probe && view.Probe->JumpDropPending) || bot->IsFalling() ? 1.0f : 0.0f;
         out[OBS_IN_WATER] = bot->IsInWater() ? 1.0f : 0.0f;
         out[OBS_SUBMERGED] = bot->IsUnderWater() ? 1.0f : 0.0f;
-        out[OBS_SUBMERGED_TIME] = std::min(1.0f, view.SubmergedTime / BREATH_SECONDS);
+        out[OBS_SUBMERGED_TIME] = std::min(1.0f, view.BreathSpent);
         out[OBS_SWIM_SPEED] = bot->GetSpeed(MOVE_SWIM) / RUN_SPEED;
         out[OBS_AIRBORNE] = airborne ? 1.0f : 0.0f;
     }
@@ -1160,6 +1170,11 @@ void Animus::Curriculum::MoveBlock::BeforeApply(SeatView& view, SeatActionResult
     // core's own fall with the core's own damage. Here rather than only in the travel block, which does the same
     // for a dismount, because this block is in every stage and a drop in a pack stage must not leave the seat
     // standing on air. Idempotent with the travel block's call: the second sees the fall spline running.
+    // A water-walking flag this block set outlives its aura on a client-controlled player (the core only clears
+    // it on a client's acknowledgement), so it comes off here when the aura has.
+    if (view.Bot->HasUnitMovementFlag(MOVEMENTFLAG_WATERWALKING) && !view.Bot->HasWaterWalkAura())
+        view.Bot->RemoveUnitMovementFlag(MOVEMENTFLAG_WATERWALKING);
+
     // The core's falling flag, stuck on a seat that is standing on the ground (Descending): taken off here, every
     // decision, so nothing downstream that still asks Unit::IsFalling -- the core's own movement code among them --
     // sees a seat that landed a minute ago as still in the air.

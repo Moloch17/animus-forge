@@ -215,6 +215,19 @@ namespace Animus::Curriculum
         /// The clock its head went under water, or 0 while it is up. Kept as an instant rather than a total so it
         /// needs no per-decision accumulation, and resets the moment the seat surfaces -- which is what a breath is.
         uint32 SubmergedSinceMs = 0;
+        /// Water, kept per seat for every stage (StageScenario::ApplySeatAction): time in the water at all, time
+        /// with the head under, the breath spent as the core spends it (BreathSpentMs runs up under water and back
+        /// down ten times as fast above it, the shape of Player::HandleDrowning), the most of a breath ever spent,
+        /// surfacings after a dive, damage taken under water past the breath (as a fraction of maximum health),
+        /// whether that killed the seat, and time spent walking on the water with an aura for it.
+        uint32 WaterMs = 0;
+        uint32 SubmergedMs = 0;
+        uint32 BreathSpentMs = 0;
+        float BreathSpentMax = 0.0f;
+        uint32 Breaths = 0;
+        float DrowningDamage = 0.0f;
+        bool Drowned = false;
+        uint32 WaterWalkMs = 0;
         uint32 ItemUses = 0;
         bool InCombat = false;
         uint32 CombatStartMs = 0;               // episode time the bot entered its current combat
@@ -318,6 +331,15 @@ namespace Animus::Curriculum
             LastStepDamageTaken = 0.0f;
             SpellCasts = 0;
             TrinketUses = 0;
+            SubmergedSinceMs = 0;
+            WaterMs = 0;
+            SubmergedMs = 0;
+            BreathSpentMs = 0;
+            BreathSpentMax = 0.0f;
+            Breaths = 0;
+            DrowningDamage = 0.0f;
+            Drowned = false;
+            WaterWalkMs = 0;
             Jumps = 0;
             JumpsRefused = 0;
             Drops = 0;

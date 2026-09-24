@@ -61,10 +61,10 @@ def test_the_queue_total_is_what_the_manual_says():
     rows = documented()
     # Neither the mix_duel_pvp pilot nor the three drills off stage1_move (indoor, jump, glide) are in the default
     # queue (StageDefinition::InDefaultQueue is false for all of them): they are trained by name.
-    outside = {"mix_duel_pvp", "stage1b_indoor", "stage1c_jump", "stage1d_glide"}
+    outside = {"mix_duel_pvp", "stage1b_indoor", "stage1c_jump", "stage1d_glide", "stage1e_dive", "stage1f_breathe"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
     assert queue == 2_100_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,100M"
-    assert sum(v["total_env_steps"] for v in rows.values()) == 2_244_000_000
+    assert sum(v["total_env_steps"] for v in rows.values()) == 2_298_000_000
 
 
 # --------------------------------------------------------------------------- 8.2 tuning defaults

@@ -193,10 +193,6 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
         return _envs[env.Index].DryShortcut ? 1.0f : 0.0f;
     });
     table.Add("crossing", [this](Env const& env, uint32) { return _envs[env.Index].Crossing ? 1.0f : 0.0f; });
-    table.Add("swim_seconds", [this](Env const& env, uint32)
-    {
-        return float(_envs[env.Index].SwimMs) / 1000.0f;
-    });
     table.Add("walk_distance", [this](Env const& env, uint32) { return _envs[env.Index].WalkDistance; });
     // Flying against not, split per episode: an update's mean mixes a handful of flights into a hundred rides, so
     // divide each conditional sum by `flew` (or 1 - flew) to read what a trip of that kind actually cost.
@@ -286,6 +282,10 @@ void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table
     // jump is the shortcut, the ramp the way round. What was achieved, like `crossing`.
     table.Add("ledge", [this](Env const& env, uint32) { return _envs[env.Index].Ledge ? 1.0f : 0.0f; });
     table.Add("ledge_drop", [this](Env const& env, uint32) { return _envs[env.Index].LedgeDrop; });
+    // And whether it was placed on a lakebed, under how much water: the dive is the trip, and whether the seat
+    // came up for air on the way is in the scenario's breath columns.
+    table.Add("dive", [this](Env const& env, uint32) { return _envs[env.Index].Dive ? 1.0f : 0.0f; });
+    table.Add("dive_depth", [this](Env const& env, uint32) { return _envs[env.Index].DiveDepth; });
 }
 
 float Animus::Curriculum::TravelEncounter::Saved(EnvTravel const& travel)
@@ -306,7 +306,7 @@ void Animus::Curriculum::TravelEncounter::ResetEpisode(Env& env)
 bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float nearest, float furthest, bool flying,
     Position& place, float budgetSeconds, float* walk, bool across, float* dry, bool indoors, bool* shortcut,
     TravelPlaceRules const& rules,
-    float* ledgeDrop)
+    float* ledgeDrop, float* diveDepth)
 {
     // What the seat can actually cover in the time it has. Reachability was the only test until now -- a path of
     // type PATHFIND_NORMAL, no longer than MAX_PATH_DETOUR times the straight line -- and reachable is not the
@@ -320,7 +320,8 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
     // way round at least MIN_DETOUR_ACROSS longer -- so it gets more tries before it gives up and the arena falls
     // back to an ordinary trip. At 32 it found one in 0.65 of its episodes; the ones it missed were not bad ground
     // but too few throws at it. An air-only place is as narrow: a plateau or an island, not any dry ground.
-    uint32 const attempts = across || rules.AirOnly || rules.Ledge ? OBJECTIVE_ATTEMPTS * 4 : OBJECTIVE_ATTEMPTS;
+    uint32 const attempts = across || rules.AirOnly || rules.Ledge || rules.Underwater
+        ? OBJECTIVE_ATTEMPTS * 4 : OBJECTIVE_ATTEMPTS;
     for (uint32 attempt = 0; attempt < attempts; ++attempt)
     {
         // Later attempts settle for shorter trips rather than failing the episode.
@@ -374,15 +375,36 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
                 continue;
         }
 
-        // The objective itself always stands on dry land -- arriving is standing somewhere, not treading water.
-        if (map->IsInWater(bot->GetPhaseMask(), x, y, z, BODY_HEIGHT))
+        // The objective itself always stands on dry land -- arriving is standing somewhere, not treading water --
+        // except on a dive, where it stands on the lakebed under the water the arena asked for: Map::GetHeight is
+        // blind to liquid and returned the bed, and what is over it is the liquid data's to say.
+        float depth = 0.0f;
+        if (rules.Underwater)
+        {
+            LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), placeX, placeY, placeZ,
+                bot->GetCollisionHeight(), {});
+            if (liquid.Status == LIQUID_MAP_NO_WATER || liquid.Level <= INVALID_HEIGHT
+                || (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) == 0)
+                continue;
+            depth = liquid.Level - placeZ;
+            if (depth < rules.DepthMin || depth > rules.DepthMax)
+                continue;
+        }
+        else if (map->IsInWater(bot->GetPhaseMask(), x, y, z, BODY_HEIGHT))
             continue;
 
         // On the ground it has to be reachable on foot, by a path not much longer than the straight line.
         float walked = distance;
         float dryWalk = 0.0f;
         float edgeDrop = 0.0f;
-        if (rules.Ledge)
+        if (rules.Underwater)
+        {
+            // A dive is swum straight: no ground route is asked for, and the clock is measured at swimming speed
+            // (about two thirds of running) over the straight line plus the way down.
+            float const swim = std::max(1.0f, bot->GetSpeed(MOVE_SWIM));
+            walked = (distance + depth) * (speed / swim);
+        }
+        else if (rules.Ledge)
         {
             // Below a ledge: the way round on foot has to exist -- a class without Slow Fall must still be able
             // to arrive, or the floor of 1.0 is unwinnable -- and be far enough longer than the straight line that
@@ -513,6 +535,8 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
             *dry = dryWalk;
         if (ledgeDrop)
             *ledgeDrop = edgeDrop;
+        if (diveDepth)
+            *diveDepth = depth;
         if (shortcut)
             *shortcut = false;      // nothing that got here was one; the column stays as the regression alarm
         return true;
@@ -643,9 +667,11 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     // whether a ride is worth summoning.
     float const least = arena.Indoors ? tuning.IndoorMin
         : arena.Ledges ? tuning.LedgeMin
+        : arena.Underwater ? tuning.DiveMin
         : flying ? tuning.FlyingMin : arena.OnFoot ? tuning.FootMin : tuning.ObjectiveMin;
     float const most = arena.Indoors ? tuning.IndoorMax
         : arena.Ledges ? tuning.LedgeMax
+        : arena.Underwater ? tuning.DiveMax
         : flying ? tuning.FlyingMax : arena.OnFoot ? tuning.FootMax : tuning.ObjectiveMax;
     // A water arena asks for a crossing: an objective whose way round is much longer than the way through, with
     // water in between. Where the ground offers none within reach, fall back to an ordinary trip rather than
@@ -660,6 +686,8 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     travel.AirOnly = false;
     travel.Ledge = false;
     travel.LedgeDrop = 0.0f;
+    travel.Dive = false;
+    travel.DiveDepth = 0.0f;
     travel.Crossing = false;
     travel.DryDistance = 0.0f;
     travel.Travelled = 0.0f;
@@ -682,7 +710,10 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     rules.LedgeDetour = tuning.LedgeDetour;
     rules.DropMin = tuning.LedgeDropMin;
     rules.DropMax = tuning.LedgeDropMax;
-    if (!flying && !arena.Water && !arena.Indoors && !arena.Ledges)
+    rules.Underwater = arena.Underwater;
+    rules.DepthMin = tuning.DiveDepthMin;
+    rules.DepthMax = tuning.DiveDepthMax;
+    if (!flying && !arena.Water && !arena.Indoors && !arena.Ledges && !arena.Underwater)
     {
         float const roll = frand(0.0f, 1.0f);
         rules.Band = roll < tuning.DetourEasyShare ? 0
@@ -710,11 +741,16 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
         && FindPlace(bot, map, least, most, flying, travel.Objective, budget, &walk, false, nullptr, false,
             &travel.Shortcut, rules, &travel.LedgeDrop))
         travel.Ledge = true;
+    else if (arena.Underwater
+        && FindPlace(bot, map, least, most, flying, travel.Objective, budget, &walk, false, nullptr, false,
+            &travel.Shortcut, rules, nullptr, &travel.DiveDepth))
+        travel.Dive = true;
     else
     {
         TravelPlaceRules plain = rules;
         plain.AirOnly = false;
         plain.Ledge = false;
+        plain.Underwater = false;
         if (!FindPlace(bot, map, least, most, flying, travel.Objective, budget, &walk, false, nullptr,
             arena.Indoors, &travel.Shortcut, plain))
             return false;
@@ -858,8 +894,6 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
 
     uint32 const stepMs = env.EpisodeElapsedMs - std::min(env.EpisodeElapsedMs, travel.LastRewardMs);
     travel.LastRewardMs = env.EpisodeElapsedMs;
-    if (bot->IsInWater())
-        travel.SwimMs += stepMs;
 
     // Ground actually covered. The first decision of an episode only records where the seat is; a jump from
     // wherever the last episode ended is not travel.

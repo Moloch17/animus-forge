@@ -1104,6 +1104,13 @@ AnimusForge.Curriculum.Travel.LedgeMax = 120.0
 AnimusForge.Curriculum.Travel.LedgeDetour = 2.0
 AnimusForge.Curriculum.Travel.LedgeDropMin = 5.0
 AnimusForge.Curriculum.Travel.LedgeDropMax = 80.0
+#   dive arenas (stage1e_dive, stage1f_breathe): the objective is DiveMin to DiveMax yards away on a lakebed under
+#   DiveDepthMin to DiveDepthMax yards of water. DiveDepthMax runs past what one breath reaches on purpose: with
+#   Unending Breath or Water Breathing the dive is free, without them the seat learns to come up for air
+AnimusForge.Curriculum.Travel.DiveMin = 20.0
+AnimusForge.Curriculum.Travel.DiveMax = 120.0
+AnimusForge.Curriculum.Travel.DiveDepthMin = 6.0
+AnimusForge.Curriculum.Travel.DiveDepthMax = 40.0
 #   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
 #   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
 AnimusForge.Curriculum.Travel.IndoorMin = 8.0

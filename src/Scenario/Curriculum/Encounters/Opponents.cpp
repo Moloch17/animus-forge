@@ -317,6 +317,35 @@ Position Animus::Curriculum::Opponents::FindSpawnPoint(Player* bot, Map* map)
     return pos;
 }
 
+Position Animus::Curriculum::Opponents::FindSpawnPointInWater(Player* bot, Map* map)
+{
+    constexpr float BODY_HEIGHT = 2.0f;
+    for (uint32 attempt = 0; attempt < SPAWN_ATTEMPTS * 2; ++attempt)
+    {
+        float const bearing = frand(0.0f, 2.0f * float(M_PI));
+        float const distance = frand(SPAWN_DISTANCE_MIN, SPAWN_DISTANCE_MAX);
+        float const x = bot->GetPositionX() + distance * std::cos(bearing);
+        float const y = bot->GetPositionY() + distance * std::sin(bearing);
+        map->LoadGrid(x, y);
+
+        // The bed under the spot, and the water over it: Map::GetHeight is blind to liquid.
+        float const bed = map->GetHeight(bot->GetPhaseMask(), x, y, bot->GetPositionZ() + 60.0f, true, 120.0f);
+        if (bed <= INVALID_HEIGHT)
+            continue;
+        LiquidData const liquid = map->GetLiquidData(bot->GetPhaseMask(), x, y, bed, bot->GetCollisionHeight(), {});
+        if (liquid.Status == LIQUID_MAP_NO_WATER || liquid.Level <= INVALID_HEIGHT
+            || (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) == 0
+            || liquid.Level - bed < BODY_HEIGHT)
+            continue;
+
+        Position pos(x, y, liquid.Level - bot->GetCollisionHeight() * 0.5f, frand(0.0f, 2.0f * float(M_PI)));
+        if (bot->IsWithinLOS(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ() + 2.0f))
+            return pos;
+    }
+
+    return FindSpawnPoint(bot, map);
+}
+
 Creature* Animus::Curriculum::Opponents::SummonOpponent(Player* bot, Map* map, uint32 entry, Position const& pos,
     uint8 level)
 {

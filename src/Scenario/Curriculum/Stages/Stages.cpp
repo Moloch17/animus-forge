@@ -27,7 +27,7 @@
  * badly is now only about fighting.
  *
  *   move ─ dodge ─ travel ─ flight        the feet: ground, fire underfoot, the mount, the air
- *      ├─ indoor, jump ─ glide            drills off the feet, trained by name: rooms, ledges, Slow Fall
+ *      ├─ indoor, jump ─ glide, dive ─ breathe   drills off the feet, by name: rooms, ledges, lakebeds
  *        ─ duel ─ pack ─ gauntlet ─ endurance        alone, against things that fight back
  *        ─ pvp ─ evade ─ hide ─ stealth ─ arena      against people
  *        ─ companion ─ party ─ tanking ─ triage      beside others, still nobody commanding
@@ -439,6 +439,66 @@ namespace
             },
         });
 
+        // Down again, into the water this time.
+        //
+        // stage1_move's water arena taught one decision, swim across or walk round, at the surface: nothing ever
+        // asked the seat to go under. Here the objective is on the bed of the oasis, under six to forty yards of
+        // water, and arriving means standing on it. The breath is the core's own (WaterBreath.Timer, three
+        // minutes) and so is the drowning after it, a fifth of the seat's health a second; what the seat sees is
+        // how much of its breath is spent (OBS_SUBMERGED_TIME) and how deep the place is, and what it learns is
+        // when to come up. Unending Breath and Water Breathing are masked here (WaterBreathingMasked); the drill
+        // after gives them back to the two classes that have them.
+        stages.push_back({
+            .Name = "stage1e_dive",
+            .Suffix = "_dive",
+            .Extends = "stage1_move",
+            .Summary = "a place 20-120 yd away on a lakebed under 6-40 yd of water: swim down to it, and come up for air",
+            .WaterBreathingMasked = true,
+            .Blocks = { Core, Move, Travel, Duel },
+            .Arenas = {
+                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 150,
+                    .OnFoot = true, .Underwater = true },
+            },
+            .InDefaultQueue = false,
+            .MapId = MAP_KALIMDOR,
+            // The banks of the Barrens oases, stage1_move's water ground: the pool floor is around z 65 under
+            // banks at 82-94, so the middle is deep enough for a dive that outlasts a breath.
+            .SpawnPoints = {
+                { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
+                { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
+                { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
+            },
+            .HeldOutSpawnPoints = {
+                { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
+            },
+        });
+
+        // The same dives, for the classes that can breathe down there: a warlock with Unending Breath, a shaman
+        // with Water Breathing. Seeded from the dive drill, so the seat already knows what a breath is worth; here
+        // it learns that a cast before the dive makes the deep one free.
+        stages.push_back({
+            .Name = "stage1f_breathe",
+            .Suffix = "_breathe",
+            .Extends = "stage1e_dive",
+            .Summary = "the same lakebeds, with Unending Breath or Water Breathing: make the dive free before taking it",
+            .NeedsWaterBreathing = true,
+            .Blocks = { Core, Move, Travel, Duel },
+            .Arenas = {
+                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 150,
+                    .OnFoot = true, .Underwater = true },
+            },
+            .InDefaultQueue = false,
+            .MapId = MAP_KALIMDOR,
+            .SpawnPoints = {
+                { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
+                { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
+                { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
+            },
+            .HeldOutSpawnPoints = {
+                { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
+            },
+        });
+
         // Something on the ground, in every pull. Hazards exist already -- the pack ladder draws a hazard caster
         // from rung 3 and self-play produces them by the spell (stage19_arena measured 3.1 s of hazard an episode,
         // stage4_gauntlet 1.1 s) -- but a class/role that stalls below rung 3 never meets one, and a second an
@@ -555,7 +615,22 @@ namespace
             .Blocks = { Core, Move, Travel, Duel, Pet },
             // 90 s: running out of time is a lost fight (Duel.Timeout), and a healer or tank against a creature with
             // twice the usual health needs half a minute to kill it after a few seconds of closing in.
-            .Arenas = { { .Name = "duel", .Against = Opposition::Creature, .EpisodeSeconds = 90 } },
+            .Arenas = {
+                { .Name = "duel", .Weight = 3, .Against = Opposition::Creature, .EpisodeSeconds = 90 },
+                // A lake: the opponent stands in the water, on the Barrens oases stage1_move swims, so a share of
+                // every class's fights are swimming ones -- reach, casting, the pet and whether to go in at all
+                // are all different wet. The scenario's swim_seconds says how much of the fight was.
+                { .Name = "lake", .Weight = 1, .Against = Opposition::Creature, .EpisodeSeconds = 90,
+                    .Water = true,
+                    .SpawnPoints = {
+                { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
+                { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
+                { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
+                    },
+                    .HeldOutSpawnPoints = {
+                { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
+                    } },
+            },
             // Ground, because until now every fight in the curriculum happened on the same square yard: the
             // combat stages take the host's single spawn point inside a per-env instance, so a duel's terrain was
             // one place, every episode, for the whole run. The same five regions the feet were taught on, and the
@@ -1021,6 +1096,13 @@ namespace
         if (arena.Ledges && (arena.Flying || arena.Indoors || arena.Water))
             return "a ledge arena is on foot outdoors: the drop is the shortcut and the ramp is the way round, which "
                 "wings, a roof or a lake would each make a different question";
+        if (arena.Water && !travel && arena.Against != Opposition::Creature)
+            return "water is a travel arena's crossing or a creature arena's lake; nothing else reads it";
+        if (arena.Underwater && !travel)
+            return "only a travel arena dives: an objective on a lakebed is a place to get to";
+        if (arena.Underwater && (arena.Flying || arena.Indoors || arena.Ledges || arena.Water))
+            return "a dive arena is its own trip: the objective is on the bed, not across the lake, and neither "
+                "wings, a roof nor a ledge belong to it";
         if (flag && (!stage.Has(BlockId::Travel) || !stage.Has(BlockId::Flag)))
             return "a flag match needs the travel and flag blocks";
 

@@ -261,6 +261,10 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Travel.LedgeDetour` | 2.0 | | | |
 | `Travel.LedgeDropMin` | 5.0 | | | |
 | `Travel.LedgeDropMax` | 80.0 | | | |
+| `Travel.DiveMin` | 20.0 | | | |
+| `Travel.DiveMax` | 120.0 | | | |
+| `Travel.DiveDepthMin` | 6.0 | | | |
+| `Travel.DiveDepthMax` | 40.0 | | | |
 
 Arena weights: `Arena.<stage>.<arena>.Weight`, defaulting to the definition's weight. Arena ladder pin:
 `Arena.<stage>.<arena>.MaxRung`, defaulting to the definition's (`-1`: the ladder climbs to `Pulls.MaxTier`).

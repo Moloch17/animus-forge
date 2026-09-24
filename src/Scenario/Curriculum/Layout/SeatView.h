@@ -273,6 +273,10 @@ namespace Animus::Curriculum
         int8 PitchTurning = 0;
         float Pitch = 0.0f;
         float SubmergedTime = 0.0f;                 // seconds its head has been under, 0 while it is up
+        /// How much of its breath the seat has spent, 0 to 1 and past it while drowning: the core's own timer
+        /// (WaterBreath.Timer, 180 s by default), run up under water and back down ten times as fast above it. 0
+        /// under a water-breathing aura, when the core runs no timer at all.
+        float BreathSpent = 0.0f;
         TalentBuilder::Build const* Build = nullptr;
         float LastStepDamage = 0.0f;                // damage done / the level's damage scale
         float LastStepPowerDelta = 0.0f;            // primary power change, as a fraction of max
