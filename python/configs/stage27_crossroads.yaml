@@ -1,4 +1,4 @@
-# Stage 20, the crossroads: the PvE and PvP branches join in one policy. Every episode is one of the
+# Stage 27, the crossroads: the PvE and PvP branches join in one policy. Every episode is one of the
 # stage's arenas (weights in the stage definition): the companion's and the party's gauntlets, the self-play
 # one-on-one, the solo gauntlet and duel, and two new situations -- an ambush of the owner by 1-2 enemy players in the
 # middle of a gauntlet, and a lone enemy player attacking the owner (escort_duel). The context and hostiles blocks let
@@ -9,7 +9,7 @@
 # stage16_companion, gauntlet by stage10_gauntlet, duel by stage8_duel); the new arenas learn from the reward alone.
 
 extends: stage17_party.yaml
-run_name: stage23_crossroads
+run_name: stage27_crossroads
 
 # ~20 h at ~15k env steps/s (up to four seats); convergence usually ends the stage sooner.
 total_env_steps: 100000000

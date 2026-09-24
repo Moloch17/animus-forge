@@ -43,7 +43,8 @@ def scanned_files() -> list[Path]:
         elif root.is_dir():
             files += [p for p in root.rglob("*")
                       if p.is_file() and p.suffix in (".py", ".yaml", ".md", ".dist", ".json", ".cpp", ".h")
-                      and "__pycache__" not in p.parts and ".venv" not in p.parts]
+                      and "__pycache__" not in p.parts and ".venv" not in p.parts
+                      and p.name != "test_stage_names.py"]  # its RESERVED names are not stages yet
     return sorted(files)
 
 
@@ -70,11 +71,22 @@ def test_config_files_are_named_after_stages():
     assert configs == names - set(), f"configs without a stage or stages without a config: {configs ^ names}"
 
 
+# Numbers held for stages that are planned but not yet defined (the 2026-09-24 plan: the life stages, the dungeon,
+# the real raids), so the stages around them did not have to move twice. A reserved number is filled by a stage of
+# exactly this name; delete the entry when it lands.
+RESERVED = {20: "stage20_quest", 21: "stage21_gather", 22: "stage22_town", 23: "stage23_dungeon",
+            30: "stage30_raid10", 31: "stage31_raid25", 32: "stage32_raid40"}
+
+
 def test_numbers_are_contiguous_and_in_seed_order():
-    """A stage is never numbered below the stage it extends or merges, and the numbers run 1..N with no gap."""
+    """A stage is never numbered below the stage it extends or merges, and the numbers run 1..N with no gap
+    (a reserved number counts as filled)."""
     text = STAGES_CPP.read_text()
     entries = re.findall(r'\.Name = "(stage(\d+)_\w+)",(.*?)\n        \}\);', text, re.S)
-    numbers = sorted(int(n) for _, n, _ in entries)
+    defined = {int(n): name for name, n, _ in entries}
+    for number, name in RESERVED.items():
+        assert defined.get(number, name) == name, f"{number} is reserved for {name}, not {defined[number]}"
+    numbers = sorted(set(defined) | set(RESERVED))
     assert numbers == list(range(1, len(numbers) + 1)), f"numbers are not contiguous: {numbers}"
     number = {name: int(n) for name, n, _ in entries}
     for name, _, body in entries:

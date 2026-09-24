@@ -5,7 +5,7 @@
 # order_focus_kept, the share of a side's seats on the called target, is the measure that matters: a seat that
 # never obeys and a channel that never arrives look identical without it.
 extends: stage12_pvp.yaml
-run_name: stage22_duo_led
+run_name: stage26_duo_led
 total_env_steps: 30000000
 rollout_length: 256
 mappo:

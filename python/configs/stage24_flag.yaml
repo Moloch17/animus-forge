@@ -7,7 +7,7 @@
 # which heads for the flags on a mount.
 
 extends: stage12_pvp.yaml
-run_name: stage20_flag
+run_name: stage24_flag
 
 total_env_steps: 40000000
 

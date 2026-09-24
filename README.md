@@ -35,7 +35,7 @@ move ─ indoor ─ jump ─ dive ─ dodge ─ travel ─ flight   the feet: gr
      ─ flag ─ warsong ─ duo_led ─ crossroads             an objective, a director, and everything at once
 ```
 
-Twenty-five stages, numbered in the order they are trained (`stage1_move` to `stage25_raid_gauntlet`); the two raid
+Twenty-five stages, numbered in the order they are trained (`stage1_move` to `stage29_raid_gauntlet`); the two raid
 stages are trained by name. No stage has a pass gate: each ends when its convergence signals say so, and the queue
 moves on.
 

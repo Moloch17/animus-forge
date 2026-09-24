@@ -350,7 +350,7 @@ A stage never halts the plan: it advances when every class has converged, or at 
 2. **Copy both files for every class** to the realm's `Animus.ModelDir` (default `<DataDir>/animus`).
 
 3. **Configure the realm** (`mod_animus.conf`): set `Animus.Curriculum.Stage` to the stage whose models companions
-   should play (`stage17_party`, or `stage23_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
+   should play (`stage17_party`, or `stage27_crossroads` for PvE and PvP), and `Animus.Curriculum.DecisionMs` to the
    training decision interval.
 
 4. **Load.** Models load on first use. On a running realm, `.reload config` resets the model cache.
@@ -376,7 +376,7 @@ On a stock realm with mod-animus and the models (`.animus stage open` turns GM m
 
 To see exactly the training conditions, copy the run's `stage.json` `"tuning"` values into `Animus.Curriculum.*`, and
 match `Animus.Stage.DecisionMs`, `EpisodeSeconds`, `Level` and `SpawnPoint.*` to the forge settings. To look at one
-situation of stage 8: `.animus stage open stage23_crossroads model ambush`. To compare with the baseline:
+situation of stage 8: `.animus stage open stage27_crossroads model ambush`. To compare with the baseline:
 `.animus stage open stage17_party fight`.
 
 ## 7.8 Running the learner by hand

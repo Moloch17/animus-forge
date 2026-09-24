@@ -1,10 +1,10 @@
-# Stage 24 of the curriculum: a raid of eight groups of five against one elite and its adds, won or lost as the
+# Stage 28 of the curriculum: a raid of eight groups of five against one elite and its adds, won or lost as the
 # single pack is. The party stages taught a group of five; this asks whether the same policy holds together at
 # forty, where threat, healing and standing out of things all scale differently. Not in the default queue: forty
-# seats an env needs a few dozen envs, not 128 (forge start stage24_raid_single).
+# seats an env needs a few dozen envs, not 128 (forge start stage28_raid_single). The synthetic raid: the control the real raids are graded against.
 
 extends: stage19_triage.yaml
-run_name: stage24_raid_single
+run_name: stage28_raid_single
 
 total_env_steps: 40000000
 

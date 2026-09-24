@@ -62,7 +62,7 @@ manual is detail under that.
 - The module READMEs (`animus-forge/README.md`, `animus/README.md`, `animus-lib/README.md`) are overviews that link
   into this manual; the detail lives here. Where the manual and the source code disagree, the code is authoritative.
   Please report the mismatch.
-- Stage numbers now sort into the training order: stage 1 to stage 23 is what `forge start` walks, and no stage
+- Stage numbers now sort into the training order: stage 1 to stage 27 is what `forge start` walks, and no stage
   is reached before the stage it seeds from. The tree in [chapter 4](04-curriculum.md) and each stage's `Extends`
   are still what decide what follows what -- the numbers agree with them rather than replacing them.
 - Numbers quoted from runs (a reward share, a revive count, an entropy) are measurements, with the stage and

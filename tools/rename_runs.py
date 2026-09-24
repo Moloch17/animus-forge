@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Move training run directories to the stage names of the 2026-09 contiguous renumbering.
+"""Move training run directories to the current stage names (the 2026-09 renumberings).
 
 A run directory is a stage's checkpoints: a stage renamed without its directory looks like a stage that has never
 trained, and every stage seeding from it starts from nothing after one quiet log line. So the rename of the stages
@@ -14,6 +14,7 @@ name is left alone, and one whose new name is taken is reported and skipped. Run
 """
 
 import datetime as dt
+import re
 import sys
 from pathlib import Path
 
@@ -37,10 +38,22 @@ TABLE = {
     "stage16_tanking": "stage18_tanking",
     "stage17_triage": "stage19_triage",
     "stage18_flag": "stage20_flag",
-    "stage19_warsong": "stage21_warsong",
-    "stage20_raid_single": "stage24_raid_single",
-    "stage21_raid_gauntlet": "stage25_raid_gauntlet",
+    "stage19_warsong": "stage25_warsong",
+    "stage20_raid_single": "stage28_raid_single",
+    "stage21_raid_gauntlet": "stage29_raid_gauntlet",
+    # The second renumber (2026-09-24): the objective stages and the raids moved up to leave 20-23 and 30-32 for the
+    # life stages, the dungeon and the real raids. A directory at either generation's name lands at the final one.
+    "stage20_flag": "stage24_flag",
+    "stage21_warsong": "stage25_warsong",
+    "stage22_duo_led": "stage26_duo_led",
+    "stage23_crossroads": "stage27_crossroads",
+    "stage24_raid_single": "stage28_raid_single",
+    "stage25_raid_gauntlet": "stage29_raid_gauntlet",
 }
+# The first-generation names of the same stages resolve to the final names too.
+TABLE["stage18_flag"] = "stage24_flag"
+TABLE["stage22_duo_led"] = "stage26_duo_led"
+TABLE["stage23_crossroads"] = "stage27_crossroads"
 GONE = {"stage1d_glide", "stage1f_breathe", "stage9_pvp", "mix_duel_pvp"}
 
 
@@ -74,7 +87,13 @@ def main(argv: list[str]) -> int:
     root = Path(argv[1])
     apply = "--apply" in argv
     count = 0
-    for src, dst in moves(root):
+    # Highest source number first within a runs directory: stage25_raid_gauntlet -> 29 before stage21_warsong -> 25,
+    # so a destination is free when its move comes.
+    def number(path: Path) -> int:
+        m = re.match(r"stage(\d+)", path.name)
+        return int(m.group(1)) if m else -1
+
+    for src, dst in sorted(moves(root), key=lambda move: (str(move[0].parent), -number(move[0]))):
         if dst.exists():
             print(f"skip  {src} -> {dst} (exists)")
             continue

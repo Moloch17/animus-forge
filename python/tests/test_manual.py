@@ -1,7 +1,7 @@
 """The manual's tables against the files they describe.
 
 Every stage budget in the manual was between 1x and 7x the configured value before this existed -- stage17_party
-was documented at 600M against a configured 120M, stage23_crossroads at 1B against 150M. Numbers copied by hand
+was documented at 600M against a configured 120M, stage27_crossroads at 1B against 150M. Numbers copied by hand
 into prose drift silently and nobody notices until someone plans a run from them, so the table is checked instead
 of trusted.
 """
@@ -91,7 +91,7 @@ def test_the_queue_total_is_what_the_manual_says():
     rows = documented()
     # The two raid stages are not in the default queue (StageDefinition::InDefaultQueue is false for both: forty
     # seats an env cannot run at the usual env count): they are trained by name.
-    outside = {"stage24_raid_single", "stage25_raid_gauntlet"}
+    outside = {"stage28_raid_single", "stage29_raid_gauntlet"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
     assert queue == 1_032_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 1,032M"
     assert sum(v["total_env_steps"] for v in rows.values()) == 1_112_000_000

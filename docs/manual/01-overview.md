@@ -114,7 +114,7 @@ model only works on a server that builds the same manifest.
 **Stage and arena.** A **stage** is a scenario the learner trains (`stage9_pack`). It extends an earlier stage and
 inherits that stage's trained weights. An **arena** is one situation a stage's episodes can be: a duel, a gauntlet, a
 party, an ambush, a trip or a flag match. Most stages have one arena; `stage1_move`, `stage4_dive`, `stage7_flight`
-and `stage8_duel` mix two or three, and `stage23_crossroads` mixes seven.
+and `stage8_duel` mix two or three, and `stage27_crossroads` mixes seven.
 
 **Decision.** One step of the environment, and `AnimusForge.DecisionMs` of game time (250 ms by default). For each
 decision, every env scores the last transition, resets if the episode ended, observes, receives an action per seat
