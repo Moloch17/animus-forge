@@ -145,20 +145,19 @@ bool Animus::Curriculum::PartyEncounter::Build(Env& env, Map* /*map*/, uint8 /*l
     }
 
     sGroupMgr->AddGroup(group);
+
+    // More than a party: a raid of RAID_GROUPS groups of GROUP_SEATS, each seat in the group its index says (the
+    // same arithmetic the party block and the spawn rows use). The conversion comes before the members: a raid's
+    // AddMember puts each new member in the first subgroup with room, so joining in seat order is that arithmetic.
+    // (ChangeMembersGroup would do the same, but the forge core saves its subgroup change to the character
+    // database unguarded; AddMember and ConvertToRaid go through the sim-group predicate.)
+    if (raid && data.ActiveSeats > GROUP_SEATS)
+        group->ConvertToRaid();
+
     for (uint32 seat = 0; seat < _scenario.SeatCount(); ++seat)
         if (Player* bot = _scenario.SeatBot(env, seat); bot && bot != leader && !group->AddMember(bot))
             LOG_ERROR("module.animus", "{}: env {} could not add seat {} to its party", _scenario.Name(), env.Index,
                 seat);
-
-    // More than a party: a raid of RAID_GROUPS groups of GROUP_SEATS, each seat in the group its index says (the
-    // same arithmetic the party block and the spawn rows use).
-    if (raid && data.ActiveSeats > GROUP_SEATS)
-    {
-        group->ConvertToRaid();
-        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
-            if (Player* bot = _scenario.SeatBot(env, seat))
-                group->ChangeMembersGroup(bot->GetGUID(), uint8(seat / GROUP_SEATS));
-    }
 
     party.PartyGroup = group;
     return true;

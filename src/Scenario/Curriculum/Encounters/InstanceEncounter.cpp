@@ -330,7 +330,11 @@ bool Animus::Curriculum::InstanceEncounter::Build(Env& env, Map* map, uint8 /*le
     // Where the raid stands, then the raid: the seats in the rows StageScenario laid them out in at the door, and
     // the owner with them.
     Position const engage = EngagePoint(env, map, seat, boss);
-    EnvState const& data = _scenario.Data(env);
+    EnvState& data = _scenario.Data(env);
+    // The episode's home is the boss room from here on: the scripted owner holds it rather than walking back to the
+    // door through the trash that was never pulled.
+    data.EpisodeSpawn = engage;
+    data.HasEpisodeSpawn = true;
     for (uint32 index = 0; index < data.ActiveSeats; ++index)
     {
         Player* bot = _scenario.SeatBot(env, index);

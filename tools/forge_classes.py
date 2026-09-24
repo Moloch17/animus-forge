@@ -9,9 +9,14 @@ Run from the AzerothCore checkout root (where docker-compose.yml is). Nothing in
 between two runs but the cores, so a second class is a second `ac-worldserver` container: the same image, source
 tree, built worldserver, database and GPU, its own output directory (`var/animus-forge/<class>`), its own
 `AnimusForge.Classes` and `AnimusForge.Queue`, and its own share of the map-update and torch threads. Compose
-cannot make services on the fly, so each instance is an override file, `env/instances/<class>.yml`, written from
-the template below and merged over docker-compose.yml with `-f`. Any AnimusForge.* or worldserver.conf key can be
-set there as an `AC_` environment variable (AnimusForge.Queue -> AC_ANIMUS_FORGE_QUEUE), which beats the conf file.
+cannot make services on the fly, so each instance is a compose file of its own, `env/instances/<class>.yml`, merged
+over docker-compose.yml (and docker-compose.override.yml when there is one) with `-f`. The service in it is the
+`ac-worldserver` service exactly as `docker compose config` renders it on this machine (the override's GPU devices
+and the .env values included, which is why the directory is machine-specific and belongs in your gitignore), under
+its own name, with its own container, output directory, environment and host ports. Any AnimusForge.* or
+worldserver.conf key can be set in its environment as an `AC_` variable (AnimusForge.Queue ->
+AC_ANIMUS_FORGE_QUEUE), which beats the conf file. It is not written with `extends`: that reads one file, so the
+override's devices would be lost, and it concatenates port lists, so the instance would bind the base ports too.
 
 Why two and not three: a worldserver starts at ~3.5 GB, and one long `forge bench` sweep climbed to 19.6 GB
 (docs/manual/07-operations.md, "Performance"); 30 GB holds two of those, not three. ANIMUS_FORGE_PARALLEL=3 is a
@@ -25,6 +30,8 @@ skipping classes whose queue is finished.
 from __future__ import annotations
 
 import argparse
+import copy
+import json
 import os
 import shutil
 import subprocess
@@ -41,33 +48,17 @@ CLASS_QUEUE = ("stage8_duel", "stage9_pack", "stage10_gauntlet", "stage11_endura
 OUTPUT_ROOT = "/azerothcore/var/animus-forge"       # inside the container; var/animus-forge on the host
 INSTANCES = Path("env/instances")
 COMPOSE = Path("docker-compose.yml")
+OVERRIDE = Path("docker-compose.override.yml")   # the local one, gitignored: GPU devices, torch index, .env values
 # Host ports for an instance's TensorBoard and dashboard: the base service has 16006/18800; instance i takes +10*i.
 PORT_BASE = 16006, 18800
 PORT_STEP = 10
 POLL_SECONDS = 60
 
-TEMPLATE = """# Written by modules/mod-animus-forge/tools/forge_classes.py: one class's fighting stages in a training server
-# of its own beside ac-worldserver. Start it with
-#   docker compose -f docker-compose.yml -f {file} up -d {service}
-# or through the tool (ANIMUS_FORGE_INSTANCE={name} tools/forge_classes.py attach|stop). Edit freely; the tool
-# rewrites it only when the file is missing.
-services:
-  {service}:
-    extends:
-      file: docker-compose.yml
-      service: ac-worldserver
-    container_name: ac-animus-forge-worldserver-{name}
-    environment:
-      AC_ANIMUS_FORGE_OUTPUT_DIR: {output}
-      AC_ANIMUS_FORGE_CLASSES: "{classes}"
-      AC_ANIMUS_FORGE_QUEUE: "{queue}"
-      # The cores are shared between the instances: each gets a share of the map-update and torch threads.
-      AC_MAP_UPDATE_THREADS: "{map_threads}"
-      AC_ANIMUS_FORGE_LEARNER_TORCH_THREADS: "{torch_threads}"
-    ports:
-      - "127.0.0.1:{tensorboard}:6006"
-      - "127.0.0.1:{dashboard}:8800"
-"""
+NOTE = ("Written by modules/mod-animus-forge/tools/forge_classes.py: one class's fighting stages in a training server "
+        "of its own beside ac-worldserver, rendered from this machine's compose config. Start it with "
+        "`docker compose -f docker-compose.yml [-f docker-compose.override.yml] -f {file} up -d {service}` or through "
+        "the tool (ANIMUS_FORGE_INSTANCE={name} tools/forge_classes.py attach|stop). Edit freely; the tool rewrites "
+        "it only when the file is missing.")
 
 
 def service(name: str) -> str:
@@ -78,13 +69,29 @@ def instance_file(name: str) -> Path:
     return INSTANCES / f"{name}.yml"
 
 
+def compose_files() -> list[str]:
+    """The base files an instance file is merged over: the local override carries the GPU devices."""
+    files = ["-f", str(COMPOSE)]
+    if OVERRIDE.exists():
+        files += ["-f", str(OVERRIDE)]
+    return files
+
+
 def compose(name: str, *args: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
-    command = ["docker", "compose", "-f", str(COMPOSE), "-f", str(instance_file(name)), *args]
+    command = ["docker", "compose", *compose_files(), "-f", str(instance_file(name)), *args]
     return subprocess.run(command, check=check, capture_output=capture, text=True)
 
 
+def base_service() -> dict:
+    """The ac-worldserver service as compose renders it here: base file, local override and .env merged, every
+    path absolute, every variable substituted."""
+    result = subprocess.run(["docker", "compose", *compose_files(), "config", "--format", "json"], check=True,
+                            capture_output=True, text=True)
+    return json.loads(result.stdout)["services"]["ac-worldserver"]
+
+
 def write_instance(name: str, classes: str, queue: tuple[str, ...], index: int, parallel: int) -> Path:
-    """The override file for an instance, unless one exists (a hand edit is kept)."""
+    """The compose file for an instance, unless one exists (a hand edit is kept)."""
     path = instance_file(name)
     if path.exists():
         return path
@@ -93,11 +100,37 @@ def write_instance(name: str, classes: str, queue: tuple[str, ...], index: int, 
     # number that run at once. forge bench at that setting says whether the split is right.
     map_threads = max(2, (cores * 3 // 4) // parallel)
     torch_threads = max(1, (cores // 4) // parallel)
+
+    svc = copy.deepcopy(base_service())
+    svc["container_name"] = f"ac-animus-forge-worldserver-{name}"
+    environment = svc.get("environment") or {}
+    if isinstance(environment, list):  # KEY=VALUE form
+        environment = dict(item.split("=", 1) if "=" in item else (item, "") for item in environment)
+    environment.update({
+        "AC_ANIMUS_FORGE_OUTPUT_DIR": f"{OUTPUT_ROOT}/{name}",
+        "AC_ANIMUS_FORGE_CLASSES": classes,
+        "AC_ANIMUS_FORGE_QUEUE": ", ".join(queue),
+        # The cores are shared between the instances: each gets a share of the map-update and torch threads.
+        "AC_MAP_UPDATE_THREADS": str(map_threads),
+        "AC_ANIMUS_FORGE_LEARNER_TORCH_THREADS": str(torch_threads),
+    })
+    svc["environment"] = environment
+    # Host ports for the instance's TensorBoard and dashboard; nothing else is published (the base server has the
+    # world and SOAP ports, and a training server takes no clients).
+    svc["ports"] = [
+        {"mode": "ingress", "host_ip": "127.0.0.1", "target": 6006,
+         "published": str(PORT_BASE[0] + PORT_STEP * (index + 1)), "protocol": "tcp"},
+        {"mode": "ingress", "host_ip": "127.0.0.1", "target": 8800,
+         "published": str(PORT_BASE[1] + PORT_STEP * (index + 1)), "protocol": "tcp"},
+    ]
+    document = {"x-animus": NOTE.format(file=path, service=service(name), name=name), "services": {service(name): svc}}
+
     INSTANCES.mkdir(parents=True, exist_ok=True)
-    path.write_text(TEMPLATE.format(
-        file=path, service=service(name), name=name, output=f"{OUTPUT_ROOT}/{name}", classes=classes,
-        queue=", ".join(queue), map_threads=map_threads, torch_threads=torch_threads,
-        tensorboard=PORT_BASE[0] + PORT_STEP * (index + 1), dashboard=PORT_BASE[1] + PORT_STEP * (index + 1)))
+    try:
+        import yaml  # type: ignore
+        path.write_text(yaml.safe_dump(document, sort_keys=False, width=120))
+    except ImportError:  # JSON is YAML
+        path.write_text(json.dumps(document, indent=2) + "\n")
     return path
 
 

@@ -1667,7 +1667,8 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     uint8 keptLevel = 0;
     bool const onMatch = std::any_of(ActiveEncounters(env).begin(), ActiveEncounters(env).end(),
         [&env](Encounter const* encounter) { return encounter->MatchFor(env) != nullptr; });
-    bool const changesMap = data.EpisodeMapId && env.FindMap() && env.FindMap()->GetId() != data.EpisodeMapId;
+    // (An env whose last episode was on another map, an instance rung, rebuilds on the map this one wants.)
+    bool const changesMap = env.FindMap() && env.FindMap()->GetId() != EpisodeMapId(env);
     if (!firstBuild && !env.Evaluating && !onMatch && !changesMap && _tuning.Characters.ReuseEpisodes > 0)
         for (uint32 seat = 0; seat < data.ActiveSeats && seat < previousActiveSeats; ++seat)
         {
@@ -1676,7 +1677,7 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             Player const* bot = s.Bot.Active();
             if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || !c.L || s.L != c.L || s.Spec != c.Spec
                 || s.EpisodesPlayed >= _tuning.Characters.ReuseEpisodes || c.Level < minLevel
-                || (keptLevel && c.Level != keptLevel))
+                || (keptLevel && c.Level != keptLevel) || (data.EpisodeLevel && c.Level != data.EpisodeLevel))
                 continue;
 
             reuse[seat] = true;
@@ -1692,7 +1693,7 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     // episode fixed to another map (an instance rung) opens a new instance of that map; the old one unloads once
     // its last bot has left.
     Map* map = !firstBuild || env.InstanceId ? env.FindMap() : nullptr;
-    if (map && data.EpisodeMapId && map->GetId() != data.EpisodeMapId)
+    if (map && map->GetId() != EpisodeMapId(env))
         map = nullptr;
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a

@@ -169,10 +169,13 @@ modules/mod-animus-forge/tools/forge_classes.py run druid mage warrior paladin h
 Nothing in the sim or the learner is shared between two runs but the cores, so a second class is a second
 `ac-worldserver` container: the same image, source tree, built worldserver, database and GPU, with its own output
 directory (`var/animus-forge/<class>`), its own `AnimusForge.Classes` and `Queue` (stages 8-19), and its own share
-of the map-update and torch threads. Compose cannot make services on the fly, so the tool writes one override file
-per class, `env/instances/<class>.yml` (add the directory to your gitignore; it is machine-specific), from a
-template in which any `AnimusForge.*` or `worldserver.conf` key is an `AC_` environment variable
-(`AnimusForge.Queue` is `AC_ANIMUS_FORGE_QUEUE`; the environment beats the conf file). It starts
+of the map-update and torch threads. Compose cannot make services on the fly, so the tool writes one compose file
+per class, `env/instances/<class>.yml` (add the directory to your gitignore; it is machine-specific and holds the
+rendered environment, `.env` values included), holding the `ac-worldserver` service exactly as `docker compose
+config` renders it on this machine (your `docker-compose.override.yml` is part of that: the GPU devices come from
+it) under its own name, container, output directory and host ports. Any `AnimusForge.*` or `worldserver.conf` key
+is an `AC_` environment variable there (`AnimusForge.Queue` is `AC_ANIMUS_FORGE_QUEUE`; the environment beats the
+conf file). It starts
 `ANIMUS_FORGE_PARALLEL` (2) of them, watches for the last stage's `finished.json`, stops a finished class's server
 and starts the next; Ctrl+C leaves the running ones training and `run` again resumes the schedule. Each instance's
 TensorBoard and dashboard are on the base ports plus ten per instance. One instance is addressed by name:
