@@ -96,6 +96,7 @@ the Animus addon instead (below), which does the same things with no security at
 | `.animus rename <name>` | A new name for the character, nothing else changed |
 | `.animus reroll <race> <class>` | The character is deleted and a new one of the same name created |
 | `.animus list` | Your companion, its class, level and spec, whether its model is loaded, whether it is with you |
+| `.animus purge` | Administrator, from the console too: every `ANIMUS<guid>` account and its characters deleted (orphans of older runs included), every companion sent away unsaved, `animus_companion` emptied |
 
 ### One companion per character
 
