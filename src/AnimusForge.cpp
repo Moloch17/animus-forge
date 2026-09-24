@@ -994,6 +994,7 @@ AnimusForge::SimSnapshot AnimusForge::Forge::Snapshot(bool advanceRates)
             _collectMs.Reset = since(_collect.ResetNs, _rateCollect.ResetNs) / perTick;
             _collectMs.Apply = since(_collect.ApplyNs, _rateCollect.ApplyNs) / perTick;
             _collectMs.ResetsPerTick = since(_collect.Resets, _rateCollect.Resets) / double(ticks);
+            _collectMs.ReusedPerTick = since(_collect.Reused, _rateCollect.Reused) / double(ticks);
         }
     }
 

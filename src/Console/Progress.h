@@ -84,6 +84,7 @@ namespace AnimusForge
             double Reset = 0.0;             // building the next episode's characters
             double Apply = 0.0;             // the actions the learner sent
             double ResetsPerTick = 0.0;     // episodes rebuilt per decision
+            double ReusedPerTick = 0.0;     // characters kept across those episodes instead of rebuilt, per decision
         };
 
         CollectMs Collect;

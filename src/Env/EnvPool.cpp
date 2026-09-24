@@ -465,6 +465,7 @@ void Animus::EnvPool::ResetEnv(Env& env)
     env.Evaluating = _evaluating;
 
     _scenario.Reset(env);
+    _collect.Reused = _scenario.CharactersReused();
 
     if (buildSeed != NO_EPISODE_SEED)
         CoreHooks::SeedRandom(0);

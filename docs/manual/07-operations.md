@@ -144,39 +144,55 @@ order, which is already a valid order, so the usual case needs no arguments at a
 ### Training one class at a time
 
 The curriculum trains in two parts (see chapter 4, *Training one class at a time*): the movement stages once for
-all ten classes, then each class's fighting stages on its own. Two settings move between them.
+all ten classes, then each class's fighting stages on its own.
 
-**The shared movement root** -- stages 1-4, all ten classes:
+**The shared movement root** -- stages 1-7, all ten classes, in the base server:
 
 ```
 # env/dist/etc/modules/mod_animus_forge.conf
 AnimusForge.Classes = ""
-AnimusForge.Queue   = "stage1_move, stage5_dodge, stage6_travel, stage7_flight"
+AnimusForge.Queue   = "stage1_move, stage2_indoor, stage3_jump, stage4_dive, stage5_dodge, stage6_travel, stage7_flight"
 
 # .env (compose passes AC_ANIMUS_FORGE_OUTPUT_DIR, which beats AnimusForge.OutputDir in the conf)
 ANIMUS_FORGE_OUTPUT_DIR=/azerothcore/var/animus-forge/shared
 ```
 
-**Then one class** -- stages 8-19, that class alone:
-
-```
-AnimusForge.Classes = "druid"
-AnimusForge.Queue   = "stage8_duel, stage9_pack, stage10_gauntlet, stage11_endurance, stage12_pvp, stage13_evade, \
-                       stage14_hide, stage15_stealth, stage16_companion, stage17_party, stage18_tanking, \
-                       stage19_triage"
-
-ANIMUS_FORGE_OUTPUT_DIR=/azerothcore/var/animus-forge/druid
-```
-
-Both need the container recreated (`./forge.sh --build`, or `docker compose up -d --force-recreate
+The base server needs recreating for that (`./forge.sh --build`, or `docker compose up -d --force-recreate
 ac-worldserver` when nothing was compiled), because the conf and the environment are read at startup.
 
-A run of exactly one class also picks up that class's own learner configs: `configs/<class>/<stage>.yaml` where
-one exists, and the shared `configs/<stage>.yaml` otherwise. That is where per-build floors live, because a build
-gate names builds and a shared config does not know which classes a run plays.
+**Then the classes, two at a time**, each in a training server of its own:
 
-The class's `stage8_duel` config names the shared checkpoint in `init_from` -- `auto` cannot find it, since the
-seed chain looks under the run's own `runs` directory and the shared root is a sibling of it.
+```
+modules/mod-animus-forge/tools/forge_classes.py run druid mage warrior paladin hunter rogue priest deathknight shaman warlock
+```
+
+Nothing in the sim or the learner is shared between two runs but the cores, so a second class is a second
+`ac-worldserver` container: the same image, source tree, built worldserver, database and GPU, with its own output
+directory (`var/animus-forge/<class>`), its own `AnimusForge.Classes` and `Queue` (stages 8-19), and its own share
+of the map-update and torch threads. Compose cannot make services on the fly, so the tool writes one override file
+per class, `env/instances/<class>.yml` (add the directory to your gitignore; it is machine-specific), from a
+template in which any `AnimusForge.*` or `worldserver.conf` key is an `AC_` environment variable
+(`AnimusForge.Queue` is `AC_ANIMUS_FORGE_QUEUE`; the environment beats the conf file). It starts
+`ANIMUS_FORGE_PARALLEL` (2) of them, watches for the last stage's `finished.json`, stops a finished class's server
+and starts the next; Ctrl+C leaves the running ones training and `run` again resumes the schedule. Each instance's
+TensorBoard and dashboard are on the base ports plus ten per instance. One instance is addressed by name:
+
+```
+ANIMUS_FORGE_INSTANCE=druid modules/mod-animus-forge/tools/forge_classes.py attach     # the console; Ctrl+P Ctrl+Q detaches
+ANIMUS_FORGE_INSTANCE=druid modules/mod-animus-forge/tools/forge_classes.py stop
+modules/mod-animus-forge/tools/forge_classes.py status
+```
+
+Two at a time and not three: a worldserver starts at ~3.5 GB and one long `forge bench` sweep climbed to 19.6 GB
+(7.11), which 30 GB holds twice, not three times. `ANIMUS_FORGE_PARALLEL=3` is allowed if memory proves to stay
+flat. The thread split (12 map threads and 4 torch threads each on 32 cores) is written into each instance file;
+`forge bench` in one instance at that setting says whether it is right, and the file can be edited by hand.
+
+A run of exactly one class also picks up that class's own learner configs: `configs/<class>/<stage>.yaml` where
+one exists, and the shared `configs/<stage>.yaml` otherwise. Every class has a `stage8_duel.yaml` there, and it
+says one thing: where the class's combat line seeds from -- `{shared_runs}/stage7_flight/best.pt`, the shared
+root's checkpoint, which `init_from: auto` cannot find because the seed chain looks under the run's own `runs`
+directory and the shared root is a sibling of it.
 
 ### Monitoring
 
@@ -504,6 +520,21 @@ to the core and a seam in `CoreHooks`, and install it from mod-animus-forge.
   the next episode's characters) and apply. Observe against final observe, per call, is the cheapest read on what
   mask building costs; reset against the episodes rebuilt per decision says whether episode turnover is worth
   attacking. Measure here before optimising the sim: the answer decides what is worth doing.
+- **Characters are reused.** Building a character (race, level, spec, talents, gear) was 6.4 ms of a 24 ms decision
+  at 0.96 episodes rebuilt per decision. `AnimusForge.Curriculum.Characters.ReuseEpisodes` (4) lets a seat keep its
+  character when the next episode draws the same class and build: it is healed, cleared of buffs and cooldowns,
+  restocked and moved to the new spawn, and the env keeps its level. The `sim parts` row shows the characters reused
+  per decision beside the episodes rebuilt. Evaluations always build, so the yardstick is unchanged; a battleground
+  episode always builds too. Set it to 0 to build every episode.
+- **Three measurements, each one `forge fast` pair, decide three defaults.** Read them from `metrics.csv` and record
+  the numbers here before flipping anything:
+  1. *`overlap_updates` on the GPU*: a fast stage on vs off, comparing `rollout_seconds` (contention shows as a
+     longer rollout), not `update_seconds`. If the rollout does not lengthen, `overlap_updates: true` in
+     `stage8_duel.yaml` and `stage1_move.yaml` buys back the 36-42% below.
+  2. *Take one trunk* (chapter 4, "The measurement that decides it"): one class's `stage8_duel` seeded from the
+     shared root against a class-only movement chain; `eval.at_start` and the first three evaluations.
+  3. *Character reuse* on vs off: `env_steps_per_sec`, the `reset` ms, and the first three evaluations of a fast
+     duel, to see the policy does not overfit the fewer characters.
 - **Envs are also a training setting.** One update is `rollout_length x envs x seats` env steps, so a different env
   count changes the batch PPO trains on, not only the speed. `forge bench` says so when its winner differs from the
   env count you train with.

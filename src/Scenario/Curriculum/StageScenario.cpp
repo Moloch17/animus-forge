@@ -1632,7 +1632,32 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
 
     minLevel = std::max(minLevel, _stage.MinLevel);
-    uint8 const level = RandomLevel(minLevel, _level, _tuning.Characters,
+
+    // Characters.ReuseEpisodes: a seat whose draw gave it the class and build it already has keeps its character
+    // for a few episodes rather than building a new one (the build was a quarter of a decision's cost). The env then
+    // keeps its level too, since every seat shares one; the level draw is random anyway, so holding it a few
+    // episodes biases nothing. Never in an evaluation (its seeded spread of characters is the yardstick), never on
+    // a battleground (the match is rebuilt with the episode), never a seat that was empty or lost.
+    std::array<bool, MAX_SEATS> reuse{};
+    uint8 keptLevel = 0;
+    bool const onMatch = std::any_of(ActiveEncounters(env).begin(), ActiveEncounters(env).end(),
+        [&env](Encounter const* encounter) { return encounter->MatchFor(env) != nullptr; });
+    if (!firstBuild && !env.Evaluating && !onMatch && _tuning.Characters.ReuseEpisodes > 0)
+        for (uint32 seat = 0; seat < data.ActiveSeats && seat < previousActiveSeats; ++seat)
+        {
+            SeatState const& s = data.Seats[seat];
+            Character const& c = previous[seat];
+            Player const* bot = s.Bot.Active();
+            if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || !c.L || s.L != c.L || s.Spec != c.Spec
+                || s.EpisodesPlayed >= _tuning.Characters.ReuseEpisodes || c.Level < minLevel
+                || (keptLevel && c.Level != keptLevel))
+                continue;
+
+            reuse[seat] = true;
+            keptLevel = c.Level;
+        }
+
+    uint8 const level = keptLevel ? keptLevel : RandomLevel(minLevel, _level, _tuning.Characters,
         env.EpisodeSeedIndex, uint32(_layouts.size()));
 
     // The first build opens a new instance (or a phase of the continent); every later one reuses it. An env whose
@@ -1664,7 +1689,7 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             start.SetOrientation(frand(0.0f, 2.0f * float(M_PI)));
         }
 
-        Player* bot = BuildSeat(env, seat, map, level, start);
+        Player* bot = reuse[seat] ? ReuseSeat(env, seat, start) : BuildSeat(env, seat, map, level, start);
         if (!bot)
         {
             // Nothing changes: the bots already made for this episode go, the old characters stay with their seats.
@@ -1841,6 +1866,7 @@ Player* Animus::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatIndex,
     Player* bot = seat.Bot.CreateNext(spec, map, _spawnMapId, start);
     if (!bot)
         return nullptr;
+    seat.EpisodesPlayed = 0;
 
     // On a shared continent every env lives in its own phase: its seats see only what it spawns.
     if (_continent)
@@ -1856,6 +1882,37 @@ Player* Animus::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatIndex,
     // quest-rewarded points); recompute them on the spawn map.
     bot->InitTalentForLevel();
     Configure(bot, seat, Arena(env).Pvp);
+    return bot;
+}
+
+Player* Animus::Curriculum::StageScenario::ReuseSeat(Env& env, uint32 seatIndex, Position const& start)
+{
+    SeatState& seat = Data(env).Seats[seatIndex];
+    Player* bot = seat.Bot.Active();
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported())
+        return nullptr;
+
+    // As a player brings a character to a new fight: out of combat, alive and full, no buffs left over (the arena
+    // rule keeps passives and talents), cooldowns clear, the pet away (GivePets decides whether it is out again).
+    // Supplies top up to their counts in StockSeats, so the bags need no clearing.
+    bot->CombatStopWithPets(true);
+    bot->ClearInCombat();
+    if (!bot->IsAlive())
+        bot->ResurrectPlayer(1.0f);
+    bot->RemovePet(nullptr, PET_SAVE_NOT_IN_SLOT, true);
+    bot->RemoveArenaAuras();
+    bot->RemoveAllSpellCooldown();
+    bot->ResetAllPowers();
+    if (bot->IsMounted())
+        bot->Dismount();
+
+    if (!BotFactory::TeleportWithinMap(bot, start))
+        return nullptr;
+
+    // Begin was called for every seat; nothing was created for this one, so the character stays the slot's bot.
+    seat.Bot.Abort();
+    ++seat.EpisodesPlayed;
+    ++_reused;
     return bot;
 }
 

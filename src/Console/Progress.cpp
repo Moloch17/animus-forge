@@ -38,8 +38,8 @@ namespace
     std::string SimPartsNote(AnimusForge::SimSnapshot::CollectMs const& collect)
     {
         return Acore::StringFormat("reward {:.2f} ms, final observe {:.2f} ms, reset {:.2f} ms ({:.2f} episodes "
-            "rebuilt per decision), apply {:.2f} ms", collect.Reward, collect.FinalObserve, collect.Reset,
-            collect.ResetsPerTick, collect.Apply);
+            "rebuilt per decision, {:.2f} characters reused), apply {:.2f} ms", collect.Reward, collect.FinalObserve,
+            collect.Reset, collect.ResetsPerTick, collect.ReusedPerTick, collect.Apply);
     }
 
     /// Weight of the newest interval in the step rate average.

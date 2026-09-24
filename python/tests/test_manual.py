@@ -54,6 +54,38 @@ def test_the_manual_matches_the_config(name):
     assert documented()[name] == configured(name), f"04-curriculum.md disagrees with configs/{name}.yaml"
 
 
+STAGES_CPP = Path(__file__).resolve().parents[2] / "src" / "Scenario" / "Curriculum" / "Stages" / "Stages.cpp"
+# AnimusForge.Envs the manual's arithmetic assumes (this machine's forge bench result), and the host default episode
+# length (AnimusForge.EpisodeSeconds) for an arena that sets none.
+ENVS = 128
+DEFAULT_EPISODE_SECONDS = 60
+# The party line's 2048 x 450 s / 128 = 7,200 sim-seconds is the most any stage spends on one evaluation today.
+MAX_EVAL_SIM_SECONDS = 7_200
+
+
+def longest_episode_seconds() -> dict[str, int]:
+    """Per stage, the longest arena episode in Stages.cpp: what one evaluation episode can cost."""
+    out, stage = {}, None
+    for line in STAGES_CPP.read_text().splitlines():
+        if m := re.search(r'\.Name = "(stage\d+_\w+)"', line):
+            stage = m.group(1)
+            out[stage] = DEFAULT_EPISODE_SECONDS
+        elif stage and (m := re.search(r"\.EpisodeSeconds = (\d+)", line)):
+            out[stage] = max(out[stage], int(m.group(1)))
+    return out
+
+
+@pytest.mark.parametrize("name", sorted(documented()))
+def test_an_evaluation_stays_affordable(name):
+    """episodes x episode seconds / envs (manual 4, "What an evaluation costs"): a stage that inherits the duel's
+    2048 episodes with a 300 s episode and a few dozen envs would spend more sim time evaluating than training. The
+    raid stages did exactly that until they set their own count."""
+    seconds = longest_episode_seconds()[name]
+    cost = configured(name)["episodes"] * seconds / ENVS
+    assert cost <= MAX_EVAL_SIM_SECONDS, (f"{name}: {cost:,.0f} sim-seconds an evaluation at {ENVS} envs "
+                                          f"({seconds} s episodes); set eval.episodes in its config")
+
+
 def test_the_queue_total_is_what_the_manual_says():
     """The manual states the whole queue in one number, which is the one a person plans a run from."""
     rows = documented()

@@ -112,6 +112,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Characters.RandomTalentChance` | 10 | | `Pulls.PartyEliteChance` | 50 |
 | `Characters.TalentNoisePoints` | 5 | | | |
 | `Characters.PetOutChance` | 50 | | | |
+| `Characters.ReuseEpisodes` | 4 | | | |
 | `Party.SizeWeight1` | 20 | | | |
 | `Party.SizeWeight2` | 20 | | | |
 | `Party.SizeWeight3` | 20 | | `Pulls.NextPullMinMs` | 8000 |

@@ -544,6 +544,11 @@ AnimusForge.Curriculum.Characters.TalentNoisePoints = 5
 #   percent of pet-class characters (hunters, warlocks, death knights with Master of Ghouls, frost mages with Glyph
 #   of Eternal Water) that start with their pet out, as a player arrives with one
 AnimusForge.Curriculum.Characters.PetOutChance = 50
+#   episodes a seat keeps its character for when the next episode draws the same class and build, before it is
+#   built afresh (race, level, talents, gear). A kept character is healed, cleared of buffs and cooldowns, restocked
+#   and moved to the new spawn, at a fraction of a build's cost; the level stays what it was. Evaluations always
+#   build. 0 = build every episode. `forge status` counts the characters reused per decision beside the rebuilt.
+AnimusForge.Curriculum.Characters.ReuseEpisodes = 4
 
 #
 #    AnimusForge.Curriculum.Party.*

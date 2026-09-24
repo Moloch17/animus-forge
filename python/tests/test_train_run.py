@@ -137,7 +137,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
         f"socket={path}", f"runs_dir={tmp_path / 'runs'}", f"layouts_dir={tmp_path / 'layouts'}", "run_name=fake",
         "rollout_length=4", f"total_env_steps={2 * steps_per_update}", "checkpoint_every=1", "init_from=''",
         "train_device=cpu", "mappo.hidden=[8, 8]", "mappo.epochs=1", "mappo.minibatches=1",
-        f"eval.every_env_steps={steps_per_update}", "eval.episodes=2", "eval.baseline=''",
+        f"eval.every_env_steps={steps_per_update}", "eval.episodes=2", "eval.baseline=''", "eval.sampled_every=3",
         "convergence.patience=0",
     ])
 
@@ -164,7 +164,7 @@ def test_training_run_trains_evaluates_and_finishes(tmp_path):
 
     with (run_dir / "eval.csv").open() as f:
         evals = list(csv.DictReader(f))
-    # The third evaluation also plays sampled actions on the same seeds (stage8_duel: eval.sampled_every 3).
+    # The third evaluation also plays sampled actions on the same seeds (eval.sampled_every 3, as the export stage).
     assert [int(row["env_steps"]) for row in evals] == [0, steps_per_update, 2 * steps_per_update, 2 * steps_per_update]
     assert [row["policy"] for row in evals] == ["learner", "learner", "learner", "learner_sampled"]
     assert modes.count((True, 2, "")) == 4

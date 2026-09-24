@@ -25,7 +25,7 @@ run_name: stage8_duel
 # checkpoint, not the other way round -- so a druid-only run takes the druid out of an all-class checkpoint and
 # leaves the other nine behind (animus.bootstrap).
 init_from:
-  - /azerothcore/var/animus-forge/shared/runs/stage7_flight/best.pt
+  - "{shared_runs}/stage7_flight/best.pt"
 
 eval:
   report: [clean_kill, killed, died, time_to_kill, health_left, livelocked, form_at_end]

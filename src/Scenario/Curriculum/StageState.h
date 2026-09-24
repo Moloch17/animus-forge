@@ -147,6 +147,9 @@ namespace Animus::Curriculum
         float DamageScale = 1.0f;
         std::vector<uint32> Stable;             // hunters: beasts offered this episode
         bool PetAtStart = false;                // the episode started with the seat's pet out
+        /// Episodes this character has played: a seat keeps its character for Characters.ReuseEpisodes episodes
+        /// when the next draw gives it the same class and build (StageScenario::ReuseSeat), then rebuilds.
+        uint32 EpisodesPlayed = 0;
 
         /// The highest rank of every catalog action the bot knows, resolved once when the character is built:
         /// walking the rank chain per action per decision is most of what observing a seat costs, and the

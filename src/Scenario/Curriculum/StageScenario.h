@@ -218,6 +218,7 @@ namespace Animus::Curriculum
         /// Every class/role layout of the run, by Layout::Index (the index AgentLayouts reports).
         [[nodiscard]] std::vector<Layout> const& Layouts() const { return _layouts; }
         [[nodiscard]] bool Playable() const override { return !_layouts.empty(); }
+        [[nodiscard]] uint64 CharactersReused() const override { return _reused; }
 
         /// How many (class, role) pairs the run can field, which is what an evaluation spreads its seeds over.
         /// The difficulty ladder divides by the same number, so every pair meets every rung.
@@ -291,6 +292,9 @@ namespace Animus::Curriculum
         [[nodiscard]] std::vector<Encounter*> const& ActiveRewardOrder(Env const& env) const;
         /// Create and place seat `seat`'s next character (its layout is set). `map` is null for the env's first bot.
         Player* BuildSeat(Env& env, uint32 seat, Map*& map, uint8 level, Position const& start);
+        /// The seat's current character made ready for a new episode in place of a rebuild (Characters.ReuseEpisodes):
+        /// alive, full, unbuffed, cooldowns clear, pet away, moved to `start`. Null when it cannot be (then BuildSeat).
+        Player* ReuseSeat(Env& env, uint32 seat, Position const& start);
         void Configure(Player* bot, SeatState& seat, bool pvp) const;
         /// Every seat's potions, bandages, stones and flask for the episode (after the encounters are built).
         void StockSeats(Env& env);
@@ -339,6 +343,7 @@ namespace Animus::Curriculum
 
         StageDefinition const& _stage;
         CurriculumTuning _tuning;
+        uint64 _reused = 0;                     // characters kept across episodes (CharactersReused)
         uint32 _spawnMapId;
         Position _spawnPoint;
         bool _continent = false;

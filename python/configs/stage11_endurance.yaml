@@ -14,6 +14,9 @@ total_env_steps: 60000000
 # than the gauntlet's.
 eval:
   every_env_steps: 10000000
+  # 900 s episodes: the duel's inherited 2048 would be 14,400 sim-seconds an evaluation at 128 envs, twice the
+  # party line; 1024 is 7,200 (manual 4, "What an evaluation costs"), still ~57 seeded episodes per class/build.
+  episodes: 1024
   trace_episodes: 4
 
 # Won by finishing the run. The floors are provisional, to be reset from the first run: clearing the last pull is

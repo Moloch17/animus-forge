@@ -164,31 +164,36 @@ stage trains its whole budget).
 | `stage5_dodge` | 30M | 5M | 2048 | `stage6_travel` | 20M | 2M | 2048 |
 | `stage7_flight` | 20M | 2M | 2048 | `stage8_duel` | 100M | 10M | 2048 |
 | `stage9_pack` | 40M | 10M | 2048 | `stage10_gauntlet` | 60M | 10M | 2048 |
-| `stage11_endurance` | 60M | 10M | 2048 | `stage12_pvp` | 60M | 10M | 2048 |
+| `stage11_endurance` | 60M | 10M | 1024 | `stage12_pvp` | 60M | 10M | 2048 |
 | `stage13_evade` | 30M | 10M | 2048 | `stage14_hide` | 30M | 10M | 2048 |
 | `stage15_stealth` | 20M | 10M | 2048 | `stage16_companion` | 60M | 10M | 2048 |
 | `stage17_party` | 90M | 15M | 2048 | `stage18_tanking` | 60M | 15M | 2048 |
 | `stage19_triage` | 60M | 15M | 2048 | `stage20_flag` | 40M | 10M | 2048 |
 | `stage21_warsong` | 40M | 10M | 128 | `stage22_duo_led` | 30M | 10M | 512 |
-| `stage23_crossroads` | 100M | 25M | 256 | `stage24_raid_single` | 40M | 20M | 2048 |
-| `stage25_raid_gauntlet` | 40M | 20M | 2048 |  | | |  |
+| `stage23_crossroads` | 100M | 25M | 256 | `stage24_raid_single` | 40M | 20M | 256 |
+| `stage25_raid_gauntlet` | 40M | 20M | 256 |  | | |  |
 
-**What the budgets assume.** Stages 1-7 (the movement root) are trained once, for every class; stages 8-19 are
-trained per class, each class with all 128 envs; stages 20-23 (the objective stages and the crossroads) once, after
-the join; the two raid stages by name. So the queue's ceiling is 1,032M (1,112M with the raids), and a
+**What the budgets assume.** 128 envs (`AnimusForge.Envs`; this machine's `forge bench` result, where the shipped
+default is 64 -- every number in this chapter is at 128). Stages 1-7 (the movement root) are trained once, for
+every class; stages 8-19 are trained per class, each class with all 128 envs; stages 20-23 (the objective stages and
+the crossroads) once, after the join; the two raid stages by name. So the queue's ceiling is 1,032M (1,112M with the raids), and a
 ten-class build's is 152M for the root, 670M per class (6,700M for ten) and 210M for the
 objective stages: about 7,062M, against the 15,780M the earlier per-class plan came
 to. Two assumptions carry that number. The objective stages "once after the join" assume the **take-one-trunk**
 join below (seed from one class's trunk and let the adapters adapt), the only one of the three options that costs
-no training. And per-class configs exist only for the druid today (`configs/druid/`): a ten-class build needs a
-`configs/<class>/stage8_duel.yaml` per class naming the shared flight checkpoint (`{shared_runs}` in a path is
-the shared run directory beside the class's own).
+no training. And every class has a `configs/<class>/stage8_duel.yaml` naming the shared flight checkpoint
+(`{shared_runs}` in a path is the shared root's run directory beside the class's own); the druid's directory also
+carries its own report columns for the stages where it has something to say.
 
 **What an evaluation costs.** `episodes x episode seconds / envs` sim-seconds per evaluation, which the sim runs
 faster than real time: the duel's 2048 x 90 s / 128 is 1,440 sim-seconds (about 80 s of wall clock); the party
-line's 2048 x 450 s / 128 is 7,200; Warsong's 128 matches x 420 s / 128 is 420. Convergence usually ends a stage
-well short of its ceiling: an earlier run of the duel had its best at 80M of a 300M budget, and the party stage its
-best at 100M of 120M.
+line's 2048 x 450 s / 128 is 7,200; Warsong's 128 matches x 420 s / 128 is 420. A stage inherits the duel's 2048
+episodes unless its config says otherwise, which is how the two raid stages came to 19,200 and 38,400 sim-seconds
+an evaluation before they set 256, and the endurance stage's 900 s episodes to 14,400 before it set 1024;
+`python/tests/test_manual.py` now fails any stage over the party line's 7,200.
+The duel's second, *sampled* evaluation every third time (`eval.sampled_every`) is off everywhere but the export
+stage, which is the only one that reads it. Convergence usually ends a stage well short of its ceiling: an earlier
+run of the duel had its best at 80M of a 300M budget, and the party stage its best at 100M of 120M.
 
 **A drill** fixes what one episode is about, where the curriculum otherwise teaches the same skill inside a stage
 won by something else and the credit for it is smeared over the clear. Drills are *on* the trunk rather than
@@ -232,33 +237,38 @@ warrior/runs/                                                   ├─ stage8_du
 Each class's directory is its own because from `stage8_duel` on every class trains the same *stage names*; one
 directory would have the second class overwrite the first's checkpoints.
 
-**This is cheaper than training the movement stages per class**, not dearer: 160M env steps once rather than ten
-times, which is 160M against 1,600M. And every class then starts from the same trunk rather than from ten
+**This is cheaper than training the movement stages per class**, not dearer: 152M env steps once rather than ten
+times, which is 152M against 1,520M. And every class then starts from the same trunk rather than from ten
 independent random initialisations, which is the thing that makes the eventual join tractable.
 
 ### What the whole plan costs
 
+The ceilings from the budget table above:
+
 | | env steps |
 |---|---|
-| Shared movement root, stages 1-4, all ten classes | 160M |
-| One class, stages 5-17 | 1,520M |
-| Ten classes | **15,200M** |
-| The join and the objective stages, 18-23, once | 420M |
-| **Total** | **15,780M** |
+| Shared movement root, stages 1-7, all ten classes | 152M |
+| One class, stages 8-19 | 670M |
+| Ten classes | **6,700M** |
+| The join and the objective stages, 20-23, once | 210M |
+| **Total** | **7,062M** |
 
-Against 2,100M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
-and a half times the compute**, and that is the price of the thing it buys: a policy per class that has not had
-to share its trunk with nine others through the stages where classes have least in common.
+Against 1,032M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+times the compute**, and that is the price of the thing it buys: a policy per class that has not had to share its
+trunk with nine others through the stages where classes have least in common.
 
-Two things take the edge off it, and the second is the one to act on:
+Three things take the edge off it:
 
-- **Budgets are ceilings, not targets.** `convergence` stops a stage when its evaluations stop improving
-  (`patience` of them without a new best), so a stage routinely finishes well short. An earlier run of the duel
-  had its best at 80M of a 300M budget.
-- **The budgets in the configs are still sized for all-class runs, and should be cut for per-class ones.** The
-  two 300M stages -- `stage8_duel` and `stage11_endurance` -- are 40% of a class's 1,520M on their own, and 300M
-  was chosen when one run covered eighteen class/roles at ~17M each. A run of one class gives that class all 128
-  envs. Re-sizing those two alone takes a class under 1,000M and the plan under 10,000M.
+- **Budgets are ceilings, not targets.** The convergence rule ends a stage when every class it plays has
+  converged, and a converged class leaves the draw before that, so a stage routinely finishes well short of its
+  ceiling. An earlier run of the duel had its best at 80M of a 300M budget, which is why the duel's ceiling is 100M
+  now: the two stages that used to be 300M each (`stage8_duel`, `stage11_endurance`) were 40% of a class's cost
+  and were sized for one run covering eighteen class/builds at ~17M each; a run of one class gives it all 128 envs.
+- **Classes run two at a time** (chapter 7, *Training one class at a time*): the sim and the learner share nothing
+  between runs but the cores, and the machine has 32.
+- **Characters are reused across episodes** (`Characters.ReuseEpisodes`): a seat that draws the class and build it
+  already has keeps its character for a few episodes, which takes most of the reset cost (a quarter of a decision)
+  out of training; evaluations always build fresh.
 
 ### How a class's first combat stage finds the shared checkpoint
 
@@ -1864,9 +1874,10 @@ does not fall apart when the group it is in is one of eight.
 
 ### Stage 25 (by name): `stage25_raid_gauntlet`
 
-The raid clearing pull after pull, recovering between them, over 600 s. It is the last PvE stage: everything
-the PvE line taught -- the duel, the pack, the hazard, the gauntlet's recovery, the companion, the party's
-roles, the raid's size -- is in one episode. `stage23_crossroads` seeds from it.
+The raid clearing pull after pull, recovering between them, over 600 s. Everything the PvE line taught -- the
+duel, the pack, the hazard, the gauntlet's recovery, the companion, the party's roles, the raid's size -- is in one
+episode. Nothing seeds from it: `stage23_crossroads` extends `stage19_triage`, and the raids are the yardstick for
+a policy that has to hold together at forty.
 
 ## 4.12 Team play and the director
 

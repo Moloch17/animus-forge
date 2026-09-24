@@ -130,6 +130,7 @@ namespace Animus
             uint64 ApplyNs = 0;             // ApplyActions, which is a decision's other half
             uint32 Observes = 0;            // envs observed (one per env per decision)
             uint32 Resets = 0;              // episodes that ended and were rebuilt
+            uint64 Reused = 0;              // characters kept across those resets instead of rebuilt (cumulative)
         };
 
         [[nodiscard]] CollectTiming const& LastCollect() const { return _collect; }

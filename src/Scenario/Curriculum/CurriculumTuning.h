@@ -55,6 +55,12 @@ namespace Animus::Curriculum
             // Percent of pet-class characters that start the episode with their pet out, as a player arrives with
             // one: the rest summon it themselves (or not).
             int32 PetOutChance = 50;
+            /// Episodes a seat keeps its character for when the next episode draws the same class and build, before
+            /// it is built afresh (race, level, talents, gear). Building a character was 6.4 ms of a 24 ms decision
+            /// (reset 0.96 episodes per decision, stage1_duel at 128 envs); a kept character is healed, cleared of
+            /// buffs and cooldowns, restocked and moved to the new spawn instead. Evaluations always build: their
+            /// seeded spread of characters is the yardstick. 0 = build every episode.
+            uint32 ReuseEpisodes = 4;
         } Characters;
 
         /// Which party seats have a character, and their roles.
@@ -717,6 +723,7 @@ namespace Animus::Curriculum
             f("Characters.RandomTalentChance", tuning.Characters.RandomTalentChance);
             f("Characters.TalentNoisePoints", tuning.Characters.TalentNoisePoints);
             f("Characters.PetOutChance", tuning.Characters.PetOutChance);
+            f("Characters.ReuseEpisodes", tuning.Characters.ReuseEpisodes);
 
             f("Party.SizeWeight1", tuning.Party.SizeWeight1);
             f("Party.SizeWeight2", tuning.Party.SizeWeight2);

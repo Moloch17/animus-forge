@@ -69,6 +69,10 @@ namespace Animus
         /// halting on it, and the stage after it seeds from the one before.
         [[nodiscard]] virtual bool Playable() const { return true; }
 
+        /// Characters kept across an episode boundary instead of rebuilt (StageScenario::ReuseSeat), cumulative:
+        /// `forge status` reports the rate beside the episodes rebuilt per decision.
+        [[nodiscard]] virtual uint64 CharactersReused() const { return 0; }
+
         /// Once at startup: create bots and targets and place them. env.MapId/InstanceId, Bots and
         /// Targets must be filled in. Returns false if the env cannot be built.
         virtual bool Setup(Env& env) = 0;

@@ -284,20 +284,33 @@ class TrainConfig:
     entropy_floor: EntropyFloorConfig = field(default_factory=EntropyFloorConfig)
     cast: CastConfig = field(default_factory=CastConfig)
 
+    @property
+    def shared_runs(self) -> str:
+        """The shared movement root's run directory, a sibling of this run's output directory ({shared_runs}).
+
+        A class's runs live in <output>/<class>/runs and the root's in <output>/shared/runs (manual 4, "Training one
+        class at a time"), so a class's stage8_duel names the shared flight checkpoint as
+        `{shared_runs}/stage7_flight/best.pt` without knowing where the output directory is.
+        """
+        return str(Path(self.runs_dir).resolve().parent.parent / "shared" / "runs")
+
+    def format_path(self, path: str) -> str:
+        return str(path).format(runs_dir=self.runs_dir, run_name=self.run_name, shared_runs=self.shared_runs)
+
     def resolved_init_from(self, stage: dict | None) -> list[str]:
         if self.init_from == AUTO:
             return [str(Path(self.runs_dir) / name / "best.pt") for name in seed_chain(stage)]
         candidates = [self.init_from] if isinstance(self.init_from, str) else list(self.init_from or [])
-        return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+        return [self.format_path(c) for c in candidates if c]
 
     def resolved_finetune_from(self) -> str:
-        return self.finetune_from.format(runs_dir=self.runs_dir, run_name=self.run_name) if self.finetune_from else ""
+        return self.format_path(self.finetune_from) if self.finetune_from else ""
 
     def resolved_merge_from(self, stage: dict | None) -> list[str]:
         if self.merge_from == AUTO:
             return [str(Path(self.runs_dir) / name / "best.pt") for name in merges(stage)]
         candidates = [self.merge_from] if isinstance(self.merge_from, str) else list(self.merge_from or [])
-        return [c.format(runs_dir=self.runs_dir, run_name=self.run_name) for c in candidates if c]
+        return [self.format_path(c) for c in candidates if c]
 
     def named_teachers(self) -> dict[str, str]:
         """distill.teachers as {arena: checkpoint path}, {runs_dir} filled in; {} when off or "auto"."""

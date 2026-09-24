@@ -25,6 +25,8 @@ distill:
 eval:
   episodes: 256
   every_env_steps: 25000000
+  # The shipped model samples: every third evaluation also runs sampled, to see the argmax and sampled policies agree.
+  sampled_every: 3
   # The arena_1v1 seat is scored against fight as its opponent.
   opponent_baseline: true
   report: [dps, died, won, kills, pulls_cleared, wipes, owner_deaths, owner_healing, teammates_died, ambushers,
