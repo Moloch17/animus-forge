@@ -216,12 +216,6 @@ class LayoutActor(nn.Module):
         """A cleared memory for `lead` rows (what an episode starts with)."""
         return torch.zeros((*lead, self.recurrent_size), dtype=torch.float32, device=device)
 
-    def forward_with_foresight(self, obs: torch.Tensor, layout: torch.Tensor, mask: torch.Tensor,
-                               groups=None, memory: torch.Tensor | None = None) -> tuple[Categorical, torch.Tensor]:
-        """forward() and the foresight head's predictions [..., foresight_outputs] from the same pass."""
-        dist, _, predictions = self.step(obs, layout, mask, memory, groups)
-        return dist, predictions
-
     def encode(self, obs: torch.Tensor, layout: torch.Tensor, groups=None) -> torch.Tensor:
         """Adapters and trunk for flat rows: everything that depends only on this decision's observation, before the
         GRU. A replayed sequence encodes every step in one pass and then carries the memory through them (carry),

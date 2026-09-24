@@ -1,10 +1,9 @@
 """Every tuning key the sim reads is documented in the conf template.
 
-The curriculum's tuning keys are declared once, in CurriculumTuning::Visit, and written out twice more: in this
-module's conf template and in mod-animus's. Keeping three lists in step by hand does not work -- by the time
-this test was written the two templates had already drifted, and five keys (Duel.Interrupt and its three
-variants, Pulls.ControlFallbackDps) existed only in the forge's, so a mod-animus operator could not tune them
-and had no way to find out.
+The curriculum's tuning keys are declared once, in CurriculumTuning::Visit, and written out again in the conf
+template. Keeping two lists in step by hand does not work -- by the time this test was written the template had
+already drifted from the header, and five keys (Duel.Interrupt and its three variants, Pulls.ControlFallbackDps)
+were readable but nowhere an operator could find them.
 
 A missing key is not loud: CurriculumTuning::Load asks for every key with a default and no warning, on purpose,
 so an absent one silently keeps its compiled-in value. That is the right behaviour for a running server and the
@@ -18,20 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CONF = ROOT / "conf" / "mod_animus_forge.conf.dist"
-
-
-def _tuning_header() -> Path:
-    """CurriculumTuning.h, wherever the curriculum currently lives: under animus-lib/src before the library was
-    split, under one of its two roots after, and under the module's own src once it was folded in."""
-    for src in (ROOT / "animus-lib" / "src", ROOT / "src"):
-        for prefix in ((), ("runtime",), ("training",)):
-            candidate = src.joinpath(*prefix, "Scenario", "Curriculum", "CurriculumTuning.h")
-            if candidate.is_file():
-                return candidate
-    return ROOT / "CurriculumTuning.h"      # missing: the assert below names it
-
-
-TUNING = _tuning_header()
+TUNING = ROOT / "src" / "Scenario" / "Curriculum" / "CurriculumTuning.h"
 
 
 def tuning_keys() -> set[str]:

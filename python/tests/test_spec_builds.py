@@ -1,7 +1,7 @@
 """The curriculum's standard talent builds, checked as data: every spec must reach its own last row.
 
-These live in animus-lib (`Character/SpecBuilds.cpp`) and are spent by `TalentBuilder::Standard`, which places
-them in list order under the game's own rules. The rules that matter here are arithmetic:
+These live in `src/Scenario/Curriculum/Character/SpecBuilds.cpp` and are spent by `TalentBuilder::Standard`,
+which places them in list order under the game's own rules. The rules that matter here are arithmetic:
 
 - a level 80 character has 71 talent points, and
 - a tree's last row (row 10 in Wrath) needs 50 points already spent in that tree.
@@ -14,37 +14,17 @@ builds, because list order spends the 51st point long before the last row unlock
 import re
 from pathlib import Path
 
-import pytest
-
 LEVEL_80_POINTS = 71
 LAST_ROW_NEEDS = 50  # 5 points per row, rows 0-10
 
-RELATIVE = Path("src/Scenario/Curriculum/Character/SpecBuilds.cpp")
-
-
-def spec_builds_path() -> Path | None:
-    """SpecBuilds.cpp: this module's own copy since the library was folded in, and before that animus-lib beside
-    the checkout, wherever the two were cloned (or mounted, under test)."""
-    here = Path(__file__).resolve().parents[2] / RELATIVE
-    if here.exists():
-        return here
-
-    for base in Path(__file__).resolve().parents:
-        for candidate in (base / "mod-animus-lib" / RELATIVE, base / "modules/mod-animus-lib" / RELATIVE):
-            if candidate.exists():
-                return candidate
-    return None
+SPEC_BUILDS = Path(__file__).resolve().parents[2] / "src/Scenario/Curriculum/Character/SpecBuilds.cpp"
 
 BUILD = re.compile(r'\{\s*CLASS_(\w+),\s*"(\w+)",\s*\{(.*?)\n\s*\},', re.S)
 PICK = re.compile(r'\{\s*(\d+),\s*"([^"]+)",\s*(\d+)\s*\}')
 
 
 def specs():
-    path = spec_builds_path()
-    if path is None:
-        pytest.skip("animus-lib is not beside this checkout")
-
-    source = path.read_text()
+    source = SPEC_BUILDS.read_text()
     found = []
     for match in BUILD.finditer(source):
         player_class, spec, body = match.group(1).lower(), match.group(2), match.group(3)

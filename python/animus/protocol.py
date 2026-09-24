@@ -103,9 +103,6 @@ class Spec:
             size += dtype.itemsize * int(np.prod(shape))
         return size
 
-    def act_payload_size(self, goals: bool = False) -> int:
-        return (8 if goals else 4) * self.num_envs * self.agents_per_env
-
 
 @dataclass
 class Step:

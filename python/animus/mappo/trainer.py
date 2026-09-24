@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 from torch import nn
-from torch.distributions import Categorical
 
 from .buffer import RolloutBuffer
 from .networks import LayoutActor, LayoutCritic, per_layout, skip_distribution_checks, update_norms
@@ -393,10 +392,6 @@ class MappoTrainer:
             action=np.zeros((envs, agents), dtype=np.int64) if self.slow_layout >= 0 else None,
             slow_age=np.zeros((envs, agents), dtype=np.int64) if self.slow_layout >= 0 else None,
         )
-
-    def acting_memory(self, envs: int, agents: int) -> np.ndarray | None:
-        """Just the memory part of acting_state, for callers that have no goals to keep."""
-        return self.acting_state(envs, agents).memory
 
     def _memory_tensor(self, memory: np.ndarray | None, rows: int) -> torch.Tensor:
         """The memory to carry in, as the actor wants it: cleared when the caller has none."""
