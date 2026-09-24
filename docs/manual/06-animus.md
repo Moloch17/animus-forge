@@ -96,23 +96,24 @@ the Animus addon instead (below), which does the same things with no security at
 | `.animus rename <name>` | A new name for the character, nothing else changed |
 | `.animus reroll <race> <class>` | The character is deleted and a new one of the same name created |
 | `.animus list` | Your companion, its class, level and spec, whether its model is loaded, whether it is with you |
-| `.animus purge` | Administrator, from the console too: every `ANIMUS<guid>` account and its characters deleted (orphans of older runs included), every companion sent away unsaved, `animus_companion` dropped and made again empty |
+| `.animus purge` | Administrator, from the console too: every `ANIMUS<guid>` account and its characters deleted (orphans of older runs included), every companion sent away unsaved, `animus_companion` dropped |
 
 ### One companion per character
 
 A player character owns at most one companion, and it is a character of its own (`CompanionRegistry`,
-`animus_companion` in the characters database): `characters` row, inventory, talents, everything, on an account
-made for the owner on their first create (`ANIMUS<owner guid>`, random password, inserted directly since
-`AccountMgr::CreateAccount` is asynchronous). Create builds it as a seat is built (`BotFactory::Create`, `Configure`
-with a spec drawn with no demand) and saves it at once (`SaveToDB(create)`, committed on the world thread);
-dismiss, the owner's logout and shutdown save it the same way (`CompanionParty::Save`, with the registry's
-record: spec, edited, the owner's gear slots), and the core's autosave runs in between. Summon loads it as a
-login does: `CompanionLoader` fills a copy of the core's `LoginQueryHolder` (35 queries; the class is local to
-`CharacterHandler.cpp`), `DelayQueryHolder` runs it on the database thread, and `AnimusMod::OnUpdate` finishes
-the ones that arrived -- a socketless session, `Player::LoadFromDB`, the social list -- and `CompanionParty::Attach`
-places it beside the owner (`PlaceNear`), leaves a stale group, joins the owner's, reads its build off it
-(`RefreshBuild`) and restocks it. Rename writes `characters.name` and the character cache (a summoned companion is
-dismissed and summoned again, so the owner's client sees the new name); reroll deletes the character
+`animus_companion` in the characters database, a table the module creates with the first companion account and drops
+on purge; nothing of the module's is in the database before or after): `characters` row, inventory, talents,
+everything, on an account made for the owner on their first create (`ANIMUS<owner guid>`, random password, inserted
+directly since `AccountMgr::CreateAccount` is asynchronous). Create builds it as a seat is built
+(`BotFactory::Create`, `Configure` with a spec drawn with no demand) and saves it at once (`SaveToDB(create)`,
+committed on the world thread); dismiss, the owner's logout and shutdown save it the same way (`CompanionParty::Save`,
+with the registry's record: spec, edited, the owner's gear slots), and the core's autosave runs in between. Summon
+loads it as a login does: `CompanionLoader` fills a copy of the core's `LoginQueryHolder` (35 queries; the class is
+local to `CharacterHandler.cpp`), `DelayQueryHolder` runs it on the database thread, and `AnimusMod::OnUpdate`
+finishes the ones that arrived -- a socketless session, `Player::LoadFromDB`, the social list -- and
+`CompanionParty::Attach` places it beside the owner (`PlaceNear`), leaves a stale group, joins the owner's, reads its
+build off it (`RefreshBuild`) and restocks it. Rename writes `characters.name` and the character cache (a summoned
+companion is dismissed and summoned again, so the owner's client sees the new name); reroll deletes the character
 (`Player::DeleteFromDB`, finally) and creates one of the same name. Deleting the owner's character deletes the
 companion's and its account (`OnPlayerDelete`).
 
