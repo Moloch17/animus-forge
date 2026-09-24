@@ -38,3 +38,6 @@ cast:
   opponents: league
   parent: "{runs_dir}/stage12_pvp/best.pt"
   opponent_share: 0.5
+  # The companion, party, ambush and escort arenas' owner: the endurance policy, as in the companion line.
+  agents:
+    owner: "{runs_dir}/stage11_endurance/best.pt"

@@ -95,8 +95,8 @@ one commanding each side (see 4.12).
 | `stage13_evade` | stage12_pvp | Solo | same | **Drill.** A scripted enemy player ten levels up for 120 s: the fight cannot be won, so the score is being alive at the end. Break away, break line of sight, use the class's escape |
 | `stage14_hide` | stage13_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
 | `stage15_stealth` | stage14_hide | Solo | same | **Drill, restricted.** For the classes whose own kit carries a stealth aura (rogue and druid): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement. In a run whose classes cannot play it the queue skips it; in an all-class run its checkpoint holds two layouts and the next stage seeds from the stage before it |
-| `stage16_companion` | stage15_stealth (+ stage11_endurance) | Solo | + pack, gauntlet, companion, support (−pvp) | The gauntlet beside a scripted owner: follow, assist, guard and heal it |
-| `stage17_party` | stage16_companion | Party | + party | Four learned seats and the scripted owner against elite-heavy pulls |
+| `stage16_companion` | stage15_stealth (+ stage11_endurance) | Solo | + pack, gauntlet, companion, support (−pvp) | The gauntlet beside an owner: follow, assist, guard and heal it. The owner is a seat of its own played by the endurance policy (the learner's cast) in 70% of training episodes, and the script's wandering owner in the rest and in every evaluation |
+| `stage17_party` | stage16_companion | Party | + party | Four learned seats and the owner (cast as in the companion stage) against elite-heavy pulls |
 | `stage18_tanking` | stage17_party | Party | same | **Drill.** Seat 0 is drawn from builds that can hold the pull: hold what it brings, and keep it off the others |
 | `stage19_triage` | stage18_tanking | Party | same | **Drill, and the leaf of the class curriculum.** Seat 0 is drawn from builds that can keep the hurt one up, and has to spend mana doing it |
 | `stage20_flag` | stage19_triage (+ stage6_travel, stage12_pvp) | Mirror | + pvp, travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
@@ -333,7 +333,7 @@ An `ArenaDefinition` describes one situation:
 | `Against` | `Creature`, `Pulls`, `ScriptedPlayer`, `MirrorSeat`, `Ambush`, `Travel` (a place to get to), `Flag` (a flag match between mirror seats), `Hazards` (nothing to fight: ground to get off) |
 | `Schedule` | `None`, `SinglePack` (ends on clear), `Gauntlet` (pull after pull) |
 | `MaxRung` | Pin the pack ladder instead of letting it climb: `-1` leaves it to `Pulls.MaxTier`, `0` and up hold every class and role at that rung, for training and evaluation alike. Overridable with `<TuningPrefix>Arena.<stage>.<arena>.MaxRung`. A drill wants one variable |
-| `Owner` | A scripted owner the seats fight for |
+| `Owner` | An owner the seats fight for; `OwnerCast` plays it through a row of its own from a frozen checkpoint (the learner's cast), the script keeping `Owner.CastScriptedShare` of training episodes and every evaluation |
 | `PartyGroup` | The owner and seats form a core group |
 | `Pvp` | Resilience gear, no self-resurrection |
 | `EpisodeSeconds` | 0 = the host's `EpisodeSeconds` |
@@ -1763,7 +1763,10 @@ queue. `survived` is the per-layout check instead, and it only says no layout co
 
 ### Stage 16: `stage16_companion`
 
-Adds the companion block and the scripted owner. The seat learns to follow, assist, guard, heal and resurrect it, and
+Adds the companion block and the owner: a seat in the scenario's owner slot, played by the endurance policy through
+the learner's cast (`cast.agents.owner`) in 70% of training episodes, and by the script -- which wanders and engages
+on a timer, the shape the follow lesson was built on -- in the rest and in every evaluation, so `owner_deaths` keeps
+its meaning. The seat learns to follow, assist, guard, heal and resurrect it, and
 role-specific behaviour appears (tank threat, healer throughput, DPS threat discipline). Deaths recover after pulls and
 the episode always runs its full length (450 s; without its own the arena took the host's 60 s), so letting the owner
 die is never a way to escape penalties.

@@ -324,7 +324,9 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
         _layouts.push_back(std::move(director));
     }
 
-    _spec.AgentsPerEnv = _seatCount + (HasDirectors() ? TEAM_COUNT : 0);
+    // The owner's own row, after the seats and the directors, where an arena plays it from a frozen checkpoint.
+    _castOwner = _stage.AnyArena([](ArenaDefinition const& arena) { return arena.Owner && arena.OwnerCast; });
+    _spec.AgentsPerEnv = _seatCount + (HasDirectors() ? TEAM_COUNT : 0) + (_castOwner ? 1 : 0);
     for (Layout const& layout : _layouts)
     {
         _spec.ObsDim = std::max(_spec.ObsDim, layout.ObsDim);
@@ -1173,8 +1175,14 @@ void Animus::Curriculum::StageScenario::WriteStageFiles(StageSettings const& set
     if (HasDirectors())
         for (uint32 side = 0; side < TEAM_COUNT; ++side)
             directorAgents.push_back(_seatCount + side);
-    // Agents the sim declares for a frozen checkpoint to play (none yet: the owner comes with its own change).
-    stageFile["cast"].emplace_array();
+    // Agents the sim declares for a frozen checkpoint to play: the owner, where an arena casts it.
+    boost::json::array& cast = stageFile["cast"].emplace_array();
+    if (_castOwner)
+    {
+        boost::json::object& entry = cast.emplace_back(boost::json::object()).get_object();
+        entry["agent"] = OwnerAgent();
+        entry["name"] = "owner";
+    }
 
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.
     boost::json::array& seedChain = stageFile["seed_chain"].emplace_array();
@@ -1259,6 +1267,48 @@ Player* Animus::Curriculum::StageScenario::SeatBot(Env const& env, uint32 seat) 
 Player* Animus::Curriculum::StageScenario::Owner(Env const& env) const
 {
     return _owner && Arena(env).Owner ? _owner->Find(env) : nullptr;
+}
+
+bool Animus::Curriculum::StageScenario::CastOwnerActive(Env const& env) const
+{
+    return _castOwner && Arena(env).OwnerCast && !env.Evaluating && _owner && _owner->IsCast(env);
+}
+
+Player* Animus::Curriculum::StageScenario::BuildOwnerSeat(Env& env, Map*& map, uint8 level, Position const& start,
+    AptitudeDemand demand)
+{
+    uint32 const agent = OwnerAgent();
+    SeatState& seat = Data(env).Seats[agent];
+    Casting const casting = DrawCasting(env, agent, demand);
+    if (!casting.L)
+        return nullptr;
+
+    seat.L = casting.L;
+    seat.Spec = casting.Spec;
+    seat.Want = demand;
+    seat.Bot.Begin();
+    Player* bot = BuildSeat(env, agent, map, level, start);
+    if (!bot)
+    {
+        seat.Bot.Abort();
+        seat.L = nullptr;
+        return nullptr;
+    }
+
+    PrepareFighter(bot, seat);
+    seat.Bot.Promote();
+    if (agent < env.Bots.size())
+        env.Bots[agent] = bot->GetGUID();
+    return bot;
+}
+
+void Animus::Curriculum::StageScenario::ReleaseOwnerSeat(Env& env)
+{
+    SeatState& seat = Data(env).Seats[OwnerAgent()];
+    seat.Bot.Destroy();
+    seat.L = nullptr;
+    if (OwnerAgent() < env.Bots.size())
+        env.Bots[OwnerAgent()] = ObjectGuid::Empty;
 }
 
 Player* Animus::Curriculum::StageScenario::PartyTank(Env const& env) const
@@ -1654,6 +1704,9 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
         env.Bots.push_back(seat < data.ActiveSeats ? SeatBot(env, seat)->GetGUID() : ObjectGuid::Empty);
     for (uint32 side = 0; side < TEAM_COUNT && HasDirectors(); ++side)
         env.Bots.push_back(ObjectGuid::Empty);
+    // The owner's slot: OwnerEncounter::Build fills it where the episode plays the owner through its row.
+    if (_castOwner)
+        env.Bots.push_back(ObjectGuid::Empty);
     env.Targets.clear();
 
     ScatterSeats(env, map);
@@ -2047,6 +2100,9 @@ void Animus::Curriculum::StageScenario::ApplyActions(Env& env, int32 const* acti
 
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         ApplySeatAction(env, seat, actions[seat]);
+
+    if (CastOwnerActive(env))
+        ApplySeatAction(env, OwnerAgent(), actions[OwnerAgent()]);
 }
 
 Unit* Animus::Curriculum::StageScenario::SeatTarget(Env const& env, uint32 seat) const
@@ -2370,6 +2426,26 @@ void Animus::Curriculum::StageScenario::Observe(Env& env, float* obs, float* sta
         ObserveDirector(env, side, obs + (_seatCount + side) * _spec.ObsDim,
             mask ? mask + (_seatCount + side) * _spec.NumActions : nullptr);
 
+    // The owner's row: a seat's observation when it is played through it, else an empty row that allows only
+    // the no-op (the learner marks it absent, AgentPresence).
+    if (_castOwner)
+    {
+        uint32 const agent = OwnerAgent();
+        float* row = obs + agent * _spec.ObsDim;
+        uint8* maskRow = mask ? mask + agent * _spec.NumActions : nullptr;
+        if (CastOwnerActive(env))
+            ObserveSeat(env, agent, row, maskRow);
+        else
+        {
+            std::fill(row, row + _spec.ObsDim, 0.0f);
+            if (maskRow)
+            {
+                std::fill(maskRow, maskRow + _spec.NumActions, uint8(0));
+                maskRow[0] = 1;
+            }
+        }
+    }
+
     WriteState(env, state);
 }
 
@@ -2398,6 +2474,9 @@ void Animus::Curriculum::StageScenario::AgentLayouts(Env const& env, uint16* lay
 
     for (uint32 side = 0; side < TEAM_COUNT && HasDirectors(); ++side)
         layout[_seatCount + side] = uint16(_directorLayout);
+
+    if (_castOwner)
+        layout[OwnerAgent()] = data.Seats[OwnerAgent()].L ? data.Seats[OwnerAgent()].L->Index : 0;
 }
 
 void Animus::Curriculum::StageScenario::AgentPresence(Env const& env, uint8* present) const
@@ -2411,6 +2490,11 @@ void Animus::Curriculum::StageScenario::AgentPresence(Env const& env, uint8* pre
     bool const directing = DirectorsActive(env);
     for (uint32 side = 0; side < TEAM_COUNT && HasDirectors(); ++side)
         present[_seatCount + side] = directing ? 1 : 0;
+
+    // The owner is an agent only in the episodes that play it through its row: an evaluation's owner and a
+    // scripted-share owner are the script's, and the learner neither runs the cast actor nor trains on the row.
+    if (_castOwner)
+        present[OwnerAgent()] = CastOwnerActive(env) ? 1 : 0;
 }
 
 bool Animus::Curriculum::StageScenario::DirectorsActive(Env const& env) const
@@ -2577,8 +2661,33 @@ void Animus::Curriculum::StageScenario::Reward(Env& env, float* reward)
         reward[_seatCount + side] = seats ? total / float(seats) : 0.0f;
     }
 
+    // The owner's row is observed and acted on but never paid: it is a frozen checkpoint's, not a learner's.
+    // Its own bookkeeping still runs, so what it observes of itself next decision is not stale.
+    if (_castOwner)
+    {
+        reward[OwnerAgent()] = 0.0f;
+        if (CastOwnerActive(env))
+            TrackSeatStep(env, OwnerAgent(), env.FindBot(OwnerAgent()));
+    }
+
     for (Encounter* encounter : ActiveRewardOrder(env))
         encounter->AfterRewards(env);
+}
+
+void Animus::Curriculum::StageScenario::TrackSeatStep(Env& env, uint32 seatIndex, Player* bot)
+{
+    SeatState& seat = Data(env).Seats[seatIndex];
+    if (!seat.L)
+        return;
+
+    seat.LastStepDamage = float(env.StepStats[seatIndex].Damage) / seat.DamageScale;
+    Unit* target = CurrentTarget(env, seatIndex);
+    seat.CurrentTargetGuid = target ? target->GetGUID() : ObjectGuid::Empty;
+    seat.LastStepDamageTaken = bot
+        ? float(env.StepStats[seatIndex].DamageTaken) / float(std::max<uint32>(1, bot->GetMaxHealth())) : 0.0f;
+    seat.LastStepSelfDamage = bot
+        ? float(env.StepStats[seatIndex].SelfDamage) / float(std::max<uint32>(1, bot->GetMaxHealth())) : 0.0f;
+    TrackSupport(env, seatIndex, bot);
 }
 
 /// The nearest ground effect the seat is not in yet, so it can be walked around rather than only walked out of.
@@ -3010,6 +3119,14 @@ void Animus::Curriculum::StageScenario::EpisodeInfo(Env const& env, float* info)
         float* row = info + (_seatCount + side) * _spec.EpisodeInfoDim;
         std::fill(row, row + _spec.EpisodeInfoDim, 0.0f);
     }
+
+    // The owner's row likewise: what happened to the owner is the seats' columns (owner_deaths and the rest),
+    // and a zero `present` keeps the row out of every per-seat metric.
+    if (_castOwner)
+    {
+        float* row = info + OwnerAgent() * _spec.EpisodeInfoDim;
+        std::fill(row, row + _spec.EpisodeInfoDim, 0.0f);
+    }
 }
 
 bool Animus::Curriculum::StageScenario::ScriptedAction(std::string const& policy, float const* obs,
@@ -3042,6 +3159,8 @@ void Animus::Curriculum::StageScenario::Teardown(Env& env)
 
     for (uint32 seat = 0; seat < _seatCount; ++seat)
         Data(env).Seats[seat].Bot.Destroy();
+    if (_castOwner)
+        ReleaseOwnerSeat(env);
 
     env.Bots.clear();
     env.Targets.clear();

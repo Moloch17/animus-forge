@@ -39,7 +39,8 @@ Animus::Curriculum::OwnerEncounter::OwnerEncounter(StageScenario& scenario, uint
 
 Player* Animus::Curriculum::OwnerEncounter::Find(Env const& env) const
 {
-    return _envs[env.Index].Bot.Active();
+    EnvOwner const& owner = _envs[env.Index];
+    return owner.Cast ? _scenario.SeatBot(env, _scenario.OwnerAgent()) : owner.Bot.Active();
 }
 
 std::vector<Animus::Curriculum::RewardTerm> Animus::Curriculum::OwnerEncounter::RewardTerms() const
@@ -133,6 +134,13 @@ bool Animus::Curriculum::OwnerEncounter::Build(Env& env, Map* map, uint8 level)
     CurriculumTuning::OwnerTuning const& tuning = _scenario.Tuning().Owner;
     Player* anchor = _scenario.SeatBot(env, 0);
 
+    // A cast-owner arena plays the owner through its own row, except in an evaluation (the yardstick keeps the
+    // owner it always had) and in the share of training episodes that keep the script's wandering owner.
+    owner.Cast = false;
+    owner.ScriptedThisEpisode = false;
+    if (_scenario.Arena(env).OwnerCast && !env.Evaluating && !roll_chance_i(tuning.CastScriptedShare))
+        return BuildCast(env, map, level);
+
     uint8 const ownerLevel = uint8(std::clamp<int32>(int32(level) + irand(-tuning.LevelSpread, tuning.LevelSpread), 1,
         DEFAULT_MAX_LEVEL));
 
@@ -181,10 +189,42 @@ bool Animus::Curriculum::OwnerEncounter::Build(Env& env, Map* map, uint8 level)
     return true;
 }
 
+bool Animus::Curriculum::OwnerEncounter::BuildCast(Env& env, Map* map, uint8 level)
+{
+    EnvOwner& owner = _envs[env.Index];
+    CurriculumTuning::OwnerTuning const& tuning = _scenario.Tuning().Owner;
+    Player* anchor = _scenario.SeatBot(env, 0);
+
+    uint8 const ownerLevel = uint8(std::clamp<int32>(int32(level) + irand(-tuning.LevelSpread, tuning.LevelSpread), 1,
+        DEFAULT_MAX_LEVEL));
+    AptitudeDemand const demand = RollOwnerDemand(tuning.TankChance, tuning.HealerChance);
+
+    Position start = _scenario.SpawnPoint();
+    start.m_positionX += OWNER_START_OFFSET;
+    Map* seatMap = map;
+    Player* bot = _scenario.BuildOwnerSeat(env, seatMap, ownerLevel, start, demand);
+    if (!bot)
+        return false;
+
+    // The seats' faction, so they are friends (heals and buffs land, neither can attack the other).
+    bot->SetFaction(anchor->GetFaction());
+
+    SeatState const& seat = _scenario.Data(env).Seats[_scenario.OwnerAgent()];
+    owner.Cast = true;
+    owner.Class = seat.L ? seat.L->Profile->Class : 0;
+    owner.Apt = seat.Apt;
+    env.Allies = { bot->GetGUID() };
+    return true;
+}
+
 void Animus::Curriculum::OwnerEncounter::Update(Env& env)
 {
     Player* owner = Find(env);
     if (!owner)
+        return;
+
+    // A cast owner acts through its row; the script drives only its own.
+    if (_envs[env.Index].Cast)
         return;
 
     std::vector<Unit*> enemies;
@@ -205,8 +245,13 @@ void Animus::Curriculum::OwnerEncounter::Update(Env& env)
         state.Script, _scenario.Tuning().ScriptedPlayers);
 }
 
-void Animus::Curriculum::OwnerEncounter::View(Env const& env, uint32 /*seat*/, SeatView& view) const
+void Animus::Curriculum::OwnerEncounter::View(Env const& env, uint32 seat, SeatView& view) const
 {
+    // The owner's own row sees no owner: its companion block would otherwise offer it assist and guard against
+    // its own victim.
+    if (_envs[env.Index].Cast && seat == _scenario.OwnerAgent())
+        return;
+
     view.Owner = Find(env);
     view.OwnerApt = _envs[env.Index].Apt;
 }
@@ -381,10 +426,15 @@ void Animus::Curriculum::OwnerEncounter::Deactivate(Env& env)
     Teardown(env);
     _envs[env.Index].Class = 0;
     _envs[env.Index].Apt = Aptitude();
+    _envs[env.Index].Cast = false;
+    _envs[env.Index].ScriptedThisEpisode = false;
 }
 
 void Animus::Curriculum::OwnerEncounter::Teardown(Env& env)
 {
-    _envs[env.Index].Bot.Destroy();
+    if (_envs[env.Index].Cast)
+        _scenario.ReleaseOwnerSeat(env);
+    else
+        _envs[env.Index].Bot.Destroy();
     env.Allies.clear();
 }

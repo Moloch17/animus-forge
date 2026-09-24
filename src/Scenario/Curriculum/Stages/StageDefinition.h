@@ -76,7 +76,13 @@ namespace Animus::Curriculum
         SeatPlan Seats = SeatPlan::Solo;
         Opposition Against = Opposition::Creature;
         PullSchedule Schedule = PullSchedule::None;
-        bool Owner = false;             // a scripted owner the seats fight for
+        bool Owner = false;             // an owner the seats fight for
+        /// The owner is an agent of its own: one more row on the wire, after the seats (and the directors), which
+        /// the learner plays from a frozen checkpoint (its cast, stage.json `cast`) and never trains. A share of
+        /// the episodes (Owner.CastScriptedShare) keeps the scripted owner, which wanders and engages on a timer
+        /// -- the shape the companion's follow lesson was built on -- and every evaluation does: the yardstick
+        /// stays the owner it always was. Ignored unless Owner.
+        bool OwnerCast = false;
         bool PartyGroup = false;        // the owner and seats form a core group
         bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
         uint32 EpisodeSeconds = 0;      // episode length; 0 = StageSettings::EpisodeSeconds

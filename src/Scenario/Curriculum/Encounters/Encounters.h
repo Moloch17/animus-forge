@@ -315,14 +315,20 @@ namespace Animus::Curriculum
         DifficultyLadder _ladder;
     };
 
-    /// A scripted player of a random class and role near the seats' level, whom the seats fight for (companion and
-    /// party stages). It is the env's ally 0.
+    /// A player of a random class and role near the seats' level, whom the seats fight for (companion and party
+    /// stages). It is the env's ally 0. Scripted (ScriptedPlayer::UpdateMember), or in a cast-owner arena a seat
+    /// of its own in the scenario's owner slot, played through its row by the learner's frozen checkpoint.
     class OwnerEncounter final : public Encounter
     {
     public:
         OwnerEncounter(StageScenario& scenario, uint32 envs);
 
         [[nodiscard]] Player* Find(Env const& env) const;
+        /// Whether this episode's owner is played through its row rather than by the script.
+        [[nodiscard]] bool IsCast(Env const& env) const
+        {
+            return _envs[env.Index].Cast && !_envs[env.Index].ScriptedThisEpisode;
+        }
 
         [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
         void AddEpisodeInfo(EpisodeInfoTable& table) override;
@@ -339,6 +345,9 @@ namespace Animus::Curriculum
         void Teardown(Env& env) override;
 
     private:
+        /// The owner as a seat in the scenario's owner slot (ArenaDefinition::OwnerCast).
+        bool BuildCast(Env& env, Map* map, uint8 level);
+
         struct SeatOwner
         {
             uint64 Healing = 0;                 // effective healing the seat did on the owner
@@ -348,7 +357,9 @@ namespace Animus::Curriculum
 
         struct EnvOwner
         {
-            BotSlot Bot;
+            BotSlot Bot;                        // the scripted owner's character (a cast owner's is its seat's)
+            bool Cast = false;                  // this episode's owner is a seat in the scenario's owner slot
+            bool ScriptedThisEpisode = false;   // ... but still driven by the script (Owner.CastScriptedShare)
             uint8 Class = 0;
             Aptitude Apt;
             ScriptedPlayer::State Script;

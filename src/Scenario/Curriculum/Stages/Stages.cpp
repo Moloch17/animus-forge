@@ -777,7 +777,7 @@ namespace
             // 450 s, as the solo gauntlet: without its own length the arena took the host's 60 s, two or three pulls
             // with nothing to recover for and no win to reach (Pulls.OwnerWinPulls).
             .Arenas = { { .Name = "companion", .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
-                .Owner = true, .EpisodeSeconds = 450 } },
+                .Owner = true, .OwnerCast = true, .EpisodeSeconds = 450 } },
         });
 
         stages.push_back({
@@ -787,7 +787,7 @@ namespace
             .Summary = "four learned seats and the scripted owner against elite-heavy pulls",
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "party", .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
-                .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 450 } },
+                .Schedule = PullSchedule::Gauntlet, .Owner = true, .OwnerCast = true, .PartyGroup = true, .EpisodeSeconds = 450 } },
         });
 
         // Holding what the group pulls. Tanks exist in stages 5, 8, 13 and 14, but the stage is won by the clear,
@@ -805,7 +805,7 @@ namespace
             .Summary = "a fixed tank seat beside its group: hold what the pull brings, and keep it off the others",
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "tanking", .Weight = 1, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
-                .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300,
+                .Schedule = PullSchedule::Gauntlet, .Owner = true, .OwnerCast = true, .PartyGroup = true, .EpisodeSeconds = 300,
                 .SeatAptitudes = { AptitudeDemand::HoldsThePull() } } },
         });
 
@@ -824,7 +824,7 @@ namespace
             .Summary = "a fixed healer seat beside its group: keep the hurt one up, and spend mana to do it",
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "triage", .Weight = 1, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
-                .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300,
+                .Schedule = PullSchedule::Gauntlet, .Owner = true, .OwnerCast = true, .PartyGroup = true, .EpisodeSeconds = 300,
                 .SeatAptitudes = { AptitudeDemand::KeepsThemUp() } } },
         });
 
@@ -945,17 +945,17 @@ namespace
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Pvp, Context, Hostiles, Support },
             .Arenas = {
                 { .Name = "companion", .Weight = 20, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
-                    .Owner = true, .EpisodeSeconds = 300 },
+                    .Owner = true, .OwnerCast = true, .EpisodeSeconds = 300 },
                 { .Name = "party", .Weight = 20, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
-                    .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300 },
+                    .Schedule = PullSchedule::Gauntlet, .Owner = true, .OwnerCast = true, .PartyGroup = true, .EpisodeSeconds = 300 },
                 { .Name = "arena_1v1", .Weight = 25, .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
                     .Pvp = true, .EpisodeSeconds = 60 },
                 { .Name = "gauntlet", .Weight = 10, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
                     .EpisodeSeconds = 450 },
                 { .Name = "duel", .Weight = 5, .Against = Opposition::Creature, .EpisodeSeconds = 60 },
                 { .Name = "ambush", .Weight = 15, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
-                    .Owner = true, .EpisodeSeconds = 300, .Ambushers = 2 },
-                { .Name = "escort_duel", .Weight = 5, .Against = Opposition::Ambush, .Owner = true,
+                    .Owner = true, .OwnerCast = true, .EpisodeSeconds = 300, .Ambushers = 2 },
+                { .Name = "escort_duel", .Weight = 5, .Against = Opposition::Ambush, .Owner = true, .OwnerCast = true,
                     .EpisodeSeconds = 90, .Ambushers = 1 },
             },
         });
@@ -984,6 +984,10 @@ namespace
             return "an owner needs pulls or an ambush, and the companion block";
         if (arena.PartyGroup && (!arena.Owner || arena.Seats != SeatPlan::Party || !stage.Has(BlockId::Party)))
             return "a party group needs an owner, party seats and the party block";
+        if (arena.OwnerCast && !arena.Owner)
+            return "a cast owner is still an owner: the arena has to have one";
+        if (arena.OwnerCast && stage.SeatCount() + TEAM_COUNT + 1 > MAX_SEATS)
+            return "a cast owner needs a seat slot past the seats and the directors, and a raid has none to spare";
         // Self-play: one seat a side in a Mirror, TEAM_SEATS of them in a Teams arena, and a team match is a
         // flag match -- there is nothing else for two learned sides of ten to be playing.
         bool const selfPlay = arena.Seats == SeatPlan::Mirror || arena.Seats == SeatPlan::Teams;

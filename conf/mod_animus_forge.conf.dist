@@ -63,9 +63,9 @@ AnimusForge.OutputDir = ""
 #                                              interrupts, crowd control
 #                       "stage10_gauntlet"   - pull after pull with short breaks: heals, food, drink
 #                       "stage12_pvp"        - self-play one-on-one: two learned seats of any classes
-#                       "stage16_companion"  - the gauntlet beside a scripted owner: follow, assist,
-#                                              guard and heal it
-#                       "stage17_party"      - up to four learned seats and the scripted owner against
+#                       "stage16_companion"  - the gauntlet beside an owner played by the endurance
+#                                              policy: follow, assist, guard and heal it
+#                       "stage17_party"      - up to four learned seats and the owner against
 #                                              elite-heavy pulls
 #                       "stage23_crossroads" - PvE and PvP in one policy: every earlier situation, an
 #                                              ambush of the owner mid-gauntlet and a ganked owner
@@ -953,6 +953,10 @@ AnimusForge.Curriculum.Owner.LevelSpread = 2
 #   percent tanks, healers, the rest damage dealers
 AnimusForge.Curriculum.Owner.TankChance = 25
 AnimusForge.Curriculum.Owner.HealerChance = 25
+#   in a stage whose owner is played by a frozen checkpoint (the learner's cast), the percent of training episodes
+#   that keep the scripted owner instead -- it wanders and engages on a timer, the shape the follow lesson was built
+#   on; evaluations always script it
+AnimusForge.Curriculum.Owner.CastScriptedShare = 30
 #   damage dealers: the owner's damage taken, fraction of its health
 AnimusForge.Curriculum.Owner.DamageTakenDps = 1.0
 #   tanks and healers exist to prevent it

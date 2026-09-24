@@ -19,3 +19,10 @@ total_env_steps: 60000000
 # What to read: clean_kill, owner_deaths, wipes and pulls_cleared overall, and the role checks per class and per
 # build -- owner_heal_share for healers, threat_share for whoever is holding the pull and the rest. None of them is a
 # gate; the stage ends on the convergence rule like every other.
+
+# The owner is played by a frozen checkpoint (animus.cast): the endurance policy, which clears pulls on its own,
+# in 70% of the training episodes; the script's wandering owner in the rest (Owner.CastScriptedShare) and in every
+# evaluation, so the reported owner_deaths keep their meaning.
+cast:
+  agents:
+    owner: "{runs_dir}/stage11_endurance/best.pt"

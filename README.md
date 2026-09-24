@@ -43,7 +43,8 @@ moves on.
 where it puts its feet is not something only some stages are about — so everything after them inherits legs that
 already work, rather than learning to fight and to walk at the same time.
 
-Then a duel against a creature grows into packs, a gauntlet of pulls, a scripted owner to protect and a real party;
+Then a duel against a creature grows into packs, a gauntlet of pulls, an owner to protect (played by an earlier
+policy) and a real party;
 a PvP run goes from self-play through evading, hiding and stealth against a scripted hunter; and the last stages
 add an objective and a director. It is one line rather than a tree because a branch ends in several checkpoints and
 everything a leaf teaches is discarded unless the stage exported from is downstream of it. See

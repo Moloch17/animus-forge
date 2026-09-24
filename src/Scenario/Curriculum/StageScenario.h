@@ -177,6 +177,20 @@ namespace Animus::Curriculum
         [[nodiscard]] static uint32 EnvPhase(Env const& env);
         [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
         [[nodiscard]] uint32 SeatCount() const { return _seatCount; }
+        /// Whether some arena of the stage plays its owner as an agent (ArenaDefinition::OwnerCast): one more row
+        /// on the wire, after the seats and the directors, in every episode of the stage.
+        [[nodiscard]] bool HasCastOwner() const { return _castOwner; }
+        /// The owner's agent index (valid when HasCastOwner).
+        [[nodiscard]] uint32 OwnerAgent() const { return _seatCount + (HasDirectors() ? TEAM_COUNT : 0); }
+        /// Whether this episode's owner is played through its row: a cast-owner arena, not an evaluation, and
+        /// not one of the episodes Owner.CastScriptedShare keeps scripted.
+        [[nodiscard]] bool CastOwnerActive(Env const& env) const;
+        /// Build the owner as a seat in the owner's agent slot: a class and build of the run meeting `demand`,
+        /// at `level`, placed at `start`; null when nothing could be built. The caller sets its faction and
+        /// records it as the env's ally.
+        Player* BuildOwnerSeat(Env& env, Map*& map, uint8 level, Position const& start, AptitudeDemand demand);
+        /// Release the owner's seat: its character goes and its slot reads empty.
+        void ReleaseOwnerSeat(Env& env);
         /// Whether the run carries the two director agents at all (some arena of the stage has a learned
         /// director), and whether the env's current episode is actually using them.
         [[nodiscard]] bool HasDirectors() const { return _directorLayout != NO_LAYOUT; }
@@ -317,6 +331,9 @@ namespace Animus::Curriculum
     static void TrackMotion(Env const& env, SeatState& seat, Player const* bot, Unit const* target);
 
     void TrackSupport(Env& env, uint32 seatIndex, Player* bot);
+        /// The per-decision bookkeeping SeatReward does before any encounter's terms (damage dealt and taken,
+        /// the current target, support), for a row that is observed but not paid: the cast owner's.
+        void TrackSeatStep(Env& env, uint32 seatIndex, Player* bot);
         void WriteState(Env const& env, float* state) const;
 
         StageDefinition const& _stage;
@@ -325,6 +342,7 @@ namespace Animus::Curriculum
         Position _spawnPoint;
         bool _continent = false;
         uint32 _seatCount = 1;
+        bool _castOwner = false;            // some arena plays its owner as an agent (ArenaDefinition::OwnerCast)
         uint32 _level = 0;                  // StageSettings::Level: every character's level, 0 = random
         float _decisionScale = 1.0f;
         uint32 _decisionMs = 0;

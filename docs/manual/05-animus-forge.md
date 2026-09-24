@@ -765,6 +765,13 @@ rule reads it too: on a league stage a class's ladder signal is that this rate h
 **The evaluation never runs a cast actor.** The sim's `fight` baseline plays the far side of a seeded evaluation
 (`eval.opponent_baseline`), so the yardstick is fixed across runs; the league is a training-time device.
 
+**The owner as a cast seat** (`ArenaDefinition::OwnerCast`, the companion, party, tanking, triage and crossroads
+arenas): the sim builds the owner as a seat in an agent slot of its own after the seats and the directors, declares
+it in stage.json's `cast` list, observes it and applies its action like any seat, pays it nothing and leaves its
+episode-info row empty; the learner plays the row from `cast.agents.owner`. `Owner.CastScriptedShare` (30%) of the
+training episodes keep the scripted owner, which wanders and engages on a timer, and every evaluation does, so the
+reported `owner_deaths` are measured beside the owner they always were.
+
 **Kept scripted, on purpose:** the hunter of the evade, hide and stealth drills (`ScriptedPlayer::Search` is what
 those drills measure against), the scripted director (a yardstick), the ambushers (they arrive mid-episode, which
 the per-episode `present` contract cannot carry), and `fight` as the evaluation opponent.

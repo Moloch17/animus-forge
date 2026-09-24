@@ -15,3 +15,9 @@ eval:
     teammate_healing, threat_on_teammates, casts_completed, casts_cancelled, cancelled_stopped, cancelled_moved,
     cancelled_target, cancelled_other]
 
+# The owner is played by a frozen checkpoint (animus.cast): the endurance policy, which clears pulls on its own,
+# in 70% of the training episodes; the script's wandering owner in the rest (Owner.CastScriptedShare) and in every
+# evaluation, so the reported owner_deaths keep their meaning.
+cast:
+  agents:
+    owner: "{runs_dir}/stage11_endurance/best.pt"
