@@ -629,6 +629,11 @@ namespace Animus::Curriculum
             float DiveMax = 120.0f;
             float DiveDepthMin = 6.0f;
             float DiveDepthMax = 40.0f;
+            /// Chain arenas (ArenaDefinition::Checkpoints): how far on the next objective is drawn from where the
+            /// seat reached the last. Short legs, so a chain of lakebeds is many small dives and the seat is under
+            /// water for most of the clock unless it chooses not to be.
+            float ChainMin = 30.0f;
+            float ChainMax = 60.0f;
         } Travel;
 
         /// The flag match (Warsong Gulch's rules between two seats).
@@ -917,6 +922,8 @@ namespace Animus::Curriculum
             f("Travel.DiveMax", tuning.Travel.DiveMax);
             f("Travel.DiveDepthMin", tuning.Travel.DiveDepthMin);
             f("Travel.DiveDepthMax", tuning.Travel.DiveDepthMax);
+            f("Travel.ChainMin", tuning.Travel.ChainMin);
+            f("Travel.ChainMax", tuning.Travel.ChainMax);
 
             f("Flag.BaseMin", tuning.Flag.BaseMin);
             f("Flag.BaseMax", tuning.Flag.BaseMax);

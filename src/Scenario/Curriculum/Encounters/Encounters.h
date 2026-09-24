@@ -613,6 +613,9 @@ namespace Animus::Curriculum
             float LedgeDrop = 0.0f;         // and how high that edge is
             bool Dive = false;              // the objective is on a lakebed (a dive arena that found one)
             float DiveDepth = 0.0f;         // and how much water stands over it
+            bool Chain = false;             // the objective is a chain (ArenaDefinition::Checkpoints)
+            uint32 Checkpoints = 0;         // objectives reached so far; ArriveMs is the first of them
+            bool ChainBroken = false;       // a next leg was wanted and none could be placed: the episode ended there
             int32 Band = -1;                // the detour band the trip was drawn for (TravelPlaceRules::Band); -1 none
             bool Crossing = false;          // the objective was placed across water (a water arena that found one)
             float DryDistance = 0.0f;       // yards of the way round on foot, water excluded; 0 = no dry route
@@ -712,6 +715,9 @@ namespace Animus::Curriculum
         /// and the straight line standing, which is worse shaping but not no shaping.
         bool RefreshWay(EnvTravel& travel, Player* bot, float stray, float refreshSeconds, float corner,
             uint32 nowMs);
+        /// A chain arena's next objective (ArenaDefinition::Checkpoints), drawn from where the seat stands now
+        /// and within what is left of the clock; false when none can be placed.
+        bool NextLeg(Env const& env, EnvTravel& travel, Player* bot) const;
 
         /// Yards to the objective along the way there, or the straight line where there is no way.
         static float WayDistance(EnvTravel const& travel, Player const* bot);

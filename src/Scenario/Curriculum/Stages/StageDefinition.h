@@ -201,6 +201,13 @@ namespace Animus::Curriculum
         /// what the seat learns. A spawn point with no water that deep in reach builds an ordinary trip and
         /// reports `dive` 0, as a water arena reports `crossing` 0.
         bool Underwater = false;
+        /// Travel: the objective is a chain. Reaching one draws the next from where the seat stands, Travel.ChainMin
+        /// to ChainMax yards on, of the same kind as the arena's (a dive arena chains lakebeds), and the episode
+        /// runs to its clock rather than ending on arrival: what is measured is how many were reached and whether
+        /// the seat is alive at the end. Built for the breath: a chain of lakebeds keeps a seat under water for
+        /// longer than one breath lasts, so that coming up for air, or making the breath free with a spell, is a
+        /// decision with a price on both sides. A leg no place can be found for ends the episode (chain_broken).
+        bool Checkpoints = false;
 
         [[nodiscard]] uint32 SeatCount() const;
     };

@@ -277,6 +277,7 @@ namespace Animus::Curriculum::Encoding
         ++result.SpellCasts;
         result.HealsOnFull += onFullHealth ? 1 : 0;
         result.DefensiveCasts += def.Defensive ? 1 : 0;
+        result.BreathingCasts += def.WaterBreathing ? 1 : 0;
         if (def.Healing)
         {
             ++result.HealingCasts;

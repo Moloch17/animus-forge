@@ -100,7 +100,15 @@ std::vector<Animus::Curriculum::RewardTerm> Animus::Curriculum::TravelEncounter:
 
 void Animus::Curriculum::TravelEncounter::AddEpisodeInfo(EpisodeInfoTable& table)
 {
-    table.Add("arrived", [this](Env const& env, uint32) { return _envs[env.Index].Arrived ? 1.0f : 0.0f; });
+    // On a chain (ArenaDefinition::Checkpoints) arriving means the first objective was reached: the episode goes on
+    // to the clock, and `checkpoints` is how far it got.
+    table.Add("arrived", [this](Env const& env, uint32)
+    {
+        EnvTravel const& travel = _envs[env.Index];
+        return travel.Arrived || travel.Checkpoints > 0 ? 1.0f : 0.0f;
+    });
+    table.Add("checkpoints", [this](Env const& env, uint32) { return float(_envs[env.Index].Checkpoints); });
+    table.Add("chain_broken", [this](Env const& env, uint32) { return _envs[env.Index].ChainBroken ? 1.0f : 0.0f; });
     table.Add("travel_seconds", [this](Env const& env, uint32)
     {
         EnvTravel const& travel = _envs[env.Index];
@@ -774,6 +782,7 @@ bool Animus::Curriculum::TravelEncounter::Build(Env& env, Map* map, uint8 /*leve
     }
 
     travel.HasObjective = true;
+    travel.Chain = arena.Checkpoints;
     travel.StartDistance = bot->GetExactDist2d(&travel.Objective);
     travel.WalkDistance = walk > 0.0f ? walk : travel.StartDistance;
     {
@@ -1054,9 +1063,28 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
     float const within = travel.Indoors ? TravelBlock::ARRIVE_INDOORS : TravelBlock::ARRIVE_DISTANCE;
     if (!travel.Arrived && bot->IsAlive() && TravelBlock::AtObjective(bot, travel.Objective, maxRise, within))
     {
-        travel.Arrived = true;
-        travel.ArriveMs = env.EpisodeElapsedMs;
-        ledger.Add(RewardTerm::Arrive, tuning.Arrive + tuning.FastArrive * Saved(travel));
+        if (travel.Chain)
+        {
+            // A checkpoint: paid the arrival (the flat part only -- Saved reads the clock against the first leg, and
+            // means nothing from the second on), remembered as the first arrival if it is, and replaced with the
+            // next leg from where the seat stands. The episode runs on; a leg that cannot be placed ends it as an
+            // ordinary arrival would, and says so (chain_broken).
+            ++travel.Checkpoints;
+            if (travel.Checkpoints == 1)
+                travel.ArriveMs = env.EpisodeElapsedMs;
+            ledger.Add(RewardTerm::Arrive, tuning.Arrive);
+            if (!NextLeg(env, travel, bot))
+            {
+                travel.ChainBroken = true;
+                travel.Arrived = true;
+            }
+        }
+        else
+        {
+            travel.Arrived = true;
+            travel.ArriveMs = env.EpisodeElapsedMs;
+            ledger.Add(RewardTerm::Arrive, tuning.Arrive + tuning.FastArrive * Saved(travel));
+        }
     }
 
     CombatTally& tally = seat.Combat;
@@ -1077,6 +1105,54 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
     bool const timeIsUp = env.EpisodeLengthMs && env.EpisodeElapsedMs >= env.EpisodeLengthMs;
     if (!travel.Arrived && !tally.TimedOut && timeIsUp)
         tally.TimedOut = true;
+}
+
+bool Animus::Curriculum::TravelEncounter::NextLeg(Env const& env, EnvTravel& travel, Player* bot) const
+{
+    Map* map = bot ? bot->GetMap() : nullptr;
+    if (!map)
+        return false;
+
+    CurriculumTuning::TravelTuning const& tuning = _scenario.Tuning().Travel;
+    ArenaDefinition const& arena = _scenario.Arena(env);
+
+    // The same kind of place as the arena's first objective, drawn the same way, from here. Only the dive kind is
+    // chained so far: an open-ground chain would want the detour bands, and nothing asks for one.
+    TravelPlaceRules rules;
+    rules.Underwater = arena.Underwater;
+    rules.DepthMin = tuning.DiveDepthMin;
+    rules.DepthMax = tuning.DiveDepthMax;
+
+    // Within what is left of the clock, at the same share of it the first leg was held to.
+    uint32 const leftMs = env.EpisodeLengthMs > env.EpisodeElapsedMs ? env.EpisodeLengthMs - env.EpisodeElapsedMs : 0;
+    float const budget = float(leftMs) / 1000.0f * FEASIBLE_SHARE;
+    if (budget <= 0.0f)
+        return false;
+
+    Position place;
+    float walk = 0.0f;
+    float depth = 0.0f;
+    if (!FindPlace(bot, map, tuning.ChainMin, tuning.ChainMax, false, place, budget, &walk, false, nullptr, false,
+        &travel.Shortcut, rules, nullptr, &depth))
+        return false;
+
+    // A new potential function: the shaping starts over from here, and so does the stall detector, or the jump in
+    // distance would be charged as ground given back. RefreshWay re-plans on its own, since the way's end no
+    // longer matches the objective.
+    travel.Objective.Relocate(place);
+    travel.Dive = arena.Underwater;
+    travel.DiveDepth = depth;
+    travel.WalkDistance = walk > 0.0f ? walk : bot->GetExactDist2d(&place);
+    travel.LastDistance = -1.0f;
+    travel.Nearest = -1.0f;
+    travel.NearestMs = 0;
+    travel.MarkMs = 0;
+    travel.MarkDistance = -1.0f;
+    travel.CloseRate = 0.0f;
+    travel.StallBest = -1.0f;
+    travel.StallSinceMs = 0;
+    travel.Stalling = false;
+    return true;
 }
 
 bool Animus::Curriculum::TravelEncounter::IsTerminal(Env const& env) const

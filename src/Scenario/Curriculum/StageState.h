@@ -228,6 +228,8 @@ namespace Animus::Curriculum
         float DrowningDamage = 0.0f;
         bool Drowned = false;
         uint32 WaterWalkMs = 0;
+        uint32 AquaticMs = 0;           // time in a druid's Aquatic Form (FORM_AQUA)
+        uint32 BreathingCasts = 0;      // water-breathing spells started (ActionCatalog::Action::WaterBreathing)
         uint32 ItemUses = 0;
         bool InCombat = false;
         uint32 CombatStartMs = 0;               // episode time the bot entered its current combat
@@ -340,6 +342,8 @@ namespace Animus::Curriculum
             DrowningDamage = 0.0f;
             Drowned = false;
             WaterWalkMs = 0;
+            AquaticMs = 0;
+            BreathingCasts = 0;
             Jumps = 0;
             JumpsRefused = 0;
             Drops = 0;

@@ -1111,6 +1111,10 @@ AnimusForge.Curriculum.Travel.DiveMin = 20.0
 AnimusForge.Curriculum.Travel.DiveMax = 120.0
 AnimusForge.Curriculum.Travel.DiveDepthMin = 6.0
 AnimusForge.Curriculum.Travel.DiveDepthMax = 40.0
+#   chain arenas (stage1f_breathe): reaching an objective draws the next one ChainMin to ChainMax yards on from
+#   where the seat stands, of the arena's own kind, until the clock runs out
+AnimusForge.Curriculum.Travel.ChainMin = 30.0
+AnimusForge.Curriculum.Travel.ChainMax = 60.0
 #   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
 #   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
 AnimusForge.Curriculum.Travel.IndoorMin = 8.0

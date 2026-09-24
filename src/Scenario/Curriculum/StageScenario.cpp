@@ -719,6 +719,16 @@ void Animus::Curriculum::StageScenario::AddCoreEpisodeInfo()
     {
         return float(seat(env, index).WaterWalkMs) / 1000.0f;
     });
+    // What a build did about its air: time in a druid's Aquatic Form, and water-breathing spells started (Unending
+    // Breath, Water Breathing, Aquatic Form again). Read by the chain drill; every stage gets them for free.
+    _info.Add("aquatic_seconds", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).AquaticMs) / 1000.0f;
+    });
+    _info.Add("breathing_casts", [seat](Env const& env, uint32 index)
+    {
+        return float(seat(env, index).BreathingCasts);
+    });
     _info.Add("jumps", [seat](Env const& env, uint32 index) { return float(seat(env, index).Jumps); });
     _info.Add("jumps_refused", [seat](Env const& env, uint32 index) { return float(seat(env, index).JumpsRefused); });
     _info.Add("drops", [seat](Env const& env, uint32 index) { return float(seat(env, index).Drops); });
@@ -1174,6 +1184,7 @@ void Animus::Curriculum::StageScenario::WriteStageFiles(StageSettings const& set
         entry["episode_seconds"] = _arenaEpisodeMs[arena] / IN_MILLISECONDS;
         entry["pvp"] = definition.Pvp;
         entry["ambushers"] = definition.Ambushers;
+        entry["checkpoints"] = definition.Checkpoints;
     }
 
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.
@@ -2225,6 +2236,8 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
         bool const swimming = bot->Unit::IsInWater();
         if (swimming)
             seat.WaterMs += _decisionMs;
+        if (bot->GetShapeshiftForm() == FORM_AQUA)
+            seat.AquaticMs += _decisionMs;
         if (bot->HasWaterWalkAura() && !swimming
             && bot->GetMap()->GetLiquidData(bot->GetPhaseMask(), bot->GetPositionX(), bot->GetPositionY(),
                 bot->GetPositionZ(), bot->GetCollisionHeight(), {}).Status == LIQUID_MAP_WATER_WALK)
@@ -2289,6 +2302,7 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
     seat.StepHealingPowerSpent += result.HealingPowerSpent;
     seat.DownrankedCasts += result.DownrankedCasts;
     seat.SpellCasts += result.SpellCasts;
+    seat.BreathingCasts += result.BreathingCasts;
     seat.Jumps += result.Jumps;
     seat.JumpsRefused += result.JumpsRefused;
     if (result.Jumps && result.JumpDrop > MoveBlock::MAX_STEP)

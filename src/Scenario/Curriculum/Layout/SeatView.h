@@ -438,6 +438,7 @@ namespace Animus::Curriculum
         uint32 DrinkUsed = 0;
         uint32 HealsOnFull = 0;                     // direct heals started on a friend at full health (masked: 0)
         uint32 DefensiveCasts = 0;                  // short damage reductions and immunities started
+        uint32 BreathingCasts = 0;                  // water-breathing spells started (Unending Breath, Aquatic Form)
         uint32 HealingCasts = 0;                    // heals, HoTs and absorbs started ...
         uint32 DownrankedCasts = 0;                 // ... below the highest known rank
         uint32 HealingPowerSpent = 0;               // ... and the mana they cost (SpellInfo::CalcPowerCost)

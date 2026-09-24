@@ -495,19 +495,23 @@ namespace
             .HeldOutSpawnPoints = EluneAraShore(),
         });
 
-        // The same dives, for the classes that can breathe down there: a warlock with Unending Breath, a shaman
-        // with Water Breathing. Seeded from the dive drill, so the seat already knows what a breath is worth; here
-        // it learns that a cast before the dive makes the deep one free.
+        // Longer than a breath. One dive is free against the core's three-minute breath, so the drill before this
+        // never asks the seat to come up; here the lakebeds come as a chain (ArenaDefinition::Checkpoints), thirty
+        // to sixty yards on from each other, for four minutes. A seat that stays down for the whole chain runs out
+        // of air at three minutes and drowns before the clock; one that surfaces between legs, or casts Unending
+        // Breath, Water Breathing or Aquatic Form first, does not. Every class plays it and the spells are open:
+        // the outcome is being alive at the end, and checkpoints, breaths, breathing_casts and aquatic_seconds say
+        // how each class managed it. Seeded from the dive drill, so the seat already knows the way down.
         stages.push_back({
             .Name = "stage1f_breathe",
             .Suffix = "_breathe",
             .Extends = "stage1e_dive",
-            .Summary = "the same lakebeds, with Unending Breath or Water Breathing: make the dive free before taking it",
-            .NeedsWaterBreathing = true,
+            .Summary = "a chain of lakebeds for four minutes, longer than a breath: come up for air, or make the "
+                "breath free",
             .Blocks = { Core, Move, Travel, Duel },
             .Arenas = {
-                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 150,
-                    .OnFoot = true, .Underwater = true },
+                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 240,
+                    .OnFoot = true, .Underwater = true, .Checkpoints = true },
             },
             .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
@@ -1119,6 +1123,9 @@ namespace
         if (arena.Underwater && (arena.Flying || arena.Indoors || arena.Ledges || arena.Water))
             return "a dive arena is its own trip: the objective is on the bed, not across the lake, and neither "
                 "wings, a roof nor a ledge belong to it";
+        if (arena.Checkpoints && !(travel && arena.Underwater))
+            return "only a dive arena chains: the next lakebed is drawn the way the first was, and no other kind of "
+                "objective has a next one yet";
         if (flag && (!stage.Has(BlockId::Travel) || !stage.Has(BlockId::Flag)))
             return "a flag match needs the travel and flag blocks";
 
