@@ -1577,8 +1577,9 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     uint8 const level = RandomLevel(minLevel, _level, _tuning.Characters,
         env.EpisodeSeedIndex, uint32(_layouts.size()));
 
-    // The first build opens a new instance (or a phase of the continent); every later one reuses it.
-    Map* map = firstBuild ? nullptr : env.FindMap();
+    // The first build opens a new instance (or a phase of the continent); every later one reuses it. An env whose
+    // seats were all lost keeps its instance while the map still exists, and opens a new one when it is gone.
+    Map* map = !firstBuild || env.InstanceId ? env.FindMap() : nullptr;
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a
     // bound player.
