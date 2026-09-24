@@ -84,13 +84,11 @@ namespace Animus::Curriculum
             bool Dispel = false;
             bool DispelFriendly = false;    // ... from an ally (a cleanse) rather than from an enemy (a purge)
             uint32 DispelMask = 0;          // what it can remove: SpellInfo::GetDispelMask bits, DISPEL_ALL expanded
-            /// It makes a fall free: Slow Fall (feather fall) or Levitate (hover). A stage that wants every class to
-            /// learn the bare price of a drop masks these (StageDefinition::FeatherFallMasked); the one after it
-            /// lets the classes that have one spend a cast to make a deadly drop harmless.
+            /// It makes a fall free: Slow Fall (feather fall) or Levitate (hover). The jump drill leaves these open,
+            /// so the classes that have one learn when a cast is worth spending to make a deadly drop harmless.
             bool FeatherFall = false;
             /// It lets the seat breathe under water (Unending Breath, Water Breathing) or walk on it (Water Walking,
-            /// Path of Frost, Levitate again). Masked the same way for the drill that teaches the bare price of a
-            /// dive (StageDefinition::WaterBreathingMasked).
+            /// Path of Frost, Levitate again). Open in the dive drill for the same reason.
             bool WaterBreathing = false;
             bool WaterWalk = false;
         };

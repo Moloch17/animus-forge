@@ -162,25 +162,22 @@ episodes, and `patience` 0 so every stage trains its whole budget).
 
 | Stage | Budget | Eval every | Episodes | Min | Stage | Budget | Eval every | Episodes | Min |
 |---|---|---|---|---|---|---|---|---|---|
-| `stage5_duel` | 300M | 10M | 2048 | 30M | `stage20_raid_single` | 60M | 20M | 2048 | 40M |
-| `stage6_pack` | 60M | 10M | 2048 | 30M | `stage21_raid_gauntlet` | 60M | 20M | 2048 | 40M |
-| `stage2_dodge` | 60M | 10M | 2048 | 15M | `stage9_pvp` | 60M | 10M | 2048 | 30M |
-| `stage7_gauntlet` | 90M | 15M | 2048 | 20M | `stage10_evade` | 60M | 10M | 2048 | 30M |
-| `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage11_hide` | 40M | 10M | 2048 | 30M |
-| `stage1_move` | 40M | 2M | 2048 | 20M | `stage12_stealth` | 40M | 10M | 2048 | 30M |
-| `stage1b_indoor` | 30M | 2M | 2048 | 8M | `stage1c_jump` | 30M | 2M | 2048 | 8M |
-| `stage1d_glide` | 24M | 2M | 2048 | 8M | `stage1e_dive` | 30M | 2M | 2048 | 8M |
-| `stage1f_breathe` | 24M | 2M | 2048 | 8M | | | | | |
-| `stage3_travel` | 30M | 2M | 2048 | 20M | `stage13_arena` | 60M | 10M | 2048 | 30M |
-| `stage4_flight` | 30M | 2M | 2048 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
-| `stage14_companion` | 90M | 15M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
-| `stage15_party` | 120M | 20M | 2048 | 20M | `stage19_warsong` | 60M | 10M | 128 | 20M |
-| `stage16_tanking` | 150M | 20M | 2048 | 20M | `stage23_crossroads` | 150M | 25M | 256 | 20M |
-| `stage17_triage` | 150M | 20M | 2048 | 20M | `mix_duel_pvp` | 60M | 10M | 2048 | 30M |
+| `stage1_move` | 40M | 2M | 2048 | 20M | `stage1b_indoor` | 30M | 2M | 2048 | 8M |
+| `stage1c_jump` | 30M | 2M | 2048 | 8M | `stage1e_dive` | 30M | 2M | 2048 | 8M |
+| `stage2_dodge` | 60M | 10M | 2048 | 15M | `stage3_travel` | 30M | 2M | 2048 | 20M |
+| `stage4_flight` | 30M | 2M | 2048 | 20M | `stage5_duel` | 300M | 10M | 2048 | 30M |
+| `stage6_pack` | 60M | 10M | 2048 | 30M | `stage7_gauntlet` | 90M | 15M | 2048 | 20M |
+| `stage8_endurance` | 300M | 15M | 2048 | 40M | `stage13_arena` | 60M | 10M | 2048 | 30M |
+| `stage10_evade` | 60M | 10M | 2048 | 30M | `stage11_hide` | 40M | 10M | 2048 | 30M |
+| `stage12_stealth` | 40M | 10M | 2048 | 30M | `stage14_companion` | 90M | 15M | 2048 | 20M |
+| `stage15_party` | 120M | 20M | 2048 | 20M | `stage16_tanking` | 150M | 20M | 2048 | 20M |
+| `stage17_triage` | 150M | 20M | 2048 | 20M | `stage18_flag` | 60M | 10M | 2048 | 20M |
+| `stage19_warsong` | 60M | 10M | 128 | 20M | `stage22_duo_led` | 30M | 10M | 512 | 20M |
+| `stage23_crossroads` | 150M | 25M | 256 | 20M | `stage20_raid_single` | 60M | 20M | 2048 | 40M |
+| `stage21_raid_gauntlet` | 60M | 20M | 2048 | 40M |  | | | |  |
 
-**The queue is 2,100M env steps over 23 stages** (2,298M with the `mix_duel_pvp` pilot and the five drills off
-`stage1_move`, none of which is in the queue). At the 7,000-15,000 env steps/s this rig reaches that is on the order
-of 40-80 hours, before evaluation
+**The queue is 2,010M env steps over 23 stages** (2,130M with the two raid stages, which are trained by
+name). At the 7,000-15,000 env steps/s this rig reaches that is on the order of 40-80 hours, before evaluation
 time. Two budgets are worth questioning before a long build: `stage5_duel` at 300M is the root every other stage
 descends from, but `stage8_endurance` is also 300M -- 14% of the whole queue on one drill, ten times
 `stage1_move`.

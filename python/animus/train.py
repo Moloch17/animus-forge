@@ -33,7 +33,7 @@ import numpy as np
 import torch
 import yaml
 
-from .bootstrap import seed_merges, seed_trainer
+from .bootstrap import DIRECTOR_LAYOUT, seed_merges, seed_trainer
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
@@ -554,7 +554,7 @@ class TrainingRun:
         if finetune and Path(finetune).is_file():
             candidates = [finetune, *candidates]
         prefer = config.seed_from
-        base_path = next((path for c in candidates if (path := init_from_checkpoint(c, prefer))), None)
+        base_path, base = self.seed_candidate(candidates, prefer, spec, config.init_from == "auto")
         merge_paths = []
         for candidate in config.resolved_merge_from(self.stage):
             if path := init_from_checkpoint(candidate, prefer):
@@ -562,7 +562,6 @@ class TrainingRun:
             else:
                 print(f"Merged stage checkpoint {candidate} does not exist: nothing is seeded or taught from it",
                       flush=True)
-        base = load_parent(base_path) if base_path else None
         merged = [load_parent(path) for path in merge_paths]
 
         if not self.resume_path and base is not None:
@@ -576,6 +575,32 @@ class TrainingRun:
 
         self.distiller = make_distiller(config, spec, self.stage, [p for p in (base, *merged) if p is not None],
                                         self.trainer.train_device)
+
+    @staticmethod
+    def seed_candidate(candidates: list[str], prefer: str, spec, auto: bool) -> tuple[Path | None, dict | None]:
+        """The first init_from candidate that exists and, on the automatic seed chain, covers every layout this run
+        plays: (path, loaded checkpoint), or (None, None).
+
+        A restricted stage (the stealth drill) played by an all-class run leaves a checkpoint holding only the layouts
+        it played. On the automatic chain that checkpoint is stepped over, with a line saying which one and why, and
+        the stage seeds from the next one down -- the stage before the restricted one, which every class did play.
+        An explicit `init_from` path is never stepped over: seeding the missing layouts from random weights in the
+        middle of a curriculum is what animus.bootstrap refuses, loudly, when it is asked to."""
+        for candidate in candidates:
+            path = init_from_checkpoint(candidate, prefer)
+            if path is None:
+                continue
+            checkpoint = load_parent(path)
+            if auto:
+                names = {layout["name"] for layout in checkpoint["spec"].get("layouts", ())}
+                missing = [layout.name for layout in spec.layouts
+                           if layout.name not in names and layout.name != DIRECTOR_LAYOUT]
+                if missing:
+                    print(f"Not seeding from {path}: it has no {', '.join(missing)} (a restricted stage's checkpoint); "
+                          f"trying the next stage down the chain", flush=True)
+                    continue
+            return path, checkpoint
+        return None, None
 
     # ------------------------------------------------------------------ checkpoints
 

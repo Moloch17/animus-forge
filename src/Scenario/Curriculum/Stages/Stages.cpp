@@ -96,7 +96,7 @@ namespace
         };
     }
 
-    /// The banks of Stonebull Lake in Mulgore, for the dive drills (stage1e_dive, stage1f_breathe).
+    /// The banks of Stonebull Lake in Mulgore, for the dive drill (stage1e_dive).
     ///
     /// A dive needs water six to forty yards deep within reach of a shore the seat can stand on, and the Barrens
     /// oases stage1_move swims in are under three yards deep everywhere (see the water arena's note): every dive
@@ -317,10 +317,8 @@ namespace
         // Not in the default queue: a side branch off stage1_move, trained by name, and stage2_dodge extends
         // stage1_move directly. It is the stage that tests what the sixteen rays, the fifteen-degree turn, the
         // clearance term and the jump were built for -- a doorway off the objective's axis, which open country
-        // never asks for -- and it joins the queue once two things hold: its rooms have been stood on again with
-        // `forge rays` on this build, and its gate is one a run can pass. A queued stage that halts below its
-        // target halts `forge start` with it (AnimusForge.Queue), and this drill's config expects its first run
-        // to fail its gate.
+        // never asks for. It is in the default queue: every stage is ended by the same
+        // convergence rule, so a drill a first run does poorly at is read from its report, not held back.
         stages.push_back({
             .Name = "stage1b_indoor",
             .Suffix = "_indoor",
@@ -333,7 +331,6 @@ namespace
                 { .Name = "rooms", .Against = Opposition::Travel, .EpisodeSeconds = 90,
                     .OnFoot = true, .Indoors = true, .SpawnScatter = 4.0f },
             },
-            .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
             // Every inn on Kalimdor that areatrigger_tavern names, spread across regions for the same reason the
             // ground list is: a policy that sees four rooms learns four rooms.
@@ -404,13 +401,11 @@ namespace
             .Suffix = "_jump",
             .Extends = "stage1_move",
             .Summary = "a place 20-120 yd away below a ledge: drop off it with a jump, or take the long way round",
-            .FeatherFallMasked = true,
             .Blocks = { Core, Move, Travel, Duel },
             .Arenas = {
                 { .Name = "ledges", .Against = Opposition::Travel, .EpisodeSeconds = 120,
                     .OnFoot = true, .Ledges = true },
             },
-            .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
             // Plateau tops above the ground the broken arena trains its cliff feet on, found from the relief in
             // the creature spawns and stood on with `forge rays` facing the edge; the foot below each was routed
@@ -440,35 +435,6 @@ namespace
             },
         });
 
-        // The same drops, for the classes that can make a fall free: a mage with Slow Fall, a priest with
-        // Levitate. Seeded from the drill above, so the seat already knows what a drop costs bare; what it learns
-        // here is that a cast beforehand makes the deadly one free, and when that is worth the cast.
-        stages.push_back({
-            .Name = "stage1d_glide",
-            .Suffix = "_glide",
-            .Extends = "stage1c_jump",
-            .Summary = "the same ledges, with Slow Fall or Levitate: make the drop free before taking it",
-            .NeedsFeatherFall = true,
-            .Blocks = { Core, Move, Travel, Duel },
-            .Arenas = {
-                { .Name = "ledges", .Against = Opposition::Travel, .EpisodeSeconds = 120,
-                    .OnFoot = true, .Ledges = true },
-            },
-            .InDefaultQueue = false,
-            .MapId = MAP_KALIMDOR,
-            // The jump drill's ground, the same lists.
-            .SpawnPoints = {
-                { -2063.9f, -3645.5f, 66.1f, 0.0f },   { -2094.8f, -3644.6f, 72.4f, 0.0f },
-                { 394.1f, -4599.2f, 76.2f, 0.0f },     { 85.4f, -4543.8f, 58.4f, 0.0f },
-                { -519.0f, -4076.9f, 69.9f, 0.0f },    { -2379.6f, 459.2f, 76.8f, 0.0f },
-                { -4052.7f, -2145.5f, 90.2f, 0.0f },   { -4449.9f, -2914.0f, 40.0f, 0.0f },
-            },
-            .HeldOutSpawnPoints = {
-                { -545.9f, -3054.0f, 138.1f, 0.0f },   { -515.9f, -3149.0f, 161.5f, 0.0f },
-                { -481.2f, -3249.9f, 164.5f, 0.0f },
-            },
-        });
-
         // Down again, into the water this time.
         //
         // stage1_move's water arena taught one decision, swim across or walk round, at the surface: nothing ever
@@ -476,44 +442,29 @@ namespace
         // water, and arriving means standing on it. The breath is the core's own (WaterBreath.Timer, three
         // minutes) and so is the drowning after it, a fifth of the seat's health a second; what the seat sees is
         // how much of its breath is spent (OBS_SUBMERGED_TIME) and how deep the place is, and what it learns is
-        // when to come up. Unending Breath and Water Breathing are masked here (WaterBreathingMasked); the drill
-        // after gives them back to the two classes that have them.
+        // when to come up. Unending Breath and Water Breathing are open: the two classes that have one learn
+        // when a cast is worth it, and the rest learn the bare price of the dive.
+        //
+        // A third of the episodes are longer than a breath. One dive is free against the core's three-minute
+        // breath, so a single lakebed never asks the seat to come up; the `chain` arena's lakebeds come as a
+        // chain (ArenaDefinition::Checkpoints), thirty to sixty yards on from each other, for four minutes. A
+        // seat that stays down for the whole chain runs out of air at three minutes and drowns before the
+        // clock; one that surfaces between legs, or casts Unending Breath, Water Breathing or Aquatic Form
+        // first, does not. The outcome is being alive at the end, and checkpoints, breaths, breathing_casts and
+        // aquatic_seconds say how each class managed it.
         stages.push_back({
             .Name = "stage1e_dive",
             .Suffix = "_dive",
             .Extends = "stage1_move",
-            .Summary = "a place 20-120 yd away on a lakebed under 6-40 yd of water: swim down to it, and come up for air",
-            .WaterBreathingMasked = true,
+            .Summary = "a place 20-120 yd away on a lakebed under 6-40 yd of water, or a chain of them longer than "
+                "a breath: swim down to it, and come up for air",
             .Blocks = { Core, Move, Travel, Duel },
             .Arenas = {
-                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 150,
+                { .Name = "depths", .Weight = 2, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true, .Underwater = true },
-            },
-            .InDefaultQueue = false,
-            .MapId = MAP_KALIMDOR,
-            .SpawnPoints = StonebullShore(),
-            .HeldOutSpawnPoints = EluneAraShore(),
-        });
-
-        // Longer than a breath. One dive is free against the core's three-minute breath, so the drill before this
-        // never asks the seat to come up; here the lakebeds come as a chain (ArenaDefinition::Checkpoints), thirty
-        // to sixty yards on from each other, for four minutes. A seat that stays down for the whole chain runs out
-        // of air at three minutes and drowns before the clock; one that surfaces between legs, or casts Unending
-        // Breath, Water Breathing or Aquatic Form first, does not. Every class plays it and the spells are open:
-        // the outcome is being alive at the end, and checkpoints, breaths, breathing_casts and aquatic_seconds say
-        // how each class managed it. Seeded from the dive drill, so the seat already knows the way down.
-        stages.push_back({
-            .Name = "stage1f_breathe",
-            .Suffix = "_breathe",
-            .Extends = "stage1e_dive",
-            .Summary = "a chain of lakebeds for four minutes, longer than a breath: come up for air, or make the "
-                "breath free",
-            .Blocks = { Core, Move, Travel, Duel },
-            .Arenas = {
-                { .Name = "depths", .Against = Opposition::Travel, .EpisodeSeconds = 240,
+                { .Name = "chain", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 240,
                     .OnFoot = true, .Underwater = true, .Checkpoints = true },
             },
-            .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
             .SpawnPoints = StonebullShore(),
             .HeldOutSpawnPoints = EluneAraShore(),
@@ -708,14 +659,19 @@ namespace
                 .EpisodeSeconds = 900 } },
         });
 
-        // The PvP branch: off the duel, without the PvE blocks it would never fill.
+        // The PvP branch: off the endurance run, without the PvE blocks it would never fill. Self-play from the
+        // first PvP stage: two learned seats of any classes, the far side played by the live policy or by a frozen
+        // earlier checkpoint (the learner's cast league), so the opponent is always something that learned to
+        // fight rather than a script. The scripted enemy player survives only as the evaluation yardstick and in
+        // the evade, hide and stealth drills, whose lesson is escaping a hunter that searches.
         stages.push_back({
-            .Name = "stage9_pvp",
-            .Suffix = "_pvp",
+            .Name = "stage13_arena",
+            .Suffix = "_arena",
             .Extends = "stage8_endurance",
-            .Summary = "one-on-one against a scripted enemy player",
+            .Summary = "self-play one-on-one: two learned seats of any classes",
             .Blocks = { Core, Move, Duel, Pet, Pvp },
-            .Arenas = { { .Name = "pvp_scripted", .Against = Opposition::ScriptedPlayer, .Pvp = true } },
+            .Arenas = { { .Name = "arena_1v1", .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
+                .Pvp = true } },
         });
 
         // Two drills about not fighting, between the scripted duel and self-play. Everything up to here rewards
@@ -725,7 +681,7 @@ namespace
         stages.push_back({
             .Name = "stage10_evade",
             .Suffix = "_evade",
-            .Extends = "stage9_pvp",
+            .Extends = "stage13_arena",
             .Summary = "a fight it cannot win: break away, break line of sight, and live to the end of it",
             .Blocks = { Core, Move, Duel, Pet, Pvp },
             // Ten levels up. Six was chosen against the open-field arena and stopped being a losing fight once
@@ -808,19 +764,9 @@ namespace
         });
 
         stages.push_back({
-            .Name = "stage13_arena",
-            .Suffix = "_arena",
-            .Extends = "stage12_stealth",
-            .Summary = "self-play one-on-one: two learned seats of any classes",
-            .Blocks = { Core, Move, Duel, Pet, Pvp },
-            .Arenas = { { .Name = "arena_1v1", .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
-                .Pvp = true } },
-        });
-
-        stages.push_back({
             .Name = "stage14_companion",
             .Suffix = "_companion",
-            .Extends = "stage13_arena",
+            .Extends = "stage12_stealth",
             // The pack, gauntlet and support blocks were trained across stages 6-8 and then dropped by the
             // PvP line this stage extends, so without this merge they would start from zero here and three
             // stages of training would be spent again. A merge seeds exactly the blocks the extended stage
@@ -936,7 +882,7 @@ namespace
         //
         // NOT in the default queue, and not runnable at the usual env count: 40 seats an env is 40 bots an env, so
         // AnimusForge.Envs has to come down roughly in proportion (a few dozen envs, not 128) before either of these
-        // is started. Train by name: `forge start stage13_raid_single`.
+        // is started. Train by name: `forge start stage20_raid_single`.
         stages.push_back({
             .Name = "stage20_raid_single",
             .Suffix = "_raid",
@@ -945,6 +891,7 @@ namespace
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "raid_single", .Seats = SeatPlan::Raid, .Against = Opposition::Pulls,
                 .Schedule = PullSchedule::SinglePack, .EpisodeSeconds = 300 } },
+            .InDefaultQueue = false,
         });
 
         // The raid's endurance: pull after pull with recovery between, which is what a wing of a raid instance is
@@ -957,6 +904,7 @@ namespace
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "raid_gauntlet", .Seats = SeatPlan::Raid, .Against = Opposition::Pulls,
                 .Schedule = PullSchedule::Gauntlet, .EpisodeSeconds = 600 } },
+            .InDefaultQueue = false,
         });
 
         // Warsong Gulch at its proper size: ten a side, both sides learned. The flag rules are stage 11's; what
@@ -994,7 +942,7 @@ namespace
             // The leaf of every other branch, so nothing trained in the queue is left behind: the PvP line
             // through warsong, the movement line through flight. The PvE line arrives by extension.
             .Merges = {
-                "stage22_duo_led", "stage19_warsong", "stage13_arena", "stage9_pvp", "stage4_flight",
+                "stage22_duo_led", "stage19_warsong", "stage13_arena", "stage4_flight",
                 "stage14_companion", "stage7_gauntlet", "stage5_duel",
             },
             .Summary = "PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet and a ganked owner",
@@ -1004,10 +952,8 @@ namespace
                     .Owner = true, .EpisodeSeconds = 300 },
                 { .Name = "party", .Weight = 20, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
                     .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 300 },
-                { .Name = "arena_1v1", .Weight = 15, .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
+                { .Name = "arena_1v1", .Weight = 25, .Seats = SeatPlan::Mirror, .Against = Opposition::MirrorSeat,
                     .Pvp = true, .EpisodeSeconds = 60 },
-                { .Name = "pvp_scripted", .Weight = 10, .Against = Opposition::ScriptedPlayer, .Pvp = true,
-                    .EpisodeSeconds = 60 },
                 { .Name = "gauntlet", .Weight = 10, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
                     .EpisodeSeconds = 450 },
                 { .Name = "duel", .Weight = 5, .Against = Opposition::Creature, .EpisodeSeconds = 60 },
@@ -1018,22 +964,6 @@ namespace
             },
         });
 
-        // A pilot of arena mixing and merging, not part of the curriculum: the duel and the scripted enemy player in
-        // one stage, merging the two stages that trained them (each teaches its arena). Trained only when named
-        // (forge start mix_duel_pvp).
-        stages.push_back({
-            .Name = "mix_duel_pvp",
-            .Suffix = "_mix",
-            .Extends = "stage9_pvp",
-            .Merges = { "stage5_duel" },
-            .Summary = "pilot arena mix: half the episodes a creature duel, half a scripted enemy player",
-            .Blocks = { Core, Move, Duel, Pet, Pvp },
-            .Arenas = {
-                { .Name = "duel", .Against = Opposition::Creature },
-                { .Name = "pvp_scripted", .Against = Opposition::ScriptedPlayer, .Pvp = true },
-            },
-            .InDefaultQueue = false,
-        });
         return stages;
     }
 

@@ -307,19 +307,41 @@ void AnimusForge::Forge::HoldWhilePaused()
 
 bool AnimusForge::Forge::StartCurrent()
 {
+    // A stage none of this run's classes can play (the stealth drill in a run of classes that cannot stealth) is
+    // skipped rather than failed: the plan moves to the next entry, and that entry's learner seeds from the stage
+    // before the skipped one (its seed chain walks past a checkpoint that lacks a layout). A plan whose remaining
+    // entries are all skipped ends here, as it would after its last scenario.
+    while (!_scenario)
+    {
+        PlanEntry const& skipped = _plan.Entries[_plan.Index];
+        std::unique_ptr<Animus::Scenario> scenario = Animus::CreateScenario(skipped.Scenario, RunConfig().Stage());
+        if (!scenario)
+        {
+            LOG_ERROR("module.animus", "Unknown scenario '{}'", skipped.Scenario);
+            return false;
+        }
+        if (scenario->Playable())
+        {
+            _scenario = std::move(scenario);
+            break;
+        }
+
+        LOG_INFO("module.animus", "Skipping {}: none of this run's classes can play it", skipped.Scenario);
+        _plan.Entries[_plan.Index].Result = Outcome::Skipped;
+        if (_plan.Index + 1 >= _plan.Entries.size())
+        {
+            EndPlan("every scenario has ended");
+            return true;
+        }
+        ++_plan.Index;
+    }
+
     PlanEntry const& entry = _plan.Entries[_plan.Index];
     ForgeConfig const& config = RunConfig();
     _current = entry.Scenario;
 
     std::string const position = _plan.Entries.size() > 1
         ? Acore::StringFormat(" ({} of {})", _plan.Index + 1, _plan.Entries.size()) : "";
-
-    _scenario = Animus::CreateScenario(entry.Scenario, config.Stage());
-    if (!_scenario)
-    {
-        LOG_ERROR("module.animus", "Unknown scenario '{}'", entry.Scenario);
-        return false;
-    }
 
     LOG_INFO("module.animus", "Starting {}{}{} with policy {}{}", entry.Scenario, position,
         entry.Resume ? ", resuming its latest checkpoint" : "", _plan.Policy, _plan.Fast

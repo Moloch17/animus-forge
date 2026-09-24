@@ -119,36 +119,6 @@ namespace
         return std::max<uint32>(1000, sWorld->getIntConfig(CONFIG_WATER_BREATH_TIMER));
     }
 
-    /// Whether the class can breathe under water: a kit spell with the water-breathing aura (Unending Breath,
-    /// Water Breathing). The breathe drill (StageDefinition::NeedsWaterBreathing) is played only by these.
-    bool CanWaterBreathe(Animus::Curriculum::ClassAssets const& assets)
-    {
-        if (!assets.Kit)
-            return false;
-
-        for (Animus::Curriculum::ClassKit::KitSpell const& kitSpell : assets.Kit->Spells())
-            if (SpellInfo const* spell = sSpellMgr->GetSpellInfo(kitSpell.SpellId);
-                spell && spell->HasAura(SPELL_AURA_WATER_BREATHING))
-                return true;
-
-        return false;
-    }
-
-    /// Whether the class can make a fall free: a kit spell with feather fall (Slow Fall) or hover (Levitate).
-    /// The glide drill (StageDefinition::NeedsFeatherFall) is played only by these.
-    bool CanFeatherFall(Animus::Curriculum::ClassAssets const& assets)
-    {
-        if (!assets.Kit)
-            return false;
-
-        for (Animus::Curriculum::ClassKit::KitSpell const& kitSpell : assets.Kit->Spells())
-            if (SpellInfo const* spell = sSpellMgr->GetSpellInfo(kitSpell.SpellId);
-                spell && (spell->HasAura(SPELL_AURA_FEATHER_FALL) || spell->HasAura(SPELL_AURA_HOVER)))
-                return true;
-
-        return false;
-    }
-
     /// How long an accepted resurrection is given to land before the offer may be taken again. A delayed
     /// teleport reschedules the resurrect (Player::ProcessDelayedOperations), so it does not always finish on
     /// the decision it was accepted on.
@@ -326,13 +296,8 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
         if (assets.Races.empty())
             continue;
 
-        // A stage about closing on someone unseen is played only by the classes that can actually do it, and a
-        // stage about gliding down only by the classes that have a spell for it.
+        // A stage about closing on someone unseen is played only by the classes that can actually do it.
         if (_stage.NeedsStealth && !CanStealth(assets))
-            continue;
-        if (_stage.NeedsFeatherFall && !CanFeatherFall(assets))
-            continue;
-        if (_stage.NeedsWaterBreathing && !CanWaterBreathe(assets))
             continue;
 
         Layout layout = Layout::Build(profile, _stage);
@@ -1436,11 +1401,8 @@ bool Animus::Curriculum::StageScenario::Setup(Env& env)
 {
     if (_layouts.empty())
     {
-        LOG_ERROR("module.animus", "{}: no class/role to play (check the host's class/role list{}{})", Name(),
-            _stage.NeedsStealth ? ", and this stage is played only by class/roles whose kit has stealth" : "",
-            _stage.NeedsFeatherFall ? ", and this stage is played only by classes whose kit has Slow Fall or Levitate"
-                : _stage.NeedsWaterBreathing ? ", and this stage is played only by classes whose kit breathes water"
-                : "");
+        LOG_ERROR("module.animus", "{}: no class/role to play (check the host's class/role list{})", Name(),
+            _stage.NeedsStealth ? ", and this stage is played only by class/roles whose kit has stealth" : "");
         return false;
     }
 

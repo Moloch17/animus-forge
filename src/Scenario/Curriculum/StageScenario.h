@@ -202,6 +202,7 @@ namespace Animus::Curriculum
 
         /// Every class/role layout of the run, by Layout::Index (the index AgentLayouts reports).
         [[nodiscard]] std::vector<Layout> const& Layouts() const { return _layouts; }
+        [[nodiscard]] bool Playable() const override { return !_layouts.empty(); }
 
         /// How many (class, role) pairs the run can field, which is what an evaluation spreads its seeds over.
         /// The difficulty ladder divides by the same number, so every pair meets every rung.

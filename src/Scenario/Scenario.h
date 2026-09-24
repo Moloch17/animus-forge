@@ -64,6 +64,11 @@ namespace Animus
         [[nodiscard]] virtual char const* Name() const = 0;
         [[nodiscard]] virtual ScenarioSpec Spec() const = 0;
 
+        /// Whether this run can play the scenario at all. A curriculum stage restricted to the classes that can
+        /// do its thing (the stealth drill) has no layout in a run of other classes; a queue skips it rather than
+        /// halting on it, and the stage after it seeds from the one before.
+        [[nodiscard]] virtual bool Playable() const { return true; }
+
         /// Once at startup: create bots and targets and place them. env.MapId/InstanceId, Bots and
         /// Targets must be filled in. Returns false if the env cannot be built.
         virtual bool Setup(Env& env) = 0;

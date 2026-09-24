@@ -9,12 +9,8 @@
 # about what that costs; the cost is what it learns here, and the round trip by the ramp is always there for the
 # episodes where the drop is not worth it.
 #
-# Slow Fall and Levitate are masked in this stage (StageDefinition::FeatherFallMasked), so every class learns the
-# bare price of a drop first. stage1d_glide gives the classes that have one the button back.
-#
-# NOT in the default queue: a side branch off stage1_move like stage1b_indoor, trained by name:
-#
-#   forge start stage1c_jump
+# Slow Fall and Levitate are open: a mage or a priest that has one learns when a cast is worth spending to make a
+# deadly drop free, and a class without one (or below the level that has it) learns the bare price of the drop.
 #
 # The spawn points are plateau tops above the ground the broken arena trains its cliff feet on, found from the
 # relief in the creature spawns; whether a top offers a ledge trip is what the `ledge` column reports, and a top
