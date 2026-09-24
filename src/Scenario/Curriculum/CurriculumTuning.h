@@ -193,6 +193,34 @@ namespace Animus::Curriculum
             float Timeout = 10.0f;              // the clock, scaled by what is left of the boss (Duel.TimeoutFloor)
         } Instance;
 
+        /// Life outside the fight (the quest, gather and town stages): what the world around the seat is made of,
+        /// and what it is paid for. The outcome terms scale with the band's tier (Difficulty.TierScale).
+        struct LifeTuning
+        {
+            float StepCost = 0.0002f;           // per decision, as the travel stages charge
+            float Progress = 2.0f;              // potential shaping on the distance to the waypoint, once per approach
+            float Wasted = 0.1f;                // a press that did nothing (an interact with nothing in reach)
+            float Death = 5.0f;                 // divided by the band's tier scale
+            float QuestAccepted = 1.0f;
+            float QuestCredit = 3.0f;           // spread over the objectives' counts, times the tier scale
+            float QuestTurnIn = 10.0f;          // times the tier scale
+            float QuestTimeout = 3.0f;          // the clock without a turn-in, less what was done, over the tier scale
+            float GatherNode = 2.0f;            // per node gathered, times the tier scale
+            float GatherSkillUp = 0.5f;         // per skill point gained
+            float TownSold = 2.0f;              // for the starting junk's whole vendor value, pro rata
+            float TownRepaired = 2.0f;
+            float TownStocked = 2.0f;
+            float TownEquipped = 3.0f;          // per upgrade put on
+            float TownDone = 5.0f;              // sold, repaired, stocked and dressed before the clock
+            float SenseRange = 100.0f;          // yards the seat's world features reach
+            float ObjectiveRadius = 60.0f;      // the world's creatures this close to a quest objective's place come along
+            uint32 ObjectiveSpawns = 24;        // ... up to this many per place (and around a gather ground)
+            float NodeRadius = 150.0f;          // the nodes this close to the gather ground are the field
+            uint32 NodeSpawns = 24;
+            float TownRadius = 80.0f;           // the traders this close to the inn are the town
+            uint32 TownCopperPerLevelSquared = 25;  // the seat's purse: level squared times this (level 20: 1 gold)
+        } Life;
+
         /// Cast-time spells, from the duel stage on.
         struct CastingTuning
         {
@@ -793,6 +821,28 @@ namespace Animus::Curriculum
             f("Instance.MaxTierScale", tuning.Instance.MaxTierScale);
             f("Instance.BossProgress", tuning.Instance.BossProgress);
             f("Instance.Timeout", tuning.Instance.Timeout);
+            f("Life.StepCost", tuning.Life.StepCost);
+            f("Life.Progress", tuning.Life.Progress);
+            f("Life.Wasted", tuning.Life.Wasted);
+            f("Life.Death", tuning.Life.Death);
+            f("Life.QuestAccepted", tuning.Life.QuestAccepted);
+            f("Life.QuestCredit", tuning.Life.QuestCredit);
+            f("Life.QuestTurnIn", tuning.Life.QuestTurnIn);
+            f("Life.QuestTimeout", tuning.Life.QuestTimeout);
+            f("Life.GatherNode", tuning.Life.GatherNode);
+            f("Life.GatherSkillUp", tuning.Life.GatherSkillUp);
+            f("Life.TownSold", tuning.Life.TownSold);
+            f("Life.TownRepaired", tuning.Life.TownRepaired);
+            f("Life.TownStocked", tuning.Life.TownStocked);
+            f("Life.TownEquipped", tuning.Life.TownEquipped);
+            f("Life.TownDone", tuning.Life.TownDone);
+            f("Life.SenseRange", tuning.Life.SenseRange);
+            f("Life.ObjectiveRadius", tuning.Life.ObjectiveRadius);
+            f("Life.ObjectiveSpawns", tuning.Life.ObjectiveSpawns);
+            f("Life.NodeRadius", tuning.Life.NodeRadius);
+            f("Life.NodeSpawns", tuning.Life.NodeSpawns);
+            f("Life.TownRadius", tuning.Life.TownRadius);
+            f("Life.TownCopperPerLevelSquared", tuning.Life.TownCopperPerLevelSquared);
 
             f("Casting.TimeWasted", tuning.Casting.TimeWasted);
             f("Casting.TimeCompleted", tuning.Casting.TimeCompleted);

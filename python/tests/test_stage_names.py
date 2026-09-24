@@ -71,10 +71,10 @@ def test_config_files_are_named_after_stages():
     assert configs == names - set(), f"configs without a stage or stages without a config: {configs ^ names}"
 
 
-# Numbers held for stages that are planned but not yet defined (the 2026-09-24 plan: the life stages, the dungeon,
-# the real raids), so the stages around them did not have to move twice. A reserved number is filled by a stage of
-# exactly this name; delete the entry when it lands.
-RESERVED = {20: "stage20_quest", 21: "stage21_gather", 22: "stage22_town"}
+# Numbers held for stages that are planned but not yet defined, so the stages around them do not have to move twice.
+# A reserved number is filled by a stage of exactly this name; delete the entry when it lands. (Empty since the
+# life stages of the 2026-09-24 plan landed.)
+RESERVED: dict[int, str] = {}
 
 
 def test_numbers_are_contiguous_and_in_seed_order():

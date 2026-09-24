@@ -694,6 +694,49 @@ AnimusForge.Curriculum.Instance.BossProgress = 5.0
 AnimusForge.Curriculum.Instance.Timeout = 10.0
 
 #
+#    AnimusForge.Curriculum.Life.*
+#        Life outside the fight (the quest, gather and town stages): the seat alone in a copy of the world's own
+#        zone -- its quest givers, creatures, nodes and traders summoned into the env's phase from the spawn tables
+#        -- with what it does kept on the character in memory. The outcome terms scale with the band's tier.
+
+#   per decision
+AnimusForge.Curriculum.Life.StepCost = 0.0002
+#   potential shaping on the distance to where the episode wants the seat next, paid once over an approach
+AnimusForge.Curriculum.Life.Progress = 2.0
+#   a press that did nothing in the world (an interact with nothing in reach, a buy that bought nothing)
+AnimusForge.Curriculum.Life.Wasted = 0.1
+#   divided by the tier scale
+AnimusForge.Curriculum.Life.Death = 5.0
+#   the quest: taking it, its objective counts as they land (times the tier scale), the turn-in (times the tier
+#   scale), and the clock running out without it (less what was done, over the tier scale)
+AnimusForge.Curriculum.Life.QuestAccepted = 1.0
+AnimusForge.Curriculum.Life.QuestCredit = 3.0
+AnimusForge.Curriculum.Life.QuestTurnIn = 10.0
+AnimusForge.Curriculum.Life.QuestTimeout = 3.0
+#   gathering: per node looted (times the tier scale), per skill point gained
+AnimusForge.Curriculum.Life.GatherNode = 2.0
+AnimusForge.Curriculum.Life.GatherSkillUp = 0.5
+#   the town: the starting junk's vendor value realised (pro rata), the gear repaired, food and drink restocked, each
+#   upgrade put on, and all of it done before the clock
+AnimusForge.Curriculum.Life.TownSold = 2.0
+AnimusForge.Curriculum.Life.TownRepaired = 2.0
+AnimusForge.Curriculum.Life.TownStocked = 2.0
+AnimusForge.Curriculum.Life.TownEquipped = 3.0
+AnimusForge.Curriculum.Life.TownDone = 5.0
+#   yards the seat's world features reach
+AnimusForge.Curriculum.Life.SenseRange = 100.0
+#   the world's creatures this close to a quest objective's place (or a gather ground) are summoned, up to this many
+AnimusForge.Curriculum.Life.ObjectiveRadius = 60.0
+AnimusForge.Curriculum.Life.ObjectiveSpawns = 24
+#   the nodes this close to the gather ground are the field, up to this many
+AnimusForge.Curriculum.Life.NodeRadius = 150.0
+AnimusForge.Curriculum.Life.NodeSpawns = 24
+#   the traders this close to the inn are the town
+AnimusForge.Curriculum.Life.TownRadius = 80.0
+#   the seat's purse in a town episode: level squared times this, in copper (level 20: 1 gold)
+AnimusForge.Curriculum.Life.TownCopperPerLevelSquared = 25
+
+#
 #    AnimusForge.Curriculum.Casting.*
 #        Cast-time spells, from the duel stage on.
 

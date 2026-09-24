@@ -367,6 +367,9 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     auto const hasTravel = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Travel; };
     auto const hasFlag = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Flag; };
     auto const hasInstance = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Instance; };
+    auto const hasQuest = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Quest; };
+    auto const hasGather = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Gather; };
+    auto const hasTown = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Town; };
     auto const directed = [](ArenaDefinition const& arena) { return arena.Directed; };
 
     // Build order matters: the owner comes before the party group (which it leads) and the pulls (which spawn around
@@ -381,6 +384,13 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     // After the owner and the group: it moves both to the boss.
     if (_stage.AnyArena(hasInstance))
         instance = add(std::make_unique<InstanceEncounter>(*this, envs));
+    // Life outside the fight: each fixes its own map and spawn (BeforeLevel), builds after the seat is placed.
+    if (_stage.AnyArena(hasQuest))
+        add(std::make_unique<QuestEncounter>(*this, envs));
+    if (_stage.AnyArena(hasGather))
+        add(std::make_unique<GatherEncounter>(*this, envs));
+    if (_stage.AnyArena(hasTown))
+        add(std::make_unique<TownEncounter>(*this, envs));
     if (_stage.AnyArena(hasPulls))
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
     if (_stage.AnyArena(hasCreature))
@@ -1531,6 +1541,7 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     data.Arena = DrawArena();
     data.EpisodeMapId = 0;
     data.EpisodeLevel = 0;
+    data.EpisodeTeam = 0;
     data.DungeonDifficulty = 0;
     data.RaidDifficulty = 0;
     data.HasEpisodeSpawn = false;
@@ -1677,7 +1688,8 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             Player const* bot = s.Bot.Active();
             if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || !c.L || s.L != c.L || s.Spec != c.Spec
                 || s.EpisodesPlayed >= _tuning.Characters.ReuseEpisodes || c.Level < minLevel
-                || (keptLevel && c.Level != keptLevel) || (data.EpisodeLevel && c.Level != data.EpisodeLevel))
+                || (keptLevel && c.Level != keptLevel) || (data.EpisodeLevel && c.Level != data.EpisodeLevel)
+                || (data.EpisodeTeam && Player::TeamIdForRace(c.Race) != TeamId(data.EpisodeTeam - 1)))
                 continue;
 
             reuse[seat] = true;
@@ -1857,9 +1869,11 @@ Player* Animus::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatIndex,
     // both in Wrath, so no layout is lost. Any other arena draws from the whole list as it always did.
     std::vector<uint8> const& races = layout.Assets->Races;
     std::vector<uint8> pool;
-    if (Arena(env).Seats == SeatPlan::Teams)
+    if (Arena(env).Seats == SeatPlan::Teams || Data(env).EpisodeTeam)
     {
-        TeamId const want = seatIndex < Arena(env).TeamSeats ? TEAM_ALLIANCE : TEAM_HORDE;
+        // A life episode's quest or town belongs to a side too (EnvState::EpisodeTeam).
+        TeamId const want = Data(env).EpisodeTeam ? TeamId(Data(env).EpisodeTeam - 1)
+            : seatIndex < Arena(env).TeamSeats ? TEAM_ALLIANCE : TEAM_HORDE;
         for (uint8 race : races)
             if (Player::TeamIdForRace(race) == want)
                 pool.push_back(race);
@@ -1904,8 +1918,10 @@ Player* Animus::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatIndex,
         return nullptr;
     seat.EpisodesPlayed = 0;
 
-    // On a shared continent every env lives in its own phase: its seats see only what it spawns.
-    if (_continent)
+    // On a shared continent every env lives in its own phase: its seats see only what it spawns. The episode's
+    // map, not the stage's: a life episode of an instance stage (the crossroads) is on a continent.
+    MapEntry const* episodeMap = sMapStore.LookupEntry(EpisodeMapId(env));
+    if (_continent || (episodeMap && !episodeMap->Instanceable()))
         bot->SetPhaseMask(EnvPhase(env), true);
 
     // A bot placed by the sim never runs the map update that works out where it is standing, so until this it

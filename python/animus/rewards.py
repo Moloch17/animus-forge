@@ -27,7 +27,8 @@ from __future__ import annotations
 #: party living through the pull -- and listing it as an outcome is exactly what would have let the farmable
 #: revive through this check, since it was the largest earner by a factor of ten and would have been reading
 #: itself as the yardstick.
-OUTCOME_TERMS = ("kill", "clear", "flag_capture", "flag_return", "player_kill", "arrive")
+OUTCOME_TERMS = ("kill", "clear", "flag_capture", "flag_return", "player_kill", "arrive",
+                 "quest_turn_in", "gather_node", "town_done")
 
 #: A shaping term worth more than this much of the largest outcome term is reported. Half a kill is already a
 #: lot for a nudge; the three faults above scored 0.96, well over 1, and far over 1 respectively.

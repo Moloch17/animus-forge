@@ -28,6 +28,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "TravelBlock.h"
+#include "WorldBlock.h"
 #include <algorithm>
 #include <array>
 #include <optional>
@@ -711,15 +712,110 @@ namespace
     }
 }
 
+namespace
+{
+    /// Life: the world presses that apply where the seat stands -- loot what is open, use the thing in reach, sell,
+    /// repair, buy, dress -- before anything else.
+    std::optional<int32> LifeHere(Row const& row)
+    {
+        if (!row.Has(BlockId::World))
+            return std::nullopt;
+
+        auto const obs = [&row](uint32 feature) { return row.Obs(BlockId::World, feature); };
+        if (obs(WorldBlock::OBS_LOOT_OPEN) > 0.0f)
+            if (std::optional<int32> loot = row.Allowed(BlockId::World, WorldBlock::ACTION_LOOT_ALL))
+                return loot;
+        if (obs(WorldBlock::OBS_CASTING) > 0.0f)
+            return 0;   // a gathering cast finishes on its own
+        if (obs(WorldBlock::OBS_CORPSE_IN_REACH) > 0.0f || obs(WorldBlock::OBS_GIVER_IN_REACH) > 0.0f
+            || (obs(WorldBlock::OBS_NODE_IN_REACH) > 0.0f && obs(WorldBlock::OBS_NODE_OPENABLE) > 0.0f))
+            if (std::optional<int32> use = row.Allowed(BlockId::World, WorldBlock::ACTION_INTERACT))
+                return use;
+        if (obs(WorldBlock::OBS_VENDOR_IN_REACH) > 0.0f)
+            for (uint32 action : { WorldBlock::ACTION_SELL_JUNK, WorldBlock::ACTION_REPAIR,
+                WorldBlock::ACTION_BUY_SUPPLIES })
+                if (std::optional<int32> trade = row.Allowed(BlockId::World, action))
+                    return trade;
+        if (std::optional<int32> dress = row.Allowed(BlockId::World, WorldBlock::ACTION_EQUIP_UPGRADE))
+            return dress;
+        return std::nullopt;
+    }
+
+    /// Life: walk to the nearest thing worth walking to, by priority -- a corpse, a giver with business, the
+    /// objective the travel block shows, a node the seat can open, a vendor -- and stop on reaching it.
+    std::optional<int32> LifeGo(Row const& row)
+    {
+        if (!row.Has(BlockId::World))
+            return std::nullopt;
+
+        auto const obs = [&row](uint32 feature) { return row.Obs(BlockId::World, feature); };
+        struct Aim { uint32 Present; uint32 InReach; uint32 Sin; uint32 Cos; bool Wanted; };
+        Aim const aims[] =
+        {
+            { WorldBlock::OBS_CORPSE, WorldBlock::OBS_CORPSE_IN_REACH, WorldBlock::OBS_CORPSE_SIN,
+                WorldBlock::OBS_CORPSE_COS, obs(WorldBlock::OBS_CORPSE_DISTANCE) < 0.4f },
+            { WorldBlock::OBS_GIVER, WorldBlock::OBS_GIVER_IN_REACH, WorldBlock::OBS_GIVER_SIN,
+                WorldBlock::OBS_GIVER_COS, obs(WorldBlock::OBS_GIVER_OFFERS) > 0.0f
+                    || obs(WorldBlock::OBS_GIVER_TURN_IN) > 0.0f },
+            { WorldBlock::OBS_NODE, WorldBlock::OBS_NODE_IN_REACH, WorldBlock::OBS_NODE_SIN,
+                WorldBlock::OBS_NODE_COS, obs(WorldBlock::OBS_NODE_OPENABLE) > 0.0f },
+            { WorldBlock::OBS_VENDOR, WorldBlock::OBS_VENDOR_IN_REACH, WorldBlock::OBS_VENDOR_SIN,
+                WorldBlock::OBS_VENDOR_COS, obs(WorldBlock::OBS_HAS_JUNK) > 0.0f
+                    || obs(WorldBlock::OBS_DURABILITY) < 1.0f || obs(WorldBlock::OBS_FOOD) < 1.0f },
+        };
+        for (Aim const& aim : aims)
+        {
+            if (obs(aim.Present) <= 0.0f || !aim.Wanted)
+                continue;
+            if (obs(aim.InReach) > 0.0f)
+                return Halt(row);
+            if (std::optional<int32> turn = TurnToward(row, obs(aim.Sin), obs(aim.Cos)))
+                return turn;
+            return Steer(row, obs(aim.Sin), obs(aim.Cos));
+        }
+
+        // Nothing sensed: the travel block's objective is where the episode wants the seat (the quest's next place).
+        if (row.Has(BlockId::Travel) && row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE) > 0.0f)
+        {
+            if (row.Obs(BlockId::Travel, TravelBlock::OBS_AT_OBJECTIVE) > 0.0f)
+                return Halt(row);
+            float const sin = row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE_BEARING_SIN);
+            float const cos = row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE_BEARING_COS);
+            if (std::optional<int32> turn = TurnToward(row, sin, cos))
+                return turn;
+            return Steer(row, sin, cos);
+        }
+
+        return std::nullopt;
+    }
+}
+
 bool Animus::Curriculum::Baselines::Supports(std::string const& policy, Layout const& layout)
 {
-    return policy == "greedy" || (policy == "fight" && layout.Has(BlockId::Duel));
+    return policy == "greedy" || (policy == "fight" && layout.Has(BlockId::Duel))
+        || (policy == "life" && layout.Has(BlockId::World) && layout.Has(BlockId::Duel));
 }
 
 int32 Animus::Curriculum::Baselines::Choose(std::string const& policy, Layout const& layout, float const* obs,
     uint8 const* mask)
 {
     Row const row(layout, obs, mask);
+
+    if (policy == "life" && layout.Has(BlockId::World) && layout.Has(BlockId::Duel))
+    {
+        // What is here first, then the fight the combat baseline plays, then the walk to the next thing.
+        if (std::optional<int32> here = LifeHere(row))
+            return *here;
+        if (std::optional<int32> action = Fight(row, layout))
+            return *action;
+        if (std::optional<int32> ability = PetDamage(row, layout))
+            return *ability;
+        if (std::optional<int32> spell = Rotation(row, layout))
+            return *spell;
+        if (std::optional<int32> go = LifeGo(row))
+            return *go;
+        return 0;
+    }
 
     if (policy == "fight" && layout.Has(BlockId::Duel))
     {

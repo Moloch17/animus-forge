@@ -834,6 +834,56 @@ namespace
         //
         // The Barrens, for stage 9's reason: the second base is placed by the same objective search, 100-180 yd from
         // the first, and only open ground has room for it.
+        // Life outside the fight, learned in the sim. A quest of the seat's level band -- its giver, the world's own
+        // creatures around its objectives, its turn-in -- copied out of the spawn tables into the env's phase
+        // (QuestEncounter, LifeWorld), so a seat takes it, does it and hands it in with what it learned to fight
+        // with. The rung is the band (15-20, 35-40, 58-60), the side is drawn with it and the race follows. It
+        // extends the endurance run, since a quest is a run of small fights with walking between them, and merges
+        // the travel stage for the mount and the objective the trips were steered to.
+        stages.push_back({
+            .Name = "stage20_quest",
+            .Suffix = "_quest",
+            .Extends = "stage11_endurance",
+            .Merges = { "stage6_travel" },
+            .Summary = "a quest of the level band: take it, do it, hand it in",
+            .Blocks = { Core, Move, Travel, Duel, Pet, Pack, Gauntlet, Support, World },
+            .Arenas = { { .Name = "quest", .Against = Opposition::Quest, .EpisodeSeconds = 300 } },
+            .MapId = MAP_KALIMDOR,
+            .SpawnPoints = KalimdorGround(),
+            .MinLevel = 15,
+        });
+
+        // A field of the band's herb and ore nodes, with the zone's own creatures among them, and the seat holding
+        // the gathering professions at the band's skill (GatherEncounter): find the node, open it, take what is in
+        // it, skin what it killed, and do not die to what lives there. The episode is scored by what was gathered
+        // before the clock.
+        stages.push_back({
+            .Name = "stage21_gather",
+            .Suffix = "_gather",
+            .Extends = "stage20_quest",
+            .Summary = "herbs and ore of the band's zones, with what lives among them",
+            .Blocks = { Core, Move, Travel, Duel, Pet, Pack, Gauntlet, Support, World },
+            .Arenas = { { .Name = "gather", .Against = Opposition::Gather, .EpisodeSeconds = 240 } },
+            .MapId = MAP_KALIMDOR,
+            .SpawnPoints = KalimdorGround(),
+            .MinLevel = 15,
+        });
+
+        // A town of the seat's side, its traders copied into the phase around the inn (TownEncounter). The seat
+        // arrives with junk in its bags, half its durability gone, one food and one drink, and two better items it
+        // has not put on: sell, repair, restock, dress. Won when all four are done before the clock.
+        stages.push_back({
+            .Name = "stage22_town",
+            .Suffix = "_town",
+            .Extends = "stage21_gather",
+            .Summary = "a town: sell the junk, repair, restock, put the better item on",
+            .Blocks = { Core, Move, Travel, Duel, Pet, Pack, Gauntlet, Support, World },
+            .Arenas = { { .Name = "town", .Against = Opposition::Town, .EpisodeSeconds = 120 } },
+            .MapId = MAP_KALIMDOR,
+            .SpawnPoints = KalimdorGround(),
+            .MinLevel = 15,
+        });
+
         // The first real instance: a party of four learned seats and their cast owner against a dungeon's own
         // scripted bosses, in the dungeon (InstanceEncounter). The rungs are the bosses of five dungeons across the
         // level bands -- Ragefire Chasm at 15 through heroic Utgarde Keep at 80 -- so the rung fixes the level as
@@ -961,11 +1011,12 @@ namespace
             // The leaf of every other branch, so nothing trained in the queue is left behind: the PvP line
             // through warsong, the movement line through flight. The PvE line arrives by extension.
             .Merges = {
-                "stage26_duo_led", "stage25_warsong", "stage23_dungeon", "stage12_pvp", "stage7_flight",
-                "stage16_companion", "stage10_gauntlet", "stage8_duel",
+                "stage26_duo_led", "stage25_warsong", "stage23_dungeon", "stage22_town", "stage21_gather",
+                "stage20_quest", "stage12_pvp", "stage7_flight", "stage16_companion", "stage10_gauntlet", "stage8_duel",
             },
-            .Summary = "PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet and a ganked owner",
-            .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Pvp, Context, Hostiles, Support },
+            .Summary = "PvE, PvP and life in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner",
+            .Blocks = { Core, Move, Travel, Duel, Pet, Pack, Gauntlet, Companion, Party, Pvp, Context, Hostiles,
+                Support, World },
             .Arenas = {
                 { .Name = "companion", .Weight = 20, .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
                     .Owner = true, .OwnerCast = true, .EpisodeSeconds = 300 },
@@ -984,6 +1035,10 @@ namespace
                 { .Name = "dungeon", .Weight = 10, .Seats = SeatPlan::Party, .Against = Opposition::Instance,
                     .Owner = true, .OwnerCast = true, .PartyGroup = true, .Instance = InstanceLadder::Dungeon,
                     .EpisodeSeconds = 300 },
+                // ... and lived a little: a quest, a field of nodes, a town, so the life it learned ships too.
+                { .Name = "quest", .Weight = 5, .Against = Opposition::Quest, .EpisodeSeconds = 300 },
+                { .Name = "gather", .Weight = 3, .Against = Opposition::Gather, .EpisodeSeconds = 240 },
+                { .Name = "town", .Weight = 2, .Against = Opposition::Town, .EpisodeSeconds = 120 },
             },
         });
 
@@ -1148,6 +1203,19 @@ namespace
                 "objective has a next one yet";
         if (flag && (!stage.Has(BlockId::Travel) || !stage.Has(BlockId::Flag)))
             return "a flag match needs the travel and flag blocks";
+        bool const life = arena.Against == Opposition::Quest || arena.Against == Opposition::Gather
+            || arena.Against == Opposition::Town;
+        if (life && (!stage.Has(BlockId::World) || !stage.Has(BlockId::Travel) || !stage.Has(BlockId::Pack)))
+            return "life outside the fight needs the world, travel and pack blocks";
+        if (life && (arena.Seats != SeatPlan::Solo || arena.Owner || arena.Pvp || arena.Ambushers > 0
+            || arena.Schedule != PullSchedule::None))
+            return "a life arena is one seat on its own, with no pulls";
+        if (stage.Has(BlockId::World) && !stage.AnyArena([](ArenaDefinition const& other)
+            {
+                return other.Against == Opposition::Quest || other.Against == Opposition::Gather
+                    || other.Against == Opposition::Town;
+            }))
+            return "the world block wants a life arena to be read in";
 
         return {};
     }

@@ -206,6 +206,28 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Instance.MaxTierScale` | 6 | | | |
 | `Instance.BossProgress` | 5.0 | | | |
 | `Instance.Timeout` | 10.0 | | | |
+| `Life.StepCost` | 0.0002 | | | |
+| `Life.Progress` | 2.0 | | | |
+| `Life.Wasted` | 0.1 | | | |
+| `Life.Death` | 5.0 | | | |
+| `Life.QuestAccepted` | 1.0 | | | |
+| `Life.QuestCredit` | 3.0 | | | |
+| `Life.QuestTurnIn` | 10.0 | | | |
+| `Life.QuestTimeout` | 3.0 | | | |
+| `Life.GatherNode` | 2.0 | | | |
+| `Life.GatherSkillUp` | 0.5 | | | |
+| `Life.TownSold` | 2.0 | | | |
+| `Life.TownRepaired` | 2.0 | | | |
+| `Life.TownStocked` | 2.0 | | | |
+| `Life.TownEquipped` | 3.0 | | | |
+| `Life.TownDone` | 5.0 | | | |
+| `Life.SenseRange` | 100.0 | | | |
+| `Life.ObjectiveRadius` | 60.0 | | | |
+| `Life.ObjectiveSpawns` | 24 | | | |
+| `Life.NodeRadius` | 150.0 | | | |
+| `Life.NodeSpawns` | 24 | | | |
+| `Life.TownRadius` | 80.0 | | | |
+| `Life.TownCopperPerLevelSquared` | 25 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|

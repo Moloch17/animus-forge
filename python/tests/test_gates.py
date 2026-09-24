@@ -61,7 +61,11 @@ def sim_stage_columns() -> dict[str, set[str]]:
         ("opponent", "OpponentEncounter"), ("owner", "OwnerEncounter"), ("party", "PartyEncounter"),
         ("pulls", "PullsEncounter"), ("creature", "CreatureEncounter"), ("hazards", "HazardEncounter"),
         ("ambush", "AmbushEncounter"), ("travel", "TravelEncounter"), ("flag", "FlagEncounter"),
-        ("director", "DirectorEncounter"))}
+        ("director", "DirectorEncounter"), ("instance", "InstanceEncounter"), ("quest", "QuestEncounter"),
+        ("gather", "GatherEncounter"), ("town", "TownEncounter"))}
+    # The three life encounters share a base whose columns every one of them emits.
+    for life in ("quest", "gather", "town"):
+        per_encounter[life] |= columns("Encounters/LifeEncounter.cpp")
     # Everything registered outside the encounters -- the scenario, the blocks, the rewards -- is emitted by every
     # stage; only an encounter's columns depend on the arenas.
     always = set(DERIVED_METRICS)
@@ -84,7 +88,8 @@ def sim_stage_columns() -> dict[str, set[str]]:
             if against in ("ScriptedPlayer", "MirrorSeat", "Flag"):
                 active.add("opponent")
             for opposition, encounter in (("Pulls", "pulls"), ("Creature", "creature"), ("Hazards", "hazards"),
-                                          ("Travel", "travel"), ("Flag", "flag")):
+                                          ("Travel", "travel"), ("Flag", "flag"), ("Instance", "instance"),
+                                          ("Quest", "quest"), ("Gather", "gather"), ("Town", "town")):
                 if against == opposition:
                     active.add(encounter)
             if ".Owner = true" in arena:

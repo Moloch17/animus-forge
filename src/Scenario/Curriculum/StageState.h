@@ -465,6 +465,9 @@ namespace Animus::Curriculum
         /// at, and where they spawn (an instance's front door). Cleared when the arena is drawn.
         uint32 EpisodeMapId = 0;
         uint8 EpisodeLevel = 0;
+        /// The side the episode wants its seats on (TeamId + 1; 0: any): a quest or a town belongs to one. The race
+        /// draw honours it, and a kept character of the other side is rebuilt.
+        uint8 EpisodeTeam = 0;
         uint8 DungeonDifficulty = 0;
         uint8 RaidDifficulty = 0;
         bool HasEpisodeSpawn = false;

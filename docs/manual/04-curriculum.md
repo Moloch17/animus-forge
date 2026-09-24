@@ -2,7 +2,7 @@
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
 `src/Scenario/Curriculum/`. Twenty-five stages are defined, numbered in the order they are trained;
-**twenty-four are the default queue**, and the raid stages (28-32) are trained only by name, because forty
+**twenty-seven are the default queue**, and the raid stages (28-32) are trained only by name, because forty
 seats an env does not run at the usual env count. No stage has a pass gate: each ends when its convergence signals
 say so (see "Budgets" below), and the queue moves on.
 
@@ -29,6 +29,9 @@ stage1_move                 open ground, broken ground, water   ── the feet
             └─ stage9_pack
                └─ stage10_gauntlet
                   └─ stage11_endurance
+                     ├─ stage20_quest         ── life: a quest, giver to turn-in (+ merges stage6_travel)
+                     │  └─ stage21_gather     ── the band's herbs and ore, and what lives among them
+                     │     └─ stage22_town    ── sell, repair, restock, dress
                      └─ stage12_pvp           ── against people: self-play, the far side learned
                         └─ stage13_evade      ── a scripted hunter it cannot beat
                            └─ stage14_hide
@@ -44,14 +47,10 @@ stage1_move                 open ground, broken ground, water   ── the feet
                                              ├─ stage24_flag  (+ merges stage6_travel, stage12_pvp)
                                              │  └─ stage25_warsong  (+ merges stage19_triage)
                                              │     └─ stage26_duo_led   (a director; + merges stage11_endurance)
-                                             ├─ stage27_crossroads      (+ 8 merges incl. the dungeon; the stage that ships)
+                                             ├─ stage27_crossroads      (+ 11 merges incl. the dungeon and the life stages; the stage that ships)
                                              └─ stage28_raid_single     ── by name (the synthetic raid, a control)
                                                 └─ stage29_raid_gauntlet
 ```
-
-Numbers 20-22 are reserved for the life stages (quest, gather, town) of the 2026-09-24 plan, ahead of the
-crossroads they are merged into, so nothing here moves again (`python/tests/test_stage_names.py` lists the reserved
-names).
 
 **The first seven stages have nothing to kill in them, and that is the point.** A seat steers itself -- eight
 egocentric bearings under a held yaw and pitch, with the ground read along each of them -- and where a seat puts
@@ -107,10 +106,13 @@ one commanding each side (see 4.12).
 | `stage17_party` | stage16_companion | Party | + party | Four learned seats and the owner (cast as in the companion stage) against elite-heavy pulls |
 | `stage18_tanking` | stage17_party | Party | same | **Drill.** Seat 0 is drawn from builds that can hold the pull: hold what it brings, and keep it off the others |
 | `stage19_triage` | stage18_tanking | Party | same | **Drill, and the leaf of the class curriculum.** Seat 0 is drawn from builds that can keep the hurt one up, and has to spend mana doing it |
+| `stage20_quest` | stage11_endurance (+ stage6_travel) | Solo | + travel, world | **Life begins.** A quest of the level band (15-20, 35-40, 58-60; the rung is the band) in the world's own zone: the giver, the creatures around the objectives and the turn-in copied into the env's phase. Take it, do it, hand it in |
+| `stage21_gather` | stage20_quest | Solo | same | A field of the band's herb and ore nodes with the zone's creatures among them, the professions at the band's skill: find, open, take, skin, do not die |
+| `stage22_town` | stage21_gather | Solo | same | A town of the seat's side around its inn: sell the junk, repair, restock food and drink, put the better item on |
 | `stage24_flag` | stage19_triage (+ stage6_travel, stage12_pvp) | Mirror | + pvp, travel, flag | Capture the flag one-on-one: bases 100-180 yd apart, first to three captures. Level 20+ |
 | `stage25_warsong` | stage24_flag (+ stage19_triage) | Teams (10) | + party | Ten against ten for the flag on a real Warsong Gulch instance: escort the carrier, hold the base, stop theirs |
 | `stage26_duo_led` | stage25_warsong (+ stage11_endurance) | Teams (2) | + context, hostiles, order | Two against two under a **director**: told who to kill, whose turn it is, and where to go (4.12) |
-| `stage27_crossroads` | stage19_triage (+ 7 merges) | Mirror/Party | + pvp, context, hostiles | PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner |
+| `stage27_crossroads` | stage19_triage (+ 10 merges) | Mirror/Party/Solo | + pvp, context, hostiles, travel, world | PvE, PvP and life in one policy: every earlier situation, an ambush mid-gauntlet, a ganked owner, a quest, a field, a town |
 | `stage28_raid_single` | stage19_triage | Raid | same as triage | **By name.** A raid of eight groups against one elite and its adds, won or lost as the single pack is |
 | `stage29_raid_gauntlet` | stage28_raid_single | Raid | same | A raid clearing pull after pull, recovering between them |
 
@@ -150,7 +152,7 @@ the whole point of putting drills on the trunk:
 | `stage19_triage` | stage18_tanking | stage17_party |
 | `stage24_flag` | stage19_triage (+ stage6_travel, stage12_pvp) | stage12_pvp |
 | `stage26_duo_led` | stage25_warsong (+ stage11_endurance) | stage12_pvp |
-| `stage27_crossroads` | stage19_triage (+ 7 merges) | stage17_party |
+| `stage27_crossroads` | stage19_triage (+ 10 merges) | stage17_party |
 
 A drill sets its own `patience` and `min_env_steps` for being a drill; the stage after it wants the drill's
 weights and the trunk's schedule, so it seeds from the one and inherits from the other. If you change one chain,
@@ -176,19 +178,21 @@ stage trains its whole budget).
 | `stage13_evade` | 30M | 10M | 2048 | `stage14_hide` | 30M | 10M | 2048 |
 | `stage15_stealth` | 20M | 10M | 2048 | `stage16_companion` | 60M | 10M | 2048 |
 | `stage17_party` | 90M | 15M | 2048 | `stage18_tanking` | 60M | 15M | 2048 |
-| `stage19_triage` | 60M | 15M | 2048 | `stage23_dungeon` | 60M | 10M | 512 |
-| `stage24_flag` | 40M | 10M | 2048 | `stage25_warsong` | 40M | 10M | 128 |
-| `stage26_duo_led` | 30M | 10M | 512 | `stage27_crossroads` | 100M | 25M | 256 |
-| `stage28_raid_single` | 40M | 20M | 256 | `stage29_raid_gauntlet` | 40M | 20M | 256 |
-| `stage30_raid10` | 40M | 10M | 128 | `stage31_raid25` | 40M | 10M | 64 |
-| `stage32_raid40` | 40M | 10M | 32 |  | | |  |
+| `stage19_triage` | 60M | 15M | 2048 | `stage20_quest` | 60M | 10M | 1024 |
+| `stage21_gather` | 30M | 10M | 1024 | `stage22_town` | 20M | 5M | 1024 |
+| `stage23_dungeon` | 60M | 10M | 512 | `stage24_flag` | 40M | 10M | 2048 |
+| `stage25_warsong` | 40M | 10M | 128 | `stage26_duo_led` | 30M | 10M | 512 |
+| `stage27_crossroads` | 100M | 25M | 256 | `stage28_raid_single` | 40M | 20M | 256 |
+| `stage29_raid_gauntlet` | 40M | 20M | 256 | `stage30_raid10` | 40M | 10M | 128 |
+| `stage31_raid25` | 40M | 10M | 64 | `stage32_raid40` | 40M | 10M | 32 |
 
 **What the budgets assume.** 128 envs (`AnimusForge.Envs`; this machine's `forge bench` result, where the shipped
 default is 64 -- every number in this chapter is at 128). Stages 1-7 (the movement root) are trained once, for
-every class; stages 8-19 are trained per class, each class with all 128 envs; stages 23-27 (the dungeon, the
-objective stages and the crossroads) once, after the join; the five raid stages by name. So the queue's ceiling is
-1,092M (1,292M with the raids), and a ten-class build's is 152M for the root, 670M per class (6,700M for ten) and
-270M for the dungeon and the objective stages: about 7,122M, against the 15,780M the earlier per-class plan came
+every class; stages 8-19 are trained per class, each class with all 128 envs; stages 20-27 (the life stages, the
+dungeon, the objective stages and the crossroads) once, after the join; the five raid stages by name. So the queue's
+ceiling is 1,202M (1,402M with the raids), and a ten-class build's is 152M for the root, 670M per class (6,700M for
+ten) and 380M for the life stages, the dungeon and the objective stages: about 7,232M, against the 15,780M the
+earlier per-class plan came
 to. Two assumptions carry that number. The objective stages "once after the join" assume the **take-one-trunk**
 join below (seed from one class's trunk and let the adapters adapt), the only one of the three options that costs
 no training. And every class has a `configs/<class>/stage8_duel.yaml` naming the shared flight checkpoint
@@ -260,10 +264,10 @@ The ceilings from the budget table above:
 | Shared movement root, stages 1-7, all ten classes | 152M |
 | One class, stages 8-19 | 670M |
 | Ten classes | **6,700M** |
-| The join, the dungeon and the objective stages, 23-27, once | 270M |
-| **Total** | **7,122M** |
+| The join, the life stages, the dungeon and the objective stages, 20-27, once | 380M |
+| **Total** | **7,232M** |
 
-Against 1,092M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+Against 1,202M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
 times the compute**, and that is the price of the thing it buys: a policy per class that has not had to share its
 trunk with nine others through the stages where classes have least in common.
 
@@ -1820,6 +1824,66 @@ happened. On the trunk: `stage19_triage` seeds from it.
 forced-healer stage will find any fault in the resurrection path faster than anything else in the curriculum --
 it found the farmable revive described in 4.6, where reviving a teammate paid more than keeping it alive. On
 the trunk: `stage28_raid_single` seeds from it.
+
+### Stage 20: `stage20_quest`
+
+Life outside the fight begins, and it is learned in the sim rather than scripted for the live module. One seat, a
+quest of its level band -- 15-20, 35-40 or 58-60; the rung is the band, drawn on the difficulty ladder like a pull
+rung, and the level a draw within it -- in the world's own zone. Nothing about the place is hand-made:
+`LifeWorld` indexes the continents' creature and gameobject spawns at startup, filters the quest templates down to
+kill and collect quests whose giver and turn-in are spawned within reach of each other and whose objectives (the
+quest POI table) lie within reach of the giver, and an episode copies the giver, the turn-in and the world's
+creatures around each objective's place into the env's phase (`QuestEncounter`). The side is drawn with the band
+and the race follows it (`EnvState::EpisodeTeam`), since a quest belongs to one; the built character is the final
+filter (`Player::CanTakeQuest`), and a quest it cannot take fails the build and is not drawn again that episode.
+
+The seat reads the world through the **world block** (`WorldBlock`): the nearest corpse it may loot, quest giver
+it has business with, gathering node and vendor (presence, distance, bearing in its own frame, what each is and
+whether it is in reach), the episode's quest state and progress, its bags, gold, durability, food and drink, and
+whether something in the bags rates higher than what it wears. Six actions: INTERACT is the right-click -- on a
+giver it takes or hands in the quest, on a node it gathers, on a corpse it loots (or skins a looted one) -- and the
+world decides what it means, so what the policy learns is to stand at the right thing at the right time; LOOT_ALL,
+EQUIP_UPGRADE, SELL_JUNK, REPAIR and BUY_SUPPLIES are the buttons a client has. The bodies are
+`Character/WorldActions` (the opcode handlers with the packets left out), shared with the live module, and what is
+a lookup stays scripted there: `GearScore` decides which quest reward and which bag item is the better one. The
+fighting is the endurance run's, unchanged: the pack block's slots are filled with whatever is in combat with the
+seat, then the nearest hostile of the objective. The travel block's objective is the quest's next place (the
+giver, the objective, the turn-in), which is also what the potential shaping is on.
+
+Rewards (`Life.*`): taking the quest, each objective count as it lands (times the band's tier scale), the turn-in
+(times the tier scale; it ends the episode), the clock without it (less what was done), death, a wasted press, the
+step cost, and progress toward the waypoint. The `life` baseline uses what is in reach, fights what fights back
+(the `fight` baseline's play), and walks to the next thing. What to read: `quest_turned_in`, `quest_progress`,
+`quest_kills`, `corpses_looted`, `wasted_presses`, `died`, per `quest_band`.
+
+### Stage 21: `stage21_gather`
+
+A field of the band's herb and ore nodes, with the zone's own creatures among them (`GatherEncounter`). The
+grounds are the densest 400-yard cells of node spawns per zone, measured from the world database (the Barrens,
+Westfall and Loch Modan at 15-20; Thousand Needles, Stranglethorn, Arathi and Feralas at 35-40; Un'Goro,
+Winterspring, the Plaguelands, Silithus and the Burning Steppes at 58-60); an episode summons the nodes within
+`Life.NodeRadius` of one into the phase, gives the seat herbalism, mining and skinning at the band's skill and the
+tools, and stands it on the ground under the field. A node is opened by the profession's own cast (the rank spell
+is the gathering spell) and emptied with LOOT_ALL; a killed creature that can be skinned is skinned with the same
+INTERACT once looted. Rewards: each node gathered (times the tier scale), each skill point, death, waste, progress
+toward the nearest node the seat can open. There is no winning a field: the clock ends it, and gathering every
+node early counts as a win. Read `nodes_gathered` against `nodes_spawned`, `skill_ups`, `skinned`, `died`.
+
+### Stage 22: `stage22_town`
+
+A town of the seat's side, its traders copied into the phase around the inn (`TownEncounter`; the Crossroads and
+Goldshire, Camp Taurajo, Menethil and neutral Ratchet, the capitals). The seat arrives with a purse for its level,
+junk in its bags, half its durability gone, one food and one drink, and two better items it has not put on: sell,
+repair, restock, dress, and it is won when all four are done before the two-minute clock. Rewards: the junk's
+vendor value realised pro rata, the repair, the restock, each upgrade worn, all four done. Nothing fights back
+here; what is learned is the vendor as a place to stand and the four presses. Read `town_won`, `sold_out`,
+`repaired`, `stocked`, `upgrades_equipped` against `upgrades_given`.
+
+**What the core needed for these: nothing.** The plan reserved a per-stage feature registry on the forge core
+(`Sim.Features`) for the life stages; none of it was needed. Every API they use is public -- `Map::SummonCreature`
+and `SummonGameObject` with the env's phase, `Player::SendLoot` and `StoreLootItem`, `AddQuest` and `RewardQuest`,
+the profession casts -- and the state they make lives on the bot in memory, as everything a sim bot does already
+does (no save runs after creation). The registry stays deferred until a stage needs a system the forge dropped.
 
 ### Stage 23: `stage23_dungeon`
 

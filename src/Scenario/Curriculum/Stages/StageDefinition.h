@@ -51,6 +51,9 @@ namespace Animus::Curriculum
         Flag,           // Warsong Gulch's rules between the two mirror seats: take the other's flag home
         Hazards,        // nothing to fight: ground to get off (HazardEncounter)
         Instance,       // a real dungeon or raid boss in its own instance (InstanceEncounter, ArenaDefinition::Instance)
+        Quest,          // a quest of the level band, giver to turn-in, in the world's own zone (QuestEncounter)
+        Gather,         // a field of the band's herb and ore nodes, with the zone's creatures (GatherEncounter)
+        Town,           // a town's traders: sell, repair, restock, dress (TownEncounter)
     };
 
     /// Which real-instance ladder an arena climbs (InstanceBosses.cpp): five-man dungeons across the level bands, or
