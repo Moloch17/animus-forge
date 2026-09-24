@@ -96,15 +96,34 @@ the Animus addon instead (below), which does the same things with no security at
 
 ### The Animus addon
 
-`animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, or the minimap button) that
-summons and dismisses companions and lists them with their models. It whispers the player themselves with addon
-prefix `Animus` (`hello`, `list`, `summon <race> <class> <wants>`, `dismiss`); `AnimusPlayerScript`'s private-chat
-hook swallows those whispers and `Addon::Handle` answers them with addon whispers back (`HELLO`, `RACE`, `WANTS`,
-`PARTY`, `MEMBER`, `OK`, `ERR`), calling the same `AnimusMod::Summon`, `Dismiss` and `Companions` the commands do.
-A hello sends the catalog: the races of the player's faction and the classes each can be (player info, cheap), the
-words a summon's third argument takes, and the party. What a class can be asked for is not in it -- that needs the
-class's assets, built on first use -- so the summon's refusal carries the answer. The realm needs `AddonChannel = 1`
-(the default). `animus_addon/Animus/README.md` lists every message.
+`animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, its one command, or the minimap
+button) that summons and dismisses companions and lists them with their models; a "Dismiss companion" entry in a
+companion's unit menu; and an inspect window that edits one. The Talents tab learns a rank on left click and
+unlearns one on right click; a Pet tab, drawn by the addon (the client cannot read another player's pet), does
+the same for a hunter pet's tree; an item dragged from the owner's bags onto the character pane goes on the
+companion and what it wore comes back to the owner.
+
+It whispers the player themselves with addon prefix `Animus` (`hello`, `list`, `summon <race> <class> <wants>`,
+`dismiss [name]`, `talent <name> learn|unlearn <id>`, `pettalent ...`, `pet <name>`, `equip <name> <bag> <slot>
+<inv slot>`); `AnimusPlayerScript`'s private-chat hook swallows those whispers and `Addon::Handle` answers them
+with addon whispers back (`HELLO`, `RACE`, `WANTS`, `PARTY`, `MEMBER`, `PET`, `PETTALENT`, `OK`, `ERR`), calling
+`AnimusMod` and through it `CompanionParty`. A hello sends the catalog: the races of the player's faction and the
+classes each can be (player info, cheap), the words a summon's third argument takes, and the party. What a class
+can be asked for is not in it -- that needs the class's assets, built on first use -- so the summon's refusal
+carries the answer. The realm needs `AddonChannel = 1` (the default) and, for the inspect edits,
+`TalentsInspecting = 1`. `animus_addon/Animus/README.md` lists every message.
+
+**Edits** (`CompanionTalents`, `CompanionGear`). A talent rank is unlearned under the client's own rules (points
+in the rows above, prerequisites) as `resetTalents` removes a talent, one rank at a time, the point refunded and
+the rank below learned again as a command; a pet's through `Pet::unlearnSpell`, which refunds and relearns the
+rank below itself. Unlearning leaves the core's private count of spent points off, which only
+`InitTalentForLevel` reads, so an edited companion's level-up (`LevelUpEdited`) snapshots its talents and its
+pet's, resets, learns them again at the new level, and spends the new points along the standard build from where
+the old total left off; what the build cannot place stays for the owner. An item the owner gives goes off their
+inventory in the database at once (as mail does), since a companion never saves; what it wore goes into the
+owner's bags as a new item. The owner's items are taken off before `Configure` rebuilds the gear at a level-up and
+put back after, and returned to the owner's bags on dismiss -- not on the owner's logout, which has saved them
+already, so gear on a companion is lost then.
 
 ### Summoning
 
