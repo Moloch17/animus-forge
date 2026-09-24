@@ -85,13 +85,26 @@ which other classes the run trained (`AnimusForge.Classes`), only on its own sta
 
 ### Commands
 
-All `.animus` commands need game master security and don't work from the console.
+All `.animus` commands need game master security and don't work from the console. Players use the module through
+the Animus addon instead (below), which does the same things with no security at all.
 
 | Command | Effect |
 |---|---|
 | `.animus summon <race> <class> <wants>` | Build a companion of that race and class at your level, with a build that can do what `wants` asks (`human priest heal`, `orc warrior tank`). It joins your party |
 | `.animus list` | Your companions, their classes and levels, whether their models are loaded, and whether they are waiting for you to land |
 | `.animus dismiss` | Remove all your companions |
+
+### The Animus addon
+
+`animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, or the minimap button) that
+summons and dismisses companions and lists them with their models. It whispers the player themselves with addon
+prefix `Animus` (`hello`, `list`, `summon <race> <class> <wants>`, `dismiss`); `AnimusPlayerScript`'s private-chat
+hook swallows those whispers and `Addon::Handle` answers them with addon whispers back (`HELLO`, `RACE`, `WANTS`,
+`PARTY`, `MEMBER`, `OK`, `ERR`), calling the same `AnimusMod::Summon`, `Dismiss` and `Companions` the commands do.
+A hello sends the catalog: the races of the player's faction and the classes each can be (player info, cheap), the
+words a summon's third argument takes, and the party. What a class can be asked for is not in it -- that needs the
+class's assets, built on first use -- so the summon's refusal carries the answer. The realm needs `AddonChannel = 1`
+(the default). `animus_addon/Animus/README.md` lists every message.
 
 ### Summoning
 
