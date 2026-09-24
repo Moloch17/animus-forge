@@ -46,10 +46,6 @@ namespace Animus
     public:
         EnvPool(Scenario& scenario, StageSettings const& settings);
 
-        /// Build env `index` in an existing instance (map `mapId`, instance `instanceId`) rather than a new one. Before
-        /// Setup.
-        void PlaceEnv(uint32 index, uint32 mapId, uint32 instanceId);
-
         bool Setup();
         void Teardown();
 

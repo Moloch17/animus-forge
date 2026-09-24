@@ -44,9 +44,6 @@ namespace Animus::Curriculum::Encoding
     /// A position relative to `origin` (the spawn point) for the critic state: / 40 yd, clamped to [-2, 2].
     [[nodiscard]] float RelativePosition(float coordinate, float origin);
 
-    /// Features for a known/cooldown pair list: 1 and the cooldown fraction for each spell the bot knows.
-    void WriteKnownCooldowns(Player const* bot, std::vector<ActionCatalog::Action> const& actions, float* out);
-
     /// A share of an aura's duration or charges: an aura the bot keeps up on a friend with more left than this is not
     /// cast again (IsSpellActionAllowed).
     constexpr float REFRESH_BELOW_FRACTION = 0.25f;

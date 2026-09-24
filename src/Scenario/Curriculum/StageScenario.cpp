@@ -645,9 +645,6 @@ std::vector<Animus::Curriculum::Encounter*> const& Animus::Curriculum::StageScen
 
 uint32 Animus::Curriculum::StageScenario::DrawArena() const
 {
-    if (_forcedArena < _arenaWeights.size())
-        return _forcedArena;
-
     if (_arenaWeights.size() == 1)
         return 0;
 
@@ -1310,14 +1307,6 @@ std::string Animus::Curriculum::StageScenario::SpecName(uint16 layout, uint8 spe
 Animus::Curriculum::StageScenario::Casting Animus::Curriculum::StageScenario::DrawCasting(Env const& env,
     uint32 seat, AptitudeDemand demand) const
 {
-    // The stage viewer's choice for the first seat (ForceLayout).
-    if (seat == 0 && _forcedLayout < _layouts.size())
-    {
-        Layout const& forced = _layouts[_forcedLayout];
-        std::vector<uint8> const meeting = ClassAssets::For(*forced.Profile).SpecsMeeting(demand);
-        return { &forced, meeting.empty() ? uint8(0) : meeting.front() };
-    }
-
     std::vector<Casting> const castings = Castings(demand);
 
     // An evaluation spreads its seeds over the (class, build) pairs instead of drawing them: seed i plays pair
@@ -1585,19 +1574,11 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             minLevel = std::max(minLevel, data.Seats[seat].L->Assets->Kit->MinLevel());
 
     minLevel = std::max(minLevel, _stage.MinLevel);
-    uint8 const level = RandomLevel(minLevel, _forcedLevel ? _forcedLevel : _level, _tuning.Characters,
+    uint8 const level = RandomLevel(minLevel, _level, _tuning.Characters,
         env.EpisodeSeedIndex, uint32(_layouts.size()));
 
-    // The first build opens a new instance, unless the host placed the env in one (Env::MapId/InstanceId).
-    Map* map = !firstBuild || env.InstanceId ? env.FindMap() : nullptr;
-    if (firstBuild && env.InstanceId && !map)
-    {
-        LOG_ERROR("module.animus", "{}: env {} was placed in map {} instance {}, which is gone", Name(), env.Index,
-            env.MapId, env.InstanceId);
-        for (uint32 seat = 0; seat < _seatCount; ++seat)
-            data.Seats[seat].Bot.Abort();
-        return false;
-    }
+    // The first build opens a new instance (or a phase of the continent); every later one reuses it.
+    Map* map = firstBuild ? nullptr : env.FindMap();
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a
     // bound player.

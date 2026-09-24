@@ -428,9 +428,8 @@ namespace Animus::Curriculum
     /// EnvState::Arena before the env's first episode.
     constexpr uint32 NO_ARENA = ~uint32(0);
 
-    /// StageScenario::ForceLayout and ForceTier when nothing is forced.
+    /// A layout index that names none: StageScenario::_directorLayout when no arena has a learned director.
     constexpr uint32 NO_LAYOUT = ~uint32(0);
-    constexpr uint32 NO_TIER = ~uint32(0);
 
     struct EnvState
     {

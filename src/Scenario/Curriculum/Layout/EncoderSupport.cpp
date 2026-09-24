@@ -142,18 +142,6 @@ namespace Animus::Curriculum::Encoding
         return float(aura->GetDuration()) > float(aura->GetMaxDuration()) * REFRESH_BELOW_FRACTION;
     }
 
-    void WriteKnownCooldowns(Player const* bot, std::vector<ActionCatalog::Action> const& actions, float* out)
-    {
-        for (std::size_t i = 0; i < actions.size(); ++i)
-        {
-            if (SpellInfo const* info = ActionCatalog::KnownRank(bot, actions[i].FirstRank))
-            {
-                out[i * 2] = 1.0f;
-                out[i * 2 + 1] = CooldownFraction(bot, info);
-            }
-        }
-    }
-
     bool CastInProgress(Player const* bot)
     {
         return bot->IsNonMeleeSpellCast(false, true, true);

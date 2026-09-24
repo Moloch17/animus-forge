@@ -377,11 +377,6 @@ Creature* Animus::Curriculum::Opponents::SummonOpponent(Player* bot, Map* map, u
     return opponent;
 }
 
-Creature* Animus::Curriculum::Opponents::SpawnOpponent(Player* bot, Map* map, uint32 entry)
-{
-    return SummonOpponent(bot, map, entry, FindSpawnPoint(bot, map), bot->GetLevel());
-}
-
 std::vector<Creature*> Animus::Curriculum::Opponents::SpawnPack(Player* bot, Map* map,
     std::vector<uint32> const& entries, uint8 level)
 {

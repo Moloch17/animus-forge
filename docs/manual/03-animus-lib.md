@@ -261,11 +261,8 @@ Placement:
   a continent stage in its own phase.
 - `PlaceInMap(bot, map, pos)`: reset the map `Player::Create` chose (the race's start zone), relocate, set the map and
   fall information, register with `ObjectAccessor`, `AddPlayerToMap`.
-- `PlaceNear(bot, owner)`, `TeleportNear(bot, owner)`: beside a player in the open world, for companions. The teleport
-  is completed by calling the session's own `HandleMoveTeleportAck` or `HandleMoveWorldportAck`, as the absent client
-  would.
-- `TeleportWithinMap(bot, pos)`: anywhere on the bot's own map, an instance included (the flag match's bases), with
-  the same acknowledgement.
+- `TeleportWithinMap(bot, pos)`: anywhere on the bot's own map, an instance included (the flag match's bases). The
+  teleport is completed by calling the session's own `HandleMoveTeleportAck`, as the absent client would.
 
 `Destroy(bot, keepSession)` resurrects a dead bot (otherwise logout would repop it at a graveyard, which is a far
 teleport), removes its pet without saving (`PET_SAVE_AS_DELETED`) along with totems and guardians, deletes the cache
@@ -481,8 +478,7 @@ changed. The learner reads `stage.json` for:
 2. If you run on the forge core, install `CoreHooks` at load. Otherwise don't.
 3. Build `StageSettings` from your own config. Choose a `TuningPrefix` and a `FirstEnvId` range that doesn't overlap
    another host's.
-4. `CreateScenario`, construct an `EnvPool`, optionally `PlaceEnv(index, mapId, instanceId)` to build an env in an
-   existing instance, then `Setup`, `ResetAll` and `PoolRegistry::Register`.
+4. `CreateScenario`, construct an `EnvPool`, then `Setup`, `ResetAll` and `PoolRegistry::Register`.
 5. From a `WorldScript::OnUpdate` (world thread, outside map updates): `AdvanceClock` every tick, because game time
    accrues whether or not anyone decided. Every `DecisionMs` of accumulated time, `Collect`, fill `Actions`,
    `ApplyActions`. The two clocks are separate on purpose: a host ticking faster than it decides gets smoother

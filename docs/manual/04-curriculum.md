@@ -433,7 +433,7 @@ stages may share a base.
 `Setup` builds each env's first episode and marks the env `Fresh`, so the pool's first `Reset` is skipped. After that,
 every `Reset` calls `Rebuild`:
 
-1. **Draw the arena** by weight: forced by `ForceArena`, no draw for a single arena, otherwise `urand` over the
+1. **Draw the arena** by weight: no draw for a single arena, otherwise `urand` over the
    weights. It is drawn first, so a seeded evaluation episode draws the same arena. The env's episode length is set
    from the arena.
 2. **Clear totals.** Every seat's `ResetEpisode` and every encounter's `ResetEpisode`, including encounters this arena

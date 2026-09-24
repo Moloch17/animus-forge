@@ -71,12 +71,6 @@ Animus::EnvPool::EnvPool(Scenario& scenario, StageSettings const& settings)
     _reportInfoSum.assign(_spec.EpisodeInfoDim, 0.0);
 }
 
-void Animus::EnvPool::PlaceEnv(uint32 index, uint32 mapId, uint32 instanceId)
-{
-    _envs[index].MapId = mapId;
-    _envs[index].InstanceId = instanceId;
-}
-
 bool Animus::EnvPool::Setup()
 {
     for (Env& env : _envs)

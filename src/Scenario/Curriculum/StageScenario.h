@@ -207,19 +207,6 @@ namespace Animus::Curriculum
         /// The difficulty ladder divides by the same number, so every pair meets every rung.
         [[nodiscard]] uint32 CastingCount() const { return uint32(Castings(AptitudeDemand::Anything()).size()); }
 
-        /// Play only arena `arena` (an index into the stage's arenas) from the next reset on; NO_ARENA draws by weight
-        /// again. The stage viewer uses it to show one situation of a mixed stage.
-        void ForceArena(uint32 arena) { _forcedArena = arena; }
-
-        /// The stage viewer's other choices, also from the next reset on: seat 1 plays layout `layout` (a
-        /// Layout::Index; NO_LAYOUT draws it as usual), every character is level `level` (raised to what its class
-        /// can be; 0 = StageSettings::Level), and a creature is fought at difficulty tier `tier` (NO_TIER = the
-        /// class/role's own training tier). Training sets none of them.
-        void ForceLayout(uint32 layout) { _forcedLayout = layout; }
-        void ForceLevel(uint32 level) { _forcedLevel = level; }
-        void ForceTier(uint32 tier) { _forcedTier = tier; }
-        [[nodiscard]] uint32 ForcedTier() const { return _forcedTier; }
-
         [[nodiscard]] EnvState& Data(Env const& env);
         [[nodiscard]] EnvState const& Data(Env const& env) const;
 
@@ -365,10 +352,6 @@ namespace Animus::Curriculum
         std::vector<uint32> _arenaWeights;
         std::vector<uint32> _arenaEpisodeMs;
         std::vector<int32> _arenaMaxRung;       // -1: the ladder's own cap (Pulls.MaxTier)
-        uint32 _forcedArena = NO_ARENA;
-        uint32 _forcedLayout = NO_LAYOUT;
-        uint32 _forcedLevel = 0;
-        uint32 _forcedTier = NO_TIER;
         OwnerEncounter* _owner = nullptr;
         PartyEncounter* _party = nullptr;
     };

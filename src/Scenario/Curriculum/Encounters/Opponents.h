@@ -101,10 +101,6 @@ namespace Animus::Curriculum::Opponents
     /// it cannot reach. Returns nullptr on failure.
     Creature* SummonOpponent(Player* bot, Map* map, uint32 entry, Position const& pos, uint8 level);
 
-    /// Summon `entry` at the bot's level at a random bearing and distance from the bot, facing a random
-    /// direction, hostile to players and aggressive. Returns nullptr on failure.
-    Creature* SpawnOpponent(Player* bot, Map* map, uint32 entry);
-
     /// Summon a pack of `entries` at `level`, clustered around one spawn point, each facing its own way.
     std::vector<Creature*> SpawnPack(Player* bot, Map* map, std::vector<uint32> const& entries, uint8 level);
 }

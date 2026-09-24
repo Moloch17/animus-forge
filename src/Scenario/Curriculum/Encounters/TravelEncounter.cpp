@@ -57,9 +57,6 @@ namespace
     /// is 23 seconds against a 120 second clock, a share of 0.19. What it cuts is the tail -- a long trip behind
     /// a 1.8x detour for a character with no speed to spare.
     constexpr float FEASIBLE_SHARE = 0.45f;
-    // Running is 7 yd/s and swimming about 4.7, so the way round has to be this much longer than the way through
-    // before swimming it actually saves time. Reported, never required: the arena wants trips on both sides of it.
-    constexpr float SWIM_PAYS_ABOVE = 7.0f / 4.7f;
     constexpr uint32 WATER_SAMPLES = 12;            // points along the straight line, looking for water
     /// Ledge trips: the straight line is walked a yard at a time to find the edge, and a seat that has dropped
     /// off one is this many yards above or below the corner it was walking towards, which the way's own
@@ -478,7 +475,8 @@ bool Animus::Curriculum::TravelEncounter::FindPlace(Player* bot, Map* map, float
                 dryWalk = dry.getPathLength();
 
                 // Measured at the Dustwallow banks: a dry way round of 145 yards against a 75 yard swim
-                // (1.94x, well past SWIM_PAYS_ABOVE) next to candidates at 1.02x where walking plainly wins.
+                // (1.94x: running 7 yd/s against swimming 4.7, the swim pays above 1.49x) next to candidates at
+                // 1.02x where walking plainly wins.
                 // The floor keeps trips of both kinds, which is what makes the crossing a decision.
                 if (dryWalk < distance * MIN_DETOUR_ACROSS)
                     continue;                      // the way round is barely longer: nothing to decide

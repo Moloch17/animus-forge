@@ -33,9 +33,7 @@ Animus::Curriculum::DifficultyLadder::Pick Animus::Curriculum::DifficultyLadder:
     uint8 spec, uint32 maxTier) const
 {
     Pick pick;
-    if (_scenario.ForcedTier() != NO_TIER)
-        pick.Tier = std::min(_scenario.ForcedTier(), maxTier);
-    else if (env.EpisodeSeedIndex != NO_EPISODE_SEED)
+    if (env.EpisodeSeedIndex != NO_EPISODE_SEED)
     {
         // Seed i plays (class, build) pair i mod pairs (StageScenario::DrawCasting), and rung (i / pairs) mod
         // rungs, so every pair meets every rung. It has to be the pair count and not the layout count: dividing by
