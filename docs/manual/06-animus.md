@@ -122,10 +122,10 @@ achievement.
 
 ### The Animus addon
 
-`animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, its one command, or the minimap
-button) that creates the companion (name, race, class; the button goes once there is one), summons and dismisses
-it, renames it or gives it a new race and class (behind a confirmation, since that resets it); a "Dismiss
-companion" entry in its unit menu; and an inspect window that edits it. The Talents tab learns a rank on left
+`interface_addon/animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, its one command,
+or the minimap button) that creates the companion (name, race, class; the button goes once there is one), summons
+and dismisses it, renames it or gives it a new race and class (behind a confirmation, since that resets it); a
+"Dismiss companion" entry in its unit menu; and an inspect window that edits it. The Talents tab learns a rank on left
 click and unlearns one on right click; a Pet tab, drawn by the addon (the client cannot read another player's
 pet), does the same for a hunter pet's tree; an item dragged from the owner's bags onto the character pane goes
 on the companion and what it wore comes back to the owner.
@@ -137,8 +137,8 @@ those whispers and `Addon::Handle` answers them with addon whispers back (`HELLO
 `PETTALENT`, `OK`, `ERR`), calling `AnimusMod`. A summon's answer comes in two parts: `OK` now, and `OK` with the
 `COMPANION` line again (`Addon::Push`) when the character has loaded. A hello sends the races of the player's
 faction and the classes each can be (player info, cheap) and the companion. The realm needs `AddonChannel = 1`
-(the default) and, for the inspect edits, `TalentsInspecting = 1`. `animus_addon/Animus/README.md` lists every
-message.
+(the default) and, for the inspect edits, `TalentsInspecting = 1`. `interface_addon/animus_addon/Animus/README.md`
+lists every message.
 
 **Edits** (`CompanionTalents`, `CompanionGear`). A talent rank is unlearned under the client's own rules (points
 in the rows above, prerequisites) as `resetTalents` removes a talent, one rank at a time, the point refunded and
