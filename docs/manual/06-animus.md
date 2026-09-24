@@ -3,7 +3,8 @@
 Animus (`mod-animus`, repository `Moloch17/animus`) brings the forge's trained models to an ordinary AzerothCore realm
 with real clients. It offers two features:
 
-- **Class/role companions.** A player summons up to four characters of any class and role at their level. The
+- **Class companions.** A player summons up to four characters of any class at their level, asking what each one
+  should be able to do. The
   companions join the player's party and play their class models in combat.
 - **The stage viewer.** A game master runs any curriculum stage exactly as the forge trains it, in their own instance,
   and watches the seats play their models, a scripted baseline, or random actions.
@@ -63,7 +64,7 @@ placed by hand), then the image's reference config directory (`env/ref/etc/modul
   `<install prefix>/data`, configure with `-DANIMUS_MODELS_INSTALL_DIR=<DataDir>/animus`, or give `Animus.ModelDir` an
   absolute path.
 
-For each layout it needs, the module looks for `<ModelDir>/<class>_<role><stage suffix>.amdl` and the `.json` manifest
+For each layout it needs, the module looks for `<ModelDir>/<class><stage suffix>.amdl` and the `.json` manifest
 beside it. `ModelLibrary` accepts a model only if the manifest file is exactly the manifest this server builds for that
 layout (same stage, class, sizes, block offsets, actions, talents), and the `.amdl` header matches the layout's
 dimensions. Failures are logged once and cached. Models load on first use, and again after `.reload config`, which
@@ -80,7 +81,7 @@ Where the models come from: `forge export <stage>` in the forge writes both file
 catalogs match the one the model trained with, or the manifests won't match. A layout's manifest doesn't depend on
 which other classes the run trained (`AnimusForge.Classes`), only on its own stage, class and blocks.
 
-## 6.5 Class/role companions
+## 6.5 Class companions
 
 ### Commands
 
@@ -88,7 +89,7 @@ All `.animus` commands need game master security and don't work from the console
 
 | Command | Effect |
 |---|---|
-| `.animus summon <race> <class> <role>` | Build a companion of that race, class and role at your level (`human priest heal`, `orc warrior tank`). It joins your party |
+| `.animus summon <race> <class> <wants>` | Build a companion of that race and class at your level, with a build that can do what `wants` asks (`human priest heal`, `orc warrior tank`). It joins your party |
 | `.animus list` | Your companions, their classes and levels, whether their models are loaded, and whether they are waiting for you to land |
 | `.animus dismiss` | Remove all your companions |
 
@@ -98,14 +99,18 @@ All `.animus` commands need game master security and don't work from the console
 |---|---|
 | `race` | `human`, `dwarf`, `nightelf`, `gnome`, `draenei`, `orc`, `undead` (or `forsaken`), `tauren`, `troll`, `bloodelf` |
 | `class` | `warrior`, `paladin`, `hunter`, `rogue`, `priest`, `deathknight` (or `dk`), `shaman`, `mage`, `warlock`, `druid` |
-| `role` | `dps` (or `damage`), `tank`, `heal` (or `healer`) |
+| `wants` | `tank` (a build that can hold a pull), `heal` (or `healer`: one that can keep somebody up), `dps` (or `damage`, `dd`, `any`: no demand at all) |
+
+`wants` is not a role -- the curriculum has none. It is an `AptitudeDemand`, and the spec is drawn from the builds
+of that class that meet it, measured off the build rather than written down beside it (3.x, `Aptitude`). `dps` asks
+for nothing because damage is what a build does when nothing else is asked of it, and no single feature means it.
 
 Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The classes are the forge's 18 (4.3).
 `AnimusMod::Summon` and `CompanionParty::Add` refuse when:
 
 - the module is disabled,
-- a name isn't a race, class or role (the reply lists the valid ones),
-- the class doesn't have the role (`mage tank`), or the race can't be the class (`orc paladin`),
+- a name isn't a race, class or something to ask for (the reply lists the valid ones),
+- no build of that class can do what was asked (`mage tank`), or the race can't be the class (`orc paladin`),
 - the race belongs to the other faction,
 - you are on a flight path or a vehicle (`BotFactory::IsAway`),
 - you are in a battleground or arena, which only takes queued players, or between maps (`BotFactory::CanJoin`),
@@ -318,7 +323,7 @@ happens, which is roughly human reaction time and reads as natural rather than s
 `DecisionMs` must match what the models were trained with (`AnimusForge.DecisionMs`), so making companions
 twitchier means retraining, not reconfiguring.
 
-**Memory** is one loaded model per class/role rather than per companion -- about 2.4 MB each, so under 45 MB with
+**Memory** is one loaded model per class rather than per companion -- about 2.4 MB each, so under 45 MB with
 all eighteen resident -- plus each companion's `MlpPolicy::State`, which is the GRU vector and a couple of
 integers.
 
