@@ -1279,7 +1279,9 @@ Player* Animus::Curriculum::StageScenario::BuildOwnerSeat(Env& env, Map*& map, u
 {
     uint32 const agent = OwnerAgent();
     SeatState& seat = Data(env).Seats[agent];
-    Casting const casting = DrawCasting(env, agent, demand);
+    // Drawn evenly, not by the training weights: a class the learner has held back from the draw because it has
+    // converged is as good an owner as any, and the checkpoint in the seat learns nothing either way.
+    Casting const casting = DrawCasting(env, agent, demand, false);
     if (!casting.L)
         return nullptr;
 
@@ -1299,6 +1301,14 @@ Player* Animus::Curriculum::StageScenario::BuildOwnerSeat(Env& env, Map*& map, u
     seat.Bot.Promote();
     if (agent < env.Bots.size())
         env.Bots[agent] = bot->GetGUID();
+
+    // What the seats get from StockSeats and GivePets, which stop at ActiveSeats: the checkpoint in this seat was
+    // trained with potions, food and a pet to hand, and without them plays with those actions masked.
+    seat.Supplies = ConsumablePool::Instance().Supplies(seat.Level, bot->GetMaxPower(POWER_MANA) > 0,
+        seat.L->Profile->Class == CLASS_WARLOCK, false);
+    StockBattleSupplies(bot, seat.Supplies, seat.L->Profile->Specs[seat.Spec].Stats);
+    seat.PetAtStart = PetBlock::HasPet(seat.L->Profile->Class) && roll_chance_i(_tuning.Characters.PetOutChance)
+        && SeatCharacter::GivePet(bot, seat.Stable);
     return bot;
 }
 
@@ -1355,7 +1365,7 @@ std::string Animus::Curriculum::StageScenario::SpecName(uint16 layout, uint8 spe
 }
 
 Animus::Curriculum::StageScenario::Casting Animus::Curriculum::StageScenario::DrawCasting(Env const& env,
-    uint32 seat, AptitudeDemand demand) const
+    uint32 seat, AptitudeDemand demand, bool weighted) const
 {
     std::vector<Casting> const castings = Castings(demand);
 
@@ -1368,8 +1378,9 @@ Animus::Curriculum::StageScenario::Casting Animus::Curriculum::StageScenario::Dr
     // Training: the learner's weights (the forge's WEIGHTS message), so the pairs furthest below their baseline
     // get more of the data. Without them, or when none of the pairs carries one, draw evenly.
     float total = 0.0f;
-    for (Casting const& casting : castings)
-        total += Weight(*casting.L, casting.Spec);
+    if (weighted)
+        for (Casting const& casting : castings)
+            total += Weight(*casting.L, casting.Spec);
 
     if (total <= 0.0f)
         return castings[urand(0, uint32(castings.size()) - 1)];

@@ -275,8 +275,9 @@ namespace Animus::Curriculum
         /// The class and build `seat` plays this episode. An evaluation episode takes both from its seed index, so
         /// the seeds spread evenly over the (class, spec) pairs -- one model per class, but a paladin's healing
         /// build is still scored on its own share of the seeds. A training episode draws one, weighted by
-        /// SetLayoutWeights.
-        [[nodiscard]] Casting DrawCasting(Env const& env, uint32 seat, AptitudeDemand demand) const;
+        /// SetLayoutWeights unless `weighted` is off (a cast owner, which learns nothing from the draw).
+        [[nodiscard]] Casting DrawCasting(Env const& env, uint32 seat, AptitudeDemand demand,
+            bool weighted = true) const;
 
         /// How often a training episode draws this class with this build, relative to the others; 1 without weights.
         [[nodiscard]] float Weight(Layout const& layout, uint8 spec) const;

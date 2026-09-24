@@ -136,9 +136,15 @@ bool Animus::Curriculum::OwnerEncounter::Build(Env& env, Map* map, uint8 level)
 
     // A cast-owner arena plays the owner through its own row, except in an evaluation (the yardstick keeps the
     // owner it always had) and in the share of training episodes that keep the script's wandering owner.
+    // Nothing between episodes tears the owner down (a slot's Begin/Promote only replaces its own character), so an
+    // env changing mode has to send last episode's owner away itself, or it stays in the instance driven by nobody.
+    bool const cast = _scenario.Arena(env).OwnerCast && !env.Evaluating && !roll_chance_i(tuning.CastScriptedShare);
+    if (owner.Cast && !cast)
+        _scenario.ReleaseOwnerSeat(env);
+    else if (!owner.Cast && cast)
+        owner.Bot.Destroy();
     owner.Cast = false;
-    owner.ScriptedThisEpisode = false;
-    if (_scenario.Arena(env).OwnerCast && !env.Evaluating && !roll_chance_i(tuning.CastScriptedShare))
+    if (cast)
         return BuildCast(env, map, level);
 
     uint8 const ownerLevel = uint8(std::clamp<int32>(int32(level) + irand(-tuning.LevelSpread, tuning.LevelSpread), 1,
@@ -427,7 +433,6 @@ void Animus::Curriculum::OwnerEncounter::Deactivate(Env& env)
     _envs[env.Index].Class = 0;
     _envs[env.Index].Apt = Aptitude();
     _envs[env.Index].Cast = false;
-    _envs[env.Index].ScriptedThisEpisode = false;
 }
 
 void Animus::Curriculum::OwnerEncounter::Teardown(Env& env)

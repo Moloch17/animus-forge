@@ -325,10 +325,7 @@ namespace Animus::Curriculum
 
         [[nodiscard]] Player* Find(Env const& env) const;
         /// Whether this episode's owner is played through its row rather than by the script.
-        [[nodiscard]] bool IsCast(Env const& env) const
-        {
-            return _envs[env.Index].Cast && !_envs[env.Index].ScriptedThisEpisode;
-        }
+        [[nodiscard]] bool IsCast(Env const& env) const { return _envs[env.Index].Cast; }
 
         [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
         void AddEpisodeInfo(EpisodeInfoTable& table) override;
@@ -359,7 +356,6 @@ namespace Animus::Curriculum
         {
             BotSlot Bot;                        // the scripted owner's character (a cast owner's is its seat's)
             bool Cast = false;                  // this episode's owner is a seat in the scenario's owner slot
-            bool ScriptedThisEpisode = false;   // ... but still driven by the script (Owner.CastScriptedShare)
             uint8 Class = 0;
             Aptitude Apt;
             ScriptedPlayer::State Script;
