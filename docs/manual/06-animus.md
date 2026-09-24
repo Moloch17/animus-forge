@@ -90,28 +90,55 @@ the Animus addon instead (below), which does the same things with no security at
 
 | Command | Effect |
 |---|---|
-| `.animus summon <race> <class> <wants>` | Build a companion of that race and class at your level, with a build that can do what `wants` asks (`human priest heal`, `orc warrior tank`). It joins your party |
-| `.animus list` | Your companions, their classes and levels, whether their models are loaded, and whether they are waiting for you to land |
-| `.animus dismiss` | Remove all your companions |
+| `.animus create <name> <race> <class>` | Your one companion character, of that name, race and class, at your level. It joins your party |
+| `.animus summon` | It comes back from the database to you |
+| `.animus dismiss` | Saved and sent away |
+| `.animus rename <name>` | A new name for the character, nothing else changed |
+| `.animus reroll <race> <class>` | The character is deleted and a new one of the same name created |
+| `.animus list` | Your companion, its class, level and spec, whether its model is loaded, whether it is with you |
+
+### One companion per character
+
+A player character owns at most one companion, and it is a character of its own (`CompanionRegistry`,
+`animus_companion` in the characters database): `characters` row, inventory, talents, everything, on an account
+made for the owner on their first create (`ANIMUS<owner guid>`, random password, inserted directly since
+`AccountMgr::CreateAccount` is asynchronous). Create builds it as a seat is built (`BotFactory::Create`, `Configure`
+with a spec drawn with no demand) and saves it at once (`SaveToDB(create)`, committed on the world thread);
+dismiss, the owner's logout and shutdown save it the same way (`CompanionParty::Save`, with the registry's
+record: spec, edited, the owner's gear slots), and the core's autosave runs in between. Summon loads it as a
+login does: `CompanionLoader` fills a copy of the core's `LoginQueryHolder` (35 queries; the class is local to
+`CharacterHandler.cpp`), `DelayQueryHolder` runs it on the database thread, and `AnimusMod::OnUpdate` finishes
+the ones that arrived -- a socketless session, `Player::LoadFromDB`, the social list -- and `CompanionParty::Attach`
+places it beside the owner (`PlaceNear`), leaves a stale group, joins the owner's, reads its build off it
+(`RefreshBuild`) and restocks it. Rename writes `characters.name` and the character cache (a summoned companion is
+dismissed and summoned again, so the owner's client sees the new name); reroll deletes the character
+(`Player::DeleteFromDB`, finally) and creates one of the same name. Deleting the owner's character deletes the
+companion's and its account (`OnPlayerDelete`).
+
+No mail and no achievements: `CompanionRegistry::Purge` deletes both (and mailed items) before every load and
+after every save; `OnPlayerCanSendMail` refuses a companion as receiver, `OnPlayerCanGiveMailRewardAtGiveLevel`
+refuses it a level reward, `CanCheckCriteria` and `OnPlayerBeforeAchievementComplete` refuse it every
+achievement.
 
 ### The Animus addon
 
 `animus_addon/Animus` in the module is a 3.3.5a client addon: a window (`/animus`, its one command, or the minimap
-button) that summons and dismisses companions and lists them with their models; a "Dismiss companion" entry in a
-companion's unit menu; and an inspect window that edits one. The Talents tab learns a rank on left click and
-unlearns one on right click; a Pet tab, drawn by the addon (the client cannot read another player's pet), does
-the same for a hunter pet's tree; an item dragged from the owner's bags onto the character pane goes on the
-companion and what it wore comes back to the owner.
+button) that creates the companion (name, race, class; the button goes once there is one), summons and dismisses
+it, renames it or gives it a new race and class (behind a confirmation, since that resets it); a "Dismiss
+companion" entry in its unit menu; and an inspect window that edits it. The Talents tab learns a rank on left
+click and unlearns one on right click; a Pet tab, drawn by the addon (the client cannot read another player's
+pet), does the same for a hunter pet's tree; an item dragged from the owner's bags onto the character pane goes
+on the companion and what it wore comes back to the owner.
 
-It whispers the player themselves with addon prefix `Animus` (`hello`, `list`, `summon <race> <class> <wants>`,
-`dismiss [name]`, `talent <name> learn|unlearn <id>`, `pettalent ...`, `pet <name>`, `equip <name> <bag> <slot>
-<inv slot>`); `AnimusPlayerScript`'s private-chat hook swallows those whispers and `Addon::Handle` answers them
-with addon whispers back (`HELLO`, `RACE`, `WANTS`, `PARTY`, `MEMBER`, `PET`, `PETTALENT`, `OK`, `ERR`), calling
-`AnimusMod` and through it `CompanionParty`. A hello sends the catalog: the races of the player's faction and the
-classes each can be (player info, cheap), the words a summon's third argument takes, and the party. What a class
-can be asked for is not in it -- that needs the class's assets, built on first use -- so the summon's refusal
-carries the answer. The realm needs `AddonChannel = 1` (the default) and, for the inspect edits,
-`TalentsInspecting = 1`. `animus_addon/Animus/README.md` lists every message.
+It whispers the player themselves with addon prefix `Animus` (`hello`, `list`, `create <name> <race> <class>`,
+`summon`, `dismiss`, `rename <name>`, `reroll <race> <class>`, `talent <name> learn|unlearn <id>`, `pettalent
+...`, `pet <name>`, `equip <name> <bag> <slot> <inv slot>`); `AnimusPlayerScript`'s private-chat hook swallows
+those whispers and `Addon::Handle` answers them with addon whispers back (`HELLO`, `RACE`, `COMPANION`, `PET`,
+`PETTALENT`, `OK`, `ERR`), calling `AnimusMod`. A summon's answer comes in two parts: `OK` now, and `OK` with the
+`COMPANION` line again (`Addon::Push`) when the character has loaded. A hello sends the races of the player's
+faction and the classes each can be (player info, cheap) and the companion. The realm needs `AddonChannel = 1`
+(the default) and, for the inspect edits, `TalentsInspecting = 1`. `animus_addon/Animus/README.md` lists every
+message.
 
 **Edits** (`CompanionTalents`, `CompanionGear`). A talent rank is unlearned under the client's own rules (points
 in the rows above, prerequisites) as `resetTalents` removes a talent, one rank at a time, the point refunded and
@@ -119,51 +146,10 @@ the rank below learned again as a command; a pet's through `Pet::unlearnSpell`, 
 rank below itself. Unlearning leaves the core's private count of spent points off, which only
 `InitTalentForLevel` reads, so an edited companion's level-up (`LevelUpEdited`) snapshots its talents and its
 pet's, resets, learns them again at the new level, and spends the new points along the standard build from where
-the old total left off; what the build cannot place stays for the owner. An item the owner gives goes off their
-inventory in the database at once (as mail does), since a companion never saves; what it wore goes into the
-owner's bags as a new item. The owner's items are taken off before `Configure` rebuilds the gear at a level-up and
-put back after, and returned to the owner's bags on dismiss -- not on the owner's logout, which has saved them
-already, so gear on a companion is lost then.
-
-### Summoning
-
-| Argument | Accepted |
-|---|---|
-| `race` | `human`, `dwarf`, `nightelf`, `gnome`, `draenei`, `orc`, `undead` (or `forsaken`), `tauren`, `troll`, `bloodelf` |
-| `class` | `warrior`, `paladin`, `hunter`, `rogue`, `priest`, `deathknight` (or `dk`), `shaman`, `mage`, `warlock`, `druid` |
-| `wants` | `tank` (a build that can hold a pull), `heal` (or `healer`: one that can keep somebody up), `dps` (or `damage`, `dd`, `any`: no demand at all) |
-
-`wants` is not a role -- the curriculum has none. It is an `AptitudeDemand`, and the spec is drawn from the builds
-of that class that meet it, measured off the build rather than written down beside it (3.x, `Aptitude`). `dps` asks
-for nothing because damage is what a build does when nothing else is asked of it, and no single feature means it.
-
-Names ignore case, underscores and hyphens (`night_elf`, `NightElf`). The classes are the forge's 18 (4.3).
-`AnimusMod::Summon` and `CompanionParty::Add` refuse when:
-
-- the module is disabled,
-- a name isn't a race, class or something to ask for (the reply lists the valid ones),
-- no build of that class can do what was asked (`mage tank`), or the race can't be the class (`orc paladin`),
-- the race belongs to the other faction,
-- you are on a flight path or a vehicle (`BotFactory::IsAway`),
-- you are in a battleground or arena, which only takes queued players, or between maps (`BotFactory::CanJoin`),
-- you already have four companions,
-- you are in a group you don't lead, or the group is full.
-
-You can summon in the open world, in a dungeon or raid instance, and on a boat, zeppelin or elevator. Otherwise:
-
-1. **Layout.** `LayoutFor(profile)` builds and caches the class's layout at `Animus.Curriculum.Stage` (default
-   `stage5_duel`, the stage whose models the module ships). The first build of a class's assets takes a few
-   seconds and stalls the world thread.
-2. **Bot.** `BotFactory::Create` makes a bot named `Animus<n>` with account `0x7E000000 + n`, of the race you named
-   and a random gender, at your level or the class's first level if that is higher (a death knight is at least 55),
-   and places it beside you (`PlaceNear`).
-3. **Character.** Exactly as the forge builds a seat: `InitTalentForLevel` on your map, `SeatCharacter::Configure`
-   (a random spec of the role, its standard talent build and glyphs, trainer spells, gear with enchants and gems;
-   non-PvP) and `PrepareFighter` (no XP, a warrior's stance, a hunter's stable offer).
-4. **Group.** If you have no group, one is created with you as leader. The companion is added as a normal member.
-5. **Supplies.** `Restock`: potions, bandages, stones and flask, plus food and drink for layouts with the gauntlet
-   block, stocked after joining so a warlock in the group hands out healthstones.
-6. If its model isn't available, the reply says so. The companion then only follows you.
+the old total left off; what the build cannot place stays for the owner. An item the owner gives leaves their
+inventory in the database at once (as mail does) and the companion's save moves the row over; what it wore goes
+into the owner's bags the same way (a never-saved item as a new one). The owner's items are taken off before
+`Configure` rebuilds the gear at a level-up and put back after, and stay on the companion, saved with it.
 
 ### Where companions go with you
 
