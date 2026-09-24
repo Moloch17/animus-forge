@@ -233,8 +233,8 @@ namespace
     ///     Fall or Levitate it costs nothing;
     ///   - up to JUMP_RISE_MAX above the launch, which a step clears anyway; higher is a wall;
     ///   - on the navmesh, within a step of the ground found (a landing the mesh does not cover is a fall onto
-    ///     something the seat cannot walk on), water allowed only for a hop -- a deep fall into a lake is
-    ///     measured to the lakebed, as Player::HandleFall measures it;
+    ///     something the seat cannot walk on), water allowed only for a hop -- a fall into deep water ends at
+    ///     the surface and costs nothing (Encoding::FallToGround), so a lake is never a drop to learn from;
     ///   - clear of collision in two legs: across at the apex, for a wall in the way, and straight down over
     ///     the landing, for a lip that overhangs it. One diagonal ray would cut every cliff face and refuse
     ///     every drop.

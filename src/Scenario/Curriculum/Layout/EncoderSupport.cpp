@@ -63,6 +63,9 @@ namespace Animus::Curriculum::Encoding
     /// be before it is: the same two the travel block uses (MAX_GROUND_SEARCH, AIRBORNE_ABOVE).
     constexpr float FALL_GROUND_SEARCH = 200.0f;
     constexpr float FALL_ABOVE = 2.0f;
+    /// How far under the surface a seat is put back when it has come up out of the water: enough to be in it
+    /// (LIQUID_MAP_IN_WATER wants the feet below the level), not enough to put the head under.
+    constexpr float SURFACE_SINK = 0.5f;
 
     using SpellChecks::CheckCast;
     using SpellChecks::CooldownFraction;
@@ -807,7 +810,36 @@ namespace Animus::Curriculum::Encoding
 
         float const ground = bot->GetMapHeight(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), true,
             FALL_GROUND_SEARCH);
-        if (ground <= INVALID_HEIGHT || bot->GetPositionZ() - ground <= FALL_ABOVE)
+        if (ground <= INVALID_HEIGHT)
+            return false;
+
+        // Over water the surface is where a fall ends, not the bed under it: Map::GetHeight is blind to liquid, so
+        // a seat that has just broken the surface of a lake sixty yards deep read as sixty yards up in the air,
+        // and was handed a sixty-yard fall's damage -- every time it came up for air. That was the chain drill's
+        // "died without damage": a quarter of its seats, each one killed on the third or fourth breath. Within a
+        // step of the surface the seat is swimming, not hanging, and the game charges nothing for landing in deep
+        // water, so a real drop into it ends at the surface with the seat back in the water and nothing lost.
+        LiquidData const liquid = bot->GetMap()->GetLiquidData(bot->GetPhaseMask(), bot->GetPositionX(),
+            bot->GetPositionY(), ground, bot->GetCollisionHeight(), {});
+        bool const overWater = liquid.Status != LIQUID_MAP_NO_WATER && liquid.Level > ground
+            && (liquid.Flags & (MAP_LIQUID_TYPE_WATER | MAP_LIQUID_TYPE_OCEAN)) != 0;
+        if (overWater)
+        {
+            float const above = bot->GetPositionZ() - liquid.Level;
+            if (above <= 0.0f)
+                return false;
+            bot->GetMotionMaster()->Clear();
+            bot->DisableSpline();
+            bot->UpdatePosition(bot->GetPositionX(), bot->GetPositionY(), liquid.Level - SURFACE_SINK,
+                bot->GetOrientation());
+            if (above <= FALL_ABOVE)
+                return false;
+            if (yards)
+                *yards = above;
+            return true;
+        }
+
+        if (bot->GetPositionZ() - ground <= FALL_ABOVE)
             return false;
 
         // MoveFall remembers where the fall started (SetFallInformation); landing is Player::HandleFall, as for a
