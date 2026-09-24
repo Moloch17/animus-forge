@@ -8,8 +8,8 @@
 # (Pulls.GauntletSupplies). Rewards are win-first: a pull cleared pays about as much as alone, the seat's own death
 # costs 10 and every owner death 15 (Owner.Death), so guarding the owner comes before the seat's own health.
 
-extends: stage7_gauntlet.yaml
-run_name: stage14_companion
+extends: stage10_gauntlet.yaml
+run_name: stage16_companion
 total_env_steps: 90000000
 
 # A win is clean_kill: the 450 s lasted with the owner never dead, no wipe, Pulls.OwnerWinPulls (5) pulls cleared and

@@ -17,7 +17,7 @@
 # that never does is a top to replace.
 
 extends: stage1_move.yaml
-run_name: stage1c_jump
+run_name: stage3_jump
 
 total_env_steps: 30000000
 

@@ -3,12 +3,12 @@
 #
 # WARNING before trusting a score from this stage: stage 5 carries a resurrection exploit that this drill inherits.
 # Nothing clears m_resurrectGUID, so one landed Rebirth makes every later death of that ally an instant free
-# resurrect that pays the revive reward again (stage14_companion measured druid_dps at 38.4 revives an episode, 88%
+# resurrect that pays the revive reward again (stage16_companion measured druid_dps at 38.4 revives an episode, 88%
 # of its return). A forced healer seat will find that faster than anything else in the curriculum. Fix it first.
 #
-# Trained by name (`forge start stage17_triage`), after stage15_party, which it seeds from. Not in the default queue.
-extends: stage15_party.yaml
-run_name: stage17_triage
+# Trained by name (`forge start stage19_triage`), after stage17_party, which it seeds from. Not in the default queue.
+extends: stage17_party.yaml
+run_name: stage19_triage
 total_env_steps: 150000000
 convergence:
   patience: 2

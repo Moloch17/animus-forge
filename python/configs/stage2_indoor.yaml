@@ -20,13 +20,13 @@
 #     none.
 #
 # NOT in the default queue, and deliberately so -- it is a side branch off stage1_move, not a rung of the
-# ladder (stage2_dodge seeds from stage1_move). It is the stage that tests what the sixteen rays, the
+# ladder (stage5_dodge seeds from stage1_move). It is the stage that tests what the sixteen rays, the
 # fifteen-degree turn, the clearance term and the jump were built for -- a doorway off the objective's axis, which
 # open country never asks for -- and it joins the queue (StageDefinition::InDefaultQueue) once its rooms have been
 # stood on again with `forge rays` and its gate is one a run can pass: a queued stage that halts below its target
 # halts `forge start` with it, and the gate below is one a first run is expected to fail. Train it by name:
 #
-#   forge start stage1b_indoor
+#   forge start stage2_indoor
 #
 # The spawn points started as the centre of every row of areatrigger_tavern and did not survive contact with the
 # ground. `forge rays` stood on all 22 Kalimdor taverns first: three were on no navmesh at all, four were night
@@ -35,7 +35,7 @@
 # three held back are what was left, with z corrected from the trigger centre to the floor underneath it.
 
 extends: stage1_move.yaml
-run_name: stage1b_indoor
+run_name: stage2_indoor
 
 # Short trips in small rooms: the episodes are quick and the lesson shows early.
 total_env_steps: 30000000

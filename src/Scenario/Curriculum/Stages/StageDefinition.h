@@ -126,7 +126,7 @@ namespace Animus::Curriculum
         /// because a masked action cannot be explored into and the lesson stays clean.
         bool OnFoot = false;
         /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
-        /// through. On a creature arena instead (stage5_duel's `lake`): the opponent stands in the water, so the
+        /// through. On a creature arena instead (stage8_duel's `lake`): the opponent stands in the water, so the
         /// fight is a swimming one for whoever goes in after it.
         /// Travel: the objective may sit across water, and is chosen so that the way round is longer than the way
         /// through. Every other travel arena refuses an objective anywhere near water, which is why nothing in the
@@ -179,7 +179,7 @@ namespace Animus::Curriculum
         ///
         /// A spawn point is one pose, not one place. Drawing the objective at a uniform bearing varies the task
         /// but not the view the episode opens on, so a policy sees as many opening views as the stage has points
-        /// -- seven in stage1b_indoor's training, two in the evaluation that actually runs. "Read the walls from
+        /// -- seven in stage2_indoor's training, two in the evaluation that actually runs. "Read the walls from
         /// this spot" is a smaller thing to learn than "read the walls", and the gap between them is the whole
         /// claim an indoor drill makes.
         ///

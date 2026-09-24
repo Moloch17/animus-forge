@@ -2,8 +2,8 @@
 # single pack is. The party stages taught a group of five; this asks whether the same policy holds together at
 # forty, where threat, healing and standing out of things all scale differently.
 
-extends: stage17_triage.yaml
-run_name: stage20_raid_single
+extends: stage19_triage.yaml
+run_name: stage24_raid_single
 
 total_env_steps: 60000000
 

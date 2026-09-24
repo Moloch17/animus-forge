@@ -8,8 +8,8 @@
 # than the only move left. That is the difference between the two stages: stage 16 is about leaving a fight
 # that is lost, this one is about not being found once you have.
 
-extends: stage10_evade.yaml
-run_name: stage11_hide
+extends: stage13_evade.yaml
+run_name: stage14_hide
 total_env_steps: 40000000
 
 rollout_length: 256

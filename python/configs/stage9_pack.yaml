@@ -3,8 +3,8 @@
 # losing little health. Episodes end when the pack is cleared, the bot dies or the 150 s clock runs out (a lost fight,
 # as in the duel).
 
-extends: stage5_duel.yaml
-run_name: stage6_pack
+extends: stage8_duel.yaml
+run_name: stage9_pack
 total_env_steps: 60000000
 
 # A pack is not a duel: targets are picked, interrupts are saved, and a clear takes far longer than one kill,

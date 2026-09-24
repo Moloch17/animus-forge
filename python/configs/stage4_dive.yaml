@@ -19,7 +19,7 @@
 # and aquatic_seconds say how each class managed it.
 
 extends: stage1_move.yaml
-run_name: stage1e_dive
+run_name: stage4_dive
 
 total_env_steps: 30000000
 

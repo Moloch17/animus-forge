@@ -3,8 +3,8 @@
 # guards and heals its teammates; tanks hold the pull, healers keep the party up, damage dealers stay off the threat
 # table. Like the gauntlet, give it episodes of several minutes. Env steps count every agent's decisions.
 
-extends: stage14_companion.yaml
-run_name: stage15_party
+extends: stage16_companion.yaml
+run_name: stage17_party
 
 # ~11 h at ~15k env steps/s (four seats); convergence usually ends the stage much sooner (the headroom is for restarts).
 total_env_steps: 120000000

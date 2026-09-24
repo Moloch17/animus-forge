@@ -1,6 +1,6 @@
 """The manual's tables against the files they describe.
 
-Every stage budget in the manual was between 1x and 7x the configured value before this existed -- stage15_party
+Every stage budget in the manual was between 1x and 7x the configured value before this existed -- stage17_party
 was documented at 600M against a configured 120M, stage23_crossroads at 1B against 150M. Numbers copied by hand
 into prose drift silently and nobody notices until someone plans a run from them, so the table is checked instead
 of trusted.
@@ -16,7 +16,7 @@ from animus.config import TrainConfig
 CONFIGS = Path(__file__).resolve().parents[1] / "configs"
 MANUAL = Path(__file__).resolve().parents[2] / "docs" / "manual" / "04-curriculum.md"
 
-# `| `stage5_duel` | 300M | 10M | 2048 | 30M |` -- the table pairs two stages per row, so each line yields two.
+# `| `stage8_duel` | 300M | 10M | 2048 | 30M |` -- the table pairs two stages per row, so each line yields two.
 ROW = re.compile(
     r"\|\s*`(?P<name>\w+)`\s*\|\s*(?P<budget>[\d.]+)M\s*\|\s*(?P<every>[\d.]+)M\s*\|"
     r"\s*(?P<episodes>\d+)\s*\|\s*(?P<min>[\d.]+)M\s*(?=\|)")
@@ -61,7 +61,7 @@ def test_the_queue_total_is_what_the_manual_says():
     rows = documented()
     # The two raid stages are not in the default queue (StageDefinition::InDefaultQueue is false for both: forty
     # seats an env cannot run at the usual env count): they are trained by name.
-    outside = {"stage20_raid_single", "stage21_raid_gauntlet"}
+    outside = {"stage24_raid_single", "stage25_raid_gauntlet"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
     assert queue == 2_010_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 2,010M"
     assert sum(v["total_env_steps"] for v in rows.values()) == 2_130_000_000

@@ -14,8 +14,8 @@
 # and prowl as well as a feral one can, it is simply worse at what happens next. Their floors say so rather than
 # excusing them.
 
-extends: ../stage12_stealth.yaml
-run_name: stage12_stealth
+extends: ../stage15_stealth.yaml
+run_name: stage15_stealth
 
 eval:
   report: [stalked_into_range, stalk_seconds, stealth_openers, survived, won, form_at_end]

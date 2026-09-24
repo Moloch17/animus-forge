@@ -40,7 +40,7 @@ TALENT_PLANS = ("standard", "noisy", "random")
 # An episode that cancelled at least this many of its own casts did not merely waste a few: with a decision every
 # 100 ms it spent the episode in a start-cast / stop-cast loop. Deterministic actions cannot break out of one --
 # the state that chose to stop recurs unchanged -- so a policy can carry it into evaluation and into the exported
-# model while its sampled training rollouts look healthy. stage5_duel: a quarter of warlock episodes, up to 299
+# model while its sampled training rollouts look healthy. stage8_duel: a quarter of warlock episodes, up to 299
 # cancels in a 60 s episode, scoring 3.30 where the rest scored 7.52.
 LIVELOCK_CANCELS = 20
 
@@ -49,7 +49,7 @@ LIVELOCK_CANCELS = 20
 # clean_kill: the fight was won outright -- the opponent killed and the seat never dead. killed and died are gated
 # apart, and their means cannot say whether the episodes that killed are the ones that did not die.
 # lost / wedged / spl, on a travel stage: how a trip failed. A seat that did not arrive and covered more than
-# LOST_ABOVE times the path it was given wandered (38 of 42 stage1_move failures and 57 of 61 stage3_travel's); one
+# LOST_ABOVE times the path it was given wandered (38 of 42 stage1_move failures and 57 of 61 stage6_travel's); one
 # that covered less than WEDGED_BELOW of it never got going. They want opposite fixes and look identical in `arrived`.
 # spl is success weighted by path length -- arrived x path / max(path, covered), the navigation literature's SPL --
 # 1 for a seat that walked exactly the path and 0 for one that did not arrive.
@@ -165,7 +165,7 @@ class EvalResult:
         weighted success, is a fraction)."""
         out = {}
         # The share of episodes stuck in a cast/stop loop. A mean of casts_cancelled hides it: the loop is a tail,
-        # not a shift (stage5_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
+        # not a shift (stage8_duel warlock: median 4 cancels, maximum 299), so it is counted per episode.
         cancels = self.column("casts_cancelled")
         if cancels is not None:
             out["livelocked"] = (cancels >= LIVELOCK_CANCELS).astype(np.float64)
@@ -313,7 +313,7 @@ def casting_weights(summary: dict, baseline: dict | None, strength: float, max_r
     A stage is gated on its weakest class and role, so an episode of a pair that trails its baseline is worth more
     than one of a pair that is already clear of it. Per pair and not per model: one model is a whole class now, and
     weighting a paladin that heals badly by its average would send it more tanking episodes it did not need. The
-    baseline gap alone misses a pair that beats a weak baseline yet fails an absolute gate -- stage5_duel's mage
+    baseline gap alone misses a pair that beats a weak baseline yet fails an absolute gate -- stage8_duel's mage
     beat the scripted mage while killing 68% of the time -- so the shortfall on the gated metric counts as well,
     whichever of the two is larger. Each is measured in its own standard deviations, so the weights do not depend
     on the size of the scenario's rewards, and the spread is capped: the heaviest pair draws at most `max_ratio`

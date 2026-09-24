@@ -1,7 +1,7 @@
-# Learner config for stage5_duel, where the curriculum starts fighting, and the file every other stage's config
+# Learner config for stage8_duel, where the curriculum starts fighting, and the file every other stage's config
 # inherits its hyperparameters from: one policy for every class of AnimusForge.Classes (all ten by default). Each
 # class is a layout -- its own input adapter and action head around a shared trunk -- and covers every build it
-# has. The run trains in <runs_dir>/stage5_duel/; export writes one model per class (warrior_duel.amdl, ...).
+# has. The run trains in <runs_dir>/stage8_duel/; export writes one model per class (warrior_duel.amdl, ...).
 #
 # It is stage 5, not stage 1. The first four stages teach a seat to move, and this one seeds from them: a policy
 # that arrives at the fight already knowing how to place its feet can spend this stage learning the fight.
@@ -14,7 +14,7 @@
 # The sim decides the env count, decision interval and episode length (mod_animus_forge.conf), where runs go and what
 # a stage seeds from (its stage.json); everything here is learner-side. Other stages list only what they change.
 
-run_name: stage5_duel
+run_name: stage8_duel
 socket: /tmp/animus-forge.sock
 seed: 1
 

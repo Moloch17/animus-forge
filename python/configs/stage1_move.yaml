@@ -22,7 +22,7 @@
 #           running, so the crossing pays only when the straight line saves more than about a third of the
 #           distance -- and what a build can do in water changes the answer, which is why this is not a reflex
 
-extends: stage5_duel.yaml
+extends: stage8_duel.yaml
 run_name: stage1_move
 
 # The root of the tree starts from nothing, but it is a far smaller problem than the duel: few actions are live,
@@ -32,7 +32,7 @@ total_env_steps: 40000000
 mappo:
   # The policy that is gated and shipped takes the argmax; the one that trained sampled. With the coefficient held
   # flat the two drifted apart on every movement stage -- stage1_move's sampled actions arrived 0.996 against the
-  # argmax's 0.979, stage3_travel 0.992 against 0.970, stage4_flight 0.851 against 0.543 -- so the exploration bonus
+  # argmax's 0.979, stage6_travel 0.992 against 0.970, stage7_flight 0.851 against 0.543 -- so the exploration bonus
   # anneals to a third of itself by total_env_steps and the two converge. eval.sampled_every writes the remaining
   # gap into eval.jsonl as argmax_gap.
   entropy_final_fraction: 0.3
@@ -49,7 +49,7 @@ eval:
   # the honest measure of one. Turned off for one experiment on 2026-09-22 -- sampling cut timeouts from 9.5% to
   # 6.4%, all of it on open and broken ground, which is what a deterministic livelock looks like. Left on would
   # have hidden that behind the sampling rather than fixing it.
-  # TEMPORARY, for testing generalisation early: 2M instead of the 10M inherited from stage5_duel. Scored episodes
+  # TEMPORARY, for testing generalisation early: 2M instead of the 10M inherited from stage8_duel. Scored episodes
   # stand on the control ground (StageDefinition::HeldOutSpawnPoints), so this is the only number that says whether
   # the policy reads terrain or has learned the training regions -- and waiting 10M steps to see it first is a long
   # time to be guessing. Each evaluation is 2048 seeded episodes, about 90 s, so at this rate it costs roughly a
@@ -102,7 +102,7 @@ target:
   # crosses open ground perfectly and drowns in the water arena would pass a single `arrived` floor comfortably.
   # At 1.0 the per-arena floors cannot be looser than the overall one, but they are what names the arena that
   # failed, which is the difference between a halted queue you can act on and one you cannot.
-  # stage5_duel gates tier 0 on clean_kill >= 0.95, and a stage with no difficulty tiers is judged for tier 0 on its
+  # stage8_duel gates tier 0 on clean_kill >= 0.95, and a stage with no difficulty tiers is judged for tier 0 on its
   # whole summary (gates.py). Nothing is killed on a trip, so clean_kill was 0 by construction and every movement
   # stage failed its gate at every evaluation ("tier 0 clean_kill (min, 95% lower bound) 0 (needs 0.95)" in
   # stage1_move/stage.jsonl). An empty map replaces where a populated one would merge, which is the only way to drop

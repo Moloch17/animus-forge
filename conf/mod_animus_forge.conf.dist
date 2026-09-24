@@ -51,25 +51,26 @@ AnimusForge.OutputDir = ""
 #                     every role it can play: what the model is told is its role and its talents, never
 #                     its spec, so it learns to play the character it was handed. Each stage's layouts
 #                     extend the stage it builds on, which seeds it:
-#                       "stage5_duel"      - a same-level creature out of aggro range: close in and kill
-#                                            it fast, taking little damage (the first stage, from scratch)
-#                       "stage6_pack"      - a pack of 2-4 (casters, usually linked): targets,
-#                                            interrupts, crowd control
-#                       "stage7_gauntlet"  - pull after pull with short breaks: heals, food, drink
-#                       "stage8_companion" - the gauntlet beside a scripted owner: follow, assist,
-#                                            guard and heal it
-#                       "stage9_party"     - up to four learned seats and the scripted owner against
-#                                            elite-heavy pulls
-#                       "stage14_pvp"       - one-on-one against a scripted enemy player (branches off
-#                                            the duel)
-#                       "stage15_arena"     - self-play one-on-one: two learned seats of any classes
+#                       "stage1_move"        - the root: a place 40-160 yd away on foot, over open,
+#                                              broken and wet ground (the first stage, from scratch)
+#                       "stage2_indoor" ... "stage7_flight" - the rest of the movement line: rooms,
+#                                              ledges, lakebeds, fire underfoot, the mount, the air
+#                       "stage8_duel"        - a same-level creature out of aggro range: close in and
+#                                              kill it fast, taking little damage
+#                       "stage9_pack"        - a pack of 2-4 (casters, usually linked): targets,
+#                                              interrupts, crowd control
+#                       "stage10_gauntlet"   - pull after pull with short breaks: heals, food, drink
+#                       "stage12_pvp"        - self-play one-on-one: two learned seats of any classes
+#                       "stage16_companion"  - the gauntlet beside a scripted owner: follow, assist,
+#                                              guard and heal it
+#                       "stage17_party"      - up to four learned seats and the scripted owner against
+#                                              elite-heavy pulls
 #                       "stage23_crossroads" - PvE and PvP in one policy: every earlier situation, an
-#                                            ambush of the owner mid-gauntlet and a ganked owner
-#                                            (merges both branches)
-#                     Only when named (not in an empty queue):
-#                       "mix_duel_pvp"     - pilot arena mix: each episode a creature duel or a scripted
-#                                            enemy player (seeds from stage14_pvp)
-#        Example:     "stage5_duel" - (train a single scenario)
+#                                              ambush of the owner mid-gauntlet and a ganked owner
+#                                              (merges every other line)
+#                     Only when named (not in an empty queue): the two raid stages,
+#                       "stage24_raid_single" and "stage25_raid_gauntlet" (forty seats an env).
+#        Example:     "stage8_duel" - (train a single scenario)
 #        Default:     "" - (the whole curriculum, first stage to last)
 
 AnimusForge.Queue = ""
@@ -306,9 +307,9 @@ AnimusForge.Learner.LogFile = ""
 #    AnimusForge.Bench.Scenario
 #        Description: Scenario the trials run, when `forge bench` is given none. A party stage (four seats
 #                     per env) costs more per env than a solo one.
-#        Default:     "stage5_duel"
+#        Default:     "stage8_duel"
 
-AnimusForge.Bench.Scenario = "stage5_duel"
+AnimusForge.Bench.Scenario = "stage8_duel"
 
 #
 #    AnimusForge.Bench.Policy
@@ -418,9 +419,9 @@ AnimusForge.Bench.LearnerTorchThreads = "0, 8"
 #    AnimusForge.Fast.Queue
 #        Description: Comma-separated scenarios `forge fast` trains when given none, in order, each again
 #                     from scratch (nothing is skipped because an earlier fast run of it finished).
-#        Default:     ""  - (every curriculum stage in order, the mix_duel_pvp pilot included: a full run)
-#                     "stage5_duel, stage14_pvp, mix_duel_pvp" - (a stage from scratch, one seeded from it, a
-#                     scripted enemy player, and a stage that mixes arenas, merges parents and distills)
+#        Default:     ""  - (every curriculum stage in order, the raid stages included: a full run)
+#                     "stage8_duel, stage12_pvp, stage23_crossroads" - (a stage from scratch, one seeded from
+#                     it, and a stage that mixes arenas, merges parents and distills)
 
 AnimusForge.Fast.Queue = ""
 
@@ -436,7 +437,7 @@ AnimusForge.Fast.Queue = ""
 #                     smaller. Convergence is off for these runs, so a stage trains every step it was given
 #                     rather than stopping as soon as its score flattens.
 #
-#                     Override per invocation: `forge fast 30M`, `forge fast 30M stage5_duel`. A suffix of K
+#                     Override per invocation: `forge fast 30M`, `forge fast 30M stage8_duel`. A suffix of K
 #                     or M is understood, and a bare number under 1000 is read as a scenario name rather
 #                     than a budget.
 #
@@ -509,17 +510,17 @@ AnimusForge.Progress.Interval = 0
 #
 #    AnimusForge.Curriculum.Arena.<stage>.<arena>.Weight
 #        Description: A stage's share of episodes for one of its arenas (see stage.json "arenas"), e.g.
-#                     AnimusForge.Curriculum.Arena.mix_duel_pvp.duel.Weight = 3 for three duels per
-#                     scripted enemy player. Only matters for stages with several arenas.
+#                     AnimusForge.Curriculum.Arena.stage4_dive.chain.Weight = 2 for as many chains as
+#                     single dives. Only matters for stages with several arenas.
 #        Default:     the stage definition's weight (1 for every arena of the current stages)
 
 #
 #    AnimusForge.Curriculum.Arena.<stage>.<arena>.MaxRung
 #        Description: Hold one arena's pack ladder at a rung instead of letting it climb, e.g.
-#                     AnimusForge.Curriculum.Arena.stage2_dodge.hazards.MaxRung = 0 for the bottom rung.
+#                     AnimusForge.Curriculum.Arena.stage5_dodge.hazards.MaxRung = 0 for the bottom rung.
 #                     Binds training and evaluation alike. A drill uses it so the thing being drilled is
 #                     the only thing that varies; -1 lets the ladder climb to Pulls.MaxTier as usual.
-#        Default:     the stage definition's (0 for stage2_dodge, -1 for every other arena)
+#        Default:     the stage definition's (0 for stage5_dodge, -1 for every other arena)
 
 #
 #    AnimusForge.Curriculum.Characters.*
@@ -646,9 +647,9 @@ AnimusForge.Curriculum.Difficulty.ReviewChance = 25
 #   every tier, so nothing should be met there for the first time
 AnimusForge.Curriculum.Difficulty.StretchChance = 10
 #   duel: the share of fights against something that casts, and of those, the share against something that puts a
-#   hazard on the ground. The duel's own pool is default-AI creatures, which never cast at all, so at 0 stage 1
-#   teaches nothing about interrupting, dispelling or stepping out of anything -- all of it waits for stage 2's
-#   packs, where it competes with learning to fight several enemies at once
+#   hazard on the ground. The duel's own pool is default-AI creatures, which never cast at all, so at 0 the duel
+#   teaches nothing about interrupting, dispelling or stepping out of anything -- all of it waits for the pack
+#   stage, where it competes with learning to fight several enemies at once
 AnimusForge.Curriculum.Difficulty.CasterChance = 40
 AnimusForge.Curriculum.Difficulty.HazardChance = 30
 
@@ -796,7 +797,7 @@ AnimusForge.Curriculum.Pulls.Clear = 2.5
 AnimusForge.Curriculum.Pulls.FastPull = 0.5
 AnimusForge.Curriculum.Pulls.HealthKept = 0.5
 AnimusForge.Curriculum.Pulls.GauntletDeath = 10.0
-#   A single pack (stage6_pack) is won or lost, as the duel is: the clear outweighs finishing it untouched,
+#   A single pack (stage9_pack) is won or lost, as the duel is: the clear outweighs finishing it untouched,
 #   and dying or running out of time costs as much as the clear pays. With the gauntlet's Clear and HealthKept
 #   the pack was worth 2 + 2, so keeping health paid as much as winning, and a death cost only 3.
 AnimusForge.Curriculum.Pulls.PackClear = 10.0
@@ -823,7 +824,7 @@ AnimusForge.Curriculum.Pulls.OvertimeGraceMs = 60000
 #   charged in, which is why the two weights are comparable and control no longer loses to the overtime clock.
 #   Half DamageTaken: what a held add would have dealt is estimated, not observed, and the health floor can multiply
 #   it fivefold, so control is paid less than the damage it is credited with preventing. Measured at 0 until
-#   2026-09-18 (stage6_pack at 30M: control_prevented 0.03 healths a fight, reward_control 0.00 -- nothing was
+#   2026-09-18 (stage9_pack at 30M: control_prevented 0.03 healths a fight, reward_control 0.00 -- nothing was
 #   controlled because nothing paid for it).
 AnimusForge.Curriculum.Pulls.SinglePackControl = 0.5
 #   ... at most this much a pull, a guard against a sim quirk rather than a shaping knob
@@ -997,7 +998,7 @@ AnimusForge.Curriculum.Opponent.TankChance = 20
 
 #
 #    AnimusForge.Curriculum.Evade.*
-#        Getting away from a fight that cannot be won (stage10_evade, stage11_hide). Time spent unseen is
+#        Getting away from a fight that cannot be won (stage13_evade, stage14_hide). Time spent unseen is
 #        counted and never paid -- paid seconds out of sight are earned by standing in the far corner. What is
 #        paid is the transition out of contact, once a break, with a cooldown.
 
@@ -1010,7 +1011,7 @@ AnimusForge.Curriculum.Evade.EscapeMs = 8000
 
 #
 #    AnimusForge.Curriculum.Stealth.*
-#        Stalking (stage12_stealth): closing on someone while stealthed and unseen, and holding there. The one
+#        Stalking (stage15_stealth): closing on someone while stealthed and unseen, and holding there. The one
 #        reward in the curriculum paid per decision rather than on a transition, and capped for it. Time unseen
 #        is still never paid -- the distance condition is what makes this a skill, since detection is a check
 #        the seat is losing the whole time it stands inside the band.
@@ -1094,20 +1095,20 @@ AnimusForge.Curriculum.Travel.FlyingMax = 700.0
 #   which trips the ground arenas ask for, by how much longer the walking way round is than the straight line:
 #   each episode draws a band first -- DetourEasyShare of them under DetourEasy, DetourMidShare between DetourEasy
 #   and DetourHard, the rest from DetourHard up to the generator's ceiling of 1.8 -- and looks for an objective in
-#   it. Drawn uniformly, real detours were the tail (51% of stage1_move's trips and 82% of stage3_travel's had a
+#   it. Drawn uniformly, real detours were the tail (51% of stage1_move's trips and 82% of stage6_travel's had a
 #   dry detour under 1.15), and a policy taught on straight lines learns to hold forward. Water, indoor and flying
 #   arenas draw no band
 AnimusForge.Curriculum.Travel.DetourEasy = 1.15
 AnimusForge.Curriculum.Travel.DetourHard = 1.4
 AnimusForge.Curriculum.Travel.DetourEasyShare = 0.4
 AnimusForge.Curriculum.Travel.DetourMidShare = 0.35
-#   air-only arenas (stage4_flight's flight_air): a place is accepted only when the ground route to it is missing
+#   air-only arenas (stage7_flight's flight_air): a place is accepted only when the ground route to it is missing
 #   or longer than AirDetour times the straight line, so the wings are the way and not a slower option; and
 #   arriving there means standing within AirArriveRise yards of the objective's own height, or the foot of the
 #   cliff six yards under a plateau's edge would count
 AnimusForge.Curriculum.Travel.AirDetour = 2.5
 AnimusForge.Curriculum.Travel.AirArriveRise = 10.0
-#   ledge arenas (stage1c_jump, stage1d_glide): the objective is LedgeMin to LedgeMax yards away and LedgeDropMin to
+#   ledge arenas (stage3_jump): the objective is LedgeMin to LedgeMax yards away and LedgeDropMin to
 #   LedgeDropMax yards below the seat, its way round on foot complete but at least LedgeDetour times the straight
 #   line, and the straight line crosses one edge the seat can drop off. LedgeDropMax runs past the lethal fall on
 #   purpose: with Slow Fall or Levitate the drop is free, without them the seat learns what it costs
@@ -1116,18 +1117,18 @@ AnimusForge.Curriculum.Travel.LedgeMax = 120.0
 AnimusForge.Curriculum.Travel.LedgeDetour = 2.0
 AnimusForge.Curriculum.Travel.LedgeDropMin = 5.0
 AnimusForge.Curriculum.Travel.LedgeDropMax = 80.0
-#   dive arenas (stage1e_dive, stage1f_breathe): the objective is DiveMin to DiveMax yards away on a lakebed under
+#   dive arenas (stage4_dive): the objective is DiveMin to DiveMax yards away on a lakebed under
 #   DiveDepthMin to DiveDepthMax yards of water. DiveDepthMax runs past what one breath reaches on purpose: with
 #   Unending Breath or Water Breathing the dive is free, without them the seat learns to come up for air
 AnimusForge.Curriculum.Travel.DiveMin = 20.0
 AnimusForge.Curriculum.Travel.DiveMax = 120.0
 AnimusForge.Curriculum.Travel.DiveDepthMin = 6.0
 AnimusForge.Curriculum.Travel.DiveDepthMax = 40.0
-#   chain arenas (stage1f_breathe): reaching an objective draws the next one ChainMin to ChainMax yards on from
+#   chain arenas (stage4_dive's chain): reaching an objective draws the next one ChainMin to ChainMax yards on from
 #   where the seat stands, of the arena's own kind, until the clock runs out
 AnimusForge.Curriculum.Travel.ChainMin = 30.0
 AnimusForge.Curriculum.Travel.ChainMax = 60.0
-#   indoor arenas (stage1b_indoor): yards from the start, by path. Shorter than anything outdoors because it is
+#   indoor arenas (stage2_indoor): yards from the start, by path. Shorter than anything outdoors because it is
 #   a trip across a room -- the far end of an inn is nearer than the first march range of an open-country probe
 AnimusForge.Curriculum.Travel.IndoorMin = 8.0
 AnimusForge.Curriculum.Travel.IndoorMax = 40.0

@@ -6,8 +6,8 @@
 # that it has to shift out of a form to cast at all -- so overhealing and healing per mana read differently for
 # it than for a paladin, and the floors are set against what a druid actually does.
 
-extends: ../stage17_triage.yaml
-run_name: stage17_triage
+extends: ../stage19_triage.yaml
+run_name: stage19_triage
 
 eval:
   report: [low_health_seconds, overheal_share, healing_per_mana, hot_healing_share, pulls_cleared, wipes]

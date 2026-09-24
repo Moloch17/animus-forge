@@ -6,8 +6,8 @@
 # the far corner at t=0 and stand there. What is paid is the transition out of contact (Evade.BrokeContact),
 # once per break with a cooldown, so strobing around a pillar earns nothing.
 
-extends: stage13_arena.yaml
-run_name: stage10_evade
+extends: stage12_pvp.yaml
+run_name: stage13_evade
 total_env_steps: 60000000
 
 rollout_length: 256

@@ -28,19 +28,23 @@ One line of stages, each seeded from the one before it. Every stage trains one p
 build that class has.
 
 ```
-move ─ dodge ─ travel ─ flight            the feet: ground, fire underfoot, the mount, the air
-     ─ duel ─ pack ─ gauntlet ─ endurance           alone, against things that fight back
-     ─ pvp ─ evade ─ hide ─ stealth ─ arena         against people
-     ─ companion ─ party ─ tanking ─ triage         beside others, nobody commanding yet
-     ─ flag ─ warsong ─ duo_led                     an objective, and then a director
+move ─ indoor ─ jump ─ dive ─ dodge ─ travel ─ flight   the feet: ground, rooms, ledges, lakebeds, fire, the mount, the air
+     ─ duel ─ pack ─ gauntlet ─ endurance                alone, against things that fight back
+     ─ pvp ─ evade ─ hide ─ stealth                      against people: self-play, then not being caught
+     ─ companion ─ party ─ tanking ─ triage              beside others, nobody commanding yet
+     ─ flag ─ warsong ─ duo_led ─ crossroads             an objective, a director, and everything at once
 ```
 
-**It starts with the feet.** The first four stages have nothing to kill in them: a seat steers itself now, and
+Twenty-five stages, numbered in the order they are trained (`stage1_move` to `stage25_raid_gauntlet`); the two raid
+stages are trained by name. No stage has a pass gate: each ends when its convergence signals say so, and the queue
+moves on.
+
+**It starts with the feet.** The first seven stages have nothing to kill in them: a seat steers itself now, and
 where it puts its feet is not something only some stages are about — so everything after them inherits legs that
 already work, rather than learning to fight and to walk at the same time.
 
 Then a duel against a creature grows into packs, a gauntlet of pulls, a scripted owner to protect and a real party;
-a PvP run goes from a scripted enemy player through evading, hiding and stealth to self-play; and the last stages
+a PvP run goes from self-play through evading, hiding and stealth against a scripted hunter; and the last stages
 add an objective and a director. It is one line rather than a tree because a branch ends in several checkpoints and
 everything a leaf teaches is discarded unless the stage exported from is downstream of it. See
 [chapter 4](docs/manual/04-curriculum.md).
@@ -62,7 +66,7 @@ Then, on the worldserver console:
 
 | Command | What it does |
 |---|---|
-| `forge run stage5_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
+| `forge run stage8_duel fight 256` | Play the scripted baseline with no learner, to check that characters and fights build |
 | `forge fast` | The whole pipeline on an easy profile, minutes per stage, into `<OutputDir>/fast/` |
 | `forge start` | Train the curriculum stage by stage, until every stage has advanced or one halts below its target |
 | `forge status` | Rates, ETAs, evaluation scores against the baseline, warnings |

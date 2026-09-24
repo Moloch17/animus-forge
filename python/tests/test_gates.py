@@ -244,7 +244,7 @@ def sim_stage_arenas() -> dict[str, tuple[str, ...]]:
 
     validate_target only checks `target.arenas` when it is given the stage's arena list, and the shipped-config
     test used to call it without one. An arena gate naming an arena the stage does not have therefore passed the
-    suite and failed at startup instead -- stage3_travel inherited `open`, `broken` and `water` from stage1_move
+    suite and failed at startup instead -- stage6_travel inherited `open`, `broken` and `water` from stage1_move
     and took the queue down with it. Parsed from the definitions rather than from stage.json, which only exists
     for stages that have already been run."""
     stages_file = _curriculum_file("Stages/Stages.cpp")
@@ -332,13 +332,13 @@ def gated_names(target) -> dict[str, str]:
     return found
 
 
-MOVEMENT_STAGES = ("stage1_move", "stage1b_indoor", "stage1c_jump", "stage1e_dive", "stage2_dodge", "stage3_travel",
-                   "stage4_flight")
+MOVEMENT_STAGES = ("stage1_move", "stage2_indoor", "stage3_jump", "stage4_dive", "stage5_dodge", "stage6_travel",
+                   "stage7_flight")
 
 
 @pytest.mark.parametrize("name", MOVEMENT_STAGES)
 def test_movement_stages_gate_on_no_difficulty_tier(name):
-    """The movement stages extend stage5_duel's config and inherited its tier-0 gate, clean_kill >= 0.95. Nothing
+    """The movement stages extend stage8_duel's config and inherited its tier-0 gate, clean_kill >= 0.95. Nothing
     is killed on a trip, so clean_kill is 0 there by construction; a stage with no difficulty tiers is judged for
     tier 0 on its whole summary (gates.py); and every movement stage failed its gate at every evaluation --
     stage1_move/stage.jsonl: "tier 0 clean_kill (min, 95% lower bound) 0 (needs 0.95)". The emission check above
@@ -395,7 +395,7 @@ def test_noise_allowance_is_validated():
 
 def test_layout_metrics_floor_is_absolute():
     """A layout that beats its own baseline can still be bad: where the scripted baseline is hopeless, beating it
-    asks for nothing (stage5_duel passed warlock_dps against a required score of -2.34)."""
+    asks for nothing (stage8_duel passed warlock_dps against a required score of -2.34)."""
     target = TargetConfig(min_layout_over_baseline=0.0, layout_metrics={"killed": {"min": 0.75}})
     learner = summary(5.0, {"warlock_dps": {**layout(4.7), "killed": 0.65},
                             "warrior_dps": {**layout(7.9), "killed": 0.89}})

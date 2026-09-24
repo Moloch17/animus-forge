@@ -10,8 +10,8 @@
 # A fight turns on what happened tens of seconds before (a stealthy approach, a trinket baited out), so the horizon
 # is long: gamma 0.999 and lambda 0.995 per 100 ms.
 
-extends: stage5_duel.yaml
-run_name: stage13_arena
+extends: stage8_duel.yaml
+run_name: stage12_pvp
 rollout_length: 256
 mappo:
   gamma: 0.999

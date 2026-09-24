@@ -8,11 +8,11 @@
 #
 # It is a leaf. Its checkpoint holds four of the eighteen layouts, and init_from: auto takes the first
 # checkpoint in the chain that exists, so a stage seeding from it would start the other fourteen from random
-# weights without saying so. stage13_arena extends stage11_hide, reaching past this stage rather than through
+# weights without saying so. stage12_pvp extends stage14_hide, reaching past this stage rather than through
 # it, and Problem() in Stages.cpp refuses anything that tries to extend or merge it.
 
-extends: stage11_hide.yaml
-run_name: stage12_stealth
+extends: stage14_hide.yaml
+run_name: stage15_stealth
 total_env_steps: 40000000
 
 rollout_length: 256
