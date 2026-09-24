@@ -11,9 +11,9 @@ total_env_steps: 120000000
 
 eval:
   every_env_steps: 20000000
-  report: [dps, died, deaths, kills, pulls_cleared, wipes, owner_deaths, owner_healing, teammates_died,
-    teammate_healing, threat_on_teammates, casts_completed, casts_cancelled, cancelled_stopped, cancelled_moved,
-    cancelled_target, cancelled_other]
+  report: [dps, died, deaths, kills, pulls_cleared, wipes, owner_deaths, owner_healing, owner_walks, teammates_died,
+    teammate_healing, threat_on_teammates, pulls_pulled_unready, casts_completed, casts_cancelled, cancelled_stopped,
+    cancelled_moved, cancelled_target, cancelled_other]
 
 convergence:
   min_env_steps: 20000000

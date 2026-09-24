@@ -45,6 +45,8 @@ namespace
     constexpr float WANDER_MIN_DISTANCE = 8.0f;
     constexpr float WANDER_MAX_DISTANCE = 20.0f;
     constexpr float WANDER_LEASH = 30.0f;       // never wander further than this from home
+    constexpr float ARRIVE_DISTANCE = 4.0f;     // travelling: this close to the destination is there
+    constexpr uint32 TRAVEL_MAX_MS = 30000;     // ... and a walk still short of it after this long is given up
     constexpr float HEAL_RANGE = 40.0f;
     constexpr uint32 SEARCH_REPATH_MS = 2500;   // a hidden enemy: time between search steps
     constexpr float SEARCH_RADIUS = 10.0f;      // ... around where it was last seen
@@ -225,6 +227,21 @@ namespace
             if (uint32 const maxMana = player->GetMaxPower(POWER_MANA))
                 player->SetPower(POWER_MANA, std::min(maxMana, player->GetPower(POWER_MANA)
                     + uint32(float(maxMana) * tuning.RegenFraction)));
+        }
+
+        // Moving on: walk to the destination by the ground route, and only wander once there. The wander step is
+        // put off until arrival, so it cannot cut the walk short; a walk that stalls (the route was checked when
+        // the place was chosen, but a pull fought on the way can leave it anywhere) is given up after a while.
+        if (state.Travelling)
+        {
+            if (player->GetExactDist2d(&state.Destination) <= ARRIVE_DISTANCE || nowMs >= state.TravelUntilMs)
+            {
+                state.Travelling = false;
+                state.NextMoveMs = nowMs + urand(tuning.WanderMinMs, tuning.WanderMaxMs);
+            }
+            else if (player->movespline->Finalized())
+                player->GetMotionMaster()->MovePoint(MOVE_POINT_ID, state.Destination);
+            return;
         }
 
         if (nowMs < state.NextMoveMs)

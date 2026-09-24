@@ -78,6 +78,10 @@ namespace Animus::Curriculum
         PullSchedule Schedule = PullSchedule::None;
         bool Owner = false;             // a scripted owner the seats fight for
         bool PartyGroup = false;        // the owner and seats form a core group
+        /// Between pulls the owner moves on to a new spot (Owner.TravelChance percent of breaks, by a ground route
+        /// Owner.TravelMin/MaxYards long) and the next pull spawns around it there, so following it through terrain
+        /// is part of the episode. Off in the drills, which want one variable.
+        bool OwnerTravels = false;
         bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
         uint32 EpisodeSeconds = 0;      // episode length; 0 = StageSettings::EpisodeSeconds
         /// Most scripted enemy players that ambush the owner (1 to this many, MAX_AMBUSHERS at most): mid-episode

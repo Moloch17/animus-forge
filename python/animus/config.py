@@ -28,6 +28,9 @@ REPORT_COLUMNS = (
     # damage taken the seat healed (healers) and the share of the enemies' attention on the seat rather than the owner
     # (high for tanks, low for damage dealers and healers).
     "owner_died", "owner_damage_taken", "owner_heal_share", "threat_share",
+    # ... how often it moved on between pulls (the seat had to keep up), and how often the seat started a pull while
+    # a teammate or the owner was still low.
+    "owner_walks", "pulls_pulled_unready",
     # Pets: logged per episode in eval_episodes.jsonl with the episode's class/build, so a pet class's use of its pet
     # can be read on its own.
     "pet_summoned", "pet_at_start", "pet_damage_share", "pet_died", "pet_abilities", "pet_orders",

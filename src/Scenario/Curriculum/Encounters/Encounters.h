@@ -201,6 +201,9 @@ namespace Animus::Curriculum
             float BuffCoverageSum = 0.0f;       // buff coverage when each pull was engaged (SupportBlock::BuffCoverage)
             uint32 PullsEngaged = 0;
             uint32 PullsStartedLow = 0;         // engaged below half health or 30% mana
+            /// Pulls this seat started (it was in combat as the pull engaged, and the owner was not) while a
+            /// teammate or the owner was still below those: the puller answers for the party's readiness.
+            uint32 PullsPulledUnready = 0;
             uint32 RestMs = 0;                  // eating or drinking
             uint32 FoodFailed = 0;
             uint32 DrinkFailed = 0;
@@ -235,6 +238,8 @@ namespace Animus::Curriculum
             uint32 PullStartMs = 0;
             bool PullEngaged = false;           // a creature of the current pull entered combat ...
             uint32 PullEngageMs = 0;            // ... at this episode time: the fast clear bonuses count from here
+            bool PulledByOwner = false;         // ... with the owner already fighting: it pulled, nobody waited on it
+            std::array<bool, MAX_SEATS> PulledBySeat{};     // ... and the seats already fighting: they pulled
             bool PullCleared = false;          // decided once per decision, before the seats' rewards
             uint32 NewKills = 0;                // ... and the kills since the last decision
             uint32 PullsCleared = 0;
@@ -338,6 +343,10 @@ namespace Animus::Curriculum
         void Teardown(Env& env) override;
 
     private:
+        /// Once per break, with the field clear: roll whether the owner moves on, and if so pick a spot it can walk to
+        /// and send it there (ScriptedPlayer::State::Travelling). Its home moves with it, so it wanders there next.
+        void MoveOn(Env& env, Player* owner, bool fieldClear);
+
         struct SeatOwner
         {
             uint64 Healing = 0;                 // effective healing the seat did on the owner
@@ -357,6 +366,10 @@ namespace Animus::Curriculum
             uint64 DamageTaken = 0;
             uint64 ThreatOnOwner = 0;
             uint32 StepEnemiesOnOwner = 0;      // living enemies in combat attacking the owner, this decision
+            /// Where it idles between pulls: the spawn point, until it moves on (ArenaDefinition::OwnerTravels).
+            Position Home;
+            bool WalkDecided = false;           // whether to move on has been rolled for the current break
+            uint32 Walks = 0;                   // times it moved on this episode
             std::array<SeatOwner, MAX_SEATS> Seats;
         };
 

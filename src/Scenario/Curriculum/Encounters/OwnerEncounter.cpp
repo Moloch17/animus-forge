@@ -30,6 +30,9 @@
 namespace
 {
     constexpr float OWNER_START_OFFSET = 3.0f;
+    /// How long a walk between pulls may take before the owner gives it up where it stands: the walks are 40-80 yd
+    /// at run speed, and a pull fought on the way is over in well under this.
+    constexpr uint32 TRAVEL_MAX_MS = 30000;
 }
 
 Animus::Curriculum::OwnerEncounter::OwnerEncounter(StageScenario& scenario, uint32 envs)
@@ -114,6 +117,7 @@ void Animus::Curriculum::OwnerEncounter::AddEpisodeInfo(EpisodeInfoTable& table)
         return total ? float(onSeat) / float(total) : 0.0f;
     });
     table.Add("revives", [this](Env const& env, uint32 seat) { return float(_scenario.Data(env).Seats[seat].Revives); });
+    table.Add("owner_walks", [this](Env const& env, uint32) { return float(_envs[env.Index].Walks); });
 }
 
 void Animus::Curriculum::OwnerEncounter::ResetEpisode(Env& env)
@@ -124,6 +128,9 @@ void Animus::Curriculum::OwnerEncounter::ResetEpisode(Env& env)
     owner.DeathCounted = false;
     owner.DamageTaken = 0;
     owner.ThreatOnOwner = 0;
+    owner.WalkDecided = false;
+    owner.Walks = 0;
+    owner.Script.Travelling = false;
     owner.Seats.fill(SeatOwner());
 }
 
@@ -161,7 +168,9 @@ bool Animus::Curriculum::OwnerEncounter::Build(Env& env, Map* map, uint8 level)
     spec.Level = ownerLevel;
     spec.AccountId = BotAccounts::Owner(env.Id, session);
 
-    Position start = _scenario.SpawnPoint();
+    // Beside the seats, which start at the env's own spawn point where the stage has several.
+    Position start = _scenario.SpawnPointFor(env);
+    owner.Home = start;
     start.m_positionX += OWNER_START_OFFSET;
     Player* bot = owner.Bot.CreateNext(spec, map, _scenario.SpawnMapId(), start);
     if (!bot)
@@ -200,9 +209,40 @@ void Animus::Curriculum::OwnerEncounter::Update(Env& env)
             party.push_back(bot);
 
     EnvOwner& state = _envs[env.Index];
+    MoveOn(env, owner, enemies.empty());
     Player* tank = AptitudeDemand::HoldsThePull().MetBy(state.Apt) ? owner : _scenario.PartyTank(env);
-    ScriptedPlayer::UpdateMember(owner, party, tank, enemies, env.EpisodeElapsedMs, _scenario.SpawnPoint(),
+    ScriptedPlayer::UpdateMember(owner, party, tank, enemies, env.EpisodeElapsedMs, state.Home,
         state.Script, _scenario.Tuning().ScriptedPlayers);
+}
+
+void Animus::Curriculum::OwnerEncounter::MoveOn(Env& env, Player* owner, bool fieldClear)
+{
+    EnvOwner& state = _envs[env.Index];
+    if (!_scenario.Arena(env).OwnerTravels || state.WalkDecided || !fieldClear || !owner->IsAlive()
+        || owner->IsInCombat())
+        return;
+
+    // Rolled once per break (OnPullStarting arms the next), whether or not a spot is found: a break that finds no
+    // ground to walk to is spent where it is, not thrown at the map every decision.
+    state.WalkDecided = true;
+    CurriculumTuning::OwnerTuning const& tuning = _scenario.Tuning().Owner;
+    if (!roll_chance_i(tuning.TravelChance))
+        return;
+
+    // The travel stages' own test of a place: dry, on the ground, reachable on foot by a route not much longer than
+    // the straight line. No clock: the walk is 40-80 yd, and the pull comes when the break ends whether the owner
+    // has arrived or not -- it spawns around wherever the owner is by then.
+    Map* map = env.FindMap();
+    Position place;
+    if (!map || !TravelEncounter::FindPlace(owner, map, tuning.TravelMinYards,
+        std::max(tuning.TravelMinYards, tuning.TravelMaxYards), false, place, 0.0f))
+        return;
+
+    state.Home = place;
+    state.Script.Travelling = true;
+    state.Script.Destination = place;
+    state.Script.TravelUntilMs = env.EpisodeElapsedMs + TRAVEL_MAX_MS;
+    ++state.Walks;
 }
 
 void Animus::Curriculum::OwnerEncounter::View(Env const& env, uint32 /*seat*/, SeatView& view) const
@@ -368,6 +408,7 @@ void Animus::Curriculum::OwnerEncounter::OnPullStarting(Env& env)
     // The owner walks over to a new pull after a moment (in a party, after the tank has had time to pull). A tank
     // owner always starts the pull, and any other owner sometimes does, as a player who pulls without waiting.
     EnvOwner& state = _envs[env.Index];
+    state.WalkDecided = false;
     CurriculumTuning::PullTuning const& tuning = _scenario.Tuning().Pulls;
     bool const ownerPulls = HoldsThePull(state.Apt) || roll_chance_i(tuning.OwnerPullsChance);
     state.Script.EngageMs = env.EpisodeElapsedMs

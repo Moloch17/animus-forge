@@ -561,7 +561,7 @@ AnimusForge.Curriculum.Party.RoleHealerChance = 25
 AnimusForge.Curriculum.Party.TeammateDamageTakenDps = 0.5
 #   tanks and healers
 AnimusForge.Curriculum.Party.TeammateDamageTakenProtector = 1.0
-#   healers: effective healing, fraction of its health
+#   any build: effective healing and protection on a teammate, fraction of its health
 AnimusForge.Curriculum.Party.TeammateHealing = 2.0
 #   tanks: per enemy on a non-tank teammate, per decision
 AnimusForge.Curriculum.Party.TankLoseTeammate = 0.02
@@ -966,6 +966,11 @@ AnimusForge.Curriculum.Owner.FollowFar = 0.002
 AnimusForge.Curriculum.Owner.FollowNear = 0.0005
 AnimusForge.Curriculum.Owner.FollowFarDistance = 25.0
 AnimusForge.Curriculum.Owner.FollowNearDistance = 12.0
+#   moving on between pulls (the companion and party arenas, not the drills): percent of breaks the owner walks
+#   TravelMinYards-TravelMaxYards to a new spot by a ground route, where the next pull spawns around it
+AnimusForge.Curriculum.Owner.TravelChance = 50
+AnimusForge.Curriculum.Owner.TravelMinYards = 40.0
+AnimusForge.Curriculum.Owner.TravelMaxYards = 80.0
 AnimusForge.Curriculum.Owner.Death = 15.0
 
 #

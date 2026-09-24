@@ -312,8 +312,10 @@ void Animus::Curriculum::PartyEncounter::Reward(Env& env, uint32 seatIndex, Play
                 -(Protects(apt) ? tuning.TeammateDamageTakenProtector : tuning.TeammateDamageTakenDps)
                 * float(taken) / health);
 
-        if (Heals(apt))
-            ledger.Add(RewardTerm::TeammateHealing, tuning.TeammateHealing * float(healed) / health);
+        // Every build is paid for it, as for the owner (OwnerEncounter::Reward): a paladin or a shaman topping a
+        // teammate up between swings is doing the party's job, and paying only healers left the other classes
+        // with nothing to earn by it.
+        ledger.Add(RewardTerm::TeammateHealing, tuning.TeammateHealing * float(healed) / health);
 
         if (!HoldsThePull(teammateApt) && teammate->IsAlive())
         {

@@ -811,7 +811,7 @@ namespace
             // 450 s, as the solo gauntlet: without its own length the arena took the host's 60 s, two or three pulls
             // with nothing to recover for and no win to reach (Pulls.OwnerWinPulls).
             .Arenas = { { .Name = "companion", .Against = Opposition::Pulls, .Schedule = PullSchedule::Gauntlet,
-                .Owner = true, .EpisodeSeconds = 450 } },
+                .Owner = true, .OwnerTravels = true, .EpisodeSeconds = 450 } },
         });
 
         stages.push_back({
@@ -821,7 +821,8 @@ namespace
             .Summary = "four learned seats and the scripted owner against elite-heavy pulls",
             .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
             .Arenas = { { .Name = "party", .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
-                .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .EpisodeSeconds = 450 } },
+                .Schedule = PullSchedule::Gauntlet, .Owner = true, .PartyGroup = true, .OwnerTravels = true,
+                .EpisodeSeconds = 450 } },
         });
 
         // Holding what the group pulls. Tanks exist in stages 5, 8, 13 and 14, but the stage is won by the clear,

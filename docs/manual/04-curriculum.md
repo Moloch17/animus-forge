@@ -101,7 +101,7 @@ one commanding each side (see 4.12).
 | `stage11_hide` | stage10_evade | Solo | same | **Drill.** The same fight six levels up, for every class and race: get out of sight and stay there, and hide again after being found. Terrain, distance, Blink, Disengage, Feign Death, Invisibility, Vanish, Prowl, Shadowmeld -- whatever the kit and the race give it |
 | `stage12_stealth` | stage11_hide | Solo | same | **Drill, restricted.** For the classes whose own kit carries a stealth aura (rogue and druid): close on a stronger enemy unseen, hold inside strike range, and open from it. Shadowmeld does not qualify -- it breaks on movement. No longer a leaf: in a run of one class that stealths the checkpoint is not partial, and the check that matters lives in `animus.bootstrap` |
 | `stage13_arena` | stage12_stealth | Mirror | same | Self-play one-on-one: two learned seats of any classes |
-| `stage14_companion` | stage13_arena | Solo | + pack, gauntlet, companion, support (−pvp) | The gauntlet beside a scripted owner: follow, assist, guard and heal it |
+| `stage14_companion` | stage13_arena | Solo | + pack, gauntlet, companion, support (−pvp) | The gauntlet beside a scripted owner: follow, assist, guard and heal it, and keep up when it moves on between pulls |
 | `stage15_party` | stage14_companion | Party | + party | Four learned seats and the scripted owner against elite-heavy pulls |
 | `stage16_tanking` | stage15_party | Party | same | **Drill.** Seat 0 is drawn from builds that can hold the pull: hold what it brings, and keep it off the others |
 | `stage17_triage` | stage16_tanking | Party | same | **Drill, and the leaf of the class curriculum.** Seat 0 is drawn from builds that can keep the hurt one up, and has to spend mana doing it |
@@ -953,7 +953,12 @@ casters and ability users) to the duel pool.
 the seats, with a random role (tank 25%, healer 25%, DPS 50%) and a class that can fill it, dressed like a seat, given
 the seats' faction. It is the env's ally 0.
 
-- Between pulls it wanders near the spawn point and regenerates (`RegenFraction` per second).
+- Between pulls it wanders near its home and regenerates (`RegenFraction` per second). Its home is the spawn point
+  until, in an arena with `OwnerTravels` (the companion and party arenas, not the drills), it moves on:
+  `Owner.TravelChance` (50) percent of breaks it walks `Owner.TravelMin/MaxYards` (40-80) to a spot the travel
+  stages' own place test accepts (dry, on the ground, reachable by a route not much longer than the straight
+  line), and the next pull spawns around it wherever it is when the break ends. `owner_walks` counts the moves.
+  With the owner leashed to one spot, "follow" only ever meant not drifting off it.
 - A tank owner starts every pull and taunts enemies off others. A healer owner heals the most hurt party member
   under `HealBelow` and stays within `HealerRange` of the tank. A DPS owner walks in after `OwnerEngageMin/MaxMs` (in a
   party, after `PartyOwnerEngageMin/MaxMs` so the tank can pull), and starts the pull itself `OwnerPullsChance` percent
@@ -1029,12 +1034,12 @@ Terms: `damage_dealt`, `damage_taken`, `step_cost`, `casting`, `approach`, `stea
 **Looking after itself and its friends (every stage).** `self_healing` pays `Support.SelfHealing` (0.5) times the
 bot's effective healing on itself plus what its own absorbs soaked and its own damage-taken reductions prevented on
 itself, as a fraction of its health. It is below every stage's damage taken weight, so a heal recovers part of what the
-hit cost and being hit to heal it back never pays. On the owner and teammates, healers are paid `owner_healing` and
-`teammate_healing` for healing and protection alike. Absorbs are tracked by polling the bot's own absorb auras on each
+hit cost and being hit to heal it back never pays. On the owner and teammates, every build is paid `owner_healing`
+and `teammate_healing` for healing and protection alike. Absorbs are tracked by polling the bot's own absorb auras on each
 friend every decision (what they lost, or what was left when one vanished early); prevented damage is
 `damage * (1 / multiplier - 1)` over the bot's own `MOD_DAMAGE_PERCENT_TAKEN` auras on the victim, at the hit
 (`EnvPool::RecordPrevented`). In gauntlets, engaging a pull also pays `Support.BuffCoverage` (0.3) times the share of
-the layout's buff groups up on the bot (averaged with the owner's where there is one).
+the layout's buff groups up on the bot, averaged with the owner's and every living teammate's where there are any.
 
 **Goals** (`SeatGoal`, every stage whose policy has a goal head). The learner's goal head picks one of fight, control,
 recover, protect, position or prepare every `mappo.goal_every_decisions` (16, so 4 s) and keeps it until the next
@@ -1149,7 +1154,9 @@ resting, sapping or stealthing in first is free), both x2 (`OwnerClearScale`), u
 during the pull; the seat's death -10 (`GauntletDeath`) and every owner death -15 (`Owner.Death`), so guarding the
 owner comes before the seat's own health. At the earlier +2 +2 (x2) and +2 against deaths of -5 and -6, a pull cleared
 was worth more than the owner's life. What alone teaches carries on beside the owner: readiness when a pull is engaged
-(`OwnerReadiness`, 0.5), control (`OwnerControl`, 0.02 per enemy-second, up to `OwnerControlMax`, 1.5, a pull), seven
+(`OwnerReadiness`, 0.5; a seat that started the pull -- fighting as it engaged, with the owner not -- is paid on its
+own group's lowest health and mana if they are lower than its own, so pulling while the healer drinks costs the
+puller, and `pulls_pulled_unready` counts the times), control (`OwnerControl`, 0.02 per enemy-second, up to `OwnerControlMax`, 1.5, a pull), seven
 food and drink (`GauntletSupplies`), and a win: reaching the end with the owner never dead, no wipe and `OwnerWinPulls`
 (5) pulls cleared counts as the kill, so `clean_kill` is the gauntlet won with the seat alive. **Alone** (stage 4) the gauntlet is won by lasting, and pays
 win-first as the single pack does (`Pulls.SoloGauntlet*`): each cleared pull +5, up to +1 for clearing within a minute
@@ -1180,7 +1187,8 @@ timeout.
   episode it came to -22.9 against +0.6 for healing the owner, the largest term in the stage
 
 **Party** (`Party.*`, added per teammate): teammate damage taken (not for a tank teammate; x0.5 for DPS, x1 for tanks
-and healers), healers' effective healing on teammates x2, tanks -0.02 per enemy on a non-tank teammate per decision,
+and healers), every build's effective healing and protection on teammates x2 (as on the owner: paying only healers
+left the other classes nothing to earn by it), tanks -0.02 per enemy on a non-tank teammate per decision,
 -3 per teammate death. Kills and clears are shared. A tank isn't charged for fighting before the owner joins.
 
 **Ambush**: +3 per ambusher killed, for every seat.
@@ -1342,10 +1350,12 @@ Every stage reports these **core columns** per seat:
 Encounters then add their own columns:
 
 - pulls: `kills`, `interrupts`, `pack_size`, `linked`, `pulls_cleared`, `food_used`, `drink_used`, `sustain_casts`,
-  `deaths`, `wipes`; gauntlets also `engage_health`, `engage_mana`, `pulls_started_low`, `pulls_arrived`,
+  `deaths`, `wipes`; gauntlets also `engage_health`, `engage_mana`, `pulls_started_low`, `pulls_pulled_unready`,
+  `pulls_arrived`,
   `rest_seconds`, `eat_failed`, `drink_failed`, `meals_cut_short`, `control_seconds`
 - owner: `owner_class`, `owner_died`, `owner_deaths`, `owner_damage_taken`, `owner_healing`,
-  `owner_healing_aptitude`, `owner_mitigation`, `owner_heal_share`, `threat_on_bot`, `threat_on_owner`, `revives`
+  `owner_healing_aptitude`, `owner_mitigation`, `owner_heal_share`, `threat_on_bot`, `threat_on_owner`, `revives`,
+  `owner_walks`
 - party: `seat`, `teammates_died`, `teammate_damage_taken`, `teammate_healing`, `threat_on_teammates`
 - opponent: `won`, `opponent`, `opponent_class`, `opponent_seat`, `opponent_elite`, `opponent_healing`,
   `opponent_mitigation`
@@ -1558,6 +1568,8 @@ gated per class on `flew` as well as on arrival.
 ### Stage 9: `stage14_companion`
 
 Adds the companion block and the scripted owner. The seat learns to follow, assist, guard, heal and resurrect it, and
+to keep up with it: half the breaks it walks 40-80 yd to a new spot and the next pull comes there (`OwnerTravels`), so
+following through terrain is part of the episode. It also learns
 role-specific behaviour appears (tank threat, healer throughput, DPS threat discipline). Deaths recover after pulls and
 the episode always runs its full length (450 s; without its own the arena took the host's 60 s), so letting the owner
 die is never a way to escape penalties.

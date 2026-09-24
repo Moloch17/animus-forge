@@ -48,6 +48,11 @@ namespace Animus::Curriculum::ScriptedPlayer
         uint32 NextSpellMs = 0;
         uint32 NextHealMs = 0;
         uint32 NextRegenMs = 0;
+        /// Between pulls a party member may move on (OwnerEncounter): it walks to Destination instead of wandering,
+        /// and wanders around it once there. A pull that comes while it is on its way is fought first.
+        bool Travelling = false;
+        Position Destination;
+        uint32 TravelUntilMs = 0;       // ... giving up at this episode time, so a walk that stalls cannot last
         std::vector<uint32> Spells;     // harmful single-target combat spells it knows (highest ranks)
         std::vector<uint32> Heals;      // single-target heals it knows
         std::vector<uint32> Taunts;     // single-target taunts it knows
@@ -81,7 +86,8 @@ namespace Animus::Curriculum::ScriptedPlayer
     /// - it can hold the pull: engages first, goes for enemies attacking someone else and taunts them off;
     /// - it can heal: heals the most hurt party member, keeps near the tank, and only casts damage spells when
     ///   nobody needs healing;
-    /// - damage dealer: between pulls it wanders near `home`, recovering health and mana; once a pull is up (and
+    /// - damage dealer: between pulls it wanders near `home` (or walks to State::Destination when it is travelling),
+    ///   recovering health and mana; once a pull is up (and
     ///   state.EngageMs has passed) it fights the tank's target, else the enemy attacking it, else the nearest.
     /// `party` is every party player, the member itself included; `tank` the party's tank (may be null).
     void UpdateMember(Player* member, std::vector<Player*> const& party, Player* tank,

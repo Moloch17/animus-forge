@@ -70,7 +70,8 @@ namespace Animus::Curriculum
             // Rewards added to the owner's, per teammate.
             float TeammateDamageTakenDps = 0.5f;        // damage dealers: a non-tank teammate's damage taken
             float TeammateDamageTakenProtector = 1.0f;  // tanks and healers
-            float TeammateHealing = 2.0f;               // healers: effective healing, fraction of its health
+            float TeammateHealing = 2.0f;               // any build: effective healing and protection on a
+                                                        // teammate, fraction of its health
             float TankLoseTeammate = 0.02f;             // tanks: per enemy on a non-tank teammate, per decision
             float TeammateDeath = 3.0f;
         } Party;
@@ -488,6 +489,13 @@ namespace Animus::Curriculum
             float FollowNear = 0.0005f;         // per decision out of combat within FollowNearDistance
             float FollowFarDistance = 25.0f;
             float FollowNearDistance = 12.0f;
+            /// Moving on between pulls (ArenaDefinition::OwnerTravels): this percent of breaks the owner walks
+            /// TravelMinYards-TravelMaxYards to a new spot by a ground route, and the next pull spawns around it
+            /// there. Following through terrain is what this trains; with the owner wandering on a leash around
+            /// one spot, "follow" only ever meant not drifting off it.
+            int32 TravelChance = 50;
+            float TravelMinYards = 40.0f;
+            float TravelMaxYards = 80.0f;
             float Death = 15.0f;                // per owner death, every seat: more than the seat's own (GauntletDeath)
         } Owner;
 
@@ -867,6 +875,9 @@ namespace Animus::Curriculum
             f("Owner.FollowNear", tuning.Owner.FollowNear);
             f("Owner.FollowFarDistance", tuning.Owner.FollowFarDistance);
             f("Owner.FollowNearDistance", tuning.Owner.FollowNearDistance);
+            f("Owner.TravelChance", tuning.Owner.TravelChance);
+            f("Owner.TravelMinYards", tuning.Owner.TravelMinYards);
+            f("Owner.TravelMaxYards", tuning.Owner.TravelMaxYards);
             f("Owner.Death", tuning.Owner.Death);
 
             f("Resurrection.GraceMs", tuning.Resurrection.GraceMs);

@@ -251,6 +251,10 @@ void Animus::Curriculum::PullsEncounter::AddEpisodeInfo(EpisodeInfoTable& table)
             SeatPull const& pull = _envs[env.Index].Seats[seat];
             return pull.PullsEngaged ? pull.EngageManaSum / float(pull.PullsEngaged) : 1.0f;
         });
+        table.Add("pulls_pulled_unready", [this](Env const& env, uint32 seat)
+        {
+            return float(_envs[env.Index].Seats[seat].PullsPulledUnready);
+        });
         table.Add("pulls_started_low", [this](Env const& env, uint32 seat)
         {
             return float(_envs[env.Index].Seats[seat].PullsStartedLow);
@@ -504,6 +508,8 @@ bool Animus::Curriculum::PullsEncounter::SpawnPull(Env& env, Map* map)
     pulls.PullKills = 0;
     pulls.PullStartMs = env.EpisodeElapsedMs;
     pulls.PullEngaged = false;
+    pulls.PulledByOwner = false;
+    pulls.PulledBySeat.fill(false);
     pulls.Arrived = false;
     if (SoloGauntlet(env))
     {
@@ -854,6 +860,15 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
     {
         pulls.PullEngaged = true;
         pulls.PullEngageMs = env.EpisodeElapsedMs;
+        // Who started it: whoever is already fighting as it engages. Read once, at the flip, so every seat's
+        // readiness this decision is judged against the same pullers.
+        Player const* owner = _scenario.Owner(env);
+        pulls.PulledByOwner = owner && owner->IsAlive() && owner->IsInCombat();
+        for (uint32 other = 0; other < _scenario.SeatCount(); ++other)
+        {
+            Player const* member = env.FindBot(other);
+            pulls.PulledBySeat[other] = member && member->IsAlive() && member->IsInCombat();
+        }
     }
 
     // Recovery between pulls. Health and mana are kept from the decision before (a pull's first blow may land before
@@ -866,19 +881,67 @@ void Animus::Curriculum::PullsEncounter::Reward(Env& env, uint32 seatIndex, Play
         if (pulls.PullEngaged && pulls.PullEngageMs == env.EpisodeElapsedMs && pullHealth > 0.0f)
         {
             bool const usesMana = bot->GetMaxPower(POWER_MANA) > 0;
-            float const ready = usesMana ? std::min(pull.ReadyHealth, pull.ReadyMana) : pull.ReadyHealth;
+            float ready = usesMana ? std::min(pull.ReadyHealth, pull.ReadyMana) : pull.ReadyHealth;
             ++pull.PullsEngaged;
             pull.EngageHealthSum += pull.ReadyHealth;
             pull.EngageManaSum += pull.ReadyMana;
             if (pull.ReadyHealth < READY_LOW_HEALTH || (usesMana && pull.ReadyMana < READY_LOW_MANA))
                 ++pull.PullsStartedLow;
+
+            // A seat that started the pull answers for the party's readiness too: the lowest health and mana
+            // (mana users only) among the living teammates and the owner, kept from the decision before as its
+            // own are. A tank that pulls while the healer is still drinking used to pay nothing but the damage
+            // that followed. Not when the owner pulled: a player who pulls without waiting is the owner's to be,
+            // and the seats fighting what it brought did not choose the moment. The teammates are the seat's own
+            // group (the line PartyEncounter::View draws): a raid is not a bigger party, and the lowest of forty
+            // seats would nearly always be low.
+            Player* owner = _scenario.Owner(env);
+            uint32 const groupFirst = seatIndex / GROUP_SEATS * GROUP_SEATS;
+            uint32 const groupEnd = std::min(_scenario.SeatCount(), groupFirst + GROUP_SEATS);
+            if (!pulls.PulledByOwner && pulls.PulledBySeat[seatIndex])
+            {
+                float lowestHealth = 1.0f;
+                float lowestMana = 1.0f;
+                for (uint32 other = groupFirst; other < groupEnd; ++other)
+                {
+                    Player const* member = other == seatIndex ? nullptr : env.FindBot(other);
+                    if (!member || !member->IsAlive() || !_scenario.Data(env).Seats[other].L)
+                        continue;
+                    // ReadyMana is 1 for a seat without mana, as ManaFraction is for the owner.
+                    lowestHealth = std::min(lowestHealth, pulls.Seats[other].ReadyHealth);
+                    lowestMana = std::min(lowestMana, pulls.Seats[other].ReadyMana);
+                }
+                if (owner && owner->IsAlive())
+                {
+                    lowestHealth = std::min(lowestHealth, HealthFraction(owner));
+                    lowestMana = std::min(lowestMana, ManaFraction(owner));
+                }
+                if (lowestHealth < READY_LOW_HEALTH || lowestMana < READY_LOW_MANA)
+                    ++pull.PullsPulledUnready;
+                ready = std::min({ ready, lowestHealth, lowestMana });
+            }
             ledger.Add(RewardTerm::Readiness,
                 (SoloGauntlet(env) ? tuning.SoloGauntletReadiness : tuning.OwnerReadiness) * ready);
 
-            // Buffs up when the pull starts: the layout's buff groups on the seat, and on the owner with one.
+            // Buffs up when the pull starts: the layout's buff groups on the seat, the owner and every living
+            // teammate of its group, averaged. A seat sees its teammates' coverage (SupportBlock) and used to earn
+            // nothing for filling it.
             float coverage = SupportBlock::BuffCoverage(*seat.L, bot);
-            if (Player* owner = _scenario.Owner(env); owner && owner->IsAlive())
-                coverage = 0.5f * (coverage + SupportBlock::BuffCoverage(*seat.L, owner));
+            uint32 covered = 1;
+            if (owner && owner->IsAlive())
+            {
+                coverage += SupportBlock::BuffCoverage(*seat.L, owner);
+                ++covered;
+            }
+            for (uint32 other = groupFirst; other < groupEnd; ++other)
+            {
+                Player const* member = other == seatIndex ? nullptr : env.FindBot(other);
+                if (!member || !member->IsAlive() || !_scenario.Data(env).Seats[other].L)
+                    continue;
+                coverage += SupportBlock::BuffCoverage(*seat.L, member);
+                ++covered;
+            }
+            coverage /= float(covered);
             pull.BuffCoverageSum += coverage;
             ledger.Add(RewardTerm::Readiness, _scenario.Tuning().Support.BuffCoverage * coverage);
 
