@@ -415,7 +415,7 @@ that:
   back),
 - extends or merges a stage that isn't an earlier valid stage, merges its base or the same stage twice, or merges
   without extending,
-- has no arenas, more than `MAX_ARENAS` (8), or two arenas with the same name,
+- has no arenas, more than `MAX_ARENAS` (12), or two arenas with the same name,
 - has an inconsistent arena:
   - a pull schedule without pulls, or pulls without a schedule
   - pulls without `pack`, or a gauntlet without `gauntlet`

@@ -410,7 +410,7 @@ Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
   "seed_chain": ["stage15_stealth", "stage14_hide", "..."],
   "merges": ["stage11_endurance"],
   "director_agents": [], "cast": [],
-  "state": {"arena_first": 14, "arena_count": 8},
+  "state": {"arena_first": 14, "arena_count": 12},
   "models": {"warrior_tank": "warrior_tank_companion", "...": "..."},
   "layouts": {"warrior_tank": {"obs_dim": "...", "num_actions": "...",
               "blocks": [{"name": "core", "obs": [0, "..."], "actions": [0, "..."]}, "..."]}},
