@@ -132,6 +132,9 @@ bool Animus::Curriculum::HazardEncounter::Build(Env& env, Map* map, uint8 level)
     if (!emitter)
         return false;
 
+    // Into the env's own phase, as an opponent is (Opponents::SummonOpponent): a summon with no summoner is
+    // created in the world's phase, which no env's bots stand in.
+    emitter->SetPhaseMask(first->GetPhaseMask(), true);
     emitter->SetFaction(EMITTER_FACTION);
     // Unattackable and immune, so it can never be killed and the episode can never be won; not NOT_SELECTABLE,
     // because the seat is handed it as a target and the encoders read it. Staying alive is what keeps the
