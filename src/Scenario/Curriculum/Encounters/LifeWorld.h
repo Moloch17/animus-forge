@@ -107,6 +107,7 @@ namespace Animus::Curriculum::LifeWorld
     {
         uint32 Id = 0;
         uint32 Band = 0;
+        uint32 MinLevel = 0;                    // the quest's; the episode's level is at least this
         Side For = Side::Any;
         Spawn const* Giver = nullptr;
         Spawn const* Ender = nullptr;

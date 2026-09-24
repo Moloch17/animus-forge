@@ -565,7 +565,8 @@ namespace
         // this used to issue is gone -- the scripted policy crosses ground the same way a learned one has to, by
         // looking where it is going and holding forward, so that "beat the baseline" still means something on a
         // stage about movement.
-        if (row.Has(BlockId::Travel) && row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE) > 0.0f)
+        // Not while something is on the seat: a quest's creature met on the way is fought, then the trip goes on.
+        if (!hasTarget && row.Has(BlockId::Travel) && row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE) > 0.0f)
         {
             float const yards = row.Obs(BlockId::Travel, TravelBlock::OBS_OBJECTIVE_DISTANCE) * 500.0f;
             float const height = row.Obs(BlockId::Travel, TravelBlock::OBS_HEIGHT) * 50.0f;
@@ -808,10 +809,15 @@ int32 Animus::Curriculum::Baselines::Choose(std::string const& policy, Layout co
             return *here;
         if (std::optional<int32> action = Fight(row, layout))
             return *action;
-        if (std::optional<int32> ability = PetDamage(row, layout))
-            return *ability;
-        if (std::optional<int32> spell = Rotation(row, layout))
-            return *spell;
+        // The rotation only with something to hit: without a target its self-cast spells are all that is
+        // allowed, and a warlock's Life Tap, cast on repeat, kills it.
+        if (row.Obs(BlockId::Core, CoreBlock::OBS_TARGET_HEALTH) > 0.0f)
+        {
+            if (std::optional<int32> ability = PetDamage(row, layout))
+                return *ability;
+            if (std::optional<int32> spell = Rotation(row, layout))
+                return *spell;
+        }
         if (std::optional<int32> go = LifeGo(row))
             return *go;
         return 0;

@@ -463,7 +463,8 @@ namespace Animus::Curriculum
         /// What an encounter fixed for this episode before its seats were built (Encounter::BeforeLevel): the map
         /// the seats are placed on (0 = the stage's), their level (0 = drawn), the instance difficulty they open it
         /// at, and where they spawn (an instance's front door). Cleared when the arena is drawn.
-        uint32 EpisodeMapId = 0;
+        uint32 EpisodeMapId = 0;            // read only when HasEpisodeMap: Eastern Kingdoms is map 0
+        bool HasEpisodeMap = false;
         uint8 EpisodeLevel = 0;
         /// The side the episode wants its seats on (TeamId + 1; 0: any): a quest or a town belongs to one. The race
         /// draw honours it, and a kept character of the other side is rebuilt.

@@ -385,12 +385,15 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     if (_stage.AnyArena(hasInstance))
         instance = add(std::make_unique<InstanceEncounter>(*this, envs));
     // Life outside the fight: each fixes its own map and spawn (BeforeLevel), builds after the seat is placed.
+    Encounter* quest = nullptr;
+    Encounter* gather = nullptr;
+    Encounter* town = nullptr;
     if (_stage.AnyArena(hasQuest))
-        add(std::make_unique<QuestEncounter>(*this, envs));
+        quest = add(std::make_unique<QuestEncounter>(*this, envs));
     if (_stage.AnyArena(hasGather))
-        add(std::make_unique<GatherEncounter>(*this, envs));
+        gather = add(std::make_unique<GatherEncounter>(*this, envs));
     if (_stage.AnyArena(hasTown))
-        add(std::make_unique<TownEncounter>(*this, envs));
+        town = add(std::make_unique<TownEncounter>(*this, envs));
     if (_stage.AnyArena(hasPulls))
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
     if (_stage.AnyArena(hasCreature))
@@ -419,8 +422,8 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     // The order episode info columns and reward terms are listed in. An encounter left out of this list still
     // runs -- it is only the columns and the terms that are missed -- which is how hazard_patches went missing
     // while the drill around it worked.
-    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, instance, hazards, _owner,
-        _party, opponent, ambush, travel, flag, director })
+    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, instance, quest, gather, town,
+        hazards, _owner, _party, opponent, ambush, travel, flag, director })
         if (encounter)
             _rewardOrder.push_back(encounter);
 
@@ -436,6 +439,8 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
                 || (encounter == travel && hasTravel(arena)) || (encounter == flag && hasFlag(arena))
                 || (encounter == hazards && hasHazards(arena))
                 || (encounter == instance && hasInstance(arena))
+                || (encounter == quest && hasQuest(arena)) || (encounter == gather && hasGather(arena))
+                || (encounter == town && hasTown(arena))
                 || (encounter == director && directed(arena));
         };
 
@@ -550,8 +555,8 @@ std::vector<Position> const& Animus::Curriculum::StageScenario::SpawnGroundFor(E
 
 uint32 Animus::Curriculum::StageScenario::EpisodeMapId(Env const& env) const
 {
-    uint32 const fixed = Data(env).EpisodeMapId;
-    return fixed ? fixed : _spawnMapId;
+    EnvState const& data = Data(env);
+    return data.HasEpisodeMap ? data.EpisodeMapId : _spawnMapId;
 }
 
 Position const& Animus::Curriculum::StageScenario::SpawnPointFor(Env const& env) const
@@ -1540,6 +1545,7 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     std::vector<Encounter*> const previousEncounters = ActiveEncounters(env);
     data.Arena = DrawArena();
     data.EpisodeMapId = 0;
+    data.HasEpisodeMap = false;
     data.EpisodeLevel = 0;
     data.EpisodeTeam = 0;
     data.DungeonDifficulty = 0;

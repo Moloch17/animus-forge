@@ -24,6 +24,7 @@
 #include "ItemTemplate.h"
 #include "Log.h"
 #include "Map.h"
+#include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "SeatView.h"
@@ -49,6 +50,26 @@ namespace
     /// The NPCs a town episode copies into the phase: whoever a player trades with.
     constexpr uint32 TOWN_NPC_FLAGS = UNIT_NPC_FLAG_VENDOR_MASK | UNIT_NPC_FLAG_VENDOR_FOOD | UNIT_NPC_FLAG_REPAIR
         | UNIT_NPC_FLAG_INNKEEPER;
+    /// How far a missing repairer or food vendor is fetched from, and how far from the inn it is stood.
+    constexpr float MISSING_TRADER_REACH = 1500.0f;
+    constexpr float MISSING_TRADER_YARDS = 8.0f;
+
+    /// Whether the creature template's vendor list has food or drink a character of `level` can use.
+    bool SellsFood(uint32 entry, uint8 level)
+    {
+        VendorItemData const* items = sObjectMgr->GetNpcVendorItemList(entry);
+        if (!items)
+            return false;
+        for (uint32 slot = 0; slot < items->GetItemCount(); ++slot)
+        {
+            VendorItem const* item = items->GetItem(slot);
+            ItemTemplate const* proto = item ? sObjectMgr->GetItemTemplate(item->item) : nullptr;
+            if (proto && proto->Class == ITEM_CLASS_CONSUMABLE && proto->SubClass == ITEM_SUBCLASS_FOOD
+                && proto->RequiredLevel <= level && !item->ExtendedCost)
+                return true;
+        }
+        return false;
+    }
 
     /// Grey items with a vendor price, once: what the seat arrives with.
     std::vector<uint32> const& JunkItems()
@@ -163,6 +184,7 @@ bool Animus::Curriculum::TownEncounter::Place(Env& env, EnvLife& life)
     town.Inn = inn->Entry;
     EnvState& data = _scenario.Data(env);
     data.EpisodeMapId = inn->Map;
+    data.HasEpisodeMap = true;
     data.EpisodeSpawn.Relocate(inn->Pos);
     data.HasEpisodeSpawn = true;
     return true;
@@ -192,6 +214,49 @@ bool Animus::Curriculum::TownEncounter::Build(Env& env, Map* map, uint8 level)
     if (!town.Npcs)
         return false;
 
+    // A town is only a town with someone to repair and someone selling food and drink: when the inn's radius
+    // holds neither, the nearest such trader of the map is copied in beside the inn.
+    bool repairer = false;
+    bool supplier = false;
+    for (ObjectGuid const& guid : life.Spawned)
+        if (Creature* npc = guid.IsCreature() ? ObjectAccessor::GetCreature(*bot, guid) : nullptr)
+        {
+            repairer = repairer || npc->HasNpcFlag(UNIT_NPC_FLAG_REPAIR);
+            supplier = supplier || WorldActions::SellsSupplies(bot, npc);
+        }
+    if (!repairer || !supplier)
+    {
+        std::vector<LifeWorld::Spawn const*> far;
+        LifeWorld::SpawnIndex::Instance().CreaturesNear(map->GetId(), bot->GetPositionX(), bot->GetPositionY(),
+            MISSING_TRADER_REACH, far);
+        for (LifeWorld::Spawn const* spawn : far)
+        {
+            if (repairer && supplier)
+                break;
+            CreatureTemplate const* info = sObjectMgr->GetCreatureTemplate(spawn->Entry);
+            if (!info || !LifeWorld::IsWorldCreature(*spawn, true))
+                continue;
+            bool const wantRepairer = !repairer && (info->npcflag & UNIT_NPC_FLAG_REPAIR);
+            bool const wantSupplier = !supplier && (info->npcflag & UNIT_NPC_FLAG_VENDOR_MASK)
+                && SellsFood(spawn->Entry, level);
+            if (!wantRepairer && !wantSupplier)
+                continue;
+            LifeWorld::Spawn beside = *spawn;
+            float const side = repairer ? -1.0f : 1.0f;
+            beside.Pos.Relocate(bot->GetPositionX() + side * MISSING_TRADER_YARDS, bot->GetPositionY(),
+                bot->GetPositionZ(), bot->GetOrientation());
+            if (Creature* npc = Summon(env, life, map, beside))
+            {
+                ++town.Npcs;
+                repairer = repairer || wantRepairer;
+                supplier = supplier || wantSupplier;
+                LOG_INFO("module.animus", "{}: env {}: {} ({}) brought to the inn ({} / {})", _scenario.Name(),
+                    env.Index, npc->GetName(), npc->GetEntry(), wantRepairer ? "repairs" : "-",
+                    wantSupplier ? "food" : "-");
+            }
+        }
+    }
+
     // What the seat arrives with: gold for the level, junk, damaged gear, one food and one drink, upgrades.
     bot->SetMoney(uint32(level) * uint32(level) * tuning.TownCopperPerLevelSquared);
     std::vector<uint32> const& junk = JunkItems();
@@ -210,7 +275,15 @@ bool Animus::Curriculum::TownEncounter::Build(Env& env, Map* map, uint8 level)
     for (uint32 i = 0; i < UPGRADES; ++i)
         if (ItemTemplate const* proto = FindUpgrade(env, bot, stats, SALT_UPGRADE + i))
             if (StoreInBags(bot, proto->ItemId, 1))
-                ++town.Upgrades;
+            {
+                // Only an upgrade the seat can put on counts: the template says wearable, the item says equippable.
+                Item* stored = bot->GetItemByEntry(proto->ItemId);
+                uint16 dest = 0;
+                if (stored && bot->CanEquipItem(NULL_SLOT, dest, stored, true) == EQUIP_ERR_OK)
+                    ++town.Upgrades;
+                else
+                    bot->DestroyItemCount(proto->ItemId, 1, true);
+            }
 
     return true;
 }

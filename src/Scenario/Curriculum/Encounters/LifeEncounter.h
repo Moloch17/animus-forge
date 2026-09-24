@@ -71,6 +71,7 @@ namespace Animus::Curriculum
             bool OutcomePaid = false;
             bool Won = false;                   // the episode's goal was reached (the subclass says when)
             bool Done = false;                  // the episode is over for a reason of its own
+            uint32 Draws = 0;
             uint32 Interactions = 0;
             uint32 Wasted = 0;
             uint32 WastedPaid = 0;
@@ -93,11 +94,11 @@ namespace Animus::Curriculum
         /// The subclass's terms for a decision, after the shared ones.
         virtual void RewardMore(Env& env, EnvLife& life, Player* bot, RewardLedger& ledger) = 0;
         /// The subclass's accounting of what a press did (the shared counters are kept here).
-        virtual void Account(Env& env, EnvLife& life, SeatActionResult const& result) { }
+        virtual void Account(Env& /*env*/, EnvLife& /*life*/, SeatActionResult const& /*result*/) { }
         /// Whether the episode's goal is reached and the episode over.
         [[nodiscard]] virtual bool Finished(Env const& env, EnvLife const& life) const = 0;
         /// The subclass's columns.
-        virtual void AddMoreEpisodeInfo(EpisodeInfoTable& table) { }
+        virtual void AddMoreEpisodeInfo(EpisodeInfoTable& /*table*/) { }
 
         /// Point the waypoint somewhere (the potential restarts when its kind changes).
         static void SetWaypoint(EnvLife& life, uint8 kind, Position const& where);

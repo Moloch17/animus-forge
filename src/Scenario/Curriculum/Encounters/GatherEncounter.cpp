@@ -81,6 +81,7 @@ bool Animus::Curriculum::GatherEncounter::Place(Env& env, EnvLife& life)
     gather.Ground = &grounds[LifeWorld::Draw(env, uint32(grounds.size()), SALT_GROUND)];
     EnvState& data = _scenario.Data(env);
     data.EpisodeMapId = gather.Ground->Map;
+    data.HasEpisodeMap = true;
     data.EpisodeSpawn.Relocate(gather.Ground->X, gather.Ground->Y, gather.Ground->Z, 0.0f);
     data.HasEpisodeSpawn = true;
     return true;

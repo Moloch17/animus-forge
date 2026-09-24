@@ -43,6 +43,8 @@
 
 namespace
 {
+    /// How far from its spawn a boss is looked for by entry.
+    constexpr float BOSS_SEARCH_YARDS = 100.0f;
     /// Legs of the entrance-to-boss path: PathGenerator stops at MAX_POINT_PATH_LENGTH points (~296 yd), and the
     /// deepest boss of a raid is a few of those from the door.
     constexpr uint32 PATH_LEGS = 16;
@@ -176,6 +178,7 @@ void Animus::Curriculum::InstanceEncounter::BeforeLevel(Env& env)
     fight.Entry = fight.Row->Entry;
 
     data.EpisodeMapId = fight.Row->MapId;
+    data.HasEpisodeMap = true;
     data.EpisodeLevel = fight.Row->Level;
     MapEntry const* mapEntry = sMapStore.LookupEntry(fight.Row->MapId);
     bool const raid = mapEntry && mapEntry->IsRaid();
@@ -197,7 +200,7 @@ std::vector<Animus::Curriculum::BossRow const*> const& Animus::Curriculum::Insta
     return rows == _rows.end() ? none : rows->second;
 }
 
-Creature* Animus::Curriculum::InstanceEncounter::FindBoss(Map* map, BossRow const& row) const
+Creature* Animus::Curriculum::InstanceEncounter::FindBoss(Map* map, BossRow const& row, WorldObject const* anchor) const
 {
     CreatureData const* spawn = FindSpawn(row);
     if (!spawn || !map)
@@ -213,6 +216,39 @@ Creature* Animus::Curriculum::InstanceEncounter::FindBoss(Map* map, BossRow cons
         for (auto it = range.first; it != range.second; ++it)
             if (it->second)
                 return it->second;
+    }
+
+    // Not in the spawn-id store: the cells around its spawn, by entry (a boss its script re-summons, or one the
+    // grid holds under another spawn).
+    Position const at(spawn->posX, spawn->posY, spawn->posZ);
+    std::list<Creature*> found;
+    auto const check = [&row](Creature* creature) { return creature->GetEntry() == row.Entry; };
+    Acore::CreatureListSearcher<decltype(check)> searcher(anchor, found, check);
+    Cell::VisitObjects(spawn->posX, spawn->posY, map, searcher, BOSS_SEARCH_YARDS);
+    for (Creature* creature : found)
+        if (creature && creature->GetExactDist2d(&at) <= BOSS_SEARCH_YARDS)
+            return creature;
+
+    // Gone: the core's dynamic respawn removes a dead creature outright and brings it back on its own clock, which
+    // the sim does not wait for. Its row is loaded again, alive, the way the grid loaded it the first time.
+    ObjectGuid::LowType spawnId = 0;
+    for (auto const& [id, data] : sObjectMgr->GetAllCreatureData())
+        if (&data == spawn)
+        {
+            spawnId = id;
+            break;
+        }
+    if (spawnId)
+    {
+        map->RemoveRespawnTime(SPAWN_TYPE_CREATURE, spawnId);
+        Creature* creature = new Creature();
+        if (creature->LoadCreatureFromDB(spawnId, map, true, false))
+        {
+            LOG_INFO("module.animus", "{}: {} ({}) reloaded into instance {} of map {}", _scenario.Name(), row.Name,
+                row.Entry, map->GetInstanceId(), map->GetId());
+            return creature;
+        }
+        delete creature;
     }
 
     return nullptr;
@@ -234,8 +270,15 @@ Position Animus::Curriculum::InstanceEncounter::EngagePoint(Env const& env, Map*
     // EngageYards: that is where a raid that came in the front stands, on its side of the trash it never pulled.
     std::vector<G3D::Vector3> points;
     Position cursor(seat->GetPositionX(), seat->GetPositionY(), seat->GetPositionZ());
+    // On the ground: an entrance trigger's arrival point can hang above the floor by more than the navmesh
+    // query tolerates.
+    map->LoadGrid(cursor.GetPositionX(), cursor.GetPositionY());
+    if (float const floor = map->GetHeight(seat->GetPhaseMask(), cursor.GetPositionX(), cursor.GetPositionY(),
+        cursor.GetPositionZ() + 5.0f, true, 50.0f); floor > INVALID_HEIGHT)
+        cursor.m_positionZ = floor;
     points.emplace_back(cursor.GetPositionX(), cursor.GetPositionY(), cursor.GetPositionZ());
     bool complete = false;
+    PathType lastType = PATHFIND_BLANK;
     for (uint32 leg = 0; leg < PATH_LEGS && !complete; ++leg)
     {
         map->LoadGrid(cursor.GetPositionX(), cursor.GetPositionY());
@@ -243,6 +286,7 @@ Position Animus::Curriculum::InstanceEncounter::EngagePoint(Env const& env, Map*
         path.CalculatePath(cursor.GetPositionX(), cursor.GetPositionY(), cursor.GetPositionZ(), goal.GetPositionX(),
             goal.GetPositionY(), goal.GetPositionZ(), false);
         PathType const type = path.GetPathType();
+        lastType = type;
         if (type & PATHFIND_NOPATH || path.GetPath().size() < 2)
             break;
 
@@ -291,8 +335,9 @@ Position Animus::Curriculum::InstanceEncounter::EngagePoint(Env const& env, Map*
         map->LoadGrid(engage.GetPositionX(), engage.GetPositionY());
         engage.m_positionZ = map->GetHeight(seat->GetPhaseMask(), engage.GetPositionX(), engage.GetPositionY(),
             goal.GetPositionZ() + 5.0f, true, 50.0f);
-        LOG_WARN("module.animus", "{}: no path from the door to {} ({}) on map {}; standing in front of it",
-            _scenario.Name(), row.Name, row.Entry, row.MapId);
+        LOG_WARN("module.animus", "{}: no path from the door to {} ({}) on map {} (from ({:.0f} {:.0f} {:.0f}), {} "
+            "points, last leg type {}); standing in front of it", _scenario.Name(), row.Name, row.Entry, row.MapId,
+            seat->GetPositionX(), seat->GetPositionY(), seat->GetPositionZ(), points.size(), uint32(lastType));
     }
     engage.SetOrientation(engage.GetAngle(&goal));
     engagePoints[key] = engage;
@@ -306,7 +351,7 @@ bool Animus::Curriculum::InstanceEncounter::Build(Env& env, Map* map, uint8 /*le
         return false;
 
     Player* seat = _scenario.SeatBot(env, 0);
-    Creature* boss = FindBoss(map, *fight.Row);
+    Creature* boss = seat ? FindBoss(map, *fight.Row, seat) : nullptr;
     if (!seat || !boss)
     {
         LOG_ERROR("module.animus", "{}: env {}: {} ({}) is not in instance {} of map {}", _scenario.Name(), env.Index,

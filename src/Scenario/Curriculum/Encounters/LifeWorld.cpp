@@ -18,6 +18,7 @@
 
 #include "LifeWorld.h"
 #include "Creature.h"
+#include "DatabaseEnv.h"
 #include "Env.h"
 #include "GameObject.h"
 #include "Log.h"
@@ -47,10 +48,12 @@ namespace
     constexpr uint32 HORDE_RACES = (1u << (RACE_ORC - 1)) | (1u << (RACE_UNDEAD_PLAYER - 1)) | (1u << (RACE_TAUREN - 1))
         | (1u << (RACE_TROLL - 1)) | (1u << (RACE_BLOODELF - 1));
 
-    /// How far a quest may reach: the turn-in from the giver, and each objective's place from the giver. An
-    /// episode is 300 s; a seat walks 7 yd/s.
-    constexpr float QUEST_ENDER_REACH = 400.0f;
-    constexpr float QUEST_OBJECTIVE_REACH = 500.0f;
+    /// How far a quest may reach, per band: the turn-in from the giver, and each objective's place from the
+    /// giver. A 300 s episode on foot covers about 2,000 yards; the upper bands ride, and their quests are given
+    /// further from where they are done.
+    constexpr std::array<float, 3> QUEST_REACH = { 800.0f, 1200.0f, 1600.0f };
+    /// How close an objective's spawns count as one place.
+    constexpr float OBJECTIVE_CLUSTER_YARDS = 60.0f;
     /// A POI point's place gets its height from the creature spawns around it.
     constexpr float POI_HEIGHT_RADIUS = 60.0f;
 
@@ -214,14 +217,14 @@ Animus::Curriculum::LifeWorld::QuestSet::QuestSet()
     for (auto const& [creature, quest] : *sObjectMgr->GetCreatureQuestInvolvedRelationMap())
         enders[quest].push_back(creature);
 
-    auto const nearestSpawn = [&spawns](std::vector<uint32> const& entries, Position const* near, uint32 map)
-        -> Spawn const*
+    auto const nearestSpawn = [&spawns](std::vector<uint32> const& entries, Position const* near, uint32 map,
+        float reach) -> Spawn const*
     {
         Spawn const* best = nullptr;
         for (uint32 entry : entries)
             for (Spawn const* spawn : spawns.CreaturesOfEntry(entry))
             {
-                if (near && (spawn->Map != map || spawn->Pos.GetExactDist2d(near) > QUEST_ENDER_REACH))
+                if (near && (spawn->Map != map || spawn->Pos.GetExactDist2d(near) > reach))
                     continue;
                 if (!best || (near && spawn->Pos.GetExactDist2d(near) < best->Pos.GetExactDist2d(near)))
                     best = spawn;
@@ -229,8 +232,61 @@ Animus::Curriculum::LifeWorld::QuestSet::QuestSet()
         return best;
     };
 
-    uint32 dropped = 0;
-    std::vector<Spawn const*> around;
+    // Item -> the creatures whose loot carries it for a quest: the objective of a collect quest is where they
+    // live. The loot table is keyed by loot id, which the creature template maps to its entries.
+    std::unordered_map<uint32, std::vector<uint32>> lootCreatures;
+    for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
+        if (creature.lootid)
+            lootCreatures[creature.lootid].push_back(entry);
+    std::unordered_map<uint32, std::vector<uint32>> droppers;
+    if (QueryResult result = WorldDatabase.Query(
+        "SELECT Entry, Item FROM creature_loot_template WHERE QuestRequired = 1"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            auto const found = lootCreatures.find(fields[0].Get<uint32>());
+            if (found == lootCreatures.end())
+                continue;
+            std::vector<uint32>& entries = droppers[fields[1].Get<uint32>()];
+            entries.insert(entries.end(), found->second.begin(), found->second.end());
+        } while (result->NextRow());
+    }
+
+    // An objective's place: the spawn of its creatures, within reach of the giver, with the most of them around
+    // it (the nearest to the giver among equals). A real spawn point, so something is always there.
+    auto const placeOf = [&spawns](std::vector<uint32> const& entries, Spawn const& giver, float reach,
+        Position& place)
+    {
+        std::vector<Spawn const*> near;
+        for (uint32 entry : entries)
+            for (Spawn const* spawn : spawns.CreaturesOfEntry(entry))
+                if (spawn->Map == giver.Map && spawn->Pos.GetExactDist2d(&giver.Pos) <= reach)
+                    near.push_back(spawn);
+        if (near.empty())
+            return false;
+        Spawn const* best = nullptr;
+        std::size_t bestAround = 0;
+        for (Spawn const* spawn : near)
+        {
+            std::size_t around = 0;
+            for (Spawn const* other : near)
+                if (other->Pos.GetExactDist2d(&spawn->Pos) <= OBJECTIVE_CLUSTER_YARDS)
+                    ++around;
+            if (!best || around > bestAround || (around == bestAround
+                && spawn->Pos.GetExactDist2d(&giver.Pos) < best->Pos.GetExactDist2d(&giver.Pos)))
+            {
+                best = spawn;
+                bestAround = around;
+            }
+        }
+        place.Relocate(best->Pos);
+        return true;
+    };
+
+    std::array<uint32, BAND_COUNT> reached = {};
+    std::array<uint32, BAND_COUNT> enderFar = {};
+    std::array<uint32, BAND_COUNT> objectiveFar = {};
     for (auto const& [id, quest] : sObjectMgr->GetQuestTemplates())
     {
         // Kill or collect, and nothing that needs an event, a spell, a repeat, a day, a flag or a prerequisite.
@@ -286,65 +342,50 @@ Animus::Curriculum::LifeWorld::QuestSet::QuestSet()
         auto const ender = enders.find(id);
         if (starter == starters.end() || ender == enders.end())
             continue;
-        Spawn const* giver = nearestSpawn(starter->second, nullptr, 0);
+        float const reach = QUEST_REACH[band];
+        Spawn const* giver = nearestSpawn(starter->second, nullptr, 0, reach);
         if (!giver)
             continue;
-        Spawn const* turnIn = nearestSpawn(ender->second, &giver->Pos, giver->Map);
+        ++reached[band];
+        Spawn const* turnIn = nearestSpawn(ender->second, &giver->Pos, giver->Map, reach);
         if (!turnIn)
         {
-            ++dropped;
+            ++enderFar[band];
             continue;
         }
 
-        // The objectives' places: the POI table, one entry per objective index, its points averaged. Every
-        // place has to be on the giver's map and within reach of it.
-        QuestPOIVector const* pois = sObjectMgr->GetQuestPOIVector(id);
-        if (!pois)
-            continue;
+        // The objectives' places: the creatures to kill, and the creatures that drop what is to be collected.
         QuestCandidate candidate;
         bool reachable = true;
-        for (QuestPOI const& poi : *pois)
+        for (uint32 i = 0; i < QUEST_OBJECTIVES_COUNT && reachable; ++i)
         {
-            if (poi.ObjectiveIndex < 0 || poi.points.empty())
+            if (quest->RequiredNpcOrGo[i] <= 0 || quest->RequiredNpcOrGoCount[i] == 0)
                 continue;
-            if (poi.MapId != giver->Map)
-            {
+            Position place;
+            if (placeOf({ uint32(quest->RequiredNpcOrGo[i]) }, *giver, reach, place))
+                candidate.Objectives.push_back(place);
+            else
                 reachable = false;
-                break;
-            }
-            double x = 0.0;
-            double y = 0.0;
-            for (QuestPOIPoint const& point : poi.points)
-            {
-                x += point.x;
-                y += point.y;
-            }
-            x /= double(poi.points.size());
-            y /= double(poi.points.size());
-            if (giver->Pos.GetExactDist2d(float(x), float(y)) > QUEST_OBJECTIVE_REACH)
-            {
+        }
+        for (uint32 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT && reachable; ++i)
+        {
+            if (!quest->RequiredItemId[i] || !quest->RequiredItemCount[i])
+                continue;
+            auto const source = droppers.find(quest->RequiredItemId[i]);
+            Position place;
+            if (source != droppers.end() && placeOf(source->second, *giver, reach, place))
+                candidate.Objectives.push_back(place);
+            else
                 reachable = false;
-                break;
-            }
-            // The height: the creature spawns around the place say where the ground is; the giver's otherwise.
-            spawns.CreaturesNear(giver->Map, float(x), float(y), POI_HEIGHT_RADIUS, around);
-            float z = giver->Pos.GetPositionZ();
-            if (!around.empty())
-            {
-                double sum = 0.0;
-                for (Spawn const* spawn : around)
-                    sum += spawn->Pos.GetPositionZ();
-                z = float(sum / double(around.size()));
-            }
-            candidate.Objectives.emplace_back(float(x), float(y), z, 0.0f);
         }
         if (!reachable || candidate.Objectives.empty())
         {
-            ++dropped;
+            ++objectiveFar[band];
             continue;
         }
 
         candidate.Id = id;
+        candidate.MinLevel = uint32(quest->GetMinLevel());
         candidate.Band = band;
         candidate.For = side;
         candidate.Giver = giver;
@@ -368,9 +409,10 @@ Animus::Curriculum::LifeWorld::QuestSet::QuestSet()
     }
 
     for (uint32 band = 0; band < BAND_COUNT; ++band)
-        LOG_INFO("module.animus", "Life world: band {}-{} has {} alliance and {} horde quests ({} dropped for reach)",
-            BANDS[band].Min, BANDS[band].Max, For(band, Side::Alliance).size(), For(band, Side::Horde).size(),
-            dropped);
+        LOG_INFO("module.animus", "Life world: band {}-{} has {} alliance and {} horde quests of {} eligible "
+            "({} turn-ins and {} objectives beyond {:.0f} yards)", BANDS[band].Min, BANDS[band].Max,
+            For(band, Side::Alliance).size(), For(band, Side::Horde).size(), reached[band], enderFar[band],
+            objectiveFar[band], QUEST_REACH[band]);
 }
 
 std::vector<Animus::Curriculum::LifeWorld::QuestCandidate const*> const&

@@ -44,6 +44,7 @@ class Battleground;
 struct CreatureData;
 class Group;
 class Map;
+class WorldObject;
 
 /*
  * The encounters a StageDefinition can ask for (see Encounter). Each keeps its state per env, sized at construction.
@@ -471,7 +472,7 @@ namespace Animus::Curriculum
 
         [[nodiscard]] std::vector<BossRow const*> const& Rows(Env const& env) const;
         [[nodiscard]] static CreatureData const* FindSpawn(BossRow const& row);
-        [[nodiscard]] Creature* FindBoss(Map* map, BossRow const& row) const;
+        [[nodiscard]] Creature* FindBoss(Map* map, BossRow const& row, WorldObject const* anchor) const;
         [[nodiscard]] Position EngagePoint(Env const& env, Map* map, Player* seat, Creature* boss) const;
         [[nodiscard]] float TierScale(Env const& env) const;
         [[nodiscard]] static bool TimeIsUp(Env const& env);

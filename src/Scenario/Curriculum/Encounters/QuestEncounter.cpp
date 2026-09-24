@@ -38,7 +38,7 @@ namespace
 
     constexpr uint32 SALT_QUEST = 17;
     /// Where the seat stands at the start: a few yards in front of the giver, facing it.
-    constexpr float START_YARDS = 4.0f;
+    constexpr float START_YARDS = 1.5f;     // close: a giver on a ledge or a stair has no ground four yards out
     /// A living objective creature this near replaces the objective's place as the waypoint.
     constexpr float OBJECTIVE_SIGHT = 120.0f;
 
@@ -93,9 +93,13 @@ bool Animus::Curriculum::QuestEncounter::Place(Env& env, EnvLife& life)
     if (candidates->empty())
         return false;
 
-    quest.Quest = (*candidates)[LifeWorld::Draw(env, uint32(candidates->size()), SALT_QUEST)];
+    quest.Quest = (*candidates)[LifeWorld::Draw(env, uint32(candidates->size()), SALT_QUEST + life.Draws++)];
     EnvState& data = _scenario.Data(env);
     data.EpisodeMapId = quest.Quest->Giver->Map;
+    data.HasEpisodeMap = true;
+    // The band admits a quest whose minimum level is inside it; the seat's level meets that minimum.
+    if (quest.Quest->MinLevel > data.EpisodeLevel)
+        data.EpisodeLevel = uint8(std::min<uint32>(quest.Quest->MinLevel, DEFAULT_MAX_LEVEL));
     Position const& giver = quest.Quest->Giver->Pos;
     float const facing = giver.GetOrientation();
     data.EpisodeSpawn.Relocate(giver.GetPositionX() + std::cos(facing) * START_YARDS,
@@ -155,6 +159,14 @@ void Animus::Curriculum::QuestEncounter::Update(Env& env)
     quest.Complete = status == QUEST_STATUS_COMPLETE || status == QUEST_STATUS_REWARDED;
     quest.TurnedIn = quest.TurnedIn || status == QUEST_STATUS_REWARDED || bot->GetQuestRewardStatus(quest.Quest->Id);
     quest.Progress = WorldActions::QuestProgress(bot, quest.Quest->Id);
+    if (Quest const* info = sObjectMgr->GetQuestTemplate(quest.Quest->Id))
+    {
+        uint32 kills = 0;
+        for (uint32 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
+            if (info->RequiredNpcOrGo[i] > 0)
+                kills += bot->GetReqKillOrCastCurrentCount(quest.Quest->Id, info->RequiredNpcOrGo[i]);
+        quest.Kills = std::max(quest.Kills, kills);
+    }
 
     // Where the quest wants the seat next: the giver, then the objectives (the nearest living objective creature
     // in sight, else the nearest objective place), then the turn-in.
