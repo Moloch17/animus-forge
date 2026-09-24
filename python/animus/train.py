@@ -34,6 +34,7 @@ import torch
 import yaml
 
 from .bootstrap import DIRECTOR_LAYOUT, seed_merges, seed_trainer
+from .cast import LEAGUE, Cast, league_snapshot
 from .config import TrainConfig
 from .distill import Distiller, auto_teachers, build_teacher
 from .env import ForgeEnv
@@ -471,6 +472,7 @@ class TrainingRun:
             *(f"episode_{name}" for name in spec.episode_info_names),
             "policy_loss", "value_loss", "entropy", "entropy_coef", "clip_frac", "approx_kl",
             "explained_variance", "actor_grad_norm", "critic_grad_norm", "epochs_run", "allowed_actions",
+            "lr_scale", "frozen_layouts", "cast_rows", "cast_fallback_rows", "cast_members", "cast_hardest_win_rate",
             "elapsed_seconds", "update_compute_seconds", "distill_coef", "distill_kl", "distill_rows",
         ]
         if self.trainer.goal_count:
@@ -503,6 +505,8 @@ class TrainingRun:
         # A party seat left empty for an episode reports present = 0; its row is not an episode.
         names = spec.episode_info_names
         self.present_column = names.index("present") if "present" in names else None
+        # The live seats' `won` at an episode's end is what the league scores its members by (animus.cast).
+        self.won_column = names.index("won") if "won" in names else None
         # The update a reward-mix warning was last printed on, so a run that trips it says so without saying it
         # every update for the rest of the run.
         self.reward_warned_at: int | None = None
@@ -524,6 +528,8 @@ class TrainingRun:
         """Resume the run's latest.pt, or seed the fresh networks from the stage this one extends and a merge stage's
         further parents; either way the parents teach a distilled run (self.distiller)."""
         config, spec = self.config, self.spec
+        self.cast: Cast | None = None
+        self.last_snapshot_env_steps = 0
         if self.resume_path:
             checkpoint = torch.load(self.resume_path, map_location="cpu", weights_only=False)
             if mismatch := resume_mismatch(checkpoint.get("spec", {}), asdict(spec)):
@@ -568,6 +574,29 @@ class TrainingRun:
 
         self.distiller = make_distiller(config, spec, self.stage, [p for p in (base, *merged) if p is not None],
                                         self.trainer.train_device)
+
+        # Frozen checkpoints in the seats a script used to play (animus.cast): the far side of self-play arenas,
+        # from the parent the networks seeded from and this run's own league, and any agent the stage declares.
+        cast_config = copy.copy(config.cast)
+        cast_config.agents = config.cast.resolved_agents(config.runs_dir, config.run_name)
+        if cast_config.opponents not in ("", "auto", LEAGUE):
+            cast_config.opponents = cast_config.opponents.format(runs_dir=config.runs_dir, run_name=config.run_name)
+        if cast_config.parent:
+            cast_config.parent = cast_config.parent.format(runs_dir=config.runs_dir, run_name=config.run_name)
+        if cast_config.opponents or cast_config.agents:
+            self.cast = Cast(cast_config, spec, self.stage, self.run_dir, self.trainer.rollout_device, base_path,
+                             seed=config.seed)
+            self.last_snapshot_env_steps = self.env_steps
+            if self.cast.pool is not None:
+                members = [member.path.name for member in self.cast.pool.active()]
+                print(f"Cast opponents ({cast_config.opponents}, share {cast_config.opponent_share:.0%}): "
+                      f"{', '.join(members) or 'nobody yet'}", flush=True)
+                self.cast.pool.write()
+            elif cast_config.opponents:
+                print(f"cast.opponents is {cast_config.opponents!r} but the stage has no self-play arena "
+                      f"(or no parent checkpoint): the live policy plays every seat", flush=True)
+            for agent, actor in self.cast.statics.items():
+                print(f"Cast agent {agent} is played by {actor.path}", flush=True)
 
     @staticmethod
     def seed_candidate(candidates: list[str], prefer: str, spec, auto: bool) -> tuple[Path | None, dict | None]:
@@ -664,6 +693,23 @@ class TrainingRun:
         self.baselines[seed, episodes] = summary
         return summary
 
+    def maybe_league_snapshot(self) -> None:
+        """Every cast.snapshot_every_env_steps the current networks join the league (animus.cast): best.pt alone
+        moves only behind the convergence margin, and a league fed from it alone goes stale."""
+        cast = self.config.cast
+        if (self.cast is None or self.cast.pool is None or cast.opponents != LEAGUE
+                or cast.snapshot_every_env_steps <= 0
+                or self.env_steps - self.last_snapshot_env_steps < cast.snapshot_every_env_steps):
+            return
+        self.last_snapshot_env_steps = self.env_steps
+        latest = self.run_dir / "latest.pt"
+        self._save(latest)
+        if league_snapshot(self.run_dir, latest, f"step_{self.env_steps}") is not None:
+            self.cast.pool.reload()
+            self.cast.pool.write()
+            print(f"League: latest.pt at {self.env_steps} env steps joined ({len(self.cast.pool.active())} members)",
+                  flush=True)
+
     def evaluate(self) -> None:
         """Score the networks on the seeds (and the baseline once per run); the next training STEP becomes current."""
         self.drain_update()
@@ -677,6 +723,9 @@ class TrainingRun:
                                            action_names=self.action_names,
                                            trace_episodes=config.eval.trace_episodes)
         summary = result.summary(self.report)
+        if self.cast is not None:
+            self.cast.reset_all()
+            controller.observe_league(self.cast.league_stats([layout.name for layout in self.spec.layouts]))
         improved = controller.observe(summary, self.env_steps)
         self.eval_log.write(self.update, self.env_steps, result, summary, tracker)
         self.progress.evaluated(self.env_steps, result.score, baseline_summary["score"] if baseline_summary else None,
@@ -693,6 +742,11 @@ class TrainingRun:
 
         if improved:
             self._save(self.best_path)
+            if self.cast is not None and self.cast.pool is not None and config.cast.opponents == LEAGUE:
+                if league_snapshot(self.run_dir, self.best_path, f"best_{self.env_steps}") is not None:
+                    self.cast.pool.reload()
+        if self.cast is not None and self.cast.pool is not None:
+            self.cast.pool.write()
 
         sampled_every = config.eval.sampled_every
         if sampled_every > 0 and len(tracker.history) % sampled_every == 0:
@@ -725,6 +779,8 @@ class TrainingRun:
             config.eval.episodes, config.eval.seed, opponents=self.opponents, arenas=self.arena_names,
             action_names=self.action_names)
         result.policy = "learner_sampled"
+        if self.cast is not None:
+            self.cast.reset_all()
         summary = result.summary(self.report)
         fields = [name for name in ("score", "clean_kill", "killed", "died", "timed_out", "arrived")
                   if name in summary]
@@ -847,6 +903,12 @@ class TrainingRun:
             present = step.present
             if len(self.frozen):
                 present = present & ~np.isin(step.layout, self.frozen)
+            # A cast row (a frozen checkpoint's seat) takes the frozen actor's action and is not a sample either.
+            if self.cast is not None:
+                rows = self.cast.rows(step)
+                if rows.any():
+                    actions = self.cast.act(step, actions, rows)
+                    present = present & ~rows
             buffer.add_decision(step.obs, step.state, step.mask, step.layout, actions, log_probs, values, present,
                                 foresight, memory, goals, critic_memory, chosen)
 
@@ -879,8 +941,11 @@ class TrainingRun:
                 self.finished_episodes.extend(ended[keep])
                 self.finished_layouts.extend(int(index) for index in ended_layouts[keep])
 
-            # A new episode starts with nothing remembered and no goal.
+            # A new episode starts with nothing remembered and no goal; the league scores the ended ones.
             if step.done.any():
+                if self.cast is not None:
+                    self.cast.observe_ended(step, self.won_column)
+                    self.cast.clear(step.done)
                 self.acting.clear(step.done)
 
             buffer.add_outcome(step.reward, step.done, step.terminated, final_values, final_foresight)
@@ -910,6 +975,7 @@ class TrainingRun:
 
         self.update += 1
         self.env_steps += self.config.rollout_length * envs * agents
+        self.maybe_league_snapshot()
 
         if self.updater is None:
             stats = trainer.update(buffer, self.distiller)
@@ -976,6 +1042,7 @@ class TrainingRun:
             "entropy_coef": self.trainer.entropy_coef,
             "lr_scale": self.lr_scale_now,
             "frozen_layouts": len(self.frozen),
+            **(self.cast.stats() if self.cast is not None else {"cast_rows": 0.0, "cast_fallback_rows": 0.0}),
             **({"distill_coef": self.distiller.coef} if self.distiller is not None else {}),
         }
         if self.finished_episodes:
@@ -1117,6 +1184,8 @@ class TrainingRun:
     def run(self) -> int:
         """The whole run; returns the process exit code."""
         self.step = self.env.reset()
+        if self.cast is not None:
+            self.cast.reset_all()
         self.progress.write("training", self.update, self.env_steps)
         if self.evaluating and self.config.eval.at_start and not self.tracker.history:
             self.evaluate()

@@ -368,19 +368,21 @@ tabs), `blocks[]` each with `name`, `obs: [first, count]`, `actions: [first, cou
 pack: slot counts; gauntlet: consumables; companion: revives; party: member slots; support: friend slots and tiers). A consumer must
 build a byte-identical manifest (trailing whitespace ignored).
 
-### `stage.json` (format 2)
+### `stage.json` (format 3)
 
 Written to `<OutputDir>/layouts/<stage>/stage.json` and copied into each run:
 
 ```json
 {
-  "format": 2, "stage": "stage16_companion", "suffix": "_companion", "extends": "stage10_gauntlet",
+  "format": 3, "stage": "stage16_companion", "suffix": "_companion", "extends": "stage15_stealth",
   "summary": "...", "seats": 1,
   "blocks": ["core", "duel", "pet", "pack", "gauntlet", "companion"],
-  "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0}],
-  "seed_chain": ["stage10_gauntlet", "stage9_pack", "stage8_duel"],
-  "merges": [],
-  "state": {"arena_first": 13, "arena_count": 8},
+  "arenas": [{"name": "companion", "weight": 1, "seats": 1, "episode_seconds": 60, "pvp": false, "ambushers": 0,
+              "checkpoints": false, "plan": "solo", "team_seats": 0, "directed": false}],
+  "seed_chain": ["stage15_stealth", "stage14_hide", "..."],
+  "merges": ["stage11_endurance"],
+  "director_agents": [], "cast": [],
+  "state": {"arena_first": 14, "arena_count": 8},
   "models": {"warrior_tank": "warrior_tank_companion", "...": "..."},
   "layouts": {"warrior_tank": {"obs_dim": "...", "num_actions": "...",
               "blocks": [{"name": "core", "obs": [0, "..."], "actions": [0, "..."]}, "..."]}},
@@ -404,7 +406,8 @@ A flat object rewritten after every update and evaluation. Fields include:
 - evaluation settings: `eval_every`, `patience`, `window`, `baseline`
 - state: `phase` (`training`, `evaluating`, `finished`, `stopped`), `update`, `env_steps`, `updated_at`,
   `finish_reason` (`converged` or `budget`), `advanced`
-- latest training metrics, `lr_scale` and `frozen_layouts` among them
+- latest training metrics, `lr_scale`, `frozen_layouts`, `cast_rows`, `cast_fallback_rows`, `cast_members` and
+  `cast_hardest_win_rate` among them
 - evaluation: `evals`, `last_eval_env_steps`, `last_eval_score`, `baseline_score`, `best_score`, `best_env_steps`,
   `evals_since_best`
 - convergence per class: `converged_layouts` and `active_layouts` (comma-separated), `weakest_layout` and
@@ -423,17 +426,18 @@ A flat object rewritten after every update and evaluation. Fields include:
 | `metrics.csv` | Every `log_every` updates | Update, env steps, rates, reward per decision, episode count, `episode_<info>` means, losses, entropy, entropy coefficient, clip fraction, approx KL, `update_compute_seconds` (the update's own cost, which `update_seconds` stops measuring once `overlap_updates` is on), `explained_variance` (how much of the returns' spread the critic accounts for), actor and critic gradient norms before clipping, `epochs_run` (fewer than `mappo.epochs` when `target_kl` stopped the update), `allowed_actions` (mean legal actions per decision, which is what entropy has to be read against), `elapsed_seconds`, distillation stats, and with a goal head `goal_entropy`, `goal_kept_share` (how often a chosen goal is the one already held) and `goal_<i>_share` |
 | `tb/` | Same | TensorBoard events, if installed |
 | `progress.json` | Every update and evaluation | For the console |
-| `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, restarts, seconds |
+| `eval.csv` | Every evaluation | update, env_steps, policy, episodes, score, stderr, margin, best, evals_since_best, seconds |
 | `eval.jsonl` | Every evaluation | The same plus the full summary (bands, layouts, arenas) |
 | `eval_trace.jsonl` | Every evaluation, with `eval.trace_episodes` | Every decision of the traced seeds: update, env_steps, policy, seed, decision, agent, layout, the action by name and the goal being pursued. A summary averages a plan away -- the order of the decisions is the plan -- so this is what to read to see whether a bot rested before a pull, saved a cooldown or held an add |
 | `eval_episodes.jsonl` | Every evaluation | One row per scored episode: update, env_steps, policy, seed, layout, return, every episode info column, the derived `clean_kill` and `livelocked`, and (learner rows) `actions`: each action taken other than the no-op, by name, with its count, and `allowed`: how many of the episode's decisions allowed each action, so one never taken can be told from one never offered |
 | `eval_baseline.json` | Once per run | The baseline summary and its cache key |
-| `eval_baseline_<seed>_<episodes>.json` | Confirmation | Baseline on the confirmation seeds |
-| `stage.jsonl` | Each advance, restart or halt | Decision, reason, gates |
+| `stage.jsonl` | The advance | Decision, reason, every class's convergence signals |
+| `league.json` | Every evaluation and snapshot, on a league stage | The cast league's members, fights, win rates and retirements (5.19) |
+| `league/<tag>.pt` | Every `cast.snapshot_every_env_steps` and improved best | The league's snapshots of this run |
 | `checkpoint_<update>.pt` | Every `checkpoint_every` | Newest `keep_checkpoints` kept |
 | `latest.pt` | Checkpoints and finish | Resume point |
 | `best.pt` | Each new best evaluation | Seed for later stages, export default |
-| `layouts.csv` | Every `log_every` updates | Per class and build, what each is doing in the training episodes of that update (sampled actions, own ladder difficulty). The dashboard's "Class and build, right now" |
+| `layouts.csv` | Every `log_every` updates | Per class and build, what each is doing in the training episodes of that update (sampled actions, own ladder difficulty), and the class's convergence signals: `entropy`, `approx_kl`, `allowed_actions`, `lr_scale`, `frozen`. The dashboard's "Class and build, right now" |
 | `seed_from` | When chosen | One word, `best` or `latest`: which of this run's checkpoints seeds the stage after it (`animus.train.seed_preference`). Absent unless something wrote it, usually the dashboard's "Seeding the next stage" panel. See 7 |
 | `finished.json` | When the stage is decided | See 8.4 |
 

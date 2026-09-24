@@ -540,7 +540,7 @@ coef(env_steps) x mean KL(teacher || policy)        coef = max(min_coef, coef0 x
 - Below a coefficient of 1e-4 the term isn't computed. `metrics.csv` logs `distill_coef`, `distill_kl` and
   `distill_rows`.
 
-## 5.19 Evaluation, convergence, targets and restarts
+## 5.19 Evaluation, convergence and the cast
 
 ### Seeded evaluation (`evaluation.py`)
 
@@ -724,6 +724,50 @@ After each evaluation (`after_eval`) and at the budget (`at_budget`) the `Conver
 Nothing halts the plan but a crash. The advance is appended to `stage.jsonl` with every class's signals, and
 `finished.json` records the reason, the step and update counts, the best score and where it was reached, and per
 class whether it converged, how many times it re-entered, and which signals it was missing.
+
+### The cast: frozen checkpoints in the seats a script used to play (`cast.py`)
+
+The far side of a self-play arena -- seat 1 of a `Mirror` arena, the second team of a `Teams` one -- is played in
+training by a **frozen checkpoint** rather than by the live policy alone, and any agent the sim declares in
+stage.json's `cast` list (an owner played for the seats) likewise. Their rows take the frozen actor's action and
+are not samples. Nothing changes on the wire: the learner tells an opponent seat from stage.json (each arena's
+`plan` and `team_seats`, the episode's arena from the critic state one-hot) and a declared agent from the `cast`
+list; a frozen actor is `distill.build_teacher`'s, mapped block by block onto the stage, with its own memory and
+goals per row.
+
+```yaml
+cast:
+  opponents: league        # "" live self-play | auto = the seed chain's parent best.pt | league = parent + this run's snapshots | a path
+  parent: "{runs_dir}/stage12_pvp/best.pt"   # the league's first member when the seed parent is a PvE policy
+  opponent_share: 0.5      # share of self-play episodes whose far side is cast, drawn per env at episode start
+  agents: {owner: "{runs_dir}/stage11_endurance/best.pt"}   # stage.json `cast` entries by name
+  snapshot_every_env_steps: 5000000
+  league_size: 8
+  rate_window: 200
+  floor: 0.05
+  retire_above: 0.85
+  keep_newest: 2
+```
+
+**The league is fed on a clock, not on `best.pt` alone.** `best.pt` moves only behind the convergence margin, so a
+league fed from it can go a whole stage without a new member. Every `snapshot_every_env_steps` the current
+`latest.pt` is copied into `<run_dir>/league/step_<env steps>.pt`, and every improved `best.pt` into
+`best_<env steps>.pt`. Members are drawn per episode by prioritised fictitious self-play weights,
+`(1 - p)^2 + floor` with `p` the live policy's win rate against the member (an average over `rate_window` of the
+live seats' `won` at the episode's end), so the ones the policy still loses to are met most and none is forgotten.
+A member beaten above `retire_above` for a full window is retired; the newest `keep_newest` never are, and
+`league_size` prunes the most-beaten first, never the newest or the hardest. `league.json` in the run directory
+lists them, and `metrics.csv` carries `cast_rows` (the share of rows cast), `cast_fallback_rows` (rows whose layout
+the checkpoint lacked), `cast_members` and `cast_hardest_win_rate` -- the live policy's win rate against its
+hardest member, which climbing toward 1 says the pool has gone stale and the clock is too slow. The convergence
+rule reads it too: on a league stage a class's ladder signal is that this rate has settled.
+
+**The evaluation never runs a cast actor.** The sim's `fight` baseline plays the far side of a seeded evaluation
+(`eval.opponent_baseline`), so the yardstick is fixed across runs; the league is a training-time device.
+
+**Kept scripted, on purpose:** the hunter of the evade, hide and stealth drills (`ScriptedPlayer::Search` is what
+those drills measure against), the scripted director (a yardstick), the ambushers (they arrive mid-episode, which
+the per-episode `present` contract cannot carry), and `fight` as the evaluation opponent.
 
 ## 5.20 Checkpoints, resume and export
 

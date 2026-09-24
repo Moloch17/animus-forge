@@ -27,3 +27,9 @@ mappo:
 eval:
   report: [match_won, flag_captures, flag_pickups, flag_returns, carrier_kills, flag_deaths, mounted_fraction]
 
+# The far side of the mirror arena: the pvp stage's policy first (this stage's own seed parent is a PvE policy with no
+# pvp block), then this run's league, half the episodes; the live policy the other half (animus.cast).
+cast:
+  opponents: league
+  parent: "{runs_dir}/stage12_pvp/best.pt"
+  opponent_share: 0.5

@@ -152,6 +152,34 @@ class DistillConfig:
 
 
 @dataclass
+class CastConfig:
+    """Frozen checkpoints in the seats a script used to play (animus.cast): the far side of self-play arenas and
+    any agent the stage declares cast (stage.json `cast`). The evaluation never runs them; the sim's `fight`
+    baseline stays the yardstick there."""
+
+    # Who plays the opponent seats in training: "" = the live policy (plain self-play); "auto" = the seed chain's
+    # parent best.pt; "league" = the parent plus this run's own snapshots (<run_dir>/league/); or a checkpoint path
+    # with {runs_dir} and {run_name} filled in.
+    opponents: str = ""
+    # The league's first member when it should not be the seed chain's parent: a stage whose parent is a PvE policy
+    # (the flag stage extends triage) names the last PvP stage's best.pt here, with {runs_dir} filled in.
+    parent: str = ""
+    opponent_share: float = 0.5  # share of self-play episodes whose far side is cast, drawn per env at episode start
+    # stage.json `cast` entries by name -> checkpoint path, e.g. {owner: "{runs_dir}/stage11_endurance/best.pt"}.
+    agents: dict = field(default_factory=dict)
+    deterministic: bool = False  # training samples: an argmax opponent is one the policy learns to exploit
+    league_size: int = 8
+    snapshot_every_env_steps: int = 5_000_000  # latest.pt joins the league on this clock; best.pt on every improvement
+    rate_window: int = 200  # fights per member behind its win-rate average
+    floor: float = 0.05  # minimum draw weight, so no member is forgotten
+    retire_above: float = 0.85  # a member the live policy beats this often over a full window is retired
+    keep_newest: int = 2  # never retired or pruned
+
+    def resolved_agents(self, runs_dir: str, run_name: str) -> dict[str, str]:
+        return {name: str(path).format(runs_dir=runs_dir, run_name=run_name) for name, path in self.agents.items()}
+
+
+@dataclass
 class LayoutSamplingConfig:
     """Training episodes draw a class/build uniformly, so each layout gets its share of the data whatever it is
     worth. A stage is gated on its weakest layout, though, so the data is worth most where the score is furthest
@@ -254,6 +282,7 @@ class TrainConfig:
     convergence: ConvergenceConfig = field(default_factory=ConvergenceConfig)
     layout_sampling: LayoutSamplingConfig = field(default_factory=LayoutSamplingConfig)
     entropy_floor: EntropyFloorConfig = field(default_factory=EntropyFloorConfig)
+    cast: CastConfig = field(default_factory=CastConfig)
 
     def resolved_init_from(self, stage: dict | None) -> list[str]:
         if self.init_from == AUTO:

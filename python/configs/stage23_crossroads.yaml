@@ -31,3 +31,10 @@ eval:
     ambushers_killed, casts_completed, casts_cancelled]
 
 # Every situation holds up on its own, not only on average; the new arenas only need to beat the fight baseline.
+
+# The far side of the mirror arena: the pvp stage's policy first (this stage's own seed parent is a PvE policy with no
+# pvp block), then this run's league, half the episodes; the live policy the other half (animus.cast).
+cast:
+  opponents: league
+  parent: "{runs_dir}/stage12_pvp/best.pt"
+  opponent_share: 0.5

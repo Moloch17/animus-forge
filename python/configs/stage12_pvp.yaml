@@ -24,3 +24,11 @@ eval:
   baseline: fight
   opponent_baseline: true
   report: [won, dps, died, time_to_kill, damage_taken, cast_seconds_wasted]
+
+# The far side: a frozen checkpoint half the time (animus.cast) -- the endurance policy this stage seeds from at
+# first, then this run's own snapshots as the league fills (every 5M steps, and every improved best.pt), drawn by how
+# hard each still is -- and the live policy the other half, so the opponent is never weaker than the policy and never
+# only its own current habits. The evaluation's far side stays the scripted fight baseline, the fixed yardstick.
+cast:
+  opponents: league
+  opponent_share: 0.5

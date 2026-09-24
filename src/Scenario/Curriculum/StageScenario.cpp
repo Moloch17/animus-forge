@@ -126,8 +126,8 @@ namespace
     constexpr float HAZARD_SEARCH_RANGE = 30.0f;
     constexpr int32 ABSORB_EXPIRY_SLACK_MS = 500;   // an absorb gone with more than a decision and this left soaked it
 
-    /// Version of stage.json (2 adds the stage's arenas).
-    constexpr uint32 STAGE_FILE_FORMAT = 2;
+    /// Version of stage.json (2 adds the stage's arenas, 3 each arena's seat plan and the cast list).
+    constexpr uint32 STAGE_FILE_FORMAT = 3;
 
     /// How a character's talent points are spent this episode (CurriculumTuning::CharacterTuning).
     SeatCharacter::TalentPlan RandomTalentPlan(CurriculumTuning::CharacterTuning const& tuning)
@@ -1158,7 +1158,23 @@ void Animus::Curriculum::StageScenario::WriteStageFiles(StageSettings const& set
         entry["pvp"] = definition.Pvp;
         entry["ambushers"] = definition.Ambushers;
         entry["checkpoints"] = definition.Checkpoints;
+        // The seat plan and a team's width, so the learner can tell an arena's opponent seats (IsOpponentSeat) and
+        // play them from a frozen checkpoint (its cast league) without a word on the wire.
+        entry["plan"] = definition.Seats == SeatPlan::Solo ? "solo" : definition.Seats == SeatPlan::Party ? "party"
+            : definition.Seats == SeatPlan::Mirror ? "mirror" : definition.Seats == SeatPlan::Raid ? "raid" : "teams";
+        entry["team_seats"] = definition.Seats == SeatPlan::Teams ? definition.TeamSeats
+            : definition.Seats == SeatPlan::Mirror ? 1u : 0u;
+        entry["directed"] = definition.Directed;
     }
+
+    // Agents beyond the seats: a directed arena's two directors (one a side, after the seats). The learner never
+    // casts a director's row.
+    boost::json::array& directorAgents = stageFile["director_agents"].emplace_array();
+    if (HasDirectors())
+        for (uint32 side = 0; side < TEAM_COUNT; ++side)
+            directorAgents.push_back(_seatCount + side);
+    // Agents the sim declares for a frozen checkpoint to play (none yet: the owner comes with its own change).
+    stageFile["cast"].emplace_array();
 
     // The stages a run seeds from, closest first: the learner takes the first one that has been trained.
     boost::json::array& seedChain = stageFile["seed_chain"].emplace_array();
