@@ -29,7 +29,6 @@ This chapter covers the machinery: scenarios, env pools, bots, core seams, layou
 | `.../Baselines/` | The scripted `greedy` and `fight` policies |
 | `src/Env/` | `Env`, `EnvPool`, `PoolRegistry` |
 | `src/Bot/` | `BotFactory`, `BotSlot`, `BotAccounts` |
-| `src/Model/` | `MlpPolicy` (`.amdl` reader and forward pass), `ModelLibrary` |
 | `src/Core/` | `CoreHooks` |
 | `src/Hooks/` | `AnimusLibScripts.cpp`: the damage, heal, spell and creature-level hooks |
 | `src/Json/` | Boost.JSON compiled once for the module |
@@ -323,16 +322,11 @@ struct Seams
 ```
 
 A host installs the seams once, at load, before any bot exists. mod-animus-forge installs all three (see
-[chapter 2, section 2.9](02-forge-core.md#29-seams-for-modules)). mod-animus installs none, and each call degrades
-gracefully on a stock core:
+[chapter 2, section 2.9](02-forge-core.md#29-seams-for-modules)) and every call assumes they are installed: this
+module only ever runs on the forge core. (mod-animus's copy of the layer keeps the no-op fallbacks a stock core
+needs.)
 
-| Seam | Stock core behaviour |
-|---|---|
-| `MarkSimSession` | No-op. Bots write the few rows a logout and an instance bind write. `HasSimSessions()` is false, so `Destroy` deletes the bind row again |
-| `MarkSimGroup` | No-op. Groups are ordinary persisted groups, removed when the companions or stage go. Rows left by a crash are cleaned up by the core at startup (group members without a character) |
-| `SeedRandom` | Returns false. Evaluation episodes aren't reproducible |
-
-**Rule:** animus-lib and mod-animus must never call a forge-only API directly. Add a seam instead.
+**Rule:** the curriculum layer must never call a forge-only API directly. Add a seam instead.
 
 ## 3.7 Layouts and manifests
 
@@ -370,15 +364,15 @@ buff groups (support).
 
 **Any change that affects the manifest invalidates models.** That includes a new feature in a block, a new spell in a
 catalog (a new spell rule, a different talent build), a block added to a stage, or a different class list.
-`ModelLibrary` compares the exported manifest with the one the server builds, character for character (trailing
-whitespace ignored), and refuses a model on any difference. Retrain and export again.
+mod-animus's `ModelLibrary` compares the exported manifest with the one its server builds, character for character
+(trailing whitespace ignored), and refuses a model on any difference. Retrain and export again.
 
 ## 3.8 Models
 
 ### The `.amdl` format
 
-`MlpPolicy` (`src/Model/MlpPolicy.cpp`) reads the format that `animus-forge/python/animus/export.py` writes. All values
-are little-endian:
+`python/animus/export.py` writes one `.amdl` per layout; the forge only writes them (`forge export`), and mod-animus's
+`MlpPolicy` reads them ([chapter 6](06-animus.md)). All values are little-endian:
 
 ```
 char[4]  "AMDL"
@@ -407,52 +401,10 @@ if goal_count:
   f32    goal_embedding[goal_count * feature_width]   added to what the action head reads
 ```
 
-The loader checks the magic and version, that the name equals the expected model name, that `obs_dim` and
-`num_actions` equal the layout's, that the counts are sane (at most 64 layers, widths up to 65536), that the last
-layer outputs `num_actions`, and that no bytes follow. It refuses big-endian hosts.
-
 **Every layer's input is the previous layer's output, except the action head's.** With a memory the head reads the
-GRU's state rather than the trunk's, and the memory's size is only known further down the file, so the head is
-exempted from the chain check in the layer loop and validated where `recurrent_size` has been read: against the
-memory when there is one, against the trunk's width when there is not. That exception is load-bearing rather than
-cosmetic -- while the layer loop applied the chain rule to the head as well, it rejected every model that had a
-memory before the check below it could run, and since the curriculum trains with `recurrent_size: 128` from the
-first combat stage onward, that was every model the curriculum produces.
-
-`Decide(obs, mask, state)` copies the observation, appends the one-hot for agent 0, runs the trunk (tanh after each
-layer), passes it through the GRU when there is one, adds the standing goal's embedding when there are goals, and
-returns the **allowed action with the highest logit**, or 0 when nothing is allowed. It doesn't allocate after the
-first call (scratch buffers sized to the widest layer) and isn't thread-safe: one policy serves every seat that
-plays it, and what differs per seat lives in the caller's `State`.
-
-`MlpPolicy::State` is what one seat carries between its decisions: the GRU's state, the goal it is holding, and how
-many decisions it has held it. `State::Clear()` starts a new fight. A model with neither a memory nor goals never
-touches it, and passing no state at all decides as if every decision were the first.
-
-`Describe()` prints the shape a model actually has, which is the quickest way to tell what an exported file is:
-
-```
-644+1 -> 256 -> 512 -> 512 -> memory 128 -> 87 (6 goals every 16 decisions)
-```
-
-**The forward pass is compiled apart from the rest of the library.** It is a dot product per row, and the
-accumulator is a serial floating-point dependency chain; float addition is not associative, so without permission
-to reorder it no compiler will vectorise the reduction. `cmake/AnimusLibDependency.cmake` therefore gives this one
-file `-O3 -fassociative-math -fno-signed-zeros -fno-trapping-math` (`/O2 /fp:fast` on MSVC). Measured on a real
-model, a decision costs 310 us at the library's usual `-O2` and 94 us with those flags; allowing AVX2 as well
-(`-march=x86-64-v3`, not enabled -- it would drop pre-2013 CPUs) takes it to 60 us.
-
-The flags are deliberately *not* `-ffast-math`: nothing here assumes the absence of NaN or infinity, only that float
-addition may be reordered. `-O3` is needed alongside them because at `-O2` the vectoriser's cost model declines this
-loop even when reassociation is allowed. Verified over 4,000 decisions on each of five exported models, every
-decision identical before and after.
-
-### ModelLibrary
-
-`ModelLibrary::Find(layout, error)` loads `<dir>/<model name>.amdl` with `<model name>.json` beside it, on first use.
-The model name is the class plus the stage suffix (`warrior_tank_party`). It checks the manifest (3.7) and then the
-file (above). Both successes and failures are cached until `Reset(dir)`, so a missing model is logged once rather than
-every decision. mod-animus calls `Reset` on every config load, which makes `.reload config` pick up new files.
+GRU's state rather than the trunk's, so the head's input width is the memory's when there is one and the trunk's
+when there is not. `animus.export.read_amdl` and `reference_decide` (`python/animus/export.py`) read the file back
+and decide from it in plain numpy, which is what the export tests check the writer against.
 
 ## 3.9 The stage description (`stage.json`)
 
@@ -474,8 +426,8 @@ changed. The learner reads `stage.json` for:
 
 ## 3.10 Using the library from a new host
 
-1. Call `Addmod_animus_libScripts()` first in your module's loader.
-2. If you run on the forge core, install `CoreHooks` at load. Otherwise don't.
+1. Call `AddSC_animus_lib()` first in your module's loader: the damage, heal, spell and creature-level hooks.
+2. Install `CoreHooks` at load, before any bot exists: the seams are the forge core's, and every call assumes them.
 3. Build `StageSettings` from your own config. Choose a `TuningPrefix` and a `FirstEnvId` range that doesn't overlap
    another host's.
 4. `CreateScenario`, construct an `EnvPool`, then `Setup`, `ResetAll` and `PoolRegistry::Register`.
@@ -486,5 +438,3 @@ changed. The learner reads `stage.json` for:
    the real diff.
 6. On stop: `Unregister` before `Teardown`, because the hooks must stop feeding a pool before it is destroyed.
 
-To play models, keep a `ModelLibrary`. For each agent row, find the layout (`StageScenario::Layouts()[pool.Layout[i]]`)
-and call `Find(layout, error)->Decide(&Obs[i * ObsDim], &Mask[i * NumActions])`. That is what the stage viewer does.
