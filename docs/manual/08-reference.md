@@ -207,6 +207,7 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Options.MoveBearingMs` | 3000 | | | |
 | `Options.MoveTurnMs` | 750 | | | |
 | `Options.MovePitchMs` | 750 | | | |
+| `Options.FollowMs` | 6000 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|
@@ -227,6 +228,9 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Owner.FollowFarDistance` | 25.0 | | `ScriptedPlayers.RegenFraction` | 0.04 |
 | `Owner.FollowNearDistance` | 12.0 | | `ScriptedPlayers.HealBelow` | 0.85 |
 | `Owner.Death` | 15.0 | | `ScriptedPlayers.SelfHealBelow` | 0.6 |
+| | | | `ScriptedPlayers.RunChance` | 35 |
+| | | | `ScriptedPlayers.RunMinYards` | 40.0 |
+| | | | `ScriptedPlayers.RunMaxYards` | 60.0 |
 | | | | `ScriptedPlayers.HealerRange` | 30.0 |
 | | | | `ScriptedPlayers.TauntRange` | 25.0 |
 | | | | `ScriptedPlayers.RangedMin` | 20.0 |

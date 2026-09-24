@@ -917,6 +917,12 @@ AnimusForge.Curriculum.Options.MoveBearingMs = 3000
 AnimusForge.Curriculum.Options.MoveTurnMs = 750
 AnimusForge.Curriculum.Options.MovePitchMs = 750
 
+#   ... and how long a companion's follow keeps after the owner before it lapses (ms). One press runs the seat to
+#   just behind the owner and keeps re-aiming that run at where the owner is now; it ends on its own when the seat
+#   is there and the owner has stopped, and like a bearing it ends when the feet are told something else. Longer
+#   than a bearing: where the owner is going is the owner's to know. Re-pressing keeps following.
+AnimusForge.Curriculum.Options.FollowMs = 6000
+
 #   Ground effects: damage from something standing on the ground rather than aimed at the seat (a fire pool, a poison
 #   cloud, a consecration), charged per fraction of maximum health ON TOP of DamageTaken, which already charges it
 #   once as damage. This is the damage a seat could have walked out of, and the only term that pays for moving its
@@ -1042,6 +1048,12 @@ AnimusForge.Curriculum.ScriptedPlayers.HealMaxMs = 2500
 #   between pulls: time between wander steps
 AnimusForge.Curriculum.ScriptedPlayers.WanderMinMs = 6000
 AnimusForge.Curriculum.ScriptedPlayers.WanderMaxMs = 12000
+#   ... and the percent of an owner's steps that are a run instead: a leg at a run to a spot RunMinYards-RunMaxYards
+#   from the spawn point (never nearer than RunMinYards to where it stands) with a real route there, so the seats
+#   beside it have an owner that goes somewhere to follow. The wander's leash brings it back: another leg.
+AnimusForge.Curriculum.ScriptedPlayers.RunChance = 35
+AnimusForge.Curriculum.ScriptedPlayers.RunMinYards = 40.0
+AnimusForge.Curriculum.ScriptedPlayers.RunMaxYards = 60.0
 #   of max health and mana per second, out of combat
 AnimusForge.Curriculum.ScriptedPlayers.RegenFraction = 0.04
 #   healers heal party members under this health fraction

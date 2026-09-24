@@ -682,15 +682,17 @@ over. Two actions and the move block's held keys instead stand for a stretch of 
 | `rest_until_ready` | gauntlet | Eats and drinks, whichever is missing, until health and mana are back to 90% |
 | `hold_interrupt` | pack | Interrupts the target the moment it starts casting, with the first interrupt the seat has -- its own spell, or its pet's (a felhunter's Spell Lock) when it has none. Offered only to a seat that has one |
 | the eight bearings | move | Walks that compass point, re-aimed from where the seat stands every decision, for `Options.MoveBearingMs` (3 s) or until the feet are told something else |
+| `follow` | companion | Runs to just behind the owner, re-aimed at where the owner is now every decision, for `Options.FollowMs` (6 s), until the seat is there and the owner has stopped, or until the feet are told something else. A press, not the client's right-click follow: the policy re-presses to keep following |
 | `turn_left`, `turn_right`, `pitch_up`, `pitch_down` | move | Turns or pitches 15 degrees a decision for `Options.MoveTurnMs` / `MovePitchMs` (750 ms), or until the opposite key |
 
-A seat runs **four at a time**: one positioning option (the bearing), one standby, a turn and a pitch
+A seat runs **four at a time**: one positioning option (the bearing, or the follow), one standby, a turn and a pitch
 (`SeatOptionSet`), since walking, waiting for the target's cast and looking round are not alternatives. Each runs in
 its block's `BeforeApply`, every decision, and stops on its own condition (the fight starts, nothing is left to eat,
 the interrupt fires, the seat halts or jumps) or when its `Options.*` clock runs out. What any other action does to
 it depends on what it is:
 
-- **positioning** (the held bearing): only the feet take over -- another bearing, the halt, a jump. A turn or a
+- **positioning** (the held bearing, the follow): only the feet take over -- another bearing, the halt, a jump, the
+  follow itself. A turn or a
   pitch does not, so the walk curves rather than stopping; casting and swinging do not either, since a fight is
   spells and swings between steps. Nothing but the feet may end it: the duel block's per-decision hook used to
   clear the slot whenever there was no living target, which in a travel arena is always, and every bearing
@@ -705,8 +707,8 @@ it depends on what it is:
 
 Each option's own action is masked while it runs, so nothing cancels itself. What it does is counted as a press would
 be (food and drink used, an interrupt pending on a caster). The core block reports how much of each option's clock is
-left, so a running option is never hidden state, and `options_started` and `option_seconds` in the episode info say how
-much a class uses them.
+left (the companion block reports the follow's, so only its layouts carry that feature), so a running option is never
+hidden state, and `options_started` and `option_seconds` in the episode info say how much a class uses them.
 
 ### The action catalog
 
@@ -954,7 +956,10 @@ casters and ability users) to the duel pool.
 the seats, with a random role (tank 25%, healer 25%, DPS 50%) and a class that can fill it, dressed like a seat, given
 the seats' faction. It is the env's ally 0.
 
-- Between pulls it wanders near the spawn point and regenerates (`RegenFraction` per second).
+- Between pulls it wanders near the spawn point and regenerates (`RegenFraction` per second). `RunChance` percent of
+  its steps are a run instead: a leg at a run to a spot `RunMinYards`-`RunMaxYards` from the spawn point with a real
+  route there, and the wander's leash brings it back. The next pull spawns around wherever it is, so a seat that has
+  not followed fights from behind.
 - A tank owner starts every pull and taunts enemies off others. A healer owner heals the most hurt party member
   under `HealBelow` and stays within `HealerRange` of the tank. A DPS owner walks in after `OwnerEngageMin/MaxMs` (in a
   party, after `PartyOwnerEngageMin/MaxMs` so the tank can pull), and starts the pull itself `OwnerPullsChance` percent

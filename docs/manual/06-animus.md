@@ -186,8 +186,11 @@ units you and the companions attack. Only living, valid attack targets on your m
   one, its bags are restocked, and you are told its new level.
 - **Dead.** It accepts a pending resurrection at once, as a client would. Otherwise, once the party is quiet, you are
   alive and out of combat, and it has been dead 10 s, it stands up with half health.
-- **Out of combat.** More than 100 yd away: teleport to you. With a model and more than 30 yd away: run back behind
-  you. Without a model: stay within 6 yd.
+- **Out of combat.** Following you is the model's job: its `follow` press runs it to just behind you and keeps
+  re-aiming at where you are until it is there and you have stopped, and it re-presses to keep following, exactly as
+  it trained beside a scripted owner that runs off between pulls. Nothing on the module's side leashes or teleports a
+  companion that has fallen behind on your map; only a loading screen or a transport moves it for you (above).
+  Without a model: it stays within 6 yd of you, since there is nothing else it can do.
 - **Deciding.** Every `Animus.Curriculum.DecisionMs` (250) of accumulated update time, if its model is available,
   the companion decides. It keeps a `SeatMemory` as a forge seat does: the observation's memory features, and the
   pacing and locks (`Animus.Curriculum.Actions.*`) masked out of its choices, so it plays with the mask it trained with.
