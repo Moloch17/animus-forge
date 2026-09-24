@@ -588,7 +588,8 @@ The same function builds training seats and live companions, so a model gets in 
 - **Kit** (`ClassKit`). Every spell the class trainers teach up to the level (`trainer`/`trainer_spell`, learn-spells
   resolved), talent-gated ranks when the talent was taken, and class quest spells trainers don't teach (stances, Bear
   Form, warlock demons, Raise Dead). Weapon and armor skills the race and class may have, maxed for the level.
-  Reagents: totems, Ankhs, soul shards, corpse dust, flash powder, and ammo in a quiver or pouch for hunters.
+  Reagents: totems, Ankhs, soul shards, corpse dust, flash powder, Light Feathers for Slow Fall and Levitate, and
+  ammo in a quiver or pouch for hunters.
 - **Gear** (`GearBuilder`). A random level-appropriate item for every slot, including both trinkets, drawn from every
   obtainable item (loot, vendors, quest rewards, crafted) the class can use and whose stats suit the spec. Random-stat
   items roll only suitable suffixes. The item level must fall in the band players of that level wear
