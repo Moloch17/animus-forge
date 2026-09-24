@@ -96,6 +96,35 @@ namespace
         };
     }
 
+    /// The banks of Stonebull Lake in Mulgore, for the dive drills (stage1e_dive, stage1f_breathe).
+    ///
+    /// A dive needs water six to forty yards deep within reach of a shore the seat can stand on, and the Barrens
+    /// oases stage1_move swims in are under three yards deep everywhere (see the water arena's note): every dive
+    /// episode built there fell back to a plain trip. Stonebull is 33 yd deep in the middle with banks that slope
+    /// in at the water line (surface z -15.0, ground here -11 to -15), and nothing worse than prairie wolves and
+    /// stalkers on its shores. Each point was chosen from the map tiles (var/lakes/sim.py) as dry ground from which
+    /// a tenth to a third of uniformly drawn 20-120 yd objectives land on a bed under 6-40 yd of water, so the
+    /// placer's 192 attempts find one every time; the ground z is the tile's own.
+    std::vector<Position> StonebullShore()
+    {
+        return {
+            { -1946.0f, -558.0f, -11.9f, 0.0f }, { -1954.0f, -521.0f, -11.1f, 0.0f },
+            { -2192.0f, -712.0f, -14.5f, 0.0f }, { -2192.0f, -571.0f, -14.9f, 0.0f },
+            { -2196.0f, -175.0f, -13.1f, 0.0f }, { -2254.0f, -137.0f, -10.8f, 0.0f },
+        };
+    }
+
+    /// The shore of Lake Elune'ara in Moonglade, held out from the dive drills: a lake the seat never trained on,
+    /// with the same kind of bed (up to 66 yd deep, so the 6-40 yd band is a ring some way in) and only critters
+    /// on its banks. Chosen the same way as StonebullShore: two dry points scoring 0.44 and 0.41, on the south and
+    /// west banks.
+    std::vector<Position> EluneAraShore()
+    {
+        return {
+            { 7675.0f, -2775.0f, 454.5f, 0.0f }, { 7508.0f, -2617.0f, 453.3f, 0.0f },
+        };
+    }
+
     /// Map 560's training ground, shared by the drills that fight people on it (evade, hide, stealth).
     ///
     /// One instance is a small world, so the split is by district rather than by region: the southern approaches
@@ -253,9 +282,10 @@ namespace
                 // The banks of the Barrens oases -- Lushwater to the north, Stagnant to the south -- because the
                 // stage's own spawn points have no water within reach, and a water arena that finds no crossing
                 // quietly becomes a second open arena (the first run of this stage reported crossing 0.0 over all
-                // 415 of its water episodes). These are on the shore, not in the pool: the oasis floor is around
-                // z 65 and the seats have to stand on the bank at 82-94 and decide to get in. Taken from the land
-                // creatures the oases are ringed with (Kolkar centaurs), so the ground under each one is real.
+                // 415 of its water episodes). These are on the shore, not in the pool. Taken from the land creatures
+                // the oases are ringed with (Kolkar centaurs), so the ground under each one is real. The pools
+                // themselves are shallow -- the surface is z 30.2 over a bed at 27-28, under three yards at the
+                // deepest, measured from the map tiles (var/lakes) -- which is why the dive drills go elsewhere.
                 { .Name = "water", .Weight = 1, .Against = Opposition::Travel, .EpisodeSeconds = 150,
                     .OnFoot = true, .Water = true,
                     .SpawnPoints = {
@@ -442,7 +472,7 @@ namespace
         // Down again, into the water this time.
         //
         // stage1_move's water arena taught one decision, swim across or walk round, at the surface: nothing ever
-        // asked the seat to go under. Here the objective is on the bed of the oasis, under six to forty yards of
+        // asked the seat to go under. Here the objective is on the bed of a lake, under six to forty yards of
         // water, and arriving means standing on it. The breath is the core's own (WaterBreath.Timer, three
         // minutes) and so is the drowning after it, a fifth of the seat's health a second; what the seat sees is
         // how much of its breath is spent (OBS_SUBMERGED_TIME) and how deep the place is, and what it learns is
@@ -461,16 +491,8 @@ namespace
             },
             .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
-            // The banks of the Barrens oases, stage1_move's water ground: the pool floor is around z 65 under
-            // banks at 82-94, so the middle is deep enough for a dive that outlasts a breath.
-            .SpawnPoints = {
-                { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
-                { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
-                { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
-            },
-            .HeldOutSpawnPoints = {
-                { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
-            },
+            .SpawnPoints = StonebullShore(),
+            .HeldOutSpawnPoints = EluneAraShore(),
         });
 
         // The same dives, for the classes that can breathe down there: a warlock with Unending Breath, a shaman
@@ -489,14 +511,8 @@ namespace
             },
             .InDefaultQueue = false,
             .MapId = MAP_KALIMDOR,
-            .SpawnPoints = {
-                { -3923.0f, -2981.0f, 31.0f, 0.0f }, { -3952.0f, -2947.0f, 40.0f, 0.0f },
-                { -3964.0f, -3068.0f, 39.0f, 0.0f }, { -3879.0f, -3004.0f, 37.0f, 0.0f },
-                { -4048.0f, -3051.0f, 43.0f, 0.0f }, { -3985.0f, -2911.0f, 37.0f, 0.0f },
-            },
-            .HeldOutSpawnPoints = {
-                { -4017.0f, -3086.0f, 37.0f, 0.0f }, { -3926.0f, -2911.0f, 39.0f, 0.0f },
-            },
+            .SpawnPoints = StonebullShore(),
+            .HeldOutSpawnPoints = EluneAraShore(),
         });
 
         // Something on the ground, in every pull. Hazards exist already -- the pack ladder draws a hazard caster
