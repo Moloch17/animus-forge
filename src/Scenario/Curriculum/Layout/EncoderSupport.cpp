@@ -210,6 +210,20 @@ namespace Animus::Curriculum::Encoding
         return chosen;
     }
 
+    /// The form the seat would have to leave to take `info`, or null when it can cast as it stands: a form spell
+    /// pressed from another form. Every druid form carries SPELL_ATTR0_NOT_SHAPESHIFTED, so the core refuses Cat
+    /// Form from Bear Form and Aquatic Form from Travel Form outright; a player shifts straight across because the
+    /// client drops the form it is in first. The breathe drill's druids took Travel Form on the bank in their first
+    /// decisions and were never offered Aquatic Form again in the episode.
+    SpellInfo const* FormToDropFor(Player const* bot, SpellInfo const* info)
+    {
+        if (!info->HasAura(SPELL_AURA_MOD_SHAPESHIFT) || bot->GetShapeshiftForm() == FORM_NONE)
+            return nullptr;
+        if (info->CheckShapeshift(bot->GetShapeshiftForm()) == SPELL_CAST_OK)
+            return nullptr;
+        return CancellableForm(bot);
+    }
+
     bool IsSpellActionAllowed(SeatView const& view, Unit* target, ActionCatalog::Action const& def)
     {
         Player* bot = view.Bot;
@@ -248,6 +262,12 @@ namespace Animus::Curriculum::Encoding
                 return false;
         }
 
+        // A form from another form: judged as if standing in none, since the press drops the current one first
+        // (ApplySpellAction). The full cast check cannot be asked that question, so this is the shapeshift rule
+        // alone; a press the core still refuses simply does nothing, as any masked-through press does.
+        if (FormToDropFor(bot, info))
+            return info->CheckShapeshift(FORM_NONE) == SPELL_CAST_OK;
+
         return CanCast(bot, info, target, nullptr, friendUnit);
     }
 
@@ -273,6 +293,10 @@ namespace Animus::Curriculum::Encoding
         bool const stealthed = bot->HasStealthAura();
         bool const targetCasting = target && target->IsNonMeleeSpellCast(false);
         uint32 const castMs = info->CalcCastTime(bot);
+        // Shifting straight from one form to another: leave the one the seat is in, as the client does for a
+        // player, then cast. A cast the core then refuses has cost the form, which is what it costs a player too.
+        if (SpellInfo const* current = FormToDropFor(bot, info))
+            bot->RemoveAurasDueToSpell(current->Id);
         Spell* spell = new Spell(bot, info, TRIGGERED_NONE);
         if (spell->prepare(&targets) != SPELL_CAST_OK)
             return false;
