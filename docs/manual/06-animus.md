@@ -97,6 +97,7 @@ the Animus addon instead (below), which does the same things with no security at
 | `.animus reroll <race> <class>` | The character is deleted and a new one of the same name created |
 | `.animus list` | Your companion, its class, level and spec, whether its model is loaded, whether it is with you |
 | `.animus purge` | Administrator, from the console too: every `ANIMUS<guid>` account and its characters deleted (orphans of older runs included), every companion sent away unsaved, `animus_companion` dropped |
+| `.animus life [<feature> on\|off]` | What the companions do outside the fight (below), and a switch for each until the next config reload |
 
 ### One companion per character
 
@@ -223,6 +224,42 @@ disappears any other way is dropped from the party and taken out of the group. A
 the group and logged out without saving (`BotFactory::Destroy`). Because a stock core has no sim groups, companions'
 group membership is written to the database like any member's and removed on dismissal. Rows left behind by a crash
 are cleaned up by the core at startup (group members without a character).
+
+### Life outside the fight
+
+A companion whose model carries the **world block** -- exported from `stage20_quest` or later, the crossroads
+included -- lives a little on its own. The block is the one the forge's life stages trained (manual 4, stages
+20-22): the nearest corpse it may loot, quest giver it has business with, gathering node and vendor, its own
+bags, gold, durability, food, drink and whether something in the bags rates higher than what it wears; and the
+six presses -- INTERACT, LOOT_ALL, EQUIP_UPGRADE, SELL_JUNK, REPAIR, BUY_SUPPLIES. `LifeService::Sense` fills
+those features from the real world (no phasing, everybody's NPCs; the quest reported is the one in its log
+furthest along), and the presses run through the same `WorldActions` the sim ran, so the model loots, talks,
+gathers, dresses and trades exactly as it learned to. Nothing on the module's side decides when.
+
+What is scripted is what is a lookup, or has no sim to learn it in, each a switch in `Animus.Life.*` and
+`.animus life`:
+
+- **Quests** mirror yours: when you take a quest the companion can take, it takes it (`OnPlayerQuestAccept`);
+  when you drop one, it drops it. It does the objectives with you, loots the items, and hands the quest in
+  itself when it stands at the turn-in, choosing the reward that rates highest for its build (`GearScore`).
+- **The auction house.** Idle beside an auctioneer, it lists its unbound greens and better that are no upgrade
+  for it, at the house's median price for the item (else four times the vendor's), and buys one upgrade for
+  its build at buyout under `AuctionBudgetGold`. The house's mail -- sales, purchases, returns -- it collects
+  when idle; a save keeps that mail (every other mail to a companion is purged, and none can be sent to one).
+- **A flight path** when you are more than `TaxiBeyondYards` away on the same map and the path between the
+  nearest flight points would close most of it. It pays. Nothing is decided in the air.
+- **The corpse run.** Dead, it releases once you are out of the fight, walks its ghost back to the corpse and
+  reclaims it as a player does; a corpse on another map, or five minutes of walking, and it takes the spirit
+  healer's terms. Off, it stands up where it fell after ten quiet seconds, as before.
+- **Crafting.** Idle, it makes what it knows a recipe for from what it carries (what it gathered, mostly).
+
+**Not done.** Group loot rolls: a companion cannot see a roll it is asked to join (the roll list is the group's
+own and no hook announces one), so it passes by not answering and the item goes to whoever rolled. Free-for-all
+or round-robin loot lets it loot as it learned to. Free-roam travel without you, banks and guilds are later
+plans.
+
+None of this has run against a live realm yet: the first smoke is a companion beside a game master character
+that takes a quest, does it, loots, equips, sells, repairs, lists a green and collects the mail.
 
 ## 6.6 The stage viewer
 
@@ -361,3 +398,4 @@ integers.
 | Packets | None | Everything is visible to real clients: movement, casts, combat log |
 | Episodes | Defined by the stage | Stage viewer: defined by the stage. Companions: a pull after 20 s of quiet starts one |
 | Owner | Scripted player | You |
+| Life outside the fight | The life encounters' phase: one quest, one field, one town an episode | The real world: your quests, the house, the mail, flight paths, the corpse run (`Animus.Life.*`) |
