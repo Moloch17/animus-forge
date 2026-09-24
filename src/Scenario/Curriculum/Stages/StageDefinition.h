@@ -206,7 +206,8 @@ namespace Animus::Curriculum
         /// runs to its clock rather than ending on arrival: what is measured is how many were reached and whether
         /// the seat is alive at the end. Built for the breath: a chain of lakebeds keeps a seat under water for
         /// longer than one breath lasts, so that coming up for air, or making the breath free with a spell, is a
-        /// decision with a price on both sides. A leg no place can be found for ends the episode (chain_broken).
+        /// decision with a price on both sides. A leg no place can be found for leaves the seat with nothing more
+        /// to reach for the rest of the clock (chain_broken).
         bool Checkpoints = false;
 
         [[nodiscard]] uint32 SeatCount() const;

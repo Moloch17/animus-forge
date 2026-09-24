@@ -229,6 +229,8 @@ namespace Animus::Curriculum
         bool Drowned = false;
         uint32 WaterWalkMs = 0;
         uint32 AquaticMs = 0;           // time in a druid's Aquatic Form (FORM_AQUA)
+        float LastStepSelfDamage = 0.0f;    // AgentStats::SelfDamage over the last step, as a fraction of max health
+        bool DeathLogged = false;           // the death diagnostic line was written for this episode
         uint32 BreathingCasts = 0;      // water-breathing spells started (ActionCatalog::Action::WaterBreathing)
         uint32 ItemUses = 0;
         bool InCombat = false;
@@ -344,6 +346,8 @@ namespace Animus::Curriculum
             WaterWalkMs = 0;
             AquaticMs = 0;
             BreathingCasts = 0;
+            LastStepSelfDamage = 0.0f;
+            DeathLogged = false;
             Jumps = 0;
             JumpsRefused = 0;
             Drops = 0;

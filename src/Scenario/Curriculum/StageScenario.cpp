@@ -16,6 +16,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <atomic>
 #include "StageScenario.h"
 #include "Baselines.h"
 #include "CharmInfo.h"
@@ -2251,8 +2252,9 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
                 seat.BreathSpentMs = 0;
             else
             {
-                if (seat.BreathSpentMs >= breath && seat.LastStepDamageTaken > 0.0f)
-                    seat.DrowningDamage += seat.LastStepDamageTaken;
+                // Drowning is the core's own self-damage (Player::EnvironmentalDamage), which the damage hook
+                // keeps apart from what enemies do; under water nothing else deals it.
+                seat.DrowningDamage += seat.LastStepSelfDamage;
                 seat.BreathSpentMs += _decisionMs;
             }
         }
@@ -2265,11 +2267,32 @@ void Animus::Curriculum::StageScenario::ApplySeatAction(Env& env, uint32 seatInd
         }
         seat.BreathSpentMax = std::max(seat.BreathSpentMax, float(seat.BreathSpentMs) / float(breath));
     }
-    else if (bot && !bot->IsAlive() && seat.SubmergedSinceMs && seat.BreathSpentMs >= BreathMs()
-        && !seat.Drowned)
+    else if (bot && !bot->IsAlive() && seat.SubmergedSinceMs && !seat.Drowned
+        && (seat.LastStepSelfDamage > 0.0f || seat.BreathSpentMs >= BreathMs()))
     {
         seat.Drowned = true;
         seat.SubmergedSinceMs = 0;
+    }
+    // Every death, once, with the state that explains it -- written for the chain drill, whose first evaluation
+    // lost a quarter of its seats to something no tally could see. Capped per process so a bad stage cannot
+    // flood the log.
+    if (bot && !bot->IsAlive() && !seat.DeathLogged)
+    {
+        seat.DeathLogged = true;
+        static std::atomic<uint32> logged{ 0 };
+        if (logged.fetch_add(1) < 40)
+        {
+            LiquidData const liquid = bot->GetMap()->GetLiquidData(bot->GetPhaseMask(), bot->GetPositionX(),
+                bot->GetPositionY(), bot->GetPositionZ(), bot->GetCollisionHeight(), {});
+            LOG_INFO("module.animus", "Seat died: {} level {} at {:.0f} s, under {} swimming {} liquid status {} "
+                "z {:.1f} level {:.1f} form {}, breath mirror {:.2f} submerged since {} ms, self damage this step "
+                "{:.2f} taken {:.2f}, breaths {} submerged {} s, action {}",
+                seat.L ? seat.L->ModelName() : "?", bot->GetLevel(), float(env.EpisodeElapsedMs) / 1000.0f,
+                bot->IsUnderWater(), bot->Unit::IsInWater(), uint32(liquid.Status), bot->GetPositionZ(),
+                liquid.Level, uint32(bot->GetShapeshiftForm()), float(seat.BreathSpentMs) / float(BreathMs()),
+                seat.SubmergedSinceMs, seat.LastStepSelfDamage, seat.LastStepDamageTaken, seat.Breaths,
+                seat.SubmergedMs / 1000, action);
+        }
     }
     if (action > 0)
         Press(env, seat, bot, uint32(action), result.DidSomething());
@@ -2773,6 +2796,8 @@ float Animus::Curriculum::StageScenario::SeatReward(Env& env, uint32 seatIndex)
     // Before any encounter's reward: several read it (the pulls' and duel's damage taken, the owner's tank refund).
     seat.LastStepDamageTaken = bot
         ? float(env.StepStats[seatIndex].DamageTaken) / float(std::max<uint32>(1, bot->GetMaxHealth())) : 0.0f;
+    seat.LastStepSelfDamage = bot
+        ? float(env.StepStats[seatIndex].SelfDamage) / float(std::max<uint32>(1, bot->GetMaxHealth())) : 0.0f;
 
     // Also before the encounters: the owner's and teammates' rewards read what the seat's absorbs soaked on them.
     TrackSupport(env, seatIndex, bot);

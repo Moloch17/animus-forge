@@ -615,7 +615,7 @@ namespace Animus::Curriculum
             float DiveDepth = 0.0f;         // and how much water stands over it
             bool Chain = false;             // the objective is a chain (ArenaDefinition::Checkpoints)
             uint32 Checkpoints = 0;         // objectives reached so far; ArriveMs is the first of them
-            bool ChainBroken = false;       // a next leg was wanted and none could be placed: the episode ended there
+            bool ChainBroken = false;       // a next leg was wanted and none could be placed: nothing more to reach
             int32 Band = -1;                // the detour band the trip was drawn for (TravelPlaceRules::Band); -1 none
             bool Crossing = false;          // the objective was placed across water (a water arena that found one)
             float DryDistance = 0.0f;       // yards of the way round on foot, water excluded; 0 = no dry route

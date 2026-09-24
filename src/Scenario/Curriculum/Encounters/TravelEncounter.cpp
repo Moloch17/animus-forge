@@ -1061,23 +1061,23 @@ void Animus::Curriculum::TravelEncounter::Reward(Env& env, uint32 seatIndex, Pla
     float const maxRise = travel.Indoors || travel.Ledge ? TravelBlock::ARRIVE_SAME_FLOOR
         : travel.AirOnly ? tuning.AirArriveRise : TravelBlock::ARRIVE_ANY_RISE;
     float const within = travel.Indoors ? TravelBlock::ARRIVE_INDOORS : TravelBlock::ARRIVE_DISTANCE;
-    if (!travel.Arrived && bot->IsAlive() && TravelBlock::AtObjective(bot, travel.Objective, maxRise, within))
+    if (!travel.Arrived && !travel.ChainBroken && bot->IsAlive()
+        && TravelBlock::AtObjective(bot, travel.Objective, maxRise, within))
     {
         if (travel.Chain)
         {
             // A checkpoint: paid the arrival (the flat part only -- Saved reads the clock against the first leg, and
             // means nothing from the second on), remembered as the first arrival if it is, and replaced with the
-            // next leg from where the seat stands. The episode runs on; a leg that cannot be placed ends it as an
-            // ordinary arrival would, and says so (chain_broken).
+            // next leg from where the seat stands. The episode runs on to its clock either way: a leg that cannot
+            // be placed (the clock nearly out, or no bed in reach) leaves the seat with nothing more to reach and
+            // says so (chain_broken), because the outcome the chain measures is being alive at the end, and an
+            // episode cut short by the placer would answer that for free.
             ++travel.Checkpoints;
             if (travel.Checkpoints == 1)
                 travel.ArriveMs = env.EpisodeElapsedMs;
             ledger.Add(RewardTerm::Arrive, tuning.Arrive);
             if (!NextLeg(env, travel, bot))
-            {
                 travel.ChainBroken = true;
-                travel.Arrived = true;
-            }
         }
         else
         {
