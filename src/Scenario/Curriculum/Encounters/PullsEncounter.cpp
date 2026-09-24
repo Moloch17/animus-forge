@@ -211,13 +211,16 @@ void Animus::Curriculum::PullsEncounter::AddEpisodeInfo(EpisodeInfoTable& table)
         return _envs[env.Index].Seats[seat].ControlPrevented;
     });
 
-    // The single pack's rung, as the creature duel's tier (a stage with both reports the duel's).
+    // The single pack's rung, as the creature duel's tier (a stage with both reports the duel's, and a stage with
+    // a real instance reports the boss ladder's: the raid stages' single pack is their control arena).
     auto const singlePack = [](ArenaDefinition const& arena)
     {
         return arena.Against == Opposition::Pulls && arena.Schedule == PullSchedule::SinglePack && !arena.Owner;
     };
     auto const creature = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Creature; };
-    if (_scenario.Stage().AnyArena(singlePack) && !_scenario.Stage().AnyArena(creature))
+    auto const instance = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Instance; };
+    if (_scenario.Stage().AnyArena(singlePack) && !_scenario.Stage().AnyArena(creature)
+        && !_scenario.Stage().AnyArena(instance))
         table.Add("difficulty", [this](Env const& env, uint32) { return float(_envs[env.Index].Rung); });
 
     if (AnyGauntlet())

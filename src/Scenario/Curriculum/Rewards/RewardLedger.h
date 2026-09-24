@@ -79,6 +79,8 @@ namespace Animus::Curriculum
         Repeat,
         Hazard,
         HealingMana,
+        /// An instance boss fight lost with the boss part dead: the share of its health the fight took off it.
+        BossProgress,
         Count
     };
 

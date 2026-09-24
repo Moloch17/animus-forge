@@ -115,6 +115,16 @@ void AnimusForge::ForgeConfig::Load()
     Classes = GetList("AnimusForge.Classes");
 
     Envs = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("AnimusForge.Envs", 64));
+    // AnimusForge.Stage.<name>.Envs
+    StageEnvs.clear();
+    for (std::string const& key : sConfigMgr->GetKeysByString("AnimusForge.Stage."))
+    {
+        std::string const rest = key.substr(std::string("AnimusForge.Stage.").size());
+        std::size_t const dot = rest.rfind(".Envs");
+        if (dot == std::string::npos || dot + 5 != rest.size())
+            continue;
+        StageEnvs[rest.substr(0, dot)] = sConfigMgr->GetOption<uint32>(key, Envs);
+    }
     if (Envs > Animus::BotAccounts::MAX_ENVS)
     {
         LOG_ERROR("module.animus", "AnimusForge.Envs = {} is more than bot account ids allow; using {}", Envs,
@@ -270,10 +280,12 @@ void AnimusForge::ForgeConfig::Load()
         sConfigMgr->GetOption<float>("AnimusForge.SpawnPoint.O", 2.96f));
 }
 
-Animus::StageSettings AnimusForge::ForgeConfig::Stage() const
+Animus::StageSettings AnimusForge::ForgeConfig::Stage(std::string const& scenario) const
 {
     Animus::StageSettings stage;
     stage.Envs = Envs;
+    if (auto const own = StageEnvs.find(scenario); own != StageEnvs.end())
+        stage.Envs = std::min(std::max<uint32>(1, own->second), Animus::BotAccounts::MAX_ENVS);
     stage.DecisionMs = DecisionMs;
     stage.EpisodeSeconds = EpisodeSeconds;
     stage.ReportEpisodes = ReportEpisodes;

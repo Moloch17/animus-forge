@@ -21,6 +21,7 @@
 
 #include "BotSlot.h"
 #include "DifficultyLadder.h"
+#include "InstanceBosses.h"
 #include "Encounter.h"
 #include "DirectorLayout.h"
 #include "Env.h"
@@ -33,11 +34,13 @@
 #include "StageScenario.h"
 #include <array>
 #include <functional>
+#include <map>
 #include <string>
 #include <mutex>
 #include <vector>
 
 class Battleground;
+struct CreatureData;
 class Group;
 class Map;
 
@@ -413,6 +416,68 @@ namespace Animus::Curriculum
         void Disband(Env& env);
 
         std::vector<EnvParty> _envs;
+    };
+
+    /// A real dungeon or raid boss in its own instance (Opposition::Instance, ArenaDefinition::Instance): the
+    /// rung is a row of InstanceBosses, which fixes the map, the level and the difficulty; the seats spawn at the
+    /// instance's front door and are taken to the boss along the server's own path; the boss fights with the core's
+    /// script. Won when the boss dies, lost when every seat is dead, when the script evades, or on the clock. The
+    /// reward is CombatReward::OneOnOne against the boss for every seat, plus progress credit on a lost fight.
+    class InstanceEncounter final : public Encounter
+    {
+    public:
+        InstanceEncounter(StageScenario& scenario, uint32 envs);
+
+        [[nodiscard]] std::vector<RewardTerm> RewardTerms() const override;
+        void AddEpisodeInfo(EpisodeInfoTable& table) override;
+        void ResetEpisode(Env& env) override;
+        void BeforeLevel(Env& env) override;
+        bool Build(Env& env, Map* map, uint8 level) override;
+        void UpdateEnemies(Env& env) override;
+        void Update(Env& env) override;
+        bool SelectTarget(Env const& env, uint32 seat, Unit*& target) override;
+        void Reward(Env& env, uint32 seat, Player* bot, RewardLedger& ledger) override;
+        void WriteState(Env const& env, float* state) const override;
+        [[nodiscard]] bool IsTerminal(Env const& env) const override;
+
+    private:
+        struct SeatInstance
+        {
+            bool OutcomePaid = false;
+        };
+
+        struct EnvInstance
+        {
+            BossRow const* Row = nullptr;
+            uint32 MapId = 0;
+            uint32 Entry = 0;
+            uint32 Tier = 0;
+            bool Counts = false;
+            uint16 Layout = 0;
+            uint8 Spec = 0;
+            ObjectGuid Boss;
+            uint32 BossHealth = 1;
+            float HealthLeft = 1.0f;
+            bool Engaged = false;
+            uint32 EngageMs = 0;
+            bool BossDead = false;
+            bool Wiped = false;
+            bool Evaded = false;
+            bool Recorded = false;
+            uint32 TrashCleared = 0;
+            std::array<SeatInstance, MAX_SEATS> Seats;
+        };
+
+        [[nodiscard]] std::vector<BossRow const*> const& Rows(Env const& env) const;
+        [[nodiscard]] static CreatureData const* FindSpawn(BossRow const& row);
+        [[nodiscard]] Creature* FindBoss(Map* map, BossRow const& row) const;
+        [[nodiscard]] Position EngagePoint(Env const& env, Map* map, Player* seat, Creature* boss) const;
+        [[nodiscard]] float TierScale(Env const& env) const;
+        [[nodiscard]] static bool TimeIsUp(Env const& env);
+
+        std::vector<EnvInstance> _envs;
+        std::map<InstanceLadder, std::vector<BossRow const*>> _rows;   // per ladder, the rows the database fields
+        DifficultyLadder _ladder;
     };
 
     /// An enemy player: one played by a script (Opposition::ScriptedPlayer), or the other seat (self-play,

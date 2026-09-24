@@ -24,6 +24,7 @@
 #include "StageSettings.h"
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,9 @@ namespace AnimusForge
         uint32 QueueLocalEpisodes = 0;
 
         uint32 Envs = 64;
+        /// AnimusForge.Stage.<name>.Envs: a stage's own env count where the default would not do (forty seats an
+        /// env at 128 envs is 5,120 bots), so `forge start stage32_raid40` needs no conf edit.
+        std::map<std::string, uint32> StageEnvs;
         /// AnimusForge.DecisionMs: game time per decision. Everything that scales a reward or measures elapsed game
         /// time is in these units, and it is what the learner is told the step is worth.
         uint32 DecisionMs = 250;
@@ -136,8 +140,9 @@ namespace AnimusForge
 
         [[nodiscard]] bool IsRemote() const { return Policy == "remote"; }
 
-        /// What the scenario and its env pool take from these settings (animus-lib's StageSettings).
-        [[nodiscard]] Animus::StageSettings Stage() const;
+        /// What the scenario and its env pool take from these settings (animus-lib's StageSettings); `scenario`
+        /// names the stage so its own env count (StageEnvs) can apply.
+        [[nodiscard]] Animus::StageSettings Stage(std::string const& scenario = "") const;
 
         /// These settings for one `forge bench` trial: `envs` envs, everything in the bench output directory (so a
         /// trial never archives, seeds from or overwrites a real run), and a learner that only trains -- no

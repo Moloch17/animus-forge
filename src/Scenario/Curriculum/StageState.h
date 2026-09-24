@@ -460,6 +460,16 @@ namespace Animus::Curriculum
         bool BuildFailed = false;               // the last reset could not build the episode: end it and retry
         uint32 OpponentEntry = 0;               // creature entry: the duel's opponent, the first pull's first member
 
+        /// What an encounter fixed for this episode before its seats were built (Encounter::BeforeLevel): the map
+        /// the seats are placed on (0 = the stage's), their level (0 = drawn), the instance difficulty they open it
+        /// at, and where they spawn (an instance's front door). Cleared when the arena is drawn.
+        uint32 EpisodeMapId = 0;
+        uint8 EpisodeLevel = 0;
+        uint8 DungeonDifficulty = 0;
+        uint8 RaidDifficulty = 0;
+        bool HasEpisodeSpawn = false;
+        Position EpisodeSpawn;
+
         /// A resurrection offer already accepted for each seat, and for the owner in the last slot: which seat
         /// made it, and when it was taken. A client sends one CMSG_RESURRECT_RESPONSE and is done; the core has
         /// no reason to clear the request afterwards, so a poll that does not remember it has accepted one will

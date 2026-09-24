@@ -2,7 +2,7 @@
 
 The curriculum is the set of scenarios the policies train on. It lives in animus-lib under
 `src/Scenario/Curriculum/`. Twenty-five stages are defined, numbered in the order they are trained;
-**twenty-three are the default queue**, and the two raid stages (28 and 29) are trained only by name, because forty
+**twenty-four are the default queue**, and the raid stages (28-32) are trained only by name, because forty
 seats an env does not run at the usual env count. No stage has a pass gate: each ends when its convergence signals
 say so (see "Budgets" below), and the queue moves on.
 
@@ -37,17 +37,21 @@ stage1_move                 open ground, broken ground, water   ── the feet
                                     └─ stage17_party
                                        └─ stage18_tanking
                                           └─ stage19_triage   ── the class curriculum's leaf
+                                             ├─ stage23_dungeon         ── real instances: a party against dungeon bosses
+                                             │  └─ stage30_raid10       ── by name: Karazhan, Naxxramas (ten seats)
+                                             │     └─ stage31_raid25    ── by name: Naxxramas (twenty-five)
+                                             │        └─ stage32_raid40 ── by name: Molten Core, Blackwing Lair, AQ40
                                              ├─ stage24_flag  (+ merges stage6_travel, stage12_pvp)
                                              │  └─ stage25_warsong  (+ merges stage19_triage)
                                              │     └─ stage26_duo_led   (a director; + merges stage11_endurance)
-                                             ├─ stage27_crossroads      (+ 7 merges; the stage that ships)
+                                             ├─ stage27_crossroads      (+ 8 merges incl. the dungeon; the stage that ships)
                                              └─ stage28_raid_single     ── by name (the synthetic raid, a control)
                                                 └─ stage29_raid_gauntlet
 ```
 
-Numbers 20-23 and 30-32 are reserved: the life stages (quest, gather, town), the dungeon and the real raids of
-the 2026-09-24 plan take them as they land, each ahead of the crossroads it is merged into or after the raids it
-seeds from, so nothing here moves again (`python/tests/test_stage_names.py` lists the reserved names).
+Numbers 20-22 are reserved for the life stages (quest, gather, town) of the 2026-09-24 plan, ahead of the
+crossroads they are merged into, so nothing here moves again (`python/tests/test_stage_names.py` lists the reserved
+names).
 
 **The first seven stages have nothing to kill in them, and that is the point.** A seat steers itself -- eight
 egocentric bearings under a held yaw and pitch, with the ground read along each of them -- and where a seat puts
@@ -172,17 +176,19 @@ stage trains its whole budget).
 | `stage13_evade` | 30M | 10M | 2048 | `stage14_hide` | 30M | 10M | 2048 |
 | `stage15_stealth` | 20M | 10M | 2048 | `stage16_companion` | 60M | 10M | 2048 |
 | `stage17_party` | 90M | 15M | 2048 | `stage18_tanking` | 60M | 15M | 2048 |
-| `stage19_triage` | 60M | 15M | 2048 | `stage24_flag` | 40M | 10M | 2048 |
-| `stage25_warsong` | 40M | 10M | 128 | `stage26_duo_led` | 30M | 10M | 512 |
-| `stage27_crossroads` | 100M | 25M | 256 | `stage28_raid_single` | 40M | 20M | 256 |
-| `stage29_raid_gauntlet` | 40M | 20M | 256 |  | | |  |
+| `stage19_triage` | 60M | 15M | 2048 | `stage23_dungeon` | 60M | 10M | 512 |
+| `stage24_flag` | 40M | 10M | 2048 | `stage25_warsong` | 40M | 10M | 128 |
+| `stage26_duo_led` | 30M | 10M | 512 | `stage27_crossroads` | 100M | 25M | 256 |
+| `stage28_raid_single` | 40M | 20M | 256 | `stage29_raid_gauntlet` | 40M | 20M | 256 |
+| `stage30_raid10` | 40M | 10M | 128 | `stage31_raid25` | 40M | 10M | 64 |
+| `stage32_raid40` | 40M | 10M | 32 |  | | |  |
 
 **What the budgets assume.** 128 envs (`AnimusForge.Envs`; this machine's `forge bench` result, where the shipped
 default is 64 -- every number in this chapter is at 128). Stages 1-7 (the movement root) are trained once, for
-every class; stages 8-19 are trained per class, each class with all 128 envs; stages 24-27 (the objective stages and
-the crossroads) once, after the join; the two raid stages by name. So the queue's ceiling is 1,032M (1,112M with the raids), and a
-ten-class build's is 152M for the root, 670M per class (6,700M for ten) and 210M for the
-objective stages: about 7,062M, against the 15,780M the earlier per-class plan came
+every class; stages 8-19 are trained per class, each class with all 128 envs; stages 23-27 (the dungeon, the
+objective stages and the crossroads) once, after the join; the five raid stages by name. So the queue's ceiling is
+1,092M (1,292M with the raids), and a ten-class build's is 152M for the root, 670M per class (6,700M for ten) and
+270M for the dungeon and the objective stages: about 7,122M, against the 15,780M the earlier per-class plan came
 to. Two assumptions carry that number. The objective stages "once after the join" assume the **take-one-trunk**
 join below (seed from one class's trunk and let the adapters adapt), the only one of the three options that costs
 no training. And every class has a `configs/<class>/stage8_duel.yaml` naming the shared flight checkpoint
@@ -254,10 +260,10 @@ The ceilings from the budget table above:
 | Shared movement root, stages 1-7, all ten classes | 152M |
 | One class, stages 8-19 | 670M |
 | Ten classes | **6,700M** |
-| The join and the objective stages, 20-23, once | 210M |
-| **Total** | **7,062M** |
+| The join, the dungeon and the objective stages, 23-27, once | 270M |
+| **Total** | **7,122M** |
 
-Against 1,032M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
+Against 1,092M for the whole queue trained with every class at once. **A per-class curriculum is roughly seven
 times the compute**, and that is the price of the thing it buys: a policy per class that has not had to share its
 trunk with nine others through the stages where classes have least in common.
 
@@ -1815,6 +1821,31 @@ forced-healer stage will find any fault in the resurrection path faster than any
 it found the farmable revive described in 4.6, where reviving a teammate paid more than keeping it alive. On
 the trunk: `stage28_raid_single` seeds from it.
 
+### Stage 23: `stage23_dungeon`
+
+The first real instance. A party of four learned seats and their cast owner against a dungeon's own scripted
+bosses, in the dungeon (`InstanceEncounter`): the rungs are the bosses of five dungeons across the level bands --
+Ragefire Chasm at 15, the Deadmines at 20, the Scarlet Monastery at 35-40, Stratholme at 60, heroic Utgarde Keep
+at 80 -- so the rung fixes the level as well as the fight, and a class climbs a band at a time. The seats spawn at
+the instance's front door and are taken to the boss along the server's own path from it (`PathGenerator`, in as
+many legs as its point cap needs), and stand `Instance.EngageYards` back up that path: where a group that came in
+the front stands, on its side of the trash it never pulled, with the room's triggers in front of it. The trash
+around the boss is cleared for the episode; the creatures that are the encounter (`BossRow::Keep`) stay. The boss
+fights with the core's script: won when it dies, lost when every seat is dead, when the script evades (the boss
+back at full health out of combat), or on the clock. Nobody stands up mid-fight.
+
+The table of bosses is data (`InstanceBosses.cpp`), and nothing in it is a position: the boss's spawn comes from
+the world database and the engage point from the path, and a row whose template or spawn the database lacks is
+dropped at startup with a log line. Bosses that need an event, a door sequence, a key or a vehicle are left out.
+A tenth of the episodes are the party gauntlet on the host map, a control arena, so the same policy is graded on
+real bosses and on the pool encounter it has always been graded on (`eval.jsonl`'s `arenas` group).
+
+Rewards: `CombatReward::OneOnOne` against the boss for every seat (damage as a share of its health, so adds count
+at the boss's scale; Kill and HealthKept to every seat when it dies; Death once per seat), all scaled by the rung
+(`Difficulty.TierScale`, capped at `Instance.MaxTierScale`), plus `Instance.BossProgress` for the share of the
+boss's health a lost fight took off it, so a fight has a gradient before its first kill. Read `boss_killed`,
+`boss_health_left`, `wiped`, `evaded` and `boss_rung` per rung.
+
 ### Stage 24: `stage24_flag`
 
 Warsong Gulch's rules between two learned seats (4.5), extending the arena and merging travel: the fight, and mounting
@@ -1868,6 +1899,20 @@ Learner: distilled with `teachers: auto` (each earlier arena is taught by the fi
 arenas learn from reward alone), coef 1.0 halving every 50M steps. 256 evaluation episodes every 25M steps, the
 arena_1v1 seat scored against `fight`. Budget 100M. What to read: each arena's score against the baseline (the
 summary's `arenas`), `owner_deaths` in the companion, party and ambush arenas, and `won` in the mirror one.
+
+### Stages 30-32 (by name): `stage30_raid10`, `stage31_raid25`, `stage32_raid40`
+
+The real raids, each seeded from the one before and all from the dungeon: ten seats in Karazhan and Naxxramas,
+twenty-five in Naxxramas, forty in Molten Core, Blackwing Lair and the Temple of Ahn'Qiraj (Naxxramas has no
+forty-man in 3.3.5). No owner -- forty seats leave no slot for one -- so seat 0 leads the raid group
+(`Group::ConvertToRaid`, a subgroup per five seats). Everything else is the dungeon stage's: the front door, the
+path, the engage point, the control arena (the synthetic single pack at the same seat count), the terms. Forty
+seats an env is forty bots an env, so `AnimusForge.Stage.<name>.Envs` runs them at 32, 16 and 8 envs, and their
+evaluations are 128, 64 and 32 episodes.
+
+What to watch in the first runs: a boss whose room the path enters from a side door (the engage point then sits
+on the wrong side of a trigger; `EngageOverride` is the per-boss answer), enrage timers on the wall clock at a high
+time scale, and the cost of forty players in one map update, which `forge bench` at those env counts will say.
 
 ### Stage 28 (by name): `stage28_raid_single`
 

@@ -50,6 +50,18 @@ namespace Animus::Curriculum
         Travel,         // a place to get to (ArenaDefinition::Flying for one best reached in the air)
         Flag,           // Warsong Gulch's rules between the two mirror seats: take the other's flag home
         Hazards,        // nothing to fight: ground to get off (HazardEncounter)
+        Instance,       // a real dungeon or raid boss in its own instance (InstanceEncounter, ArenaDefinition::Instance)
+    };
+
+    /// Which real-instance ladder an arena climbs (InstanceBosses.cpp): five-man dungeons across the level bands, or
+    /// the ten-, twenty-five- and forty-man raids.
+    enum class InstanceLadder : uint8
+    {
+        None,
+        Dungeon,
+        Raid10,
+        Raid25,
+        Raid40,
     };
 
     enum class PullSchedule : uint8
@@ -85,6 +97,11 @@ namespace Animus::Curriculum
         bool OwnerCast = false;
         bool PartyGroup = false;        // the owner and seats form a core group
         bool Pvp = false;               // against players: resilience gear, no resurrecting oneself
+        /// Opposition::Instance: the boss ladder this arena climbs. The rung fixes the map, the seats' level and
+        /// the difficulty; the stage's MapId and SpawnPoints are not used by this arena.
+        InstanceLadder Instance = InstanceLadder::None;
+        /// SeatPlan::Raid: how many seats the raid has (a multiple of GROUP_SEATS up to MAX_SEATS); 0 = MAX_SEATS.
+        uint32 RaidSeats = 0;
         uint32 EpisodeSeconds = 0;      // episode length; 0 = StageSettings::EpisodeSeconds
         /// Most scripted enemy players that ambush the owner (1 to this many, MAX_AMBUSHERS at most): mid-episode
         /// beside pulls, or from the start against Opposition::Ambush. 0 = none.

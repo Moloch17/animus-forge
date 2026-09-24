@@ -126,6 +126,17 @@ AnimusForge.Classes = ""
 AnimusForge.Envs = 64
 
 #
+#    AnimusForge.Stage.<name>.Envs
+#        Description: a stage's own env count, where the default would not do. The real raids are forty seats an
+#                     env, so `forge start stage32_raid40` at 128 envs would be 5,120 bots; these keep the bots in
+#                     the world where the pool stages have them. Any stage name works.
+#        Default:     AnimusForge.Envs
+
+AnimusForge.Stage.stage30_raid10.Envs = 32
+AnimusForge.Stage.stage31_raid25.Envs = 16
+AnimusForge.Stage.stage32_raid40.Envs = 8
+
+#
 #    AnimusForge.DecisionMs
 #        Description: Game time per agent decision, in milliseconds. Read once at startup (a change needs a
 #                     restart). Per-decision reward terms are scaled to stay the same per second, and the
@@ -663,6 +674,24 @@ AnimusForge.Curriculum.Difficulty.HazardChance = 30
 #   A tier-0 fight is unchanged; at tier 6 a kill pays 2.5x and a death costs 0.4x, so a hard fight is worth
 #   attempting and the score no longer falls as the ladder climbs. 0 keeps every tier flat
 AnimusForge.Curriculum.Difficulty.TierScale = 0.25
+
+#
+#    AnimusForge.Curriculum.Instance.*
+#        Real dungeons and raids (the dungeon and raid stages): the seats spawn at the instance's front door and are
+#        taken to the boss along the server's own path; the boss fights with the core's script.
+
+#   how far back up the path from the boss the seats start
+AnimusForge.Curriculum.Instance.EngageYards = 35
+#   creatures this close to the boss that are not its adds (InstanceBosses.cpp, Keep) are cleared for the episode
+AnimusForge.Curriculum.Instance.TrashRadius = 60
+#   the rung's tier scale (Difficulty.TierScale) is capped at this tier: a ladder of twenty bosses would otherwise pay
+#   a top kill 5.75x where the pool ladders stop at 2.5x
+AnimusForge.Curriculum.Instance.MaxTierScale = 6
+#   paid on a wipe or an evade for the share of the boss's health the fight took off it, times the tier scale, so a
+#   forty-seat fight has a gradient before its first kill
+AnimusForge.Curriculum.Instance.BossProgress = 5.0
+#   the clock running out with the boss alive, scaled by what is left of it (Duel.TimeoutFloor), divided by the tier
+AnimusForge.Curriculum.Instance.Timeout = 10.0
 
 #
 #    AnimusForge.Curriculum.Casting.*

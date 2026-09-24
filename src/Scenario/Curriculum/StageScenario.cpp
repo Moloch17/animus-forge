@@ -346,6 +346,7 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     AmbushEncounter* ambush = nullptr;
     TravelEncounter* travel = nullptr;
     FlagEncounter* flag = nullptr;
+    InstanceEncounter* instance = nullptr;
 
     auto const add = [this](auto encounter)
     {
@@ -365,6 +366,7 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     auto const hasAmbush = [](ArenaDefinition const& arena) { return arena.Ambushers > 0; };
     auto const hasTravel = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Travel; };
     auto const hasFlag = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Flag; };
+    auto const hasInstance = [](ArenaDefinition const& arena) { return arena.Against == Opposition::Instance; };
     auto const directed = [](ArenaDefinition const& arena) { return arena.Directed; };
 
     // Build order matters: the owner comes before the party group (which it leads) and the pulls (which spawn around
@@ -376,6 +378,9 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
         _owner = add(std::make_unique<OwnerEncounter>(*this, envs));
     if (_stage.AnyArena([](ArenaDefinition const& arena) { return arena.PartyGroup; }))
         _party = add(std::make_unique<PartyEncounter>(*this, envs));
+    // After the owner and the group: it moves both to the boss.
+    if (_stage.AnyArena(hasInstance))
+        instance = add(std::make_unique<InstanceEncounter>(*this, envs));
     if (_stage.AnyArena(hasPulls))
         pulls = add(std::make_unique<PullsEncounter>(*this, envs));
     if (_stage.AnyArena(hasCreature))
@@ -404,8 +409,8 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
     // The order episode info columns and reward terms are listed in. An encounter left out of this list still
     // runs -- it is only the columns and the terms that are missed -- which is how hazard_patches went missing
     // while the drill around it worked.
-    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, hazards, _owner, _party,
-        opponent, ambush, travel, flag, director })
+    for (Encounter* encounter : std::initializer_list<Encounter*>{ creature, pulls, instance, hazards, _owner,
+        _party, opponent, ambush, travel, flag, director })
         if (encounter)
             _rewardOrder.push_back(encounter);
 
@@ -420,6 +425,7 @@ Animus::Curriculum::StageScenario::StageScenario(StageSettings const& settings, 
                 || (encounter == creature && hasCreature(arena)) || (encounter == ambush && hasAmbush(arena))
                 || (encounter == travel && hasTravel(arena)) || (encounter == flag && hasFlag(arena))
                 || (encounter == hazards && hasHazards(arena))
+                || (encounter == instance && hasInstance(arena))
                 || (encounter == director && directed(arena));
         };
 
@@ -532,8 +538,17 @@ std::vector<Position> const& Animus::Curriculum::StageScenario::SpawnGroundFor(E
     return _stage.SpawnPoints;
 }
 
+uint32 Animus::Curriculum::StageScenario::EpisodeMapId(Env const& env) const
+{
+    uint32 const fixed = Data(env).EpisodeMapId;
+    return fixed ? fixed : _spawnMapId;
+}
+
 Position const& Animus::Curriculum::StageScenario::SpawnPointFor(Env const& env) const
 {
+    if (Data(env).HasEpisodeSpawn)
+        return Data(env).EpisodeSpawn;
+
     std::vector<Position> const& ground = SpawnGroundFor(env);
     if (ground.empty())
         return _spawnPoint;
@@ -1514,6 +1529,11 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     // The episode's arena, drawn first: an evaluation episode's random numbers decide it like everything else.
     std::vector<Encounter*> const previousEncounters = ActiveEncounters(env);
     data.Arena = DrawArena();
+    data.EpisodeMapId = 0;
+    data.EpisodeLevel = 0;
+    data.DungeonDifficulty = 0;
+    data.RaidDifficulty = 0;
+    data.HasEpisodeSpawn = false;
 
     // A spawn point per episode, not per env. Keyed on env.Index, an env stood on the same patch of ground for
     // its whole life: 128 envs saw 8 places between them, every episode, and a policy can fit that rather than
@@ -1625,6 +1645,11 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
         }
     }
 
+    // An encounter that fixes the level, the map or the spawn for this episode (an instance's boss rung) says so
+    // now, with the seats' classes drawn and before their level is.
+    for (Encounter* encounter : ActiveEncounters(env))
+        encounter->BeforeLevel(env);
+
     // One level every seat's class/role can be.
     uint8 minLevel = 1;
     for (uint32 seat = 0; seat < _seatCount; ++seat)
@@ -1642,7 +1667,8 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
     uint8 keptLevel = 0;
     bool const onMatch = std::any_of(ActiveEncounters(env).begin(), ActiveEncounters(env).end(),
         [&env](Encounter const* encounter) { return encounter->MatchFor(env) != nullptr; });
-    if (!firstBuild && !env.Evaluating && !onMatch && _tuning.Characters.ReuseEpisodes > 0)
+    bool const changesMap = data.EpisodeMapId && env.FindMap() && env.FindMap()->GetId() != data.EpisodeMapId;
+    if (!firstBuild && !env.Evaluating && !onMatch && !changesMap && _tuning.Characters.ReuseEpisodes > 0)
         for (uint32 seat = 0; seat < data.ActiveSeats && seat < previousActiveSeats; ++seat)
         {
             SeatState const& s = data.Seats[seat];
@@ -1657,12 +1683,17 @@ bool Animus::Curriculum::StageScenario::Rebuild(Env& env)
             keptLevel = c.Level;
         }
 
-    uint8 const level = keptLevel ? keptLevel : RandomLevel(minLevel, _level, _tuning.Characters,
+    uint8 const level = data.EpisodeLevel ? std::clamp<uint8>(data.EpisodeLevel, minLevel, DEFAULT_MAX_LEVEL)
+        : keptLevel ? keptLevel : RandomLevel(minLevel, _level, _tuning.Characters,
         env.EpisodeSeedIndex, uint32(_layouts.size()));
 
     // The first build opens a new instance (or a phase of the continent); every later one reuses it. An env whose
-    // seats were all lost keeps its instance while the map still exists, and opens a new one when it is gone.
+    // seats were all lost keeps its instance while the map still exists, and opens a new one when it is gone. An
+    // episode fixed to another map (an instance rung) opens a new instance of that map; the old one unloads once
+    // its last bot has left.
     Map* map = !firstBuild || env.InstanceId ? env.FindMap() : nullptr;
+    if (map && data.EpisodeMapId && map->GetId() != data.EpisodeMapId)
+        map = nullptr;
 
     // The new bots go on idle sessions and into the map before the old ones leave, so the instance always has a
     // bound player.
@@ -1863,7 +1894,11 @@ Player* Animus::Curriculum::StageScenario::BuildSeat(Env& env, uint32 seatIndex,
             break;
         }
 
-    Player* bot = seat.Bot.CreateNext(spec, map, _spawnMapId, start);
+    // An instance rung opens its map at the difficulty it names (MapInstanced asks the first player in).
+    spec.DungeonDifficulty = Data(env).DungeonDifficulty;
+    spec.RaidDifficulty = Data(env).RaidDifficulty;
+
+    Player* bot = seat.Bot.CreateNext(spec, map, EpisodeMapId(env), start);
     if (!bot)
         return nullptr;
     seat.EpisodesPlayed = 0;

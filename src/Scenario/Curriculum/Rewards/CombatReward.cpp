@@ -100,6 +100,7 @@ std::string_view Animus::Curriculum::RewardTermName(RewardTerm term)
         case RewardTerm::Stalk:                 return "stalk";
         case RewardTerm::Clearance:             return "clearance";
         case RewardTerm::Repeat:                return "repeat";
+        case RewardTerm::BossProgress:          return "boss_progress";
         case RewardTerm::Count:                 break;
     }
 

@@ -34,7 +34,7 @@ Animus is four pieces of software. Each chapter covers one of them in depth, and
 ## If you only read one thing
 
 Training is one command against a running server: `./forge.sh` attaches to the console, `forge start` trains
-the whole twenty-three-stage queue in order, and `forge status` says how it is going. Everything else in this
+the whole twenty-four-stage queue in order, and `forge status` says how it is going. Everything else in this
 manual is detail under that.
 
 ## Where to start

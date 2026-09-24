@@ -119,14 +119,17 @@ bool Animus::Curriculum::PartyEncounter::Build(Env& env, Map* /*map*/, uint8 /*l
     for (uint32 seat = 1; seat < data.ActiveSeats; ++seat)
         _scenario.SeatBot(env, seat)->SetFaction(lead->GetFaction());
 
-    // The owner stands in for the player whose party the companions join: it leads.
+    // The owner stands in for the player whose party the companions join: it leads. A raid in an instance has no
+    // owner (forty seats leave no slot for one), so its first seat leads.
     Player* owner = _scenario.Owner(env);
-    if (!owner)
+    bool const raid = _scenario.Arena(env).Seats == SeatPlan::Raid;
+    if (!owner && !raid)
     {
         // The party stage always has an owner; it has to be built first (see the build order in StageScenario).
         LOG_ERROR("module.animus", "{}: env {} builds its party group before its owner", _scenario.Name(), env.Index);
         return false;
     }
+    Player* leader = owner ? owner : lead;
 
     EnvParty& party = _envs[env.Index];
     if (party.PartyGroup)
@@ -134,7 +137,7 @@ bool Animus::Curriculum::PartyEncounter::Build(Env& env, Map* /*map*/, uint8 /*l
 
     Group* group = new Group();
     CoreHooks::MarkSimGroup(group);
-    if (!group->Create(owner))
+    if (!group->Create(leader))
     {
         LOG_ERROR("module.animus", "{}: env {} could not create its party", _scenario.Name(), env.Index);
         delete group;
@@ -143,9 +146,19 @@ bool Animus::Curriculum::PartyEncounter::Build(Env& env, Map* /*map*/, uint8 /*l
 
     sGroupMgr->AddGroup(group);
     for (uint32 seat = 0; seat < _scenario.SeatCount(); ++seat)
-        if (Player* bot = _scenario.SeatBot(env, seat); bot && !group->AddMember(bot))
+        if (Player* bot = _scenario.SeatBot(env, seat); bot && bot != leader && !group->AddMember(bot))
             LOG_ERROR("module.animus", "{}: env {} could not add seat {} to its party", _scenario.Name(), env.Index,
                 seat);
+
+    // More than a party: a raid of RAID_GROUPS groups of GROUP_SEATS, each seat in the group its index says (the
+    // same arithmetic the party block and the spawn rows use).
+    if (raid && data.ActiveSeats > GROUP_SEATS)
+    {
+        group->ConvertToRaid();
+        for (uint32 seat = 0; seat < data.ActiveSeats; ++seat)
+            if (Player* bot = _scenario.SeatBot(env, seat))
+                group->ChangeMembersGroup(bot->GetGUID(), uint8(seat / GROUP_SEATS));
+    }
 
     party.PartyGroup = group;
     return true;

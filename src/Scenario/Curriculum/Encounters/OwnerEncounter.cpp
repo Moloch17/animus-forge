@@ -175,9 +175,9 @@ bool Animus::Curriculum::OwnerEncounter::Build(Env& env, Map* map, uint8 level)
     spec.Level = ownerLevel;
     spec.AccountId = BotAccounts::Owner(env.Id, session);
 
-    Position start = _scenario.SpawnPoint();
+    Position start = _scenario.SpawnPointFor(env);
     start.m_positionX += OWNER_START_OFFSET;
-    Player* bot = owner.Bot.CreateNext(spec, map, _scenario.SpawnMapId(), start);
+    Player* bot = owner.Bot.CreateNext(spec, map, _scenario.EpisodeMapId(env), start);
     if (!bot)
         return false;
 
@@ -205,7 +205,7 @@ bool Animus::Curriculum::OwnerEncounter::BuildCast(Env& env, Map* map, uint8 lev
         DEFAULT_MAX_LEVEL));
     AptitudeDemand const demand = RollOwnerDemand(tuning.TankChance, tuning.HealerChance);
 
-    Position start = _scenario.SpawnPoint();
+    Position start = _scenario.SpawnPointFor(env);
     start.m_positionX += OWNER_START_OFFSET;
     Map* seatMap = map;
     Player* bot = _scenario.BuildOwnerSeat(env, seatMap, ownerLevel, start, demand);
@@ -247,7 +247,7 @@ void Animus::Curriculum::OwnerEncounter::Update(Env& env)
 
     EnvOwner& state = _envs[env.Index];
     Player* tank = AptitudeDemand::HoldsThePull().MetBy(state.Apt) ? owner : _scenario.PartyTank(env);
-    ScriptedPlayer::UpdateMember(owner, party, tank, enemies, env.EpisodeElapsedMs, _scenario.SpawnPoint(),
+    ScriptedPlayer::UpdateMember(owner, party, tank, enemies, env.EpisodeElapsedMs, _scenario.SpawnPointFor(env),
         state.Script, _scenario.Tuning().ScriptedPlayers);
 }
 
@@ -388,7 +388,7 @@ void Animus::Curriculum::OwnerEncounter::WriteState(Env const& env, float* state
     if (!owner || !owner->IsInWorld())
         return;
 
-    Position const& origin = _scenario.SpawnPoint();
+    Position const& origin = _scenario.SpawnPointFor(env);
     state[StageScenario::STATE_OWNER_PRESENT] = 1.0f;
     state[StageScenario::STATE_OWNER_ALIVE] = owner->IsAlive() ? 1.0f : 0.0f;
     state[StageScenario::STATE_OWNER_HEALTH] = owner->GetHealthPct() / 100.0f;

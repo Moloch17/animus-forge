@@ -201,6 +201,11 @@ for every key with a default and no warning, so an undocumented one quietly keep
 | `Difficulty.Window` | 200 | | | |
 | `Difficulty.ReviewChance` | 25 | | | |
 | `Difficulty.TierScale` | 0.25 | | | |
+| `Instance.EngageYards` | 35 | | | |
+| `Instance.TrashRadius` | 60 | | | |
+| `Instance.MaxTierScale` | 6 | | | |
+| `Instance.BossProgress` | 5.0 | | | |
+| `Instance.Timeout` | 10.0 | | | |
 
 | Key | Default | | Key | Default |
 |---|---|---|---|---|

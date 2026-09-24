@@ -61,6 +61,8 @@ ENVS = 128
 DEFAULT_EPISODE_SECONDS = 60
 # The party line's 2048 x 450 s / 128 = 7,200 sim-seconds is the most any stage spends on one evaluation today.
 MAX_EVAL_SIM_SECONDS = 7_200
+# The raid stages run at their own env count (AnimusForge.Stage.<name>.Envs in the conf template).
+STAGE_ENVS = {"stage30_raid10": 32, "stage31_raid25": 16, "stage32_raid40": 8}
 
 
 def longest_episode_seconds() -> dict[str, int]:
@@ -81,20 +83,21 @@ def test_an_evaluation_stays_affordable(name):
     2048 episodes with a 300 s episode and a few dozen envs would spend more sim time evaluating than training. The
     raid stages did exactly that until they set their own count."""
     seconds = longest_episode_seconds()[name]
-    cost = configured(name)["episodes"] * seconds / ENVS
-    assert cost <= MAX_EVAL_SIM_SECONDS, (f"{name}: {cost:,.0f} sim-seconds an evaluation at {ENVS} envs "
+    envs = STAGE_ENVS.get(name, ENVS)
+    cost = configured(name)["episodes"] * seconds / envs
+    assert cost <= MAX_EVAL_SIM_SECONDS, (f"{name}: {cost:,.0f} sim-seconds an evaluation at {envs} envs "
                                           f"({seconds} s episodes); set eval.episodes in its config")
 
 
 def test_the_queue_total_is_what_the_manual_says():
     """The manual states the whole queue in one number, which is the one a person plans a run from."""
     rows = documented()
-    # The two raid stages are not in the default queue (StageDefinition::InDefaultQueue is false for both: forty
-    # seats an env cannot run at the usual env count): they are trained by name.
-    outside = {"stage28_raid_single", "stage29_raid_gauntlet"}
+    # The raid stages are not in the default queue (StageDefinition::InDefaultQueue is false for them: forty seats
+    # an env cannot run at the usual env count): they are trained by name.
+    outside = {"stage28_raid_single", "stage29_raid_gauntlet", "stage30_raid10", "stage31_raid25", "stage32_raid40"}
     queue = sum(v["total_env_steps"] for k, v in rows.items() if k not in outside)
-    assert queue == 1_032_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 1,032M"
-    assert sum(v["total_env_steps"] for v in rows.values()) == 1_112_000_000
+    assert queue == 1_092_000_000, f"the queue is {queue/1e6:.0f}M; the manual says 1,092M"
+    assert sum(v["total_env_steps"] for v in rows.values()) == 1_292_000_000
 
 
 # --------------------------------------------------------------------------- 8.2 tuning defaults

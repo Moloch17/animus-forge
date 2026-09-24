@@ -834,6 +834,29 @@ namespace
         //
         // The Barrens, for stage 9's reason: the second base is placed by the same objective search, 100-180 yd from
         // the first, and only open ground has room for it.
+        // The first real instance: a party of four learned seats and their cast owner against a dungeon's own
+        // scripted bosses, in the dungeon (InstanceEncounter). The rungs are the bosses of five dungeons across the
+        // level bands -- Ragefire Chasm at 15 through heroic Utgarde Keep at 80 -- so the rung fixes the level as
+        // well as the fight, and a class climbs a band at a time. The seats spawn at the front door and are taken
+        // to the boss along the server's own path; the trash they never pulled is cleared, the boss's own adds stay.
+        // The party gauntlet on the host map is kept as a control arena at a tenth of the episodes: the same
+        // policy is graded on real bosses and on the pool encounter it has always been graded on.
+        stages.push_back({
+            .Name = "stage23_dungeon",
+            .Suffix = "_dungeon",
+            .Extends = "stage19_triage",
+            .Summary = "a party and its owner against real dungeon bosses, in their instances",
+            .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
+            .Arenas = {
+                { .Name = "dungeon", .Weight = 9, .Seats = SeatPlan::Party, .Against = Opposition::Instance,
+                    .Owner = true, .OwnerCast = true, .PartyGroup = true, .Instance = InstanceLadder::Dungeon,
+                    .EpisodeSeconds = 300 },
+                { .Name = "dungeon_control", .Weight = 1, .Seats = SeatPlan::Party, .Against = Opposition::Pulls,
+                    .Schedule = PullSchedule::Gauntlet, .Owner = true, .OwnerCast = true, .PartyGroup = true,
+                    .EpisodeSeconds = 300 },
+            },
+        });
+
         stages.push_back({
             .Name = "stage24_flag",
             .Suffix = "_flag",
@@ -938,7 +961,7 @@ namespace
             // The leaf of every other branch, so nothing trained in the queue is left behind: the PvP line
             // through warsong, the movement line through flight. The PvE line arrives by extension.
             .Merges = {
-                "stage26_duo_led", "stage25_warsong", "stage12_pvp", "stage7_flight",
+                "stage26_duo_led", "stage25_warsong", "stage23_dungeon", "stage12_pvp", "stage7_flight",
                 "stage16_companion", "stage10_gauntlet", "stage8_duel",
             },
             .Summary = "PvE and PvP in one policy: every earlier situation, an ambush mid-gauntlet and a ganked owner",
@@ -957,7 +980,61 @@ namespace
                     .Owner = true, .OwnerCast = true, .EpisodeSeconds = 300, .Ambushers = 2 },
                 { .Name = "escort_duel", .Weight = 5, .Against = Opposition::Ambush, .Owner = true, .OwnerCast = true,
                     .EpisodeSeconds = 90, .Ambushers = 1 },
+                // The shipped model has met a scripted boss: the dungeon ladder, in its instances.
+                { .Name = "dungeon", .Weight = 10, .Seats = SeatPlan::Party, .Against = Opposition::Instance,
+                    .Owner = true, .OwnerCast = true, .PartyGroup = true, .Instance = InstanceLadder::Dungeon,
+                    .EpisodeSeconds = 300 },
             },
+        });
+
+        // The real raids, by name, each seeded from the one before and all from the dungeon: ten seats in Karazhan
+        // and Naxxramas, twenty-five in Naxxramas, forty in Molten Core, Blackwing Lair and the Temple of
+        // Ahn'Qiraj. No owner (forty seats leave no slot for one): seat 0 leads the raid group. Each keeps the
+        // synthetic single pack at its own seat count as a control arena. Not in the default queue: forty seats an
+        // env is forty bots an env, so AnimusForge.Stage.<name>.Envs sets each stage's own env count (32, 16, 8).
+        stages.push_back({
+            .Name = "stage30_raid10",
+            .Suffix = "_raid10",
+            .Extends = "stage23_dungeon",
+            .Summary = "ten seats against Karazhan's and Naxxramas's bosses, in their raids",
+            .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
+            .Arenas = {
+                { .Name = "raid", .Weight = 9, .Seats = SeatPlan::Raid, .Against = Opposition::Instance,
+                    .PartyGroup = true, .Instance = InstanceLadder::Raid10, .RaidSeats = 10, .EpisodeSeconds = 360 },
+                { .Name = "raid_control", .Weight = 1, .Seats = SeatPlan::Raid, .Against = Opposition::Pulls,
+                    .Schedule = PullSchedule::SinglePack, .RaidSeats = 10, .EpisodeSeconds = 300 },
+            },
+            .InDefaultQueue = false,
+        });
+
+        stages.push_back({
+            .Name = "stage31_raid25",
+            .Suffix = "_raid25",
+            .Extends = "stage30_raid10",
+            .Summary = "twenty-five seats against Naxxramas's bosses",
+            .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
+            .Arenas = {
+                { .Name = "raid", .Weight = 9, .Seats = SeatPlan::Raid, .Against = Opposition::Instance,
+                    .PartyGroup = true, .Instance = InstanceLadder::Raid25, .RaidSeats = 25, .EpisodeSeconds = 420 },
+                { .Name = "raid_control", .Weight = 1, .Seats = SeatPlan::Raid, .Against = Opposition::Pulls,
+                    .Schedule = PullSchedule::SinglePack, .RaidSeats = 25, .EpisodeSeconds = 300 },
+            },
+            .InDefaultQueue = false,
+        });
+
+        stages.push_back({
+            .Name = "stage32_raid40",
+            .Suffix = "_raid40",
+            .Extends = "stage31_raid25",
+            .Summary = "forty seats against the classic raids' bosses: Molten Core, Blackwing Lair, Ahn'Qiraj",
+            .Blocks = { Core, Move, Duel, Pet, Pack, Gauntlet, Companion, Party, Support },
+            .Arenas = {
+                { .Name = "raid", .Weight = 9, .Seats = SeatPlan::Raid, .Against = Opposition::Instance,
+                    .PartyGroup = true, .Instance = InstanceLadder::Raid40, .RaidSeats = 40, .EpisodeSeconds = 480 },
+                { .Name = "raid_control", .Weight = 1, .Seats = SeatPlan::Raid, .Against = Opposition::Pulls,
+                    .Schedule = PullSchedule::SinglePack, .RaidSeats = 40, .EpisodeSeconds = 300 },
+            },
+            .InDefaultQueue = false,
         });
 
         return stages;
@@ -980,10 +1057,23 @@ namespace
         if ((arena.Schedule == PullSchedule::Gauntlet || arena.Schedule == PullSchedule::Sequence)
             && !stage.Has(BlockId::Gauntlet))
             return "the gauntlet schedule needs the gauntlet block";
-        if (arena.Owner && (!(pulls || ambushOnly) || !stage.Has(BlockId::Companion)))
-            return "an owner needs pulls or an ambush, and the companion block";
-        if (arena.PartyGroup && (!arena.Owner || arena.Seats != SeatPlan::Party || !stage.Has(BlockId::Party)))
-            return "a party group needs an owner, party seats and the party block";
+        bool const instance = arena.Against == Opposition::Instance;
+        if (instance != (arena.Instance != InstanceLadder::None))
+            return "an instance ladder goes with fighting in an instance, and only with that";
+        if (instance && (!stage.Has(BlockId::Pack) || arena.Schedule != PullSchedule::None))
+            return "an instance needs the pack block and no pull schedule";
+        if (instance && arena.Seats != SeatPlan::Party && arena.Seats != SeatPlan::Raid)
+            return "an instance is fought by a party or a raid";
+        if (arena.RaidSeats && (arena.Seats != SeatPlan::Raid || arena.RaidSeats > MAX_SEATS
+            || arena.RaidSeats % GROUP_SEATS))
+            return "RaidSeats is a raid's seat count: a multiple of GROUP_SEATS, up to MAX_SEATS";
+        if (arena.Owner && (!(pulls || ambushOnly || instance) || !stage.Has(BlockId::Companion)))
+            return "an owner needs pulls, an ambush or an instance, and the companion block";
+        bool const raidGroup = instance && arena.Seats == SeatPlan::Raid;
+        if (arena.PartyGroup && !stage.Has(BlockId::Party))
+            return "a party group needs the party block";
+        if (arena.PartyGroup && !raidGroup && (!arena.Owner || arena.Seats != SeatPlan::Party))
+            return "a party group needs an owner and party seats, unless it is a raid in an instance";
         if (arena.OwnerCast && !arena.Owner)
             return "a cast owner is still an owner: the arena has to have one";
         if (arena.OwnerCast && stage.SeatCount() + TEAM_COUNT + 1 > MAX_SEATS)
@@ -1126,7 +1216,7 @@ uint32 Animus::Curriculum::ArenaDefinition::SeatCount() const
         // A party is the owner and its companions: GROUP_MEMBERS learned seats beside it, which is what this
         // returned when MAX_SEATS was 4 and is what it has to keep returning now that MAX_SEATS is a raid.
         case SeatPlan::Party:  return GROUP_MEMBERS;
-        case SeatPlan::Raid:   return MAX_SEATS;
+        case SeatPlan::Raid:   return RaidSeats ? RaidSeats : MAX_SEATS;
         case SeatPlan::Teams:  return std::min(TeamSeats, TEAM_SEATS) * TEAM_COUNT;
         case SeatPlan::Mirror: return 2;
         case SeatPlan::Solo:   break;

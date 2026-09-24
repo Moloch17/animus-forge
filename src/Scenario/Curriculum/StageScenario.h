@@ -176,6 +176,9 @@ namespace Animus::Curriculum
         /// The phase of the env's seats and everything they meet on a continent.
         [[nodiscard]] static uint32 EnvPhase(Env const& env);
         [[nodiscard]] uint32 SpawnMapId() const { return _spawnMapId; }
+        /// The map this episode's seats are placed on: what an encounter fixed (EnvState::EpisodeMapId), else the
+        /// stage's.
+        [[nodiscard]] uint32 EpisodeMapId(Env const& env) const;
         [[nodiscard]] uint32 SeatCount() const { return _seatCount; }
         /// Whether some arena of the stage plays its owner as an agent (ArenaDefinition::OwnerCast): one more row
         /// on the wire, after the seats and the directors, in every episode of the stage.

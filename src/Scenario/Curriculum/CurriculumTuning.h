@@ -178,6 +178,21 @@ namespace Animus::Curriculum
             float TierScale = 0.25f;
         } Difficulty;
 
+        /// Real instances (InstanceEncounter): where the raid stands and what a lost boss fight is worth.
+        struct InstanceTuning
+        {
+            uint32 EngageYards = 35;            // how far back up the path from the boss the seats start
+            uint32 TrashRadius = 60;            // creatures this close to the boss that are not its adds are cleared
+            /// The rung's tier scale is capped here: a ladder of twenty bosses at 0.25 a tier would pay a top kill
+            /// 5.75x, where the pool ladders stop at 2.5x. Kill, HealthKept and BossProgress are multiplied by the
+            /// capped scale, Death and Timeout divided by it.
+            uint32 MaxTierScale = 6;
+            /// Paid on a wipe or an evade for the share of the boss's health the fight took off it, so a forty-seat
+            /// fight has a gradient before its first kill: at 5, a wipe at 40% pays 3 (x the tier scale).
+            float BossProgress = 5.0f;
+            float Timeout = 10.0f;              // the clock, scaled by what is left of the boss (Duel.TimeoutFloor)
+        } Instance;
+
         /// Cast-time spells, from the duel stage on.
         struct CastingTuning
         {
@@ -772,6 +787,12 @@ namespace Animus::Curriculum
             f("Difficulty.CasterChance", tuning.Difficulty.CasterChance);
             f("Difficulty.HazardChance", tuning.Difficulty.HazardChance);
             f("Difficulty.TierScale", tuning.Difficulty.TierScale);
+
+            f("Instance.EngageYards", tuning.Instance.EngageYards);
+            f("Instance.TrashRadius", tuning.Instance.TrashRadius);
+            f("Instance.MaxTierScale", tuning.Instance.MaxTierScale);
+            f("Instance.BossProgress", tuning.Instance.BossProgress);
+            f("Instance.Timeout", tuning.Instance.Timeout);
 
             f("Casting.TimeWasted", tuning.Casting.TimeWasted);
             f("Casting.TimeCompleted", tuning.Casting.TimeCompleted);

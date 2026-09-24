@@ -314,7 +314,8 @@ bool AnimusForge::Forge::StartCurrent()
     while (!_scenario)
     {
         PlanEntry const& skipped = _plan.Entries[_plan.Index];
-        std::unique_ptr<Animus::Scenario> scenario = Animus::CreateScenario(skipped.Scenario, RunConfig().Stage());
+        std::unique_ptr<Animus::Scenario> scenario = Animus::CreateScenario(skipped.Scenario,
+            RunConfig().Stage(skipped.Scenario));
         if (!scenario)
         {
             LOG_ERROR("module.animus", "Unknown scenario '{}'", skipped.Scenario);
@@ -358,7 +359,7 @@ bool AnimusForge::Forge::StartCurrent()
     if (entry.MapThreads)
         ApplyMapThreads(entry.MapThreads);
 
-    _pool = std::make_unique<Animus::EnvPool>(*_scenario, config.Stage());
+    _pool = std::make_unique<Animus::EnvPool>(*_scenario, config.Stage(entry.Scenario));
     if (!_pool->Setup())
         return false;
 
