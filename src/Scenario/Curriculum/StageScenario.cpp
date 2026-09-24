@@ -715,7 +715,14 @@ void Animus::Curriculum::StageScenario::AddCoreEpisodeInfo()
     _info.Add("breaths", [seat](Env const& env, uint32 index) { return float(seat(env, index).Breaths); });
     _info.Add("breath_spent", [seat](Env const& env, uint32 index) { return seat(env, index).BreathSpentMax; });
     _info.Add("drowning_damage", [seat](Env const& env, uint32 index) { return seat(env, index).DrowningDamage; });
-    _info.Add("drowned", [seat](Env const& env, uint32 index) { return seat(env, index).Drowned ? 1.0f : 0.0f; });
+    // A death under water with drowning damage behind it is a drowning whether or not a decision came after it to
+    // set the flag: a drowned seat ends the episode, and the next ApplySeatAction never runs.
+    _info.Add("drowned", [seat](Env const& env, uint32 index)
+    {
+        SeatState const& state = seat(env, index);
+        Player const* bot = env.FindBot(index);
+        return state.Drowned || (bot && !bot->IsAlive() && state.DrowningDamage > 0.0f) ? 1.0f : 0.0f;
+    });
     _info.Add("water_walk_seconds", [seat](Env const& env, uint32 index)
     {
         return float(seat(env, index).WaterWalkMs) / 1000.0f;
